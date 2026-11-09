@@ -401,11 +401,11 @@
   /// Opened from the keyboard, its first item takes the focus; from a click, the menu does, so no item looks
   /// chosen before the pointer or an arrow key gets to it. `search` (its placeholder) puts a search field on top that
   /// keeps the items whose label holds what is typed, and takes the focus instead; an item with `pinned` always stays.
-  function menu(trigger, items, { keyboard = false, onReorder, search } = {}) {
+  function menu(trigger, items, { keyboard = false, onReorder, search, done } = {}) {
     if (openMenu?.trigger === trigger) { openMenu.close(); return; }
     openMenu?.close(true);
     let pending = false, cancelDrag = null;
-    const refreshDisabled = [];
+    const refreshDisabled = [], refreshChecked = [];
     const searchable = [];
     const given = items.filter(Boolean);
     const nodes = given.map((item) => {
@@ -423,15 +423,26 @@
       // Who the menu is about (the header's account menu): a name and a line under it, not an action.
       if (item.heading !== undefined) return el("div", { class: "menu-heading" }, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
-      const choice = typeof item.checked === "boolean";
+      // `checked` may be a function, asked again after each choice of a menu that stays open (a Group's row follows
+      // its members'); "mixed" for some of them.
+      const checkedNow = () => typeof item.checked === "function" ? item.checked() : item.checked;
+      const choice = typeof item.checked === "boolean" || typeof item.checked === "function";
+      const mark = (state) => state === "mixed" ? "–" : state ? "✓" : "";
       const role = choice ? (item.checkbox ? "menuitemcheckbox" : "menuitemradio") : "menuitem";
       const tick = item.toggle ? el("span", { class: "menu-toggle", "aria-hidden": "true" }, el("span"))
-        : choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: item.checked ? "✓" : "" }) : null;
+        : choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: mark(checkedNow()) }) : null;
       const count = item.count === undefined ? null : el("span", { class: "menu-item-count", text: String(item.count) });
       const node = item.href
         ? el("a", { role, href: item.href, class: item.danger ? "danger" : item.accent ? "accent" : "", tabIndex: -1 }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick)
-        : el("button", { type: "button", role, class: item.danger ? "danger" : item.accent ? "accent" : "", tabIndex: -1, "aria-checked": choice ? String(item.checked) : null }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick);
+        : el("button", { type: "button", role, class: item.danger ? "danger" : item.accent ? "accent" : "", tabIndex: -1, "aria-checked": choice ? String(checkedNow()) : null }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick);
       if (item.clearFilters) node.classList.add("clear-filters-menu");
+      // A Group's member, under its row.
+      if (item.nested) node.classList.add("menu-nested");
+      if (typeof item.checked === "function") refreshChecked.push(() => {
+        const state = checkedNow();
+        node.setAttribute("aria-checked", String(state));
+        if (tick?.classList.contains("menu-check")) tick.textContent = mark(state);
+      });
       const isDisabled = () => (typeof item.disabled === "function" ? item.disabled() : Boolean(item.disabled)) || (item.count === 0 && item.checked === false);
       const updateDisabled = () => {
         if (isDisabled()) node.setAttribute("aria-disabled", "true"); else node.removeAttribute("aria-disabled");
@@ -497,15 +508,25 @@
         node.setAttribute("aria-busy", "true");
         try {
           const checked = await item.onSelect?.();
-          if (typeof checked === "boolean") node.setAttribute("aria-checked", String(checked));
+          if (typeof checked === "boolean") {
+            node.setAttribute("aria-checked", String(checked));
+            if (tick?.classList.contains("menu-check")) tick.textContent = mark(checked);
+          }
+          refreshChecked.forEach((update) => update());
         } finally { pending = false; node.removeAttribute("aria-busy"); }
       });
-      if (search && !item.pinned && item.label) searchable.push([node, fold(item.label), item.group ?? null]);
+      // A room heading's name is searched too ("kitchen" finds its lights), and an item's `search` words (a Group's
+      // members, a member's Group). A Group's row (`aggregate`) is no more of its kind in the pills' counts.
+      const words = [item.label, item.filter ? item.group : null, item.search].filter(Boolean).join(" ");
+      if (search && !item.pinned && item.label) searchable.push([node, fold(words), item.group ?? null, item.filter ?? item.group ?? null, Boolean(item.aggregate)]);
       return node;
     });
     // Items of several kinds (`group`: a home's lights, blinds and scenes) get a heading each, and pills above them
-    // that keep only one kind, with the search.
+    // that keep only one kind, with the search. Items that say their kind apart (`filter`) are headed by their
+    // `group` instead (a room), the pills still by kind.
     const groups = search ? [...new Set(given.map((item) => item.group).filter(Boolean))] : [];
+    const filters = search ? [...new Set(given.map((item) => item.filter ?? item.group).filter(Boolean))] : [];
+    const headedApart = given.some((item) => item.filter);
     let shownGroup = null;
     const headings = new Map();
     if (groups.length > 1) {
@@ -529,19 +550,21 @@
       const query = fold(field.value.trim());
       let shown = 0;
       const seen = new Set();
-      for (const [node, label, group] of searchable) {
-        const match = (!query || label.includes(query)) && (!shownGroup || group === shownGroup);
+      for (const [node, label, group, kind] of searchable) {
+        const match = (!query || label.includes(query)) && (!shownGroup || kind === shownGroup);
         node.classList.toggle("hidden", !match);
         if (match) { shown++; seen.add(group); }
       }
-      for (const [group, heading] of headings) heading.classList.toggle("hidden", !seen.has(group) || Boolean(shownGroup));
+      for (const [group, heading] of headings) heading.classList.toggle("hidden", !seen.has(group) || (Boolean(shownGroup) && !headedApart));
       nothing.classList.toggle("hidden", !searchable.length || shown > 0);
     };
+    let pills = null;
     if (field) {
       field.addEventListener("input", filter);
-      const pills = groups.length > 1 ? el("div", { class: "menu-filters", role: "group", "aria-label": t("Show") },
-        [null, ...groups].map((group) => {
-          const count = group ? searchable.filter(([, , g]) => g === group).length : searchable.length;
+      pills = filters.length > 1 ? el("div", { class: "menu-filters", role: "group", "aria-label": t("Show") },
+        [null, ...filters].map((group) => {
+          const counted = searchable.filter(([, , , , aggregate]) => !aggregate);
+          const count = group ? counted.filter(([, , , kind]) => kind === group).length : counted.length;
           // Each kind with its icon, as the wall draws it; All, the filter's.
           const glyph = { Lights: "bulb", Blinds: "blind", Switches: "switch", Outlets: "outlet", Scenes: "play" }[group] ?? "filter";
           const pill = el("button", { type: "button", class: "menu-filter", actionIcon: glyph, "aria-pressed": String(group === null) },
@@ -555,12 +578,17 @@
           });
           return pill;
         })) : null;
-      nodes.unshift(...[field, pills, nothing].filter(Boolean));
     }
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
     const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
-    const list = el("div", { class: `menu${sheet ? " sheet-menu" : ""}`, role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || t("Actions") }, nodes);
+    // The search and its pills stay above the items, which scroll on their own; a sheet whose items stay open as they
+    // are chosen (several lights) ends with Done, within the thumb's reach.
+    const head = field ? el("div", { class: "menu-head" }, field, pills) : null;
+    const foot = sheet && done ? el("div", { class: "menu-foot" }, el("button", { type: "button", class: "primary", actionIcon: "check", text: done, onclick: () => close() })) : null;
+    const framed = Boolean(head || foot);
+    const list = el("div", { class: `menu${sheet ? " sheet-menu" : ""}${framed ? " framed-menu" : ""}`, role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || t("Actions") },
+      framed ? [head, el("div", { class: "menu-items" }, nothing, nodes), foot].filter(Boolean) : nodes);
     const scrim = sheet ? el("div", { class: "menu-scrim", "aria-hidden": "true" }) : null;
     // A sheet's grabber: a swipe down from it puts the sheet away, as the scrim's tap does.
     if (sheet) {
@@ -568,6 +596,19 @@
       dragToDismiss(list, { vertical: () => true, dismiss: () => close(true), handle: ".sheet-grabber" });
     }
     const host = layerHost(trigger);
+    // A sheet over a dialog (a remote's editor): the dialog's glass (its backdrop filter) would make it the box the
+    // sheet is placed in, scrolled and shrunk with it, the sheet's top (its search) then out of reach. The dialog drops
+    // its glass while the sheet is up, under the scrim anyway: the sheet sits on the window, as anywhere else.
+    const flattened = sheet && host !== document.body ? host : null;
+    flattened?.classList.add("under-sheet-menu");
+    // While a keyboard is up (the search), the sheet keeps to what is still visible, as openSheet's dialogs do.
+    const viewport = sheet ? window.visualViewport : null;
+    const fit = () => {
+      list.style.setProperty("--viewport-top", `${Math.max(0, viewport.offsetTop)}px`);
+      list.style.setProperty("--keyboard", `${Math.max(0, innerHeight - viewport.height - viewport.offsetTop)}px`);
+    };
+    viewport?.addEventListener("resize", fit);
+    viewport?.addEventListener("scroll", fit);
     if (scrim) host.append(scrim);
     host.append(list);
     if (!sheet) {
@@ -618,10 +659,18 @@
       trigger.setAttribute("aria-expanded", "false");
       list.classList.add("closing");
       scrim?.classList.add("closing");
-      setTimeout(() => { list.remove(); scrim?.remove(); }, 200);
+      viewport?.removeEventListener("resize", fit);
+      viewport?.removeEventListener("scroll", fit);
+      setTimeout(() => {
+        list.remove();
+        scrim?.remove();
+        if (!flattened?.querySelector(".menu.sheet-menu:not(.closing)")) flattened?.classList.remove("under-sheet-menu");
+      }, 200);
       if (!quietly) trigger.focus({ preventScroll: true });
     }
-    const onResize = () => close(true);
+    // A phone's keyboard may change the window's height: only a new width puts a sheet away.
+    const width = innerWidth;
+    const onResize = () => { if (!sheet || innerWidth !== width) close(true); };
     document.addEventListener("keydown", onKey, true);
     document.addEventListener("pointerdown", onPointer, true);
     addEventListener("resize", onResize);

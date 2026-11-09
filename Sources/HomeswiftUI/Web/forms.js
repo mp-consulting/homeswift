@@ -764,35 +764,47 @@
     button.addEventListener("click", () => HomeswiftCommon.menu(button, [
       { label: none, checked: value === undefined, onSelect: () => { value = undefined; draw(); announce(button); } },
       { separator: true },
-      ...options.map((o) => ({ label: o.title, group: o.group, checked: same(o.value, value), onSelect: () => { value = o.value; draw(); announce(button); } })),
+      ...options.map((o) => ({ label: o.label ?? o.title, group: o.group, filter: o.filter, checked: same(o.value, value), onSelect: () => { value = o.value; draw(); announce(button); } })),
     ], { search: t("Search") }));
     draw();
     return { button, get: () => value };
   }
 
   /// Several choices among many: the chosen ones as chips (each with its remove button), and Add, whose menu searches
-  /// the others.
+  /// the others. A choice is `{ value, title }`, with a `label` for the menu when it differs from the chip's title (its
+  /// `group` heading it there already), a `group` and a `filter` (menu()'s).
   function searchSet(choices, chosen) {
     let values = chosen.slice();
     const list = el("div", { class: "chips chosen-list" });
     const add = el("button", { type: "button", class: "add-choice", actionIcon: "plus", "aria-haspopup": "menu", text: t("Choose…") });
     const draw = () => {
       list.replaceChildren(...values.map((value) => {
-        const title = choices.find((c) => same(c.value, value))?.title ?? String(value);
+        const title = choices.find((c) => !c.members && same(c.value, value))?.title ?? String(value);
         return el("span", { class: "chip removable" }, el("span", { class: "chosen-name", text: title, title }),
           el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name: title }),
             onclick: () => { values = values.filter((v) => !same(v, value)); draw(); announce(list); add.focus(); } }, HomeswiftCommon.icon("close")));
       }));
       list.hidden = values.length === 0;
     };
+    // The menu stays open while choices are ticked (several lights in a row, the search kept); Done on a phone. A
+    // choice with `members` (a Group) ticks them all, or none once they all are; `nested` ones are its members.
+    const has = (value) => values.some((v) => same(v, value));
     add.addEventListener("click", () => HomeswiftCommon.menu(add, choices.map((c) => {
-      const isChosen = values.some((v) => same(v, c.value));
-      return { label: c.title, group: c.group, checkbox: true, checked: isChosen, onSelect: () => {
-        values = isChosen ? values.filter((v) => !same(v, c.value)) : [...values, c.value];
+      const common = { label: c.label ?? c.title, group: c.group, filter: c.filter, search: c.search, nested: c.nested, checkbox: true, keepOpen: true };
+      if (c.members) {
+        const state = () => c.members.every(has) ? true : c.members.some(has) ? "mixed" : false;
+        return { ...common, aggregate: true, checked: state, onSelect: () => {
+          values = state() === true ? values.filter((v) => !c.members.some((m) => same(m, v))) : [...values, ...c.members.filter((m) => !has(m))];
+          draw();
+          announce(list);
+        } };
+      }
+      return { ...common, checked: () => has(c.value), onSelect: () => {
+        values = has(c.value) ? values.filter((v) => !same(v, c.value)) : [...values, c.value];
         draw();
         announce(list);
       } };
-    }), { search: t("Search") }));
+    }), { search: t("Search"), done: t("Done") }));
     draw();
     return { node: el("div", { class: "chosen-set" }, list, add), get: () => values };
   }

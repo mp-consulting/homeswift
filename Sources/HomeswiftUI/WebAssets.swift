@@ -11328,11 +11328,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// Opened from the keyboard, its first item takes the focus; from a click, the menu does, so no item looks
   /// chosen before the pointer or an arrow key gets to it. `search` (its placeholder) puts a search field on top that
   /// keeps the items whose label holds what is typed, and takes the focus instead; an item with `pinned` always stays.
-  function menu(trigger, items, { keyboard = false, onReorder, search } = {}) {
+  function menu(trigger, items, { keyboard = false, onReorder, search, done } = {}) {
     if (openMenu?.trigger === trigger) { openMenu.close(); return; }
     openMenu?.close(true);
     let pending = false, cancelDrag = null;
-    const refreshDisabled = [];
+    const refreshDisabled = [], refreshChecked = [];
     const searchable = [];
     const given = items.filter(Boolean);
     const nodes = given.map((item) => {
@@ -11350,15 +11350,26 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // Who the menu is about (the header's account menu): a name and a line under it, not an action.
       if (item.heading !== undefined) return el("div", { class: "menu-heading" }, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
-      const choice = typeof item.checked === "boolean";
+      // `checked` may be a function, asked again after each choice of a menu that stays open (a Group's row follows
+      // its members'); "mixed" for some of them.
+      const checkedNow = () => typeof item.checked === "function" ? item.checked() : item.checked;
+      const choice = typeof item.checked === "boolean" || typeof item.checked === "function";
+      const mark = (state) => state === "mixed" ? "–" : state ? "✓" : "";
       const role = choice ? (item.checkbox ? "menuitemcheckbox" : "menuitemradio") : "menuitem";
       const tick = item.toggle ? el("span", { class: "menu-toggle", "aria-hidden": "true" }, el("span"))
-        : choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: item.checked ? "✓" : "" }) : null;
+        : choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: mark(checkedNow()) }) : null;
       const count = item.count === undefined ? null : el("span", { class: "menu-item-count", text: String(item.count) });
       const node = item.href
         ? el("a", { role, href: item.href, class: item.danger ? "danger" : item.accent ? "accent" : "", tabIndex: -1 }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick)
-        : el("button", { type: "button", role, class: item.danger ? "danger" : item.accent ? "accent" : "", tabIndex: -1, "aria-checked": choice ? String(item.checked) : null }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick);
+        : el("button", { type: "button", role, class: item.danger ? "danger" : item.accent ? "accent" : "", tabIndex: -1, "aria-checked": choice ? String(checkedNow()) : null }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick);
       if (item.clearFilters) node.classList.add("clear-filters-menu");
+      // A Group's member, under its row.
+      if (item.nested) node.classList.add("menu-nested");
+      if (typeof item.checked === "function") refreshChecked.push(() => {
+        const state = checkedNow();
+        node.setAttribute("aria-checked", String(state));
+        if (tick?.classList.contains("menu-check")) tick.textContent = mark(state);
+      });
       const isDisabled = () => (typeof item.disabled === "function" ? item.disabled() : Boolean(item.disabled)) || (item.count === 0 && item.checked === false);
       const updateDisabled = () => {
         if (isDisabled()) node.setAttribute("aria-disabled", "true"); else node.removeAttribute("aria-disabled");
@@ -11424,15 +11435,25 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         node.setAttribute("aria-busy", "true");
         try {
           const checked = await item.onSelect?.();
-          if (typeof checked === "boolean") node.setAttribute("aria-checked", String(checked));
+          if (typeof checked === "boolean") {
+            node.setAttribute("aria-checked", String(checked));
+            if (tick?.classList.contains("menu-check")) tick.textContent = mark(checked);
+          }
+          refreshChecked.forEach((update) => update());
         } finally { pending = false; node.removeAttribute("aria-busy"); }
       });
-      if (search && !item.pinned && item.label) searchable.push([node, fold(item.label), item.group ?? null]);
+      // A room heading's name is searched too ("kitchen" finds its lights), and an item's `search` words (a Group's
+      // members, a member's Group). A Group's row (`aggregate`) is no more of its kind in the pills' counts.
+      const words = [item.label, item.filter ? item.group : null, item.search].filter(Boolean).join(" ");
+      if (search && !item.pinned && item.label) searchable.push([node, fold(words), item.group ?? null, item.filter ?? item.group ?? null, Boolean(item.aggregate)]);
       return node;
     });
     // Items of several kinds (`group`: a home's lights, blinds and scenes) get a heading each, and pills above them
-    // that keep only one kind, with the search.
+    // that keep only one kind, with the search. Items that say their kind apart (`filter`) are headed by their
+    // `group` instead (a room), the pills still by kind.
     const groups = search ? [...new Set(given.map((item) => item.group).filter(Boolean))] : [];
+    const filters = search ? [...new Set(given.map((item) => item.filter ?? item.group).filter(Boolean))] : [];
+    const headedApart = given.some((item) => item.filter);
     let shownGroup = null;
     const headings = new Map();
     if (groups.length > 1) {
@@ -11456,19 +11477,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const query = fold(field.value.trim());
       let shown = 0;
       const seen = new Set();
-      for (const [node, label, group] of searchable) {
-        const match = (!query || label.includes(query)) && (!shownGroup || group === shownGroup);
+      for (const [node, label, group, kind] of searchable) {
+        const match = (!query || label.includes(query)) && (!shownGroup || kind === shownGroup);
         node.classList.toggle("hidden", !match);
         if (match) { shown++; seen.add(group); }
       }
-      for (const [group, heading] of headings) heading.classList.toggle("hidden", !seen.has(group) || Boolean(shownGroup));
+      for (const [group, heading] of headings) heading.classList.toggle("hidden", !seen.has(group) || (Boolean(shownGroup) && !headedApart));
       nothing.classList.toggle("hidden", !searchable.length || shown > 0);
     };
+    let pills = null;
     if (field) {
       field.addEventListener("input", filter);
-      const pills = groups.length > 1 ? el("div", { class: "menu-filters", role: "group", "aria-label": t("Show") },
-        [null, ...groups].map((group) => {
-          const count = group ? searchable.filter(([, , g]) => g === group).length : searchable.length;
+      pills = filters.length > 1 ? el("div", { class: "menu-filters", role: "group", "aria-label": t("Show") },
+        [null, ...filters].map((group) => {
+          const counted = searchable.filter(([, , , , aggregate]) => !aggregate);
+          const count = group ? counted.filter(([, , , kind]) => kind === group).length : counted.length;
           // Each kind with its icon, as the wall draws it; All, the filter's.
           const glyph = { Lights: "bulb", Blinds: "blind", Switches: "switch", Outlets: "outlet", Scenes: "play" }[group] ?? "filter";
           const pill = el("button", { type: "button", class: "menu-filter", actionIcon: glyph, "aria-pressed": String(group === null) },
@@ -11482,12 +11505,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           });
           return pill;
         })) : null;
-      nodes.unshift(...[field, pills, nothing].filter(Boolean));
     }
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
     const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
-    const list = el("div", { class: `menu${sheet ? " sheet-menu" : ""}`, role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || t("Actions") }, nodes);
+    // The search and its pills stay above the items, which scroll on their own; a sheet whose items stay open as they
+    // are chosen (several lights) ends with Done, within the thumb's reach.
+    const head = field ? el("div", { class: "menu-head" }, field, pills) : null;
+    const foot = sheet && done ? el("div", { class: "menu-foot" }, el("button", { type: "button", class: "primary", actionIcon: "check", text: done, onclick: () => close() })) : null;
+    const framed = Boolean(head || foot);
+    const list = el("div", { class: `menu${sheet ? " sheet-menu" : ""}${framed ? " framed-menu" : ""}`, role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || t("Actions") },
+      framed ? [head, el("div", { class: "menu-items" }, nothing, nodes), foot].filter(Boolean) : nodes);
     const scrim = sheet ? el("div", { class: "menu-scrim", "aria-hidden": "true" }) : null;
     // A sheet's grabber: a swipe down from it puts the sheet away, as the scrim's tap does.
     if (sheet) {
@@ -11495,6 +11523,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       dragToDismiss(list, { vertical: () => true, dismiss: () => close(true), handle: ".sheet-grabber" });
     }
     const host = layerHost(trigger);
+    // A sheet over a dialog (a remote's editor): the dialog's glass (its backdrop filter) would make it the box the
+    // sheet is placed in, scrolled and shrunk with it, the sheet's top (its search) then out of reach. The dialog drops
+    // its glass while the sheet is up, under the scrim anyway: the sheet sits on the window, as anywhere else.
+    const flattened = sheet && host !== document.body ? host : null;
+    flattened?.classList.add("under-sheet-menu");
+    // While a keyboard is up (the search), the sheet keeps to what is still visible, as openSheet's dialogs do.
+    const viewport = sheet ? window.visualViewport : null;
+    const fit = () => {
+      list.style.setProperty("--viewport-top", `${Math.max(0, viewport.offsetTop)}px`);
+      list.style.setProperty("--keyboard", `${Math.max(0, innerHeight - viewport.height - viewport.offsetTop)}px`);
+    };
+    viewport?.addEventListener("resize", fit);
+    viewport?.addEventListener("scroll", fit);
     if (scrim) host.append(scrim);
     host.append(list);
     if (!sheet) {
@@ -11545,10 +11586,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       trigger.setAttribute("aria-expanded", "false");
       list.classList.add("closing");
       scrim?.classList.add("closing");
-      setTimeout(() => { list.remove(); scrim?.remove(); }, 200);
+      viewport?.removeEventListener("resize", fit);
+      viewport?.removeEventListener("scroll", fit);
+      setTimeout(() => {
+        list.remove();
+        scrim?.remove();
+        if (!flattened?.querySelector(".menu.sheet-menu:not(.closing)")) flattened?.classList.remove("under-sheet-menu");
+      }, 200);
       if (!quietly) trigger.focus({ preventScroll: true });
     }
-    const onResize = () => close(true);
+    // A phone's keyboard may change the window's height: only a new width puts a sheet away.
+    const width = innerWidth;
+    const onResize = () => { if (!sheet || innerWidth !== width) close(true); };
     document.addEventListener("keydown", onKey, true);
     document.addEventListener("pointerdown", onPointer, true);
     addEventListener("resize", onResize);
@@ -17236,35 +17285,47 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     button.addEventListener("click", () => HomeswiftCommon.menu(button, [
       { label: none, checked: value === undefined, onSelect: () => { value = undefined; draw(); announce(button); } },
       { separator: true },
-      ...options.map((o) => ({ label: o.title, group: o.group, checked: same(o.value, value), onSelect: () => { value = o.value; draw(); announce(button); } })),
+      ...options.map((o) => ({ label: o.label ?? o.title, group: o.group, filter: o.filter, checked: same(o.value, value), onSelect: () => { value = o.value; draw(); announce(button); } })),
     ], { search: t("Search") }));
     draw();
     return { button, get: () => value };
   }
 
   /// Several choices among many: the chosen ones as chips (each with its remove button), and Add, whose menu searches
-  /// the others.
+  /// the others. A choice is `{ value, title }`, with a `label` for the menu when it differs from the chip's title (its
+  /// `group` heading it there already), a `group` and a `filter` (menu()'s).
   function searchSet(choices, chosen) {
     let values = chosen.slice();
     const list = el("div", { class: "chips chosen-list" });
     const add = el("button", { type: "button", class: "add-choice", actionIcon: "plus", "aria-haspopup": "menu", text: t("Choose…") });
     const draw = () => {
       list.replaceChildren(...values.map((value) => {
-        const title = choices.find((c) => same(c.value, value))?.title ?? String(value);
+        const title = choices.find((c) => !c.members && same(c.value, value))?.title ?? String(value);
         return el("span", { class: "chip removable" }, el("span", { class: "chosen-name", text: title, title }),
           el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name: title }),
             onclick: () => { values = values.filter((v) => !same(v, value)); draw(); announce(list); add.focus(); } }, HomeswiftCommon.icon("close")));
       }));
       list.hidden = values.length === 0;
     };
+    // The menu stays open while choices are ticked (several lights in a row, the search kept); Done on a phone. A
+    // choice with `members` (a Group) ticks them all, or none once they all are; `nested` ones are its members.
+    const has = (value) => values.some((v) => same(v, value));
     add.addEventListener("click", () => HomeswiftCommon.menu(add, choices.map((c) => {
-      const isChosen = values.some((v) => same(v, c.value));
-      return { label: c.title, group: c.group, checkbox: true, checked: isChosen, onSelect: () => {
-        values = isChosen ? values.filter((v) => !same(v, c.value)) : [...values, c.value];
+      const common = { label: c.label ?? c.title, group: c.group, filter: c.filter, search: c.search, nested: c.nested, checkbox: true, keepOpen: true };
+      if (c.members) {
+        const state = () => c.members.every(has) ? true : c.members.some(has) ? "mixed" : false;
+        return { ...common, aggregate: true, checked: state, onSelect: () => {
+          values = state() === true ? values.filter((v) => !c.members.some((m) => same(m, v))) : [...values, ...c.members.filter((m) => !has(m))];
+          draw();
+          announce(list);
+        } };
+      }
+      return { ...common, checked: () => has(c.value), onSelect: () => {
+        values = has(c.value) ? values.filter((v) => !same(v, c.value)) : [...values, c.value];
         draw();
         announce(list);
       } };
-    }), { search: t("Search") }));
+    }), { search: t("Search"), done: t("Done") }));
     draw();
     return { node: el("div", { class: "chosen-set" }, list, add), get: () => values };
   }
@@ -33007,11 +33068,41 @@ HomeswiftI18n.add("pt", {
     // A part's gestures drive the same lights; one with none yet starts from its Channel's other part.
     const driving = mine.find((control) => control.targets?.length)
       ?? remote.controls.find((control) => control.targets?.length && remote.parts.some((other) => other.id === control.part && other.channel != null && other.channel === part.channel));
-    // A light without brightness says so: it only turns on and off.
-    const choice = (one, group) => ({ value: one.id, group,
-      title: [one.name, one.room, one.onOffOnly ? t("On and off only") : null].filter(Boolean).join(" · ") });
-    const targetPicker = HomeswiftForms.searchSet(data.targets.map((one) => choice(one, one.kind === "shutter" ? "Blinds" : "Lights")), driving?.targets ?? []);
-    const powerPicker = HomeswiftForms.searchSet(data.power.map((one) => choice(one, one.kind === "outlet" ? "Outlets" : "Switches")), driving?.power ?? []);
+    // Listed by room (no room last), the pills keeping one kind; a chosen one's chip names its room. A light without
+    // brightness says so: it only turns on and off.
+    const byRoom = (list) => list.slice().sort((a, b) => (a.room == null) - (b.room == null)
+      || (a.room ?? "").localeCompare(b.room ?? "") || a.name.localeCompare(b.name, undefined, { numeric: true }));
+    const choice = (one, kind) => {
+      const only = one.onOffOnly ? t("On and off only") : null;
+      return { value: one.id, group: one.room ?? t("No room"), filter: kind,
+        label: [one.name, only].filter(Boolean).join(" · "), title: [one.name, one.room, only].filter(Boolean).join(" · ") };
+    };
+    // A Group's members under its row, in the room most of them are in; its row ticks them all. A Group with one member
+    // left here (the others drive nothing) lists it on its own.
+    const listed = (list, kindOf) => {
+      const groups = new Map();
+      for (const one of list.filter((one) => one.group)) {
+        if (!groups.has(one.group.id)) groups.set(one.group.id, { name: one.group.name, members: [] });
+        groups.get(one.group.id).members.push(one);
+      }
+      const whole = [...groups.values()].filter((group) => group.members.length > 1);
+      const inGroup = new Set(whole.flatMap((group) => group.members.map((one) => one.id)));
+      const roomOf = (members) => {
+        const counts = new Map();
+        for (const one of members) counts.set(one.room ?? null, (counts.get(one.room ?? null) ?? 0) + 1);
+        return [...counts].sort((a, b) => b[1] - a[1])[0][0];
+      };
+      const rows = [...list.filter((one) => !inGroup.has(one.id)), ...whole.map((group) => ({ ...group, room: roomOf(group.members) }))];
+      return byRoom(rows).flatMap((row) => {
+        if (!row.members) return [choice(row, kindOf(row))];
+        const heading = row.room ?? t("No room");
+        return [{ title: row.name, group: heading, filter: kindOf(row.members[0]), members: row.members.map((one) => one.id),
+          search: row.members.map((one) => one.name).join(" ") },
+        ...byRoom(row.members).map((one) => ({ ...choice(one, kindOf(one)), group: heading, nested: true, search: row.name }))];
+      });
+    };
+    const targetPicker = HomeswiftForms.searchSet(listed(data.targets, (one) => one.kind === "shutter" ? "Blinds" : "Lights"), driving?.targets ?? []);
+    const powerPicker = HomeswiftForms.searchSet(listed(data.power, (one) => one.kind === "outlet" ? "Outlets" : "Switches"), driving?.power ?? []);
     const options = driving ?? mine[0] ?? {};
     const step = el("input", { type: "number", min: 1, max: 25, value: options.step ?? 5, "aria-describedby": "remote-step-help" });
     const powerDelay = el("input", { type: "number", min: 1, max: 30, value: options.powerDelay ?? 5 });
@@ -33022,7 +33113,7 @@ HomeswiftI18n.add("pt", {
     const gestureFields = part.gestures.map((gesture) => {
       const control = mine.find((one) => one.gesture === gesture);
       const select = el("select", { "aria-label": gestureNames[gesture]() });
-      const scenePicker = HomeswiftForms.searchSelect(data.scenes.map((scene) => choice(scene, "Scenes")), control?.scene, t("Choose a scene"));
+      const scenePicker = HomeswiftForms.searchSelect(byRoom(data.scenes).map((scene) => choice(scene, "Scenes")), control?.scene, t("Choose a scene"));
       const sceneRow = el("div", { class: "remote-scene" }, scenePicker.button);
       const fill = () => {
         const current = select.value || (control ? valueOf(control) : "");
@@ -33047,9 +33138,11 @@ HomeswiftI18n.add("pt", {
       hold.select.disabled = long.select.value !== "";
     };
     syncHoldAndLong();
-    // Each gesture keeps the targets it has (the Assistant may give each its own) until the list here changes.
-    let targetsChanged = false;
+    // Each gesture keeps the targets and Power Switches it has (the Assistant may give each its own) until the list
+    // here changes.
+    let targetsChanged = false, powerChanged = false;
     targetPicker.node.addEventListener("change", () => { targetsChanged = true; gestureFields.forEach((one) => one.fill()); });
+    powerPicker.node.addEventListener("change", () => { powerChanged = true; });
 
     const message = el("p", { class: "muted", role: "status" });
     return HomeswiftCommon.openSheet((done) => {
@@ -33063,7 +33156,7 @@ HomeswiftI18n.add("pt", {
           } else {
             const kept = !targetsChanged && mine.find((old) => old.gesture === one.gesture && old.targets?.length);
             control.targets = kept ? kept.targets : targets;
-            const powered = kept ? kept.power ?? [] : power;
+            const powered = kept && !powerChanged ? kept.power ?? [] : power;
             if (powered.length) { control.power = powered; if (Number(powerDelay.value) !== 5) control.powerDelay = Number(powerDelay.value); }
             if (direction) control.direction = direction;
             if (["dim", "step", "toggle"].includes(action) && Number(step.value) !== 5) control.step = Number(step.value);
@@ -35384,8 +35477,16 @@ button.busy::after {
     margin: auto 0 0; width: 100%; max-width: 100%; max-height: 100%;
     height: calc(100% - 16px - env(safe-area-inset-top) - var(--viewport-top, 0px) - var(--keyboard, 0px));
     border-radius: var(--radius) var(--radius) 0 0; border-bottom: 0;
-    padding: 26px var(--space-18) calc(var(--space-18) + env(safe-area-inset-bottom));
+    padding: 26px var(--space-18) 0;
   }
+  /* The buttons stay in reach under a long form, clear of the home indicator. The clearance is the buttons' own (or,
+     without them, a last item's): Safari leaves a scrolling flex box's bottom padding out, the buttons then flush with
+     the screen's edge in the Home Screen app. Opaque from 8px above the buttons, as the setup sheet's. */
+  .admin-dialog.sheet .account-form > .actions:last-child { position: sticky; bottom: 0; z-index: 1;
+    padding-bottom: calc(var(--space-18) + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(to bottom, transparent, var(--material-solid) var(--space-8)); }
+  .admin-dialog.sheet:not(:has(:is(.account-form, .setup-step) > .actions:last-child))::after {
+    content: ""; flex: none; height: calc(var(--space-18) + env(safe-area-inset-bottom, 0px)); }
   .admin-dialog.sheet[open] { animation-name: sheet-up; }
   .sheet-grabber { display: block; position: absolute; top: 0; left: 0; right: 0; height: 26px; touch-action: none; cursor: grab; }
   .sheet-grabber::before { content: ""; position: absolute; top: 8px; left: 50%; width: 36px; height: 5px; margin-left: -18px; border-radius: 3px; background: var(--line); }
@@ -36291,12 +36392,25 @@ textarea.short { min-height: 220px; }
 .menu-scrim { position: fixed; inset: 0; z-index: calc(var(--layer-menu) - 1); background: rgba(10, 14, 24, 0.28); animation: sheet-dim 200ms var(--ease-out); }
 .menu-scrim.closing { animation: sheet-undim 180ms var(--ease-out) forwards; }
 .menu.sheet-menu {
-  left: 10px; right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); max-height: calc(100dvh - 24px - env(safe-area-inset-top));
+  /* Above the keyboard while it is up (menu()'s --keyboard and --viewport-top, as openSheet's), its top in view. */
+  left: 10px; right: 10px; bottom: calc(max(10px, env(safe-area-inset-bottom)) + var(--keyboard, 0px));
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top) - var(--viewport-top, 0px) - var(--keyboard, 0px));
   overflow-y: auto; overscroll-behavior: contain; padding: var(--space-8); border-radius: var(--radius-xl); transform-origin: 50% 100%;
   animation: menu-sheet-in 280ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 .menu.sheet-menu.closing { animation: menu-sheet-out 180ms var(--ease-out) forwards; }
 .menu.sheet-menu { padding-top: 22px; }
+/* A menu with a search or a Done: they stay put, the items between them scroll. */
+.menu.framed-menu { display: flex; flex-direction: column; overflow: hidden; }
+.menu-items { display: grid; gap: 1px; grid-auto-rows: max-content; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; touch-action: pan-y; }
+.menu-head { flex: none; padding-bottom: var(--space-4); margin-bottom: var(--space-4); border-bottom: 1px solid var(--line); }
+.menu-foot { flex: none; padding-top: var(--space-8); margin-top: var(--space-4); border-top: 1px solid var(--line); }
+.menu-foot > button { width: 100%; }
+/* A Group's members, under its row: set in as a list's children, a rule along them. */
+.menu .menu-nested { padding-left: calc(var(--space-12) + var(--space-16)); position: relative; }
+.menu .menu-nested::before { content: ""; position: absolute; left: calc(var(--space-12) + 5px); top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: var(--line); }
+/* A dialog under a phone's menu sheet drops its glass, which would make it the box the sheet is placed in (menu()). */
+.admin-dialog.under-sheet-menu { -webkit-backdrop-filter: none; backdrop-filter: none; }
 @keyframes menu-sheet-in { from { transform: translateY(calc(100% + 12px)); } }
 @keyframes menu-sheet-out { to { transform: translateY(calc(100% + 12px)); } }
 @media (prefers-reduced-motion: reduce) { .menu, .menu.closing, .menu.sheet-menu, .menu.sheet-menu.closing { animation-name: fade; } }
@@ -39407,8 +39521,7 @@ select option:disabled { color: var(--muted); }
   background: linear-gradient(to bottom, transparent, var(--material-solid) var(--space-8)); }
 /* Opaque from 8px above the buttons: only the space above that fades, so nothing scrolls through under them. */
 @media (max-width: 640px) {
-  .setup-step > .actions:last-child { bottom: calc(-1 * (var(--space-18) + env(safe-area-inset-bottom)));
-    margin-bottom: calc(-1 * (var(--space-18) + env(safe-area-inset-bottom))); padding-bottom: calc(var(--space-18) + env(safe-area-inset-bottom)); }
+  .setup-step > .actions:last-child { bottom: 0; margin-bottom: 0; padding-bottom: calc(var(--space-18) + env(safe-area-inset-bottom, 0px)); }
 }
 .setup-pick input { margin: 0; }
 .setup-pick .who { display: grid; min-width: 0; }
@@ -40491,6 +40604,8 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .remote-sheet-section > p { margin: 0; font-size: var(--text-sm); }
 .remote-scene { margin-top: var(--space-6); }
 .remote-more { display: grid; gap: var(--space-10); }
+/* A switch beside its words, as a settings row. */
+.remote-more .toggle-field { display: flex; align-items: center; gap: var(--space-10); }
 .remote-more[open] summary { margin-bottom: var(--space-8); }
 /* A phone: the gesture over what it does, whole, rather than both on a line cut short. */
 @media (max-width: 480px) {

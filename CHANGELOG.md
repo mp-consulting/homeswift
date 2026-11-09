@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Remotes**: the lights, blinds and Power Switches a Control drives are listed by room, a Group's lights under its
+  row (ticking the Group ticks them all), and the list stays open while several are ticked, with Done on a phone. Its
+  search and kind filters stay at the top while the list scrolls.
+
+### Fixed
+
+- **Remotes**: Power Switches changed under More were not saved when what the Control drives stayed the same.
+- On a phone, the accessory list opened from a remote's editor could hide its search field (above the screen, or
+  behind the keyboard); it now keeps to what is visible.
+- On a phone, a side sheet's buttons (Save, Cancel, Done) sat on the screen's bottom edge in the Home Screen app: they
+  now stay above the home indicator, and in reach under a long form.
+
 ## [0.27.0] - 2026-11-09
 
 ### Added
