@@ -1277,7 +1277,8 @@
         const best = Math.max(0, ...days.map((day) => day.solar ?? 0));
         set("energy-solar", formatKWh(today.solar), best > today.solar ? t("Best day this week: {value}", { value: formatKWh(best) }) : t("The best day this week"), best ? today.solar / best * 100 : null, 4);
       }
-      const levels = (report.levels ?? []).map((one) => ({ device: one.device, level: one.points.at(-1)?.[1] })).filter((one) => one.level != null);
+      // The home battery's units, a portable power station left out, as the house picture shows them.
+      const levels = HomeswiftEnergyFlow.homeLevels(report.levels);
       if (!levels.length) set("energy-batteries", "–", t("No battery is measured"));
       if (levels.length) set("energy-batteries", levels.map((one) => formatPercent(one.level)).join(" · "), levels.map((one) => one.device).join(" · "),
         levels.reduce((sum, one) => sum + one.level, 0) / levels.length, 3);

@@ -1539,7 +1539,7 @@ public final class UIServer: Sendable {
                 return .object(object)
             }),
             "levels": .array(report.levels.map { level in
-                ["series": .string(level.series), "device": .string(level.device),
+                ["series": .string(level.series), "device": .string(level.device), "home": .bool(level.isHomeBattery),
                  "points": .array(level.points.map { .array([.number($0.start.timeIntervalSince1970), .number(($0.percent * 10).rounded() / 10)]) })]
             }),
             "days": .array(report.days.map { one in
