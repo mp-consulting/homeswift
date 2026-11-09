@@ -45,6 +45,12 @@ struct ConsumptionToolTests {
         let hourly = day["meters"]?[0]?["bars"]?.arrayValue ?? []
         #expect(hourly.count == 4)
         #expect(hourly.last?["date"] == "2027-01-15T08:00" && hourly.last?["consumption"] == 0.5)
+        // More than two days stays by the day, unless asked by the hour (up to two weeks: the Energy log, a device's week).
+        #expect(try catalog.consumptionJSON(hours: 72, timeZone: utc, accessory: "Devices:lamp", now: hour)["step"] == "day")
+        let hourlyWeek = try catalog.consumptionJSON(hours: 168, timeZone: utc, accessory: "Devices:lamp", hourly: true, now: hour.addingTimeInterval(1800))
+        #expect(hourlyWeek["step"] == "hour")
+        #expect(hourlyWeek["meters"]?[0]?["bars"]?.arrayValue?.count == 169)
+        #expect(try catalog.consumptionJSON(hours: 400, timeZone: utc, accessory: "Devices:lamp", hourly: true, now: hour)["step"] == "day")
 
         #expect(throws: CatalogError.self) { try catalog.consumptionJSON(period: "decade", timeZone: utc) }
         #expect(throws: CatalogError.self) { try catalog.consumptionJSON(accessory: "Devices:nothing") }

@@ -18,14 +18,15 @@ extension HomeswiftCatalog {
     /// price, in the Meter's `currency` (null where no hour is priced); `currency` is electricity's.
     /// `kind` keeps one kind's Meters.
     public func consumptionJSON(period: String? = nil, date: String? = nil, hours: Double? = nil, timeZone: TimeZone = .current,
-                                accessory: String? = nil, kind: MeterKind? = nil, now: Date = Date()) throws -> JSONValue {
+                                accessory: String? = nil, kind: MeterKind? = nil, hourly: Bool = false, now: Date = Date()) throws -> JSONValue {
         guard let metrics else { throw CatalogError("This homeswift records no metrics", notFound: true) }
         let from: Date, to: Date, step: ConsumptionStep
         if let hours {
             guard hours > 0, hours <= 24 * 366 else { throw CatalogError("hours is more than 0 and at most a year's") }
             to = now
             from = now.addingTimeInterval(-hours * 3600)
-            step = hours <= 48 ? .hour : .day
+            // An hour a bar up to two days, or up to two weeks when asked (`hourly`: the Energy log, a device's week).
+            step = hours <= 48 || (hourly && hours <= 24 * 14) ? .hour : .day
         } else {
             let period = period ?? "week"
             guard let span = EnergyCalendar.span(period: period, date: date, timeZone: timeZone, now: now) else {
