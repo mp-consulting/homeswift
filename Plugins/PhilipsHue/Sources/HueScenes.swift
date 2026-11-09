@@ -44,7 +44,7 @@ extension PhilipsHuePlugin {
             "metadata": ["name": .string(Self.sceneName(name))], "group": ["rid": .string(group.id), "rtype": .string(group.kind)],
             "actions": .array(try sceneActions(lights)),
         ])
-        await refresh()
+        await refreshApplied()
         return id
     }
 
@@ -67,13 +67,13 @@ extension PhilipsHuePlugin {
         if let name { body["metadata"] = ["name": .string(Self.sceneName(name))] }
         if let lights { body["actions"] = .array(try sceneActions(lights)) }
         try await client.put("scene", id: id, .object(body))
-        await refresh()
+        await refreshApplied()
     }
 
     public func deleteScene(id: String) async throws {
         let client = try writableScene(id)
         try await client.delete("scene", id: id)
-        await refresh()
+        await refreshApplied()
     }
 
     /// The bridge's light id of one of this plugin's accessories (`accessoryID(lightID:)` the other way).
