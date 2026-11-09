@@ -1,5 +1,5 @@
 {
-  "originHash" : "637e9ffffabd4b4c59f8d59ee0d7fc7625e18fd9a2d77364c6cc0ce1875b741a",
+  "originHash" : "e8f160880fa7ff21168424a798df47eeac66867997243438eeacbb0a25789917",
   "pins" : [
     {
       "identity" : "swift-asn1",
@@ -51,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mp-consulting/swift-matter.git",
       "state" : {
-        "revision" : "de5c46a1efe2834c2eb10242fbadb9e873da60a9",
-        "version" : "0.5.0"
+        "revision" : "49543282540305facffa3047865f1fb05469dfe8",
+        "version" : "0.6.0"
       }
     },
     {
