@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-09
+
 ### Added
 
 - **Matter Devices** plugin: Homeswift becomes one more Matter controller of devices other apps already have
@@ -42,6 +44,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Wingman: a read of Apple Home's homes from before a room was renamed or a Zone changed through the Home Link could
+  finish last and put the old name back until the next read; it now gives way to the newer one.
 - **WebRTC**: a DTLS peer that sends a flight again, over several datagrams, gets this side's answer once rather than
   once per datagram. A busy host whose peer retransmitted made a burst of repeated Finished messages, and OpenSSL 3.0
   counts each against its 12 timeouts: it closed the session before any media or data went through.
@@ -2408,7 +2412,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.26.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.27.0...HEAD
+[0.27.0]: https://github.com/mp-consulting/homeswift/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/mp-consulting/homeswift/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/mp-consulting/homeswift/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/mp-consulting/homeswift/compare/v0.23.0...v0.24.0
