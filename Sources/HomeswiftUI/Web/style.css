@@ -5153,6 +5153,20 @@ html.wall-full:not(.wall-awake) .wall-full-chrome button { opacity: 0.32; }
 .wall-full-options { top: max(var(--space-16), env(safe-area-inset-top)); right: max(var(--space-16), env(safe-area-inset-right)); }
 /* Leave full screen, to the options' left: one button's width and a gap further in. */
 .wall-full-exit { top: max(var(--space-16), env(safe-area-inset-top)); right: calc(max(var(--space-16), env(safe-area-inset-right)) + 44px + var(--space-8)); }
+/* On a phone, off the first widgets and in the thumb's reach: stacked over the Assistant's button (or where it would be),
+   Filters then Leave full screen above it, centred on its 54px circle. */
+@media (max-width: 640px) {
+  html.wall-full .wall-full-options, html.wall-full .wall-full-exit { top: auto; right: calc(max(14px, env(safe-area-inset-right)) + 5px); }
+  html.wall-full .wall-full-options { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 2 * (54px + var(--space-10))); }
+  html.wall-full .wall-full-exit { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 2 * (54px + var(--space-10)) + 44px + var(--space-10)); }
+  html.wall-full:not(:has(.chat-dock)) .wall-full-options { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 54px + var(--space-10)); }
+  html.wall-full:not(:has(.chat-dock)) .wall-full-exit { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 54px + var(--space-10) + 44px + var(--space-10)); }
+  /* The page dots on the same line as the Assistant's button (its 54px circle's middle; Filters' 44px one without it),
+     the pill (26px) narrower so it never reaches the buttons on the right. */
+  html.wall-full .wall-dots { --slot: min(16px, calc((100vw - 176px) / var(--pages, 1))); max-width: calc(100vw - 160px);
+    bottom: calc(max(14px, env(safe-area-inset-bottom)) + 54px + var(--space-10) + 27px - 13px); }
+  html.wall-full:not(:has(.chat-dock)) .wall-dots { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 54px + var(--space-10) + 22px - 13px); }
+}
 .wall-full-button svg, .wall-step svg { width: 20px; height: 20px; }
 .wall-full-button:active, .wall-step:active { transform: scale(0.94); }
 /* The toolbar's panel: the search across, the grouping as a row of choices, the filters, then leaving. */
