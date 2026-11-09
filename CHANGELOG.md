@@ -42,6 +42,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **WebRTC**: a DTLS peer that sends a flight again, over several datagrams, gets this side's answer once rather than
+  once per datagram. A busy host whose peer retransmitted made a burst of repeated Finished messages, and OpenSSL 3.0
+  counts each against its 12 timeouts: it closed the session before any media or data went through.
 - **Philips Hue**: a scene created, changed or removed, a room renamed, a scene recalled or a light's action is shown
   once the bridge's answer is: a read the plugin's own poll overtook was dropped, and the write returned before the newer
   one applied it (a new scene was not found a moment after it was made).

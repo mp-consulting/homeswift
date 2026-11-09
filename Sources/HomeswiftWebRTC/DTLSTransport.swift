@@ -69,6 +69,8 @@ public actor DTLSTransport {
     private var reassembler = HandshakeReassembler()
     private var nextSendSeq: UInt16 = 0
     private var nextReceiveSeq: UInt16 = 0
+    /// The message_seq that ended the peer's flight this side's last flight answers: its repeat says that answer was lost.
+    private var answeredSeq: UInt16?
     private var transcript: [UInt8] = []
     private var clientRandom: [UInt8] = []
     private var serverRandom: [UInt8] = []
@@ -256,6 +258,7 @@ public actor DTLSTransport {
 
     private func sendNewFlight(_ flight: [FlightItem], retransmit: Bool = true) async {
         lastFlight = flight
+        answeredSeq = nextReceiveSeq == 0 ? nil : nextReceiveSeq &- 1
         timer?.cancel()
         if retransmit {
             let backoff = retransmissions, maximum = maximumRetransmissions
@@ -307,14 +310,15 @@ public actor DTLSTransport {
         }
     }
 
-    /// Takes one record in; true when it repeats a handshake message already processed (the peer lost this side's flight).
+    /// Takes one record in; true when it repeats the end of the peer's last flight (the peer lost this side's answer).
     private func handle(record: DTLSRecord) async -> Bool {
         guard record.version == DTLSConstants.version || record.version == DTLSConstants.version10 else { return false }
         if record.epoch > readEpoch {
             if record.epoch == readEpoch + 1, futureRecords.count < 16 { futureRecords.append(record) }
             return false
         }
-        if record.epoch < readEpoch { return record.type == DTLSConstants.ContentType.handshake }
+        // An earlier epoch's records repeat a flight whose end comes in this epoch (a client's Finished): that end answers it.
+        if record.epoch < readEpoch { return false }
         var plaintext = record.fragment
         if record.epoch > 0 {
             guard let readCipher, let opened = try? readCipher.open(record.fragment, sequence: record.sequenceBytes, type: record.type, version: record.version) else {
@@ -355,7 +359,11 @@ public actor DTLSTransport {
             var duplicate = false
             for fragment in fragments {
                 if fragment.messageSeq < nextReceiveSeq {
-                    duplicate = true
+                    // Only the last fragment of the message that ended the peer's flight calls for this side's answer
+                    // again: a whole retransmitted flight is answered once (RFC 6347 section 4.2.4), not once per
+                    // datagram. Answered per datagram, a flight of six made six of ours, which OpenSSL counts against
+                    // its 12 timeouts.
+                    if fragment.messageSeq == answeredSeq, fragment.offset + fragment.body.count >= fragment.length { duplicate = true }
                 } else if fragment.messageSeq < nextReceiveSeq &+ 16 {
                     // Finished only ever comes encrypted.
                     if fragment.type == DTLSConstants.HandshakeType.finished, record.epoch == 0 { continue }
