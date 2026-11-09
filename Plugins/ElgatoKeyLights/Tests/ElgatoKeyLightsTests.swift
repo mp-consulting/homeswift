@@ -561,7 +561,8 @@ struct ElgatoKeyLightsTests {
     // MARK: Settings
 
     /// A Homebridge block's `devices` moves into `_accessories` by MAC and `addresses`; what is there already stays, an
-    /// entry without a MAC stays in `devices`, and the legacy power-on keys go (the light's own Power On now).
+    /// entry without a MAC stays in `devices`, and the legacy power-on keys go (the light's own Power On now; one that
+    /// had its own keeps its device's rather than taking Natural Light).
     @Test func canonicalSettingsMovesTheDevicesList() throws {
         let block = try JSONValue(any: [
             "platform": "ElgatoKeyLights", "name": "Elgato Key Lights", "powerOnBrightness": 30,
@@ -585,7 +586,7 @@ struct ElgatoKeyLightsTests {
                 ["host": "spare.local", "mac": "11:22:33:44:55:66"],
             ],
             "_accessories": [
-                "3C:6A:9D:04:0A:0B": ["name": "Desk Light"],
+                "3C:6A:9D:04:0A:0B": ["name": "Desk Light", "naturalLight": false],
                 "11:22:33:44:55:66": ["excluded": true],
                 "AA:BB:CC:DD:EE:FF": ["name": "Kept"],
             ],

@@ -671,6 +671,7 @@ extension HomeswiftCatalog {
     public func startHome(restarted: Bool = false) {
         guard home.running.withLockedValue({ $0 == nil }) else { return }
         lendScenes()
+        lendNaturalLight()
         migrateSceneAutomations()
         seedWatchedValues()
         seedStaysTimers()
@@ -715,6 +716,7 @@ extension HomeswiftCatalog {
     public func stopHome(restarting: Bool = false) async {
         guard let running = home.running.withLockedValue({ state -> RunningHome? in defer { state = nil }; return state }) else { return }
         host.homeScenes = nil   // the scenes lent to plugins (lendScenes) go with the home
+        host.naturalLightTakenOver = nil
         running.ticker.cancel()
         running.observations.forEach { $0.cancel() }
         stopAutomations()

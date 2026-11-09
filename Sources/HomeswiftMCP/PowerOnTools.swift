@@ -6,49 +6,70 @@ import HomeswiftPlugin
 // the device; Natural Light is the Core Accessory Setting `naturalLight` (cleared: on), which the bridge runs.
 
 extension HomeswiftCatalog {
-    /// A light's Power On: its device's `support`, its `behaviour` and `current` value, and `naturalWhite`, the white
-    /// Natural Light gives it now.
-    public func powerOnJSON(_ id: String, now: Date = Date()) async throws -> JSONValue {
+    /// A light and its Power On as the host reads it; refused for an accessory whose plugin keeps none.
+    private func powerOnState(_ id: String) async throws -> (located: Located, support: PowerOnSupport, natural: Bool, device: PowerOn?) {
         guard let located = find(id: id) else { throw CatalogError("No accessory \(id)", notFound: true) }
         guard let state = try await host.powerOn(of: id) else {
             throw CatalogError("\(located.accessory.name) keeps no Power On: its plugin cannot set what it does when its power comes on", notFound: true)
         }
-        let white = state.support.white.map { range in
-            min(range.upperBound, max(range.lowerBound, NaturalLight.temperature(at: now, location: host.configuration.location)))
-        }
-        let current = state.natural ? PowerOn(.natural, temperature: white) : state.device
-        return ["accessory": .string(id), "name": .string(located.accessory.name), "support": state.support.json,
+        return (located, state.support, state.natural, state.device)
+    }
+
+    /// The answer for a light: its device's `support`, its `behaviour` and `current` value, and `naturalWhite`, the
+    /// white Natural Light gives it now.
+    private func powerOnJSON(_ located: Located, support: PowerOnSupport, natural: Bool, device: PowerOn?, now: Date = Date()) -> JSONValue {
+        let white = NaturalLight.temperature(at: now, location: host.configuration.location, for: support)
+        let current = natural ? PowerOn(.natural, temperature: white) : device
+        return ["accessory": .string(located.accessory.id), "name": .string(located.accessory.name), "support": support.json,
                 "behaviour": current.map { .string($0.behaviour.rawValue) } ?? .null, "current": current?.json ?? .null,
                 "naturalWhite": white.map { .number(Double($0)) } ?? .null]
     }
 
-    /// Gives a light a Power On: Natural Light (the bridge's), or one of its device's own, written to the device. Answers
-    /// `powerOnJSON`.
+    /// A light's Power On: what its device can do, what it does now, and the white Natural Light gives it now.
+    public func powerOnJSON(_ id: String) async throws -> JSONValue {
+        let state = try await powerOnState(id)
+        return powerOnJSON(state.located, support: state.support, natural: state.natural, device: state.device)
+    }
+
+    /// Gives a light a Power On: Natural Light (the bridge's), or one of its device's own, written to the device. The
+    /// setting goes first, so a Natural Light round in between never writes its white over the device's own. Answers as
+    /// `powerOnJSON`, from what was set.
     public func setPowerOn(_ value: PowerOn, of id: String, dryRun: Bool = false, by writer: ConfigWriter = .person, who: String = "web UI") async throws -> JSONValue {
-        guard let located = find(id: id) else { throw CatalogError("No accessory \(id)", notFound: true) }
-        guard let state = try await host.powerOn(of: id) else {
-            throw CatalogError("\(located.accessory.name) keeps no Power On: its plugin cannot set what it does when its power comes on", notFound: true)
-        }
-        guard state.support.behaviours.contains(value.behaviour) else {
-            throw CatalogError("\(located.accessory.name) can come back: \(state.support.behaviours.map(\.rawValue).joined(separator: ", "))")
-        }
+        let state = try await powerOnState(id)
+        guard state.support.behaviours.contains(value.behaviour) else { throw CatalogError("This light cannot do that when its power comes on.") }
         var value = value
         if value.behaviour == .custom {
-            if value.brightness != nil, !state.support.brightness { throw CatalogError("\(located.accessory.name) takes no power-on brightness") }
+            if value.brightness != nil, !state.support.brightness { throw CatalogError("This light takes no brightness to come back at.") }
             if let kelvin = value.temperature {
-                guard let range = state.support.white else { throw CatalogError("\(located.accessory.name) has no white to come back in") }
-                value.temperature = min(range.upperBound, max(range.lowerBound, kelvin))
+                guard let white = state.support.white(kelvin) else { throw CatalogError("This light has no white to come back in.") }
+                value.temperature = white
             }
         }
-        if dryRun { return try await powerOnJSON(id) }
-        if value.behaviour == .natural {
+        let natural = value.behaviour == .natural
+        if dryRun { return powerOnJSON(state.located, support: state.support, natural: natural, device: natural ? nil : value) }
+        if natural {
             if !state.natural { _ = try await updateAccessorySettings([(id, ["naturalLight": .null])], by: writer, who: who) }
             await host.refreshNaturalLight(of: id)
         } else {
-            try await host.setDevicePowerOn(value, of: id)
             if state.natural { _ = try await updateAccessorySettings([(id, ["naturalLight": false])], by: writer, who: who) }
+            do {
+                try await host.setDevicePowerOn(value, of: id)
+            } catch {
+                // Not written: the light keeps Natural Light, as it does.
+                if state.natural { _ = try? await updateAccessorySettings([(id, ["naturalLight": .null])], by: writer, who: who) }
+                throw error
+            }
         }
-        return try await powerOnJSON(id)
+        return powerOnJSON(state.located, support: state.support, natural: natural, device: natural ? nil : value)
+    }
+
+    /// Lends the host what gives a light back its device's own Power On when it was changed elsewhere
+    /// (`PluginHost.naturalLightTakenOver`), while the home runs.
+    func lendNaturalLight() {
+        let catalog = self
+        host.naturalLightTakenOver = { id in
+            _ = try? await catalog.updateAccessorySettings([(id, ["naturalLight": false])], by: .person, who: "Natural Light")
+        }
     }
 
     var powerOnTools: [MCPTool] {

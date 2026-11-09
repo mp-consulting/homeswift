@@ -1,6 +1,7 @@
 import Foundation
 import Homeswift
 @testable import HomeswiftPlugin
+import NIOConcurrencyHelpers
 import Testing
 
 /// Power On: what a light does when its power comes back. Natural Light, the bridge's, is every light's that can have
@@ -54,6 +55,45 @@ struct PowerOnTests {
         await host.refreshNaturalLight(of: "Recording:bulb")
         #expect(await plugin.powerOnWrites.count == count)
         #expect(try await host.powerOn(of: "Recording:bulb")?.natural == false)
+        await host.stop()
+    }
+
+    /// West of Greenwich the evening is already the next UTC day: the curve takes the solar day the evening belongs to.
+    @Test func theEveningIsTheDaysEvenInCalifornia() throws {
+        let sanFrancisco = Location(latitude: 37.77, longitude: -122.42, name: "San Francisco")
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        // 21 March 2026, 18:45 PDT is 01:45 UTC on the 22nd, a little after sunset (about 19:20 PDT, 02:20 UTC).
+        let evening = try #require(utc.date(from: DateComponents(year: 2026, month: 3, day: 22, hour: 3, minute: 15)))
+        let white = NaturalLight.temperature(at: evening, location: sanFrancisco)
+        #expect(white > NaturalLight.night && white <= NaturalLight.evening)
+    }
+
+    /// A light given its white, then changed elsewhere (its maker's app): the next round reads it, leaves it as it is,
+    /// and gives it its device's own Power On.
+    @Test func aChangeMadeElsewhereEndsNaturalLight() async throws {
+        let environment = TestEnvironment()
+        let host = try PluginHost(configuration: try Self.configuration(), registry: environment.registry, storageDirectory: environment.directory,
+                                  options: environment.options)
+        try await host.start()
+        let plugin = try #require(environment.createdPlugins.first)
+        let clock = NIOLockedValueBox(Calendar.current.startOfDay(for: Date()).addingTimeInterval(13 * 3600))
+        let takenOver = NIOLockedValueBox<[String]>([])
+        let runner = NaturalLightRunner(
+            lights: { [.init(accessoryID: "Recording:bulb", name: "bulb", plugin: plugin, wantsNatural: true)] }, location: { nil },
+            takenOver: { id in takenOver.withLockedValue { $0.append(id) } }, now: { clock.withLockedValue { $0 } }, logger: testLogger)
+        await runner.refresh()
+        #expect(await plugin.powerOnWrites.last?.value == PowerOn(.natural, temperature: NaturalLight.midday))
+        // Within the step: nothing written again.
+        clock.withLockedValue { $0 = $0.addingTimeInterval(60) }
+        await runner.refresh()
+        #expect(await plugin.powerOnWrites.count == 1)
+        // Changed in its app, then the white moves: left as it is, and Natural Light given back.
+        await plugin.changePowerOnElsewhere(PowerOn(.lastOn), of: "Recording:bulb")
+        clock.withLockedValue { $0 = $0.addingTimeInterval(6 * 3600) }
+        await runner.refresh()
+        #expect(takenOver.withLockedValue { $0 } == ["Recording:bulb"])
+        #expect(await plugin.powerOnWrites.last?.value == PowerOn(.lastOn))
         await host.stop()
     }
 

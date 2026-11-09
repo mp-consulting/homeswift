@@ -94,9 +94,8 @@ extension PhilipsHuePlugin {
 
     public func powerOnSupport(of accessoryID: String) async -> PowerOnSupport? {
         guard let light = powerUpLight(accessoryID) else { return nil }
-        let white = light.mirekRange.map { PowerOn.kelvin(mirek: $0.upperBound)...PowerOn.kelvin(mirek: $0.lowerBound) }
-        return PowerOnSupport(behaviours: (white != nil ? [.natural] : []) + [.default, .lastOn, .powerLoss, .off, .custom],
-                              brightness: light.dims, white: white)
+        return PowerOnSupport(behaviours: (light.mirekRange != nil ? [.natural] : []) + [.default, .lastOn, .powerLoss, .off, .custom],
+                              brightness: light.dims, mirek: light.mirekRange)
     }
 
     public func powerOn(of accessoryID: String) async throws -> PowerOn? {

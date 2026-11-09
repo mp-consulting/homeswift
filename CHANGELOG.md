@@ -14,13 +14,14 @@ All notable changes to this project are documented here. The format follows
   `color_temp_startup`) and Elgato Key Lights have it; the Assistant reads and sets it (`power_on`, `set_power_on`).
 - **Natural Light**: the bridge's own Power On, every light's that can have it unless given another: the light comes
   back as it was, on or off, in the white for the time of day, warm at night and coolest at midday by the sun at the
-  Location. The bridge keeps the white the light comes back in up to date through the day.
+  Location. The bridge keeps the white the light comes back in up to date through the day; a light whose power-on is
+  changed in its maker's app keeps that one.
 
 ### Changed
 
 - **Elgato Key Lights**: the plugin no longer applies its power-on settings (`powerOnBehavior`, `powerOnBrightness`,
   `powerOnTemperature`, plugin-wide and per light) at each start; a light's Power On is set on its settings sheet, and the
-  legacy keys are written out of the block.
+  legacy keys are written out of the block (a light that had its own keeps what its device has).
 
 ### Fixed
 

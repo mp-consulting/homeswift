@@ -3703,4 +3703,8 @@ HomeswiftI18n.add("fr", {
   "Stays off": "Reste éteinte",
   "Custom": "Personnalisé",
   "On, at the brightness and white below": "Allumée, à la luminosité et au blanc ci-dessous",
+  "This light cannot do that when its power comes on.": "Cette lumière ne peut pas faire cela quand le courant revient.",
+  "This light takes no brightness to come back at.": "Cette lumière ne prend pas de luminosité au retour du courant.",
+  "This light has no white to come back in.": "Cette lumière n'a pas de blanc dans lequel revenir.",
+  "Keep its last": "Garder la dernière",
 });

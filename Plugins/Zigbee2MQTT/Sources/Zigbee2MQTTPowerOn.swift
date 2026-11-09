@@ -12,8 +12,7 @@ extension Zigbee2MQTTPlugin {
 
     /// A light's power-on exposes: its `power_on_behavior` values, and its `color_temp_startup` range in mired.
     private func powerOnExposes(_ accessoryID: String) -> (device: DeviceAccessory, behaviours: [String], startup: ClosedRange<Int>?)? {
-        let prefix = "\(Self.platform):"
-        guard accessoryID.hasPrefix(prefix), let device = devices[String(accessoryID.dropFirst(prefix.count))] else { return nil }
+        guard let device = devices[AccessoryNaming.deviceID(of: accessoryID, platform: Self.platform)] else { return nil }
         func all(_ exposes: [Expose]) -> [Expose] { exposes.flatMap { [$0] + all($0.features ?? []) } }
         let exposes = all(device.entry.definition?.exposes ?? [])
         guard let behaviour = exposes.first(where: { $0.property == "power_on_behavior" && $0.isEnum && $0.isSettable }) else { return nil }
@@ -31,16 +30,20 @@ extension Zigbee2MQTTPlugin {
         if values.contains("off") { behaviours.append(.off) }
         if values.contains("on"), startup != nil { behaviours.append(.custom) }
         guard !behaviours.isEmpty else { return nil }
-        let white = startup.map { PowerOn.kelvin(mirek: $0.upperBound)...PowerOn.kelvin(mirek: $0.lowerBound) }
-        return PowerOnSupport(behaviours: behaviours, brightness: false, white: white)
+        return PowerOnSupport(behaviours: behaviours, brightness: false, mirek: startup)
     }
 
     public func powerOn(of accessoryID: String) async throws -> PowerOn? {
-        guard let (device, _, _) = powerOnExposes(accessoryID), let behaviour = device.powerOnState["power_on_behavior"]?.stringValue else { return nil }
+        guard let (device, _, startup) = powerOnExposes(accessoryID) else { return nil }
+        guard let behaviour = device.powerOnState["power_on_behavior"]?.stringValue else {
+            // Not in its state yet (many lights report it only when asked): asked now, for the next read.
+            publisher?.get(device.entry.commandTopic, startup == nil ? ["power_on_behavior"] : Self.powerOnKeys)
+            return nil
+        }
         let white = device.powerOnState["color_temp_startup"]?.intValue.flatMap { $0 == Self.previousWhite || $0 <= 0 ? nil : PowerOn.kelvin(mirek: $0) }
         switch behaviour {
         case "off": return PowerOn(.off)
-        case "previous": return PowerOn(.powerLoss)
+        case "previous": return PowerOn(.powerLoss, temperature: white)
         case "on": return white.map { PowerOn(.custom, temperature: $0) } ?? PowerOn(.lastOn)
         default: return nil
         }

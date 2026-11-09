@@ -23641,6 +23641,10 @@ HomeswiftI18n.add("es", {
   "Stays off": "Sigue apagada",
   "Custom": "Personalizado",
   "On, at the brightness and white below": "Encendida, con el brillo y el blanco de abajo",
+  "This light cannot do that when its power comes on.": "Esta luz no puede hacer eso cuando le vuelve la corriente.",
+  "This light takes no brightness to come back at.": "Esta luz no admite un brillo al volver la corriente.",
+  "This light has no white to come back in.": "Esta luz no tiene un blanco en el que volver.",
+  "Keep its last": "Conservar el último",
 });
 
 """#),
@@ -27350,6 +27354,10 @@ HomeswiftI18n.add("fr", {
   "Stays off": "Reste éteinte",
   "Custom": "Personnalisé",
   "On, at the brightness and white below": "Allumée, à la luminosité et au blanc ci-dessous",
+  "This light cannot do that when its power comes on.": "Cette lumière ne peut pas faire cela quand le courant revient.",
+  "This light takes no brightness to come back at.": "Cette lumière ne prend pas de luminosité au retour du courant.",
+  "This light has no white to come back in.": "Cette lumière n'a pas de blanc dans lequel revenir.",
+  "Keep its last": "Garder la dernière",
 });
 
 """#),
@@ -31059,6 +31067,10 @@ HomeswiftI18n.add("pt", {
   "Stays off": "Fica desligada",
   "Custom": "Personalizado",
   "On, at the brightness and white below": "Ligada, com o brilho e o branco abaixo",
+  "This light cannot do that when its power comes on.": "Esta luz não pode fazer isso quando a corrente volta.",
+  "This light takes no brightness to come back at.": "Esta luz não aceita um brilho ao voltar a corrente.",
+  "This light has no white to come back in.": "Esta luz não tem um branco em que voltar.",
+  "Keep its last": "Manter o último",
 });
 
 """#),
@@ -33902,52 +33914,66 @@ HomeswiftI18n.add("pt", {
   }
 
   /// A light's Power on, as the Hue app shows it: one choice of a list, each with what it does, Natural Light first;
-  /// Custom's brightness and white under it. A choice applies at once, to the device or to the bridge's Natural Light.
+  /// Custom's brightness and white unfold under it, each its light's last until set. A choice applies at once, to the
+  /// device or to the bridge's Natural Light.
   function powerOnRows(box, power, id) {
     const words = {
-      natural: [t("Natural light"), () => t("As it was, on or off, in the white for the time of day: {kelvin} K now", { kelvin: power.naturalWhite ?? "–" })],
-      default: [t("Default"), () => t("Warm white, full brightness")],
-      lastOn: [t("Last on"), () => t("On, in its last colour and brightness")],
-      powerLoss: [t("Power loss recovery"), () => t("Stays off or turns back on, as it was")],
-      off: [t("Off"), () => t("Stays off")],
-      custom: [t("Custom"), () => t("On, at the brightness and white below")],
+      natural: [t("Natural light")],
+      default: [t("Default"), t("Warm white, full brightness")],
+      lastOn: [t("Last on"), t("On, in its last colour and brightness")],
+      powerLoss: [t("Power loss recovery"), t("Stays off or turns back on, as it was")],
+      off: [t("Off"), t("Stays off")],
+      custom: [t("Custom"), t("On, at the brightness and white below")],
     };
+    // Natural Light's words say the white it gives now, which a choice may change.
+    const help = (behaviour) => behaviour === "natural"
+      ? t("As it was, on or off, in the white for the time of day: {kelvin} K now", { kelvin: power.naturalWhite ?? "–" }) : words[behaviour][1];
     const support = power.support;
     const offered = Object.keys(words).filter((behaviour) => support.behaviours.includes(behaviour));
     if (!offered.length) return;
     const state = stateNode();
     const group = `power-on-${++ids}`;
-    // Custom's values: what the device has, else full brightness and a warm white.
     const custom = power.behaviour === "custom" ? power.current ?? {} : {};
-    const level = support.brightness ? el("input", { type: "range", min: 1, max: 100, value: custom.brightness ?? 100, "aria-label": t("Brightness") }) : null;
-    const white = support.white ? el("input", { type: "range", min: support.white[0], max: support.white[1], step: 50,
-      value: Math.min(support.white[1], Math.max(support.white[0], custom.temperature ?? 2700)), "aria-label": t("White") }) : null;
-    const levelText = el("span", { class: "power-on-value" }), whiteText = el("span", { class: "power-on-value" });
-    const showValues = () => {
-      if (level) levelText.textContent = `${level.value} %`;
-      if (white) whiteText.textContent = `${white.value} K`;
+    /// A value Custom may set, or leave as the light's last: its slider, and Keep its last.
+    const setting = (label, attributes, value, unit) => {
+      const slider = el("input", { type: "range", ...attributes, value: value ?? attributes.value, "aria-label": label });
+      const keep = el("input", { type: "checkbox", checked: value == null });
+      const shown = el("span", { class: "power-on-value" });
+      const show = () => {
+        slider.disabled = keep.checked;
+        shown.textContent = keep.checked ? "" : `${slider.value} ${unit}`;
+      };
+      slider.addEventListener("input", show);
+      slider.addEventListener("change", () => choose("custom"));
+      keep.addEventListener("change", () => { show(); choose("custom"); });
+      show();
+      return { get: () => keep.checked ? undefined : Number(slider.value),
+        node: el("div", { class: "field" }, el("span", { class: "field-title" }, el("span", { text: label }), shown), slider,
+          el("label", { class: "power-on-keep" }, keep, el("span", { text: t("Keep its last") }))) };
     };
-    level?.addEventListener("input", showValues);
-    white?.addEventListener("input", showValues);
-    showValues();
-    const customRows = el("div", { class: "power-on-custom" },
-      level ? el("label", { class: "field" }, el("span", { class: "field-title" }, el("span", { text: t("Brightness") }), levelText), level) : null,
-      white ? el("label", { class: "field" }, el("span", { class: "field-title" }, el("span", { text: t("White") }), whiteText), white) : null);
+    const level = support.brightness ? setting(t("Brightness"), { min: 1, max: 100, value: 100 }, custom.brightness, "%") : null;
+    const white = support.white ? setting(t("White"), { min: support.white[0], max: support.white[1], step: 50, value: 2700 }, custom.temperature, "K") : null;
+    // Unfolds under Custom, its height eased (`.unfold`), out of the tab order while folded.
+    const customBox = el("div", { class: "unfold power-on-custom" }, el("div", {}, level?.node ?? null, white?.node ?? null));
     const choices = offered.map((behaviour) => {
       const input = el("input", { type: "radio", name: group, value: behaviour, checked: power.behaviour === behaviour });
-      const help = el("span", { class: "help", text: words[behaviour][1]() });
+      const note = el("span", { class: "help", text: help(behaviour) });
       input.addEventListener("change", () => { if (input.checked) choose(behaviour); });
-      return { behaviour, input, help, node: el("label", { class: "power-on-choice" }, input,
-        el("span", { class: "power-on-text" }, el("span", { class: "field-title", text: words[behaviour][0] }), help)) };
+      return { behaviour, input, note, node: el("label", { class: "power-on-choice" }, input,
+        el("span", { class: "power-on-text" }, el("span", { class: "field-title", text: words[behaviour][0] }), note)) };
     });
-    const showCustom = () => { customRows.hidden = !choices.some((one) => one.behaviour === "custom" && one.input.checked) || (!level && !white); };
+    const showCustom = () => {
+      const open = (level || white) && choices.some((one) => one.behaviour === "custom" && one.input.checked);
+      customBox.classList.toggle("open", Boolean(open));
+      customBox.inert = !open;
+    };
     const choose = async (behaviour) => {
       showCustom();
       setState(state, "busy", t("Saving…"));
       const body = { behaviour };
       if (behaviour === "custom") {
-        if (level) body.brightness = Number(level.value);
-        if (white) body.temperature = Number(white.value);
+        body.brightness = level?.get();
+        body.temperature = white?.get();
       }
       try {
         power = await api(`/api/power-on/${enc(id)}`, { method: "PUT", body });
@@ -33957,16 +33983,13 @@ HomeswiftI18n.add("pt", {
       }
       for (const one of choices) {
         one.input.checked = one.behaviour === power.behaviour;
-        one.help.textContent = words[one.behaviour][1]();
+        one.note.textContent = help(one.behaviour);
       }
       showCustom();
     };
-    // A slider let go: Custom with what it says.
-    for (const slider of [level, white]) slider?.addEventListener("change", () => choose("custom"));
     showCustom();
-    const title = box.querySelector(".settings-section-head h3");
-    title?.append(" ", state);
-    box.append(el("div", { class: "power-on-choices", role: "radiogroup", "aria-label": t("Power on") }, choices.map((one) => one.node)), customRows);
+    box.querySelector(".settings-section-head h3")?.append(" ", state);
+    box.append(el("div", { class: "power-on-choices", role: "radiogroup", "aria-label": t("Power on") }, choices.map((one) => one.node)), customBox);
     box.hidden = false;
   }
 
@@ -40193,8 +40216,12 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 .power-on-choice input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); }
 .power-on-text { display: grid; gap: 2px; min-width: 0; }
 .power-on-text .field-title { margin: 0; }
-.power-on-custom { display: grid; gap: var(--space-6); margin-top: var(--space-8); padding-left: calc(var(--space-10) * 2 + 16px); }
+@media (hover: hover) and (pointer: fine) { .power-on-choice:hover:not(:has(input:checked)) { background: color-mix(in srgb, var(--text) 5%, transparent); } }
+.power-on-custom > div { display: grid; gap: var(--space-6); padding-left: calc(var(--space-10) * 2 + 16px); }
+.power-on-custom.open > div { padding-top: var(--space-8); }
 .power-on-custom .field-title { display: flex; justify-content: space-between; }
+.power-on-keep { display: flex; align-items: center; gap: var(--space-6); font-size: var(--text-sm); color: var(--muted); cursor: pointer; }
+.power-on-keep input { width: auto; margin: 0; accent-color: var(--accent); }
 .power-on-value { color: var(--muted); font-weight: var(--weight-regular); font-variant-numeric: tabular-nums; }
 .settings-section-head .help { margin-top: 2px; }
 .settings-section-head.with-tools { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-12); }

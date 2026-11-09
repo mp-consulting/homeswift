@@ -57,6 +57,7 @@ extension ElgatoKeyLightsPlugin {
             }
             var entry = entries[mac]?.objectValue ?? [:]
             if device["enabled"]?.boolValue == false, entry["excluded"] == nil { entry["excluded"] = true }
+            if device["powerOnBehavior"]?.intValue.map({ $0 != 0 }) == true, entry["naturalLight"] == nil { entry["naturalLight"] = false }
             if let name = device["displayName"]?.stringValue?.trimmingCharacters(in: .whitespaces), !name.isEmpty, entry["name"] == nil {
                 entry["name"] = .string(name)
             }
@@ -74,10 +75,12 @@ extension ElgatoKeyLightsPlugin {
             address["mac"] = .string(mac)
             return .object(address)
         }
-        // The legacy power-on keys, the light's own Power On now: plugin-wide and in each light's entry.
+        // The legacy power-on keys, the light's own Power On now: plugin-wide and in each light's entry. A light that had
+        // its own keeps the one its device has, rather than taking Natural Light (`naturalLight` false).
         for key in legacyPowerOnKeys { fields.removeValue(forKey: key) }
         entries = entries.mapValues { entry in
             guard var object = entry.objectValue else { return entry }
+            if object["powerOnBehavior"]?.intValue.map({ $0 != 0 }) == true, object["naturalLight"] == nil { object["naturalLight"] = false }
             for key in legacyPowerOnKeys { object.removeValue(forKey: key) }
             return .object(object)
         }.filter { $0.value.objectValue?.isEmpty != true }

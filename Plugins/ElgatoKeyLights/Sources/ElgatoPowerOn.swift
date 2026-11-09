@@ -9,9 +9,7 @@ extension ElgatoKeyLightsPlugin {
     static let powerOnWhite = 2900...7000
 
     private func powerOnDevice(_ accessoryID: String) -> KeyLightDevice? {
-        let prefix = "\(Self.platform):"
-        guard accessoryID.hasPrefix(prefix) else { return nil }
-        return device(mac: String(accessoryID.dropFirst(prefix.count)))
+        device(mac: AccessoryNaming.deviceID(of: accessoryID, platform: Self.platform))
     }
 
     public func powerOnSupport(of accessoryID: String) async -> PowerOnSupport? {

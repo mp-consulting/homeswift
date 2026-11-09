@@ -282,16 +282,13 @@ public struct HomeswiftConfiguration: Sendable {
                     let list = RemoteControl.readable(from: try JSONValue(any: given))
                     if !list.isEmpty { controls[deviceID] = list }
                 }
-                if let given = fields["naturalLight"] {
-                    guard let flag = given as? Bool else { throw ConfigurationError.invalidValue(key: "\(at).naturalLight", expected: "true or false") }
-                    if !flag { naturalLightOff.insert(deviceID) }
-                }
-                for key in ["hidden", "notInHome", "separateFunctions"] {
+                for key in ["hidden", "notInHome", "separateFunctions", "naturalLight"] {
                     guard let given = fields[key] else { continue }
                     guard let flag = given as? Bool else { throw ConfigurationError.invalidValue(key: "\(at).\(key)", expected: "true or false") }
                     if flag, key == "hidden" { hiddenOnWall.insert(deviceID) }
                     if flag, key == "separateFunctions" { separated.insert(deviceID) }
                     if flag, key == "notInHome", !hidden.contains("\(platform):\(deviceID)") { hidden.append("\(platform):\(deviceID)") }
+                    if !flag, key == "naturalLight" { naturalLightOff.insert(deviceID) }
                 }
                 let rest = fields.filter { !AccessorySettings.liveKeys.contains($0.key) }
                 if rest.isEmpty { liveOnly.insert(deviceID) } else { others[deviceID] = rest }

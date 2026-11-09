@@ -3703,4 +3703,8 @@ HomeswiftI18n.add("pt", {
   "Stays off": "Fica desligada",
   "Custom": "Personalizado",
   "On, at the brightness and white below": "Ligada, com o brilho e o branco abaixo",
+  "This light cannot do that when its power comes on.": "Esta luz não pode fazer isso quando a corrente volta.",
+  "This light takes no brightness to come back at.": "Esta luz não aceita um brilho ao voltar a corrente.",
+  "This light has no white to come back in.": "Esta luz não tem um branco em que voltar.",
+  "Keep its last": "Manter o último",
 });

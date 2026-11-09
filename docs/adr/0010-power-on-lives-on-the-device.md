@@ -19,7 +19,10 @@ bridge keeps (the Core Accessory Setting `naturalLight`), and it is every light'
 
 - Natural Light writes each light's power-on white as the day goes, a write when it moved by 10 mired, about fifty a day
   for each light; the device then comes back in the right white by itself, however short the power cut.
+- Before each of those writes the bridge reads what the light keeps: one changed elsewhere since (its maker's app) is
+  the person's choice, and the light leaves Natural Light for its device's own. A change made while the bridge was not
+  running is written over at its next start.
 - Natural Light being every light's that can have it, the bridge sets the lights' power-on behaviour the first time it
   runs with it: as they were, on or off (an Elgato Key Light always comes back on).
 - The Elgato plugin's power-on settings (plugin-wide and per light) are legacy: the plugin no longer applies them and
-  writes them out of its block.
+  writes them out of its block; a light that had its own keeps what its device has (`naturalLight` false).

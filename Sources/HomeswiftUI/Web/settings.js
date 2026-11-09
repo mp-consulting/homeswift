@@ -392,52 +392,66 @@
   }
 
   /// A light's Power on, as the Hue app shows it: one choice of a list, each with what it does, Natural Light first;
-  /// Custom's brightness and white under it. A choice applies at once, to the device or to the bridge's Natural Light.
+  /// Custom's brightness and white unfold under it, each its light's last until set. A choice applies at once, to the
+  /// device or to the bridge's Natural Light.
   function powerOnRows(box, power, id) {
     const words = {
-      natural: [t("Natural light"), () => t("As it was, on or off, in the white for the time of day: {kelvin} K now", { kelvin: power.naturalWhite ?? "–" })],
-      default: [t("Default"), () => t("Warm white, full brightness")],
-      lastOn: [t("Last on"), () => t("On, in its last colour and brightness")],
-      powerLoss: [t("Power loss recovery"), () => t("Stays off or turns back on, as it was")],
-      off: [t("Off"), () => t("Stays off")],
-      custom: [t("Custom"), () => t("On, at the brightness and white below")],
+      natural: [t("Natural light")],
+      default: [t("Default"), t("Warm white, full brightness")],
+      lastOn: [t("Last on"), t("On, in its last colour and brightness")],
+      powerLoss: [t("Power loss recovery"), t("Stays off or turns back on, as it was")],
+      off: [t("Off"), t("Stays off")],
+      custom: [t("Custom"), t("On, at the brightness and white below")],
     };
+    // Natural Light's words say the white it gives now, which a choice may change.
+    const help = (behaviour) => behaviour === "natural"
+      ? t("As it was, on or off, in the white for the time of day: {kelvin} K now", { kelvin: power.naturalWhite ?? "–" }) : words[behaviour][1];
     const support = power.support;
     const offered = Object.keys(words).filter((behaviour) => support.behaviours.includes(behaviour));
     if (!offered.length) return;
     const state = stateNode();
     const group = `power-on-${++ids}`;
-    // Custom's values: what the device has, else full brightness and a warm white.
     const custom = power.behaviour === "custom" ? power.current ?? {} : {};
-    const level = support.brightness ? el("input", { type: "range", min: 1, max: 100, value: custom.brightness ?? 100, "aria-label": t("Brightness") }) : null;
-    const white = support.white ? el("input", { type: "range", min: support.white[0], max: support.white[1], step: 50,
-      value: Math.min(support.white[1], Math.max(support.white[0], custom.temperature ?? 2700)), "aria-label": t("White") }) : null;
-    const levelText = el("span", { class: "power-on-value" }), whiteText = el("span", { class: "power-on-value" });
-    const showValues = () => {
-      if (level) levelText.textContent = `${level.value} %`;
-      if (white) whiteText.textContent = `${white.value} K`;
+    /// A value Custom may set, or leave as the light's last: its slider, and Keep its last.
+    const setting = (label, attributes, value, unit) => {
+      const slider = el("input", { type: "range", ...attributes, value: value ?? attributes.value, "aria-label": label });
+      const keep = el("input", { type: "checkbox", checked: value == null });
+      const shown = el("span", { class: "power-on-value" });
+      const show = () => {
+        slider.disabled = keep.checked;
+        shown.textContent = keep.checked ? "" : `${slider.value} ${unit}`;
+      };
+      slider.addEventListener("input", show);
+      slider.addEventListener("change", () => choose("custom"));
+      keep.addEventListener("change", () => { show(); choose("custom"); });
+      show();
+      return { get: () => keep.checked ? undefined : Number(slider.value),
+        node: el("div", { class: "field" }, el("span", { class: "field-title" }, el("span", { text: label }), shown), slider,
+          el("label", { class: "power-on-keep" }, keep, el("span", { text: t("Keep its last") }))) };
     };
-    level?.addEventListener("input", showValues);
-    white?.addEventListener("input", showValues);
-    showValues();
-    const customRows = el("div", { class: "power-on-custom" },
-      level ? el("label", { class: "field" }, el("span", { class: "field-title" }, el("span", { text: t("Brightness") }), levelText), level) : null,
-      white ? el("label", { class: "field" }, el("span", { class: "field-title" }, el("span", { text: t("White") }), whiteText), white) : null);
+    const level = support.brightness ? setting(t("Brightness"), { min: 1, max: 100, value: 100 }, custom.brightness, "%") : null;
+    const white = support.white ? setting(t("White"), { min: support.white[0], max: support.white[1], step: 50, value: 2700 }, custom.temperature, "K") : null;
+    // Unfolds under Custom, its height eased (`.unfold`), out of the tab order while folded.
+    const customBox = el("div", { class: "unfold power-on-custom" }, el("div", {}, level?.node ?? null, white?.node ?? null));
     const choices = offered.map((behaviour) => {
       const input = el("input", { type: "radio", name: group, value: behaviour, checked: power.behaviour === behaviour });
-      const help = el("span", { class: "help", text: words[behaviour][1]() });
+      const note = el("span", { class: "help", text: help(behaviour) });
       input.addEventListener("change", () => { if (input.checked) choose(behaviour); });
-      return { behaviour, input, help, node: el("label", { class: "power-on-choice" }, input,
-        el("span", { class: "power-on-text" }, el("span", { class: "field-title", text: words[behaviour][0] }), help)) };
+      return { behaviour, input, note, node: el("label", { class: "power-on-choice" }, input,
+        el("span", { class: "power-on-text" }, el("span", { class: "field-title", text: words[behaviour][0] }), note)) };
     });
-    const showCustom = () => { customRows.hidden = !choices.some((one) => one.behaviour === "custom" && one.input.checked) || (!level && !white); };
+    const showCustom = () => {
+      const open = (level || white) && choices.some((one) => one.behaviour === "custom" && one.input.checked);
+      customBox.classList.toggle("open", Boolean(open));
+      customBox.inert = !open;
+    };
     const choose = async (behaviour) => {
       showCustom();
       setState(state, "busy", t("Saving…"));
       const body = { behaviour };
       if (behaviour === "custom") {
-        if (level) body.brightness = Number(level.value);
-        if (white) body.temperature = Number(white.value);
+        body.brightness = level?.get();
+        body.temperature = white?.get();
       }
       try {
         power = await api(`/api/power-on/${enc(id)}`, { method: "PUT", body });
@@ -447,16 +461,13 @@
       }
       for (const one of choices) {
         one.input.checked = one.behaviour === power.behaviour;
-        one.help.textContent = words[one.behaviour][1]();
+        one.note.textContent = help(one.behaviour);
       }
       showCustom();
     };
-    // A slider let go: Custom with what it says.
-    for (const slider of [level, white]) slider?.addEventListener("change", () => choose("custom"));
     showCustom();
-    const title = box.querySelector(".settings-section-head h3");
-    title?.append(" ", state);
-    box.append(el("div", { class: "power-on-choices", role: "radiogroup", "aria-label": t("Power on") }, choices.map((one) => one.node)), customRows);
+    box.querySelector(".settings-section-head h3")?.append(" ", state);
+    box.append(el("div", { class: "power-on-choices", role: "radiogroup", "aria-label": t("Power on") }, choices.map((one) => one.node)), customBox);
     box.hidden = false;
   }
 

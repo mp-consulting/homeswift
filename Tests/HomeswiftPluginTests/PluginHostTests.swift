@@ -119,6 +119,11 @@ actor RecordingPlugin: HomeswiftPlugin {
         powerOnWrites.append((accessoryID, value))
     }
 
+    /// A Power On given to a white lamp elsewhere (its maker's app): what its device reads from now on.
+    func changePowerOnElsewhere(_ value: PowerOn, of accessoryID: String) {
+        powerOnWrites.append((accessoryID, value))
+    }
+
     /// A press of a remote's Button as HomeKit gets it.
     func press(_ remote: String, _ button: String, _ event: Int) {
         context.accessory(id: "Recording:\(remote)")?.services.first { $0.subtype == button }?.characteristic(.programmableSwitchEvent).sendEvent(.int(event))
