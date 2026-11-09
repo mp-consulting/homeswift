@@ -3707,4 +3707,5 @@ HomeswiftI18n.add("fr", {
   "This light takes no brightness to come back at.": "Cette lumière ne prend pas de luminosité au retour du courant.",
   "This light has no white to come back in.": "Cette lumière n'a pas de blanc dans lequel revenir.",
   "Keep its last": "Garder la dernière",
+  "Its last": "Sa dernière",
 });

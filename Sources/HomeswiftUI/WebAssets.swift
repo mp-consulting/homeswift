@@ -23645,6 +23645,7 @@ HomeswiftI18n.add("es", {
   "This light takes no brightness to come back at.": "Esta luz no admite un brillo al volver la corriente.",
   "This light has no white to come back in.": "Esta luz no tiene un blanco en el que volver.",
   "Keep its last": "Conservar el último",
+  "Its last": "Su último",
 });
 
 """#),
@@ -27358,6 +27359,7 @@ HomeswiftI18n.add("fr", {
   "This light takes no brightness to come back at.": "Cette lumière ne prend pas de luminosité au retour du courant.",
   "This light has no white to come back in.": "Cette lumière n'a pas de blanc dans lequel revenir.",
   "Keep its last": "Garder la dernière",
+  "Its last": "Sa dernière",
 });
 
 """#),
@@ -31071,6 +31073,7 @@ HomeswiftI18n.add("pt", {
   "This light takes no brightness to come back at.": "Esta luz não aceita um brilho ao voltar a corrente.",
   "This light has no white to come back in.": "Esta luz não tem um branco em que voltar.",
   "Keep its last": "Manter o último",
+  "Its last": "O seu último",
 });
 
 """#),
@@ -33934,25 +33937,30 @@ HomeswiftI18n.add("pt", {
     const state = stateNode();
     const group = `power-on-${++ids}`;
     const custom = power.behaviour === "custom" ? power.current ?? {} : {};
-    /// A value Custom may set, or leave as the light's last: its slider, and Keep its last.
-    const setting = (label, attributes, value, unit) => {
-      const slider = el("input", { type: "range", ...attributes, value: value ?? attributes.value, "aria-label": label });
-      const keep = el("input", { type: "checkbox", checked: value == null });
-      const shown = el("span", { class: "power-on-value" });
-      const show = () => {
-        slider.disabled = keep.checked;
-        shown.textContent = keep.checked ? "" : `${slider.value} ${unit}`;
+    /// A value Custom may set, or leave as the light's last: the wall's slider (a light's fill, or its whites), dimmed
+    /// and saying so while it keeps the last; moving it sets one.
+    const setting = (label, { min, max, step = 1, start, unit, look }, value) => {
+      let chosen = value ?? undefined;
+      const keep = el("input", { type: "checkbox", checked: chosen === undefined });
+      const slider = HomeswiftWidgets.level({ label, showLabel: false, min, max, step, format: (v) => `${v} ${unit}`, ...look },
+        (v) => { chosen = v; keep.checked = false; paint(); choose("custom"); });
+      const paint = () => {
+        slider.set(chosen ?? start);
+        slider.node.classList.toggle("unset", keep.checked);
+        if (keep.checked) {
+          slider.node.querySelector(".level-text").textContent = t("Its last");
+          slider.node.setAttribute("aria-valuetext", t("Its last"));
+        }
       };
-      slider.addEventListener("input", show);
-      slider.addEventListener("change", () => choose("custom"));
-      keep.addEventListener("change", () => { show(); choose("custom"); });
-      show();
-      return { get: () => keep.checked ? undefined : Number(slider.value),
-        node: el("div", { class: "field" }, el("span", { class: "field-title" }, el("span", { text: label }), shown), slider,
+      keep.addEventListener("change", () => { chosen = keep.checked ? undefined : chosen ?? start; paint(); choose("custom"); });
+      paint();
+      return { get: () => keep.checked ? undefined : chosen,
+        node: el("div", { class: "field slider-field" }, el("span", { class: "field-title", text: label }), slider.node,
           el("label", { class: "power-on-keep" }, keep, el("span", { text: t("Keep its last") }))) };
     };
-    const level = support.brightness ? setting(t("Brightness"), { min: 1, max: 100, value: 100 }, custom.brightness, "%") : null;
-    const white = support.white ? setting(t("White"), { min: support.white[0], max: support.white[1], step: 50, value: 2700 }, custom.temperature, "K") : null;
+    const level = support.brightness ? setting(t("Brightness"), { min: 1, max: 100, start: 100, unit: "%", look: { fill: HomeswiftWidgets.brightnessFill() } }, custom.brightness) : null;
+    const white = support.white ? setting(t("White"), { min: support.white[0], max: support.white[1], step: 50, start: 2700, unit: "K",
+      look: { gradient: HomeswiftWidgets.whiteTrack(support.white[0], support.white[1]) } }, custom.temperature) : null;
     // Unfolds under Custom, its height eased (`.unfold`), out of the tab order while folded.
     const customBox = el("div", { class: "unfold power-on-custom" }, el("div", {}, level?.node ?? null, white?.node ?? null));
     const choices = offered.map((behaviour) => {
@@ -40219,9 +40227,7 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 @media (hover: hover) and (pointer: fine) { .power-on-choice:hover:not(:has(input:checked)) { background: color-mix(in srgb, var(--text) 5%, transparent); } }
 .power-on-custom > div { display: grid; gap: var(--space-6); padding-left: calc(var(--space-10) * 2 + 16px); }
 .power-on-custom.open > div { padding-top: var(--space-8); }
-.power-on-custom .field-title { display: flex; justify-content: space-between; }
-.power-on-custom input[type="range"] { width: 100%; }
-.power-on-keep { display: flex; align-items: center; gap: var(--space-6); font-size: var(--text-sm); color: var(--muted); cursor: pointer; }
+.power-on-keep { display: flex; align-items: center; gap: var(--space-6); margin-top: var(--space-6); font-size: var(--text-sm); color: var(--muted); cursor: pointer; }
 .power-on-keep input { width: auto; margin: 0; accent-color: var(--accent); }
 .power-on-value { color: var(--muted); font-weight: var(--weight-regular); font-variant-numeric: tabular-nums; }
 .settings-section-head .help { margin-top: 2px; }
