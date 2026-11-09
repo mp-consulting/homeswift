@@ -65,11 +65,28 @@ remote's buttons without names, and opens its Wheel on the Remotes page. Any but
 Homeswift reaches its nodes by DNS-SD (`_matter._tcp`, the instance named by its compressed fabric id and the node id) and
 keeps the last address for when no record answers. A Thread device answers through a Thread border router (a HomePod, an
 Apple TV, a hub), so the bridge's host needs IPv6 routes to the Thread network, which border routers announce in their
-Router Advertisements (`netstat -rn -f inet6` shows them on macOS, `ip -6 route` on Linux). A battery device sleeps:
+Router Advertisements as Route Information Options (`netstat -rn -f inet6` shows them on macOS, `ip -6 route` on Linux).
+A battery device sleeps:
 Homeswift retransmits to it from its idle interval (Matter Core §4.12.8), so a command or a first connection can take
 several seconds. Each node keeps one subscription (minimum interval 0, urgent Switch events, a maximum interval of 60
 seconds that the device may raise to its idle time); a subscription that goes quiet for longer than it promised is opened
 again from the event after the last one delivered, so presses are never replayed.
+
+A Linux kernel built without Route Information Options (`CONFIG_IPV6_ROUTE_INFO`; a Synology NAS's has none, and
+`/proc/sys/net/ipv6/conf/*/accept_ra_rt_info_max_plen` is then missing) never learns the Thread network's route: the
+device's address goes to the default route, and nothing answers. Setup then says the server has no route to the Thread
+network and names its prefix. Add the route by hand, through the border routers, as root (the interface is the one on
+the border routers' network; `append` adds the others as fallbacks):
+
+```sh
+ip -6 route add fd12:3456:789a::/64 via fe80::1c2b:3a4d:5e6f:7081 dev eth0
+ip -6 route append fd12:3456:789a::/64 via fe80::9a8b:7c6d:5e4f:3a2b dev eth0
+```
+
+A Mac on the same network shows the prefix and a border router's link-local address (`netstat -rn -f inet6 | grep fd`);
+`dns-sd -B _meshcop._udp` lists the border routers. A route added by hand is gone after a restart: run the commands at
+boot (on a Synology NAS, a Triggered Task at Boot-up, run by root, in Control Panel > Task Scheduler). The prefix only
+changes when the Thread network is made anew.
 
 ## Storage
 
