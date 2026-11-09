@@ -145,15 +145,17 @@ extension Thing {
     @discardableResult
     func float(
         _ service: ServiceBuilder, _ type: CharacteristicType, _ entry: Entry, get: String?, set: String? = nil, property: String,
-        initial: Double? = nil, minimum: Double? = nil, maximum: Double? = nil, onReceive: ((Double) -> Void)? = nil
+        initial: Double? = nil, minimum: Double? = nil, maximum: Double? = nil, beforeShown: ((Double) -> Void)? = nil,
+        onReceive: ((Double) -> Void)? = nil
     ) -> Characteristic {
         // Boxed: the closures below capture it, and the compiler takes a closure parameter for something sent.
-        let onReceive = Box(onReceive)
+        let onReceive = Box(onReceive), beforeShown = Box(beforeShown)
         let characteristic = service.add(type.with(minValue: minimum, maxValue: maximum))
         if let initial { characteristic.value = .double(initial) }
         bind(
             characteristic, entry.config, .float, get: get, set: set, property: property, online: entry.online,
-            received: { value, _ in if let number = value.doubleValue { onReceive.value?(number) } })
+            received: { value, _ in if let number = value.doubleValue { onReceive.value?(number) } },
+            before: beforeShown.value.map { take in { value in if let number = value.doubleValue { take(number) } } })
         return characteristic
     }
 

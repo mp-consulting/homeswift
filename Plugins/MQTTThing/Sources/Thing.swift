@@ -301,10 +301,11 @@ actor Thing {
     /// (`changed` tells whether it changed the value), `wrote` after each HomeKit write was published.
     func bind(
         _ characteristic: Characteristic, _ config: Config, _ kind: Kind, get: String?, set: String?, property: String, online: OnlineState,
-        eventOnly: Bool = false, received: ((HAPValue, Bool) -> Void)? = nil, wrote: ((HAPValue) -> Void)? = nil
+        eventOnly: Bool = false, received: ((HAPValue, Bool) -> Void)? = nil, wrote: ((HAPValue) -> Void)? = nil,
+        before: ((HAPValue) -> Void)? = nil
     ) {
         // Boxed: the closures below capture it, and the compiler takes a closure parameter for something sent.
-        let received = Box(received)
+        let received = Box(received), before = Box(before)
         let wrote = Box(wrote)
         if !eventOnly { serveReads(characteristic, online) }
         if let set, config.has(set) {
@@ -318,16 +319,19 @@ actor Thing {
         guard let get, config.has(get) else { return }
         subscribe(config, get, property: property) { [weak characteristic] message in
             guard let characteristic, let value = self.decode(kind, message, for: characteristic, key: get) else { return }
-            self.apply(value, to: characteristic, config: config, eventOnly: eventOnly, received: received.value)
+            self.apply(value, to: characteristic, config: config, eventOnly: eventOnly, received: received.value, before: before.value)
         }
     }
 
-    /// A received value: validated, then set when it changed (an event-only one fires every time).
-    func apply(_ value: HAPValue, to characteristic: Characteristic, config: Config, eventOnly: Bool = false, received: ((HAPValue, Bool) -> Void)? = nil) {
+    /// A received value: validated, then set when it changed (an event-only one fires every time). `before` takes it once
+    /// it is valid and before it shows (an energy counter stamps the reading's time), `received` after.
+    func apply(_ value: HAPValue, to characteristic: Characteristic, config: Config, eventOnly: Bool = false, received: ((HAPValue, Bool) -> Void)? = nil,
+               before: ((HAPValue) -> Void)? = nil) {
         if let reason = invalid(value, for: characteristic, config: config) {
             logger.warning("Ignoring invalid value [\(value.doubleValue.map { JSONValue.number($0).text() } ?? value.stringValue ?? "\(value)")] for \(characteristic.type.name) - \(reason)")
             return
         }
+        before?(value)
         if eventOnly {
             characteristic.sendEvent(value)
             received?(value, true)

@@ -289,7 +289,8 @@ extension Thing {
         var energy: ((Double) -> Void)?
         if let history = entry.history { energy = energyHistory(service, entry, history, counts: !config.has("getTotalConsumption")) }
         if config.has("getWatts") {
-            float(service, Eve.currentConsumption, entry, get: "getWatts", property: "currentConsumption", initial: 0) { energy?($0) }
+            // Counted before it shows, so whoever sees the power sees it counted from its time.
+            float(service, Eve.currentConsumption, entry, get: "getWatts", property: "currentConsumption", initial: 0, beforeShown: { energy?($0) })
         }
         if config.has("getVolts") {
             let minimum = config.number("minVolts"), maximum = config.number("maxVolts")
