@@ -239,8 +239,9 @@ struct BluetoothPluginTests {
         garage.push(rawAdvertisements([(thermometer, -50, reading)]))
         #expect(await eventually { shows(host.accessory(id)?.service(.temperatureSensor)?.characteristic(.currentTemperature), 25.06) })
         let accessory = try #require(host.accessory(id))
-        #expect(shows(accessory.service(.humiditySensor)?.characteristic(.currentRelativeHumidity), 50.55, within: 1))
-        #expect(accessory.service(.battery)?[.batteryLevel]?.value == .int(93))
+        // An advertisement's readings land one after the other: each waited for.
+        #expect(await eventually { shows(accessory.service(.humiditySensor)?.characteristic(.currentRelativeHumidity), 50.55, within: 1) })
+        #expect(await eventually { accessory.service(.battery)?[.batteryLevel]?.value == .int(93) })
         #expect(accessory.service(.statelessProgrammableSwitch) != nil)
         #expect(accessory.information.characteristic(.serialNumber).value == .string("A4C138000001"))
         #expect(accessory.information.characteristic(.manufacturer).value == .string("BTHome"))
@@ -256,7 +257,8 @@ struct BluetoothPluginTests {
         let next = rawAdvertisement(serviceData: (0xFCD2, [0x40, 0x00, 0x08, 0x02, 0x1F, 0x0A]))
         hall.push(rawAdvertisements([(thermometer, -80, next)]))
         #expect(await eventually { !accessory.isUnavailable })
-        #expect(shows(accessory.service(.temperatureSensor)?.characteristic(.currentTemperature), 25.91))
+        // Its availability and its reading land one after the other.
+        #expect(await eventually { shows(accessory.service(.temperatureSensor)?.characteristic(.currentTemperature), 25.91) })
     }
 
     @Test func setupFindsSensorsAndAsksForABindkey() async throws {

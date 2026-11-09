@@ -42,6 +42,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **Philips Hue**: a scene created, changed or removed, a room renamed, a scene recalled or a light's action is shown
+  once the bridge's answer is: a read the plugin's own poll overtook was dropped, and the write returned before the newer
+  one applied it (a new scene was not found a moment after it was made).
+- **Matter Devices**: a device's link says connected once its subscription's first report is in and handled, so a
+  remote's next press is acted on rather than taken for one from before Homeswift was there.
+- **MQTT Thing**: an outlet's energy counter takes a power reading before Current Consumption shows it, so the time it
+  counts from is the reading's own.
 - **Home Assistant**: a new accessory is added with its entities' states, its battery and its availability already
   applied, so HomeKit never sees it a moment with the services' defaults (a lock unsecured, a plug off) or No Response.
 - A light restored from the accessory cache, before its plugin found it again, was not a Lightbulb to what looked for

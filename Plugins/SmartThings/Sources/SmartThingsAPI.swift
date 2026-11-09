@@ -7,6 +7,8 @@ import Logging
 struct SmartThingsTiming: Sendable {
     /// 1 in the bridge; tests make it 0.001 (a minute becomes 60 ms).
     var scale: Double = 1
+    /// The clock a 429's back-off is measured on: tests move it themselves.
+    var now: @Sendable () -> ContinuousClock.Instant = { .now }
 
     func seconds(_ value: Double) -> Duration {
         let scaled = value * scale
@@ -249,9 +251,9 @@ actor SmartThingsAPI {
 
     /// One call with the rules of section 6.2.
     private func send(_ method: String, url: URL, path: String, body: JSONValue? = nil, accept: String = "application/json", isWrite: Bool) async throws -> JSONValue {
-        if let until = backoffUntil, ContinuousClock.now < until {
+        if let until = backoffUntil, timing.now() < until {
             // During a 429 back-off reads are not sent; a write waits only a short one (section 6.2).
-            let wait = until - ContinuousClock.now
+            let wait = until - timing.now()
             guard isWrite, wait <= timing.seconds(5) else { throw SmartThingsError.rateLimited(path: path) }
             try await Task.sleep(for: wait)
         }
@@ -290,7 +292,7 @@ actor SmartThingsAPI {
                 continue
             case 429:
                 let wait = rateLimitWait(response)
-                backoffUntil = ContinuousClock.now + wait
+                backoffUntil = timing.now() + wait
                 backoffAttempt += 1
                 logger.warning("SmartThings is limiting the requests (HTTP 429): waiting \(Int((Double(wait.components.seconds) / max(timing.scale, 1e-9)).rounded())) s")
                 if isWrite, !rateRetried, wait <= timing.seconds(5) {

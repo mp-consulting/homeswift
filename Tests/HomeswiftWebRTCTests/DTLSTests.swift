@@ -359,12 +359,32 @@ import Glibc
         let printed = try #require(await server.process.waitFor("Keying material: "), "\(server.process.output)")
         #expect(printed.prefix { $0.isHexDigit } == hex(keys.material).uppercased())
         #expect(server.process.output.contains("SRTP Extension negotiated, profile=SRTP_AES128_CM_SHA1_80"))
-        // Application data both ways: s_server prints what it receives and sends what its input says.
-        try await client.send(application: Array("from homeswift\n".utf8))
-        #expect(await server.process.waitFor("from homeswift") != nil)
-        server.process.write("from openssl\n")
-        var iterator = client.received.makeAsyncIterator()
-        #expect(await iterator.next() == Array("from openssl\n".utf8))
+        // Application data both ways: s_server prints what it receives and sends what its input says. Each is one UDP
+        // datagram, which DTLS never sends again (that is the application's): sent again until it arrives, as a loaded host
+        // can drop a datagram even on loopback.
+        var arrived = false
+        for _ in 0..<30 where !arrived {
+            try await client.send(application: Array("from homeswift\n".utf8))
+            arrived = await server.process.waitFor("from homeswift", timeout: .milliseconds(500)) != nil
+        }
+        #expect(arrived, "\(server.process.output)")
+        let received = await withTaskGroup(of: [UInt8]?.self) { group in
+            group.addTask {
+                var iterator = client.received.makeAsyncIterator()
+                return await iterator.next()
+            }
+            group.addTask {
+                for _ in 0..<30 where !Task.isCancelled {
+                    server.process.write("from openssl\n")
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+        #expect(received == Array("from openssl\n".utf8))
         await client.close()
     }
 

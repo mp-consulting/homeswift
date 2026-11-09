@@ -124,10 +124,10 @@ final class SensorAccessory: WebhookAccessory {
 
     /// A trigger (re)starts the release; the resting state cancels a release in progress.
     private func scheduleRelease(after delay: Duration, triggered: Bool) {
-        let resting = kind.resting
+        let resting = kind.resting, wait = environment.timing.releaseWait
         let task = triggered
             ? environment.tasks.add { [weak self] in
-                guard (try? await Task.sleep(for: delay)) != nil, let self else { return }
+                guard (try? await wait(delay)) != nil, !Task.isCancelled, let self else { return }
                 self.environment.store.set(self.key, resting)
                 if self.show(resting) { self.environment.logger.info("\(self.name): auto release, changing HomeKit state to \(resting)") }
             } : nil

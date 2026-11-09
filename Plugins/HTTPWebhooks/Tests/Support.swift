@@ -79,6 +79,40 @@ nonisolated(unsafe) let exampleBlock: [String: Any] = [
 ]
 
 /// A host with one HttpWebHooks block whose plugin calls `http`, listening on a port of its own choosing.
+/// Waits the tests let go themselves: each `wait` stays until `release()` (in order) or its task's cancellation.
+final class HeldWaits: Sendable {
+    private let held = NIOLockedValueBox<[(id: UUID, continuation: CheckedContinuation<Void, any Error>)]>([])
+    private let started = NIOLockedValueBox(0)
+
+    /// The waits under way, and how many began.
+    var pending: Int { held.withLockedValue { $0.count } }
+    var begun: Int { started.withLockedValue { $0 } }
+
+    @Sendable func wait(_ duration: Duration) async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                held.withLockedValue { $0.append((id, continuation)) }
+                started.withLockedValue { $0 += 1 }
+                if Task.isCancelled { cancel(id) }
+            }
+        } onCancel: { cancel(id) }
+    }
+
+    /// Lets the oldest wait under way go.
+    func release() {
+        held.withLockedValue { $0.isEmpty ? nil : $0.removeFirst() }?.continuation.resume()
+    }
+
+    private func cancel(_ id: UUID) {
+        let found = held.withLockedValue { list -> CheckedContinuation<Void, any Error>? in
+            guard let index = list.firstIndex(where: { $0.id == id }) else { return nil }
+            return list.remove(at: index).continuation
+        }
+        found?.resume(throwing: CancellationError())
+    }
+}
+
 final class TestEnvironment: Sendable {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-HTTPWebhooks-tests-\(UUID().uuidString)")
     let http = FakeHTTP()
@@ -87,16 +121,24 @@ final class TestEnvironment: Sendable {
     static let timing = KindEnvironment.Timing(
         pushButtonRelease: .milliseconds(20), currentPositionDelay: .milliseconds(20), coalescing: .zero, callTimeout: .seconds(5),
         slowCallTimeout: .seconds(5), autoReleaseScale: 0.01)
+    let timing: KindEnvironment.Timing
+
+    /// `releases`: the sensors' auto releases wait until the test lets them go.
+    init(releases: HeldWaits? = nil) {
+        var timing = Self.timing
+        if let releases { timing.releaseWait = releases.wait }
+        self.timing = timing
+    }
 
     var plugin: HTTPWebhooksPlugin? { plugins.withLockedValue { $0.last } }
 
     func start(settings: [String: Any] = exampleBlock) async throws -> PluginHost {
         var registry = PluginRegistry()
-        let http = http
+        let http = http, timing = timing
         registry.register(platform: HTTPWebhooksPlugin.platform, name: HTTPWebhooksPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(HTTPWebhooksPlugin.Configuration.self, from: json)
             let plugin = HTTPWebhooksPlugin(
-                configuration: configuration, context: context, dependencies: .init(client: { _ in http }, port: 0, timing: Self.timing))
+                configuration: configuration, context: context, dependencies: .init(client: { _ in http }, port: 0, timing: timing))
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }

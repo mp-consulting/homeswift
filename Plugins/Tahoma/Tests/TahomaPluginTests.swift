@@ -98,7 +98,9 @@ struct TahomaPluginTests {
         #expect(await eventually { host.accessory(shutter) != nil })
         let covering = try #require(host.accessory(shutter)?.service(.windowCovering))
         try await covering.characteristic(.targetPosition).writeFromHomeKit(60)
-        let execID = "exec-1"
+        // The id the gateway gave this command, once it went out (it is debounced): not assumed to be the first.
+        #expect(await eventually { environment.server.execID(for: shutter) != nil })
+        let execID = try #require(environment.server.execID(for: shutter))
         environment.server.queue([["name": "ExecutionStateChangedEvent", "execId": .string(execID), "newState": "IN_PROGRESS", "timeToNextState": 0]])
         #expect(await eventually { covering.characteristic(.positionState).value == .int(HAP.decreasing) })
         environment.server.queue([

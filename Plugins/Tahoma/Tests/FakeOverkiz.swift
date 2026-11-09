@@ -38,6 +38,8 @@ final class FakeOverkiz: HTTPSending, Sendable {
         var token = "0123456789abcdef0123"
         var loginStatus: Int?
         var nextExec = 0
+        /// Each execution applied: the id it was given and its body.
+        var applied: [(id: String, body: JSONValue?)] = []
         var listener = "a70f6d96-0000-4000-8000-0000000000bb"
         var sessionValid = true
         var mintedTokens: [String] = []
@@ -80,6 +82,10 @@ final class FakeOverkiz: HTTPSending, Sendable {
     /// The next applies answer these statuses (400 is a full queue), then succeed.
     func failApplies(_ statuses: [Int]) { state.withLockedValue { $0.applyFailures = statuses } }
     func queue(_ events: [JSONValue]) { state.withLockedValue { $0.events += events } }
+    /// The id of the last execution applied to `deviceURL`, once one was.
+    func execID(for deviceURL: String) -> String? {
+        state.withLockedValue { $0.applied.last { $0.body?.text().contains(deviceURL) == true }?.id }
+    }
     /// Somfy forgets every access token it gave (they expired), keeping the refresh tokens.
     func expireAccessTokens() { state.withLockedValue { $0.accessTokens = [] } }
     func revokeRefreshTokens() { state.withLockedValue { $0.refreshTokens = [] } }
@@ -195,6 +201,7 @@ final class FakeOverkiz: HTTPSending, Sendable {
                 return json(["errorCode": "EXEC_QUEUE_FULL", "error": "Execution queue is full on gateway: #1234-5678-9012 (soft limit: 10)"], status: status)
             }
             state.nextExec += 1
+            state.applied.append(("exec-\(state.nextExec)", request.body))
             return json(["execId": .string("exec-\(state.nextExec)")])
         case ("POST", let p) where p.hasPrefix("/exec/"):
             state.nextExec += 1
