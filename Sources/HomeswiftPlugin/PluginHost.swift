@@ -260,6 +260,7 @@ public final class PluginHost: @unchecked Sendable {
     let homeLinkKey = NIOLockedValueBox<String?>(nil)
     /// Runs the Remotes' Controls (`RemoteControls`), and follows HomeKit's presses for them.
     private let remoteControlsBox = NIOLockedValueBox<RemoteControls?>(nil)
+    private let naturalLightBox = NIOLockedValueBox<NaturalLightRunner?>(nil)
     private let remotePresses = NIOLockedValueBox<Observation?>(nil)
 
     /// Prepares the bridges and the plugins' contexts and restores the accessory caches. Nothing listens
@@ -326,6 +327,10 @@ public final class PluginHost: @unchecked Sendable {
         let controls = RemoteControls(find: { [weak self] id in self?.accessory(id: id) }, remote: { [weak self] id in self?.remote(of: id) },
                                       scenes: { [weak self] in self?.homeScenes }, logger: logger)
         remoteControlsBox.withLockedValue { $0 = controls }
+        naturalLightBox.withLockedValue {
+            $0 = NaturalLightRunner(lights: { [weak self] in self?.naturalLightCandidates() ?? [] }, location: { [weak self] in self?.configuration.location },
+                                    logger: logger)
+        }
         remotePresses.withLockedValue { $0 = changes.add { accessory, characteristic, value in controls.observed(accessory, characteristic, value) } }
     }
 
@@ -345,6 +350,50 @@ public final class PluginHost: @unchecked Sendable {
             let key = AccessoryNaming.deviceID(of: accessoryID, platform: context.platform)
             return RemoteState(name: accessory.name, layout: declared ?? .inferred(from: accessory), isDeclared: declared != nil,
                                controls: context.accessorySettings(for: key).controls)
+        }
+        return nil
+    }
+
+    // MARK: Power On
+
+    /// The lights that may have Natural Light: those with a colour temperature, with their plugin and their setting.
+    private func naturalLightCandidates() -> [NaturalLightRunner.Light] {
+        instances.flatMap { instance -> [NaturalLightRunner.Light] in
+            guard !instance.block.paused, let plugin = instance.plugin.withLockedValue({ $0 }) else { return [] }
+            let context = instance.context
+            return context.accessories.filter { $0.services.contains { $0.type == .lightbulb && $0[.colorTemperature] != nil } }.map { accessory in
+                let key = AccessoryNaming.deviceID(of: accessory.id, platform: context.platform)
+                return .init(accessoryID: accessory.id, name: accessory.name, plugin: plugin, wantsNatural: context.accessorySettings(for: key).naturalLight)
+            }
+        }
+    }
+
+    /// A light's Power On as the page and the Assistant show it: what its device can do, whether it has Natural Light,
+    /// and what its device does now (nil when it cannot tell, or when it has Natural Light). nil for an accessory whose
+    /// plugin keeps no Power On for it.
+    public func powerOn(of accessoryID: String) async throws -> (support: PowerOnSupport, natural: Bool, device: PowerOn?)? {
+        guard let (instance, plugin) = owner(of: accessoryID), let support = await plugin.powerOnSupport(of: accessoryID) else { return nil }
+        let key = AccessoryNaming.deviceID(of: accessoryID, platform: instance.context.platform)
+        let natural = support.behaviours.contains(.natural) && instance.context.accessorySettings(for: key).naturalLight
+        return (support, natural, natural ? nil : try await plugin.powerOn(of: accessoryID))
+    }
+
+    /// Has a light's device do `value` (one of its device's own behaviours) when its power comes on.
+    public func setDevicePowerOn(_ value: PowerOn, of accessoryID: String) async throws {
+        guard let (_, plugin) = owner(of: accessoryID) else { throw PowerOnError("No running plugin has \(accessoryID)") }
+        try await plugin.setPowerOn(value, of: accessoryID)
+    }
+
+    /// Gives a light the white for now at once, its Natural Light setting just changed.
+    public func refreshNaturalLight(of accessoryID: String) async {
+        await naturalLightBox.withLockedValue { $0 }?.refresh(only: accessoryID)
+    }
+
+    /// The instance and running plugin that have an accessory.
+    private func owner(of accessoryID: String) -> (Instance, any HomeswiftPlugin)? {
+        for instance in instances where instance.context.accessories.contains(where: { $0.id == accessoryID }) {
+            guard let plugin = instance.plugin.withLockedValue({ $0 }) else { return nil }
+            return (instance, plugin)
         }
         return nil
     }
@@ -373,6 +422,7 @@ public final class PluginHost: @unchecked Sendable {
                 launched.withLockedValue { _ = $0.insert(ObjectIdentifier(instance)) }
             }
         }
+        naturalLightBox.withLockedValue { $0 }?.start()
         let all = Task { for launch in launches { await launch.value } }
         guard await !Self.wait(for: all, atMost: Self.pluginStartWait) else { return }
         let done = launched.withLockedValue { $0 }
@@ -387,6 +437,7 @@ public final class PluginHost: @unchecked Sendable {
         await reloads.idle()
         remotePresses.withLockedValue { $0 }?.cancel()
         await remoteControlsBox.withLockedValue { $0 }?.stop()
+        naturalLightBox.withLockedValue { $0 }?.stop()
         await withTaskGroup(of: Void.self) { group in
             for instance in instances {
                 group.addTask {

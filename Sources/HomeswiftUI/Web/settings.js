@@ -361,6 +361,12 @@
         dangerRow(t("Forget"), answer.addLabel ? t("Deletes it and its settings for good: {plugin} cannot find it again.", { plugin })
           : t("Drops its sign-in and its settings; it is only a device {plugin} finds again.", { plugin }), forget));
 
+      // Power on: what a light does when its power comes back, its device's own or Natural Light (the bridge's), asked of
+      // the bridge once the rest is drawn; nothing for an accessory whose plugin keeps none.
+      const powerSection = section(t("Power on"), t("What it does when its power comes back, from a wall switch or after a power cut."));
+      powerSection.hidden = true;
+      api(`/api/power-on/${enc(id)}`).then((power) => powerOnRows(powerSection, power, id), () => {});
+
       // A Remote: what its Buttons and Wheels do is set on the Remotes page (its Controls), where this opens it.
       const remoteSection = fields.controls ? section(t("Its buttons"), t("What each button and wheel does is set on the Remotes page."),
         el("a", { class: "button", href: `/remotes/${enc(answer.accessory ?? accessoryID)}`, actionIcon: "remote", text: t("Set what its buttons do") })) : null;
@@ -370,6 +376,7 @@
         excluded ? el("p", { class: "settings-note", role: "note", text: t("Excluded: {plugin} makes no accessory of it. Its settings wait until it is included again.", { plugin }) }) : null,
         section(null, null, nameField, roomField),
         section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null, separate?.node ?? null, functionOf),
+        powerSection,
         energySection,
         remoteSection,
         partsSection,
@@ -382,6 +389,75 @@
       node.setAttribute("aria-busy", "true");
       await load();
     }
+  }
+
+  /// A light's Power on, as the Hue app shows it: one choice of a list, each with what it does, Natural Light first;
+  /// Custom's brightness and white under it. A choice applies at once, to the device or to the bridge's Natural Light.
+  function powerOnRows(box, power, id) {
+    const words = {
+      natural: [t("Natural light"), () => t("As it was, on or off, in the white for the time of day: {kelvin} K now", { kelvin: power.naturalWhite ?? "–" })],
+      default: [t("Default"), () => t("Warm white, full brightness")],
+      lastOn: [t("Last on"), () => t("On, in its last colour and brightness")],
+      powerLoss: [t("Power loss recovery"), () => t("Stays off or turns back on, as it was")],
+      off: [t("Off"), () => t("Stays off")],
+      custom: [t("Custom"), () => t("On, at the brightness and white below")],
+    };
+    const support = power.support;
+    const offered = Object.keys(words).filter((behaviour) => support.behaviours.includes(behaviour));
+    if (!offered.length) return;
+    const state = stateNode();
+    const group = `power-on-${++ids}`;
+    // Custom's values: what the device has, else full brightness and a warm white.
+    const custom = power.behaviour === "custom" ? power.current ?? {} : {};
+    const level = support.brightness ? el("input", { type: "range", min: 1, max: 100, value: custom.brightness ?? 100, "aria-label": t("Brightness") }) : null;
+    const white = support.white ? el("input", { type: "range", min: support.white[0], max: support.white[1], step: 50,
+      value: Math.min(support.white[1], Math.max(support.white[0], custom.temperature ?? 2700)), "aria-label": t("White") }) : null;
+    const levelText = el("span", { class: "power-on-value" }), whiteText = el("span", { class: "power-on-value" });
+    const showValues = () => {
+      if (level) levelText.textContent = `${level.value} %`;
+      if (white) whiteText.textContent = `${white.value} K`;
+    };
+    level?.addEventListener("input", showValues);
+    white?.addEventListener("input", showValues);
+    showValues();
+    const customRows = el("div", { class: "power-on-custom" },
+      level ? el("label", { class: "field" }, el("span", { class: "field-title" }, el("span", { text: t("Brightness") }), levelText), level) : null,
+      white ? el("label", { class: "field" }, el("span", { class: "field-title" }, el("span", { text: t("White") }), whiteText), white) : null);
+    const choices = offered.map((behaviour) => {
+      const input = el("input", { type: "radio", name: group, value: behaviour, checked: power.behaviour === behaviour });
+      const help = el("span", { class: "help", text: words[behaviour][1]() });
+      input.addEventListener("change", () => { if (input.checked) choose(behaviour); });
+      return { behaviour, input, help, node: el("label", { class: "power-on-choice" }, input,
+        el("span", { class: "power-on-text" }, el("span", { class: "field-title", text: words[behaviour][0] }), help)) };
+    });
+    const showCustom = () => { customRows.hidden = !choices.some((one) => one.behaviour === "custom" && one.input.checked) || (!level && !white); };
+    const choose = async (behaviour) => {
+      showCustom();
+      setState(state, "busy", t("Saving…"));
+      const body = { behaviour };
+      if (behaviour === "custom") {
+        if (level) body.brightness = Number(level.value);
+        if (white) body.temperature = Number(white.value);
+      }
+      try {
+        power = await api(`/api/power-on/${enc(id)}`, { method: "PUT", body });
+        setState(state, "ok", t("Saved"));
+      } catch (e) {
+        setState(state, "error", e.message);
+      }
+      for (const one of choices) {
+        one.input.checked = one.behaviour === power.behaviour;
+        one.help.textContent = words[one.behaviour][1]();
+      }
+      showCustom();
+    };
+    // A slider let go: Custom with what it says.
+    for (const slider of [level, white]) slider?.addEventListener("change", () => choose("custom"));
+    showCustom();
+    const title = box.querySelector(".settings-section-head h3");
+    title?.append(" ", state);
+    box.append(el("div", { class: "power-on-choices", role: "radiogroup", "aria-label": t("Power on") }, choices.map((one) => one.node)), customRows);
+    box.hidden = false;
   }
 
   /// The editor in a side sheet, from the wall's ⋯, a plugin's Devices or Setup: its name and plugin at the top, Done

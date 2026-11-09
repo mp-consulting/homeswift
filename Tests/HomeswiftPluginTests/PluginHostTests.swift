@@ -39,6 +39,8 @@ actor RecordingPlugin: HomeswiftPlugin {
         /// Remotes, each with two Buttons (`b1`, `b2`); with `declaresRemotes`, declared as reporting their moments.
         var remotes: [String]?
         var declaresRemotes: Bool?
+        /// Lamps with a colour temperature whose device keeps a Power On (natural, lastOn, powerLoss, custom).
+        var whiteLamps: [String]?
     }
 
     static let platform = "Recording"
@@ -54,6 +56,8 @@ actor RecordingPlugin: HomeswiftPlugin {
     func recordGas(_ cubicMetres: Double) { gasMeter?.record(cubicMetres: cubicMetres) }
     func recordGasWatts(_ watts: Double) { gasMeter?.record(watts: watts) }
     private(set) var stopped = false
+    /// What each white lamp's device was told to do when its power comes on, in order.
+    private(set) var powerOnWrites: [(accessoryID: String, value: PowerOn)] = []
 
     init(configuration: Configuration, context: PluginContext) throws {
         if configuration.refuse == true { throw TestError.refused }
@@ -95,7 +99,24 @@ actor RecordingPlugin: HomeswiftPlugin {
                                                                RemotePart(id: "wheel", kind: .wheel, name: "Wheel", services: ["b2"])]))
             }
         }
+        for lamp in configuration.whiteLamps ?? [] {
+            let light = Service(.lightbulb, name: lamp, optional: [.brightness, .colorTemperature], isPrimary: true)
+            try context.add(Accessory(id: "Recording:\(lamp)", name: lamp, category: .lightbulb, services: [light]))
+        }
         if configuration.failStart == true { throw TestError.refused }
+    }
+
+    func powerOnSupport(of accessoryID: String) async -> PowerOnSupport? {
+        guard (configuration.whiteLamps ?? []).contains(where: { "Recording:\($0)" == accessoryID }) else { return nil }
+        return PowerOnSupport(behaviours: [.natural, .lastOn, .powerLoss, .custom], brightness: true, white: 2000...6500)
+    }
+
+    func powerOn(of accessoryID: String) async throws -> PowerOn? {
+        powerOnWrites.last { $0.accessoryID == accessoryID }?.value ?? PowerOn(.lastOn)
+    }
+
+    func setPowerOn(_ value: PowerOn, of accessoryID: String) async throws {
+        powerOnWrites.append((accessoryID, value))
     }
 
     /// A press of a remote's Button as HomeKit gets it.

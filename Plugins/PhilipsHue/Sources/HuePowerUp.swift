@@ -1,136 +1,113 @@
 import Foundation
 import HomeswiftPlugin
 
-// Power on (README.md, "Power on"): what a light does when its power comes back, from a wall switch or after a power cut,
-// as the Hue app's Power on sets it (the light's `powerup`, CLIP v2). A light's Plugin Accessory Setting `powerOn`
-// (`default`, `lastOn`, `powerLoss`, `custom`), with `powerOnBrightness` and `powerOnTemperature` for `custom`; empty
-// leaves the light as the bridge has it. The plugin writes it when a read of the bridge finds the light different: once
-// a run, and again when the setting changes, so what the Hue app changes in between stays until then.
+// Power On (GLOSSARY.md, the bridge's `PowerOn.swift`): what a Hue light does when its power comes back, its `powerup`
+// (CLIP v2), as the Hue app's Power on sets it: a preset (`safety` the Hue default, `last_on_state`, `powerfail`) or
+// `custom`, whose on, dimming and colour each say a value or `previous`. The bridge's Natural Light is `custom` with the
+// light as it was and the white it gives.
 
-/// A light's `powerup`, as the bridge has it or as a setting wants it.
+/// A light's `powerup`, as the Hue Bridge has it.
 struct HuePowerUp: Sendable, Equatable {
     enum Preset: String, Sendable {
-        /// Default: warm white, full brightness.
-        case safety
-        /// Power loss recovery: as it was before the power went, off or on.
-        case powerfail
-        /// Last on: on, in its last colour and brightness.
-        case lastOnState = "last_on_state"
-        /// On, in the brightness and colour temperature given (nil: its last).
-        case custom
+        case safety, powerfail, lastOnState = "last_on_state", custom
     }
 
+    enum On: Sendable, Equatable { case on, off, previous }
+
     var preset: Preset
-    /// With `custom`: 1 to 100, and mirek; nil keeps the light's last.
+    /// With `custom`: on, off or as it was; its brightness (1-100) and white (mirek), nil for their last.
+    var on: On = .on
     var brightness: Double?
     var mirek: Int?
 
-    init(preset: Preset, brightness: Double? = nil, mirek: Int? = nil) {
-        (self.preset, self.brightness, self.mirek) = (preset, brightness, mirek)
+    init(preset: Preset, on: On = .on, brightness: Double? = nil, mirek: Int? = nil) {
+        (self.preset, self.on, self.brightness, self.mirek) = (preset, on, brightness, mirek)
     }
 
-    /// The light's, from its resource; nil on one without (an older light, or firmware).
+    /// The light's, from its resource; nil on one without (older firmware).
     init?(resource: JSONValue) {
         guard let powerup = resource["powerup"], let preset = powerup["preset"]?.stringValue.flatMap(Preset.init(rawValue:)) else { return nil }
         self.preset = preset
         guard preset == .custom else { return }
+        switch powerup["on"]?["mode"]?.stringValue {
+        case "previous": on = .previous
+        case "on": on = powerup["on"]?["on"]?["on"]?.boolValue == false ? .off : .on
+        default: on = .on
+        }
         if powerup["dimming"]?["mode"]?.stringValue == "dimming" { brightness = powerup["dimming"]?["dimming"]?["brightness"]?.doubleValue }
         if powerup["color"]?["mode"]?.stringValue == "color_temperature" { mirek = powerup["color"]?["color_temperature"]?["mirek"]?.intValue }
     }
 
-    /// The setting's (`powerOn` and the custom ones) for this light, its values brought into its range; nil when the
-    /// setting is empty or names nothing it knows.
-    init?(setting: String?, brightness: Int?, temperature: Int?, for light: HueLight) {
-        switch setting {
-        case "default": self.init(preset: .safety)
-        case "lastOn": self.init(preset: .lastOnState)
-        case "powerLoss": self.init(preset: .powerfail)
-        case "custom":
-            let level = light.dims ? brightness.map { Double(min(100, max(1, $0))) } : nil
-            let mirek = temperature.flatMap { kelvin -> Int? in
-                guard kelvin > 0, let range = light.mirekRange else { return nil }
-                return min(range.upperBound, max(range.lowerBound, Int((1_000_000 / Double(kelvin)).rounded())))
-            }
-            self.init(preset: .custom, brightness: level, mirek: mirek)
-        default: return nil
+    /// What the bridge's Power On asks of `light`.
+    init(_ value: PowerOn, for light: HueLight) {
+        let mirek = value.mirek.map { mirek in light.mirekRange.map { min($0.upperBound, max($0.lowerBound, mirek)) } ?? mirek }
+        switch value.behaviour {
+        case .default: self.init(preset: .safety)
+        case .lastOn: self.init(preset: .lastOnState)
+        case .powerLoss: self.init(preset: .powerfail)
+        case .off: self.init(preset: .custom, on: .off)
+        case .custom: self.init(preset: .custom, brightness: light.dims ? value.brightness.map(Double.init) : nil, mirek: light.hasColourTemperature ? mirek : nil)
+        case .natural: self.init(preset: .custom, on: .previous, mirek: mirek)
         }
     }
 
-    /// Whether `current`, the light's, already does this: the same preset, and for `custom` the same values (to the
-    /// percent and the mirek the bridge rounds them to).
-    func isMet(by current: HuePowerUp?) -> Bool {
-        guard let current, current.preset == preset else { return false }
-        guard preset == .custom else { return true }
-        let sameLevel = switch (brightness, current.brightness) {
-        case (nil, nil): true
-        case let (wanted?, has?): abs(wanted - has) < 1
-        default: false
+    /// As the bridge's Power On reads it.
+    var powerOn: PowerOn {
+        switch preset {
+        case .safety: PowerOn(.default)
+        case .lastOnState: PowerOn(.lastOn)
+        case .powerfail: PowerOn(.powerLoss)
+        case .custom:
+            switch on {
+            case .off: PowerOn(.off)
+            case .previous where brightness == nil && mirek == nil: PowerOn(.powerLoss)
+            default: PowerOn(.custom, brightness: brightness.map { Int($0.rounded()) }, temperature: mirek.map(PowerOn.kelvin(mirek:)))
+            }
         }
-        let sameWhite = switch (mirek, current.mirek) {
-        case (nil, nil): true
-        case let (wanted?, has?): abs(wanted - has) <= 1
-        default: false
-        }
-        return sameLevel && sameWhite
     }
 
     /// The body of `PUT /clip/v2/resource/light/<id>`. A preset other than `custom` goes alone: the bridge sets the
-    /// rest, and takes nothing else with it. `custom` turns the light on, at its brightness and white, or its last.
+    /// rest. `custom` says its on, and the dimming and colour the light has (a value, or `previous`).
     func body(for light: HueLight) -> JSONValue {
         guard preset == .custom else { return ["powerup": ["preset": .string(preset.rawValue)]] }
-        var powerup: [String: JSONValue] = ["preset": "custom", "on": ["mode": "on", "on": ["on": true]]]
-        if light.dims {
+        let onPart: JSONValue = switch on {
+        case .on: ["mode": "on", "on": ["on": true]]
+        case .off: ["mode": "on", "on": ["on": false]]
+        case .previous: ["mode": "previous"]
+        }
+        var powerup: [String: JSONValue] = ["preset": "custom", "on": onPart]
+        if light.dims, on != .off {
             powerup["dimming"] = brightness.map { ["mode": "dimming", "dimming": ["brightness": .number($0)]] } ?? ["mode": "previous"]
         }
-        if light.hasColourTemperature || light.hasColour {
+        if light.hasColourTemperature || light.hasColour, on != .off {
             powerup["color"] = mirek.map { ["mode": "color_temperature", "color_temperature": ["mirek": .number(Double($0))]] } ?? ["mode": "previous"]
         }
         return ["powerup": .object(powerup)]
     }
-
-    /// For the log: "custom 80 % 366 mirek".
-    var summary: String {
-        ([preset.rawValue] + [brightness.map { "\(Int($0)) %" }, mirek.map { "\($0) mirek" }].compactMap { $0 }).joined(separator: " ")
-    }
 }
 
 extension PhilipsHuePlugin {
-    /// What a light's Power on setting wants of it; nil when it is empty.
-    func wantedPowerUp(_ light: HueLight) -> HuePowerUp? {
-        let own = lightOptions(light.id)
-        return HuePowerUp(setting: own.powerOn, brightness: own.powerOnBrightness, temperature: own.powerOnTemperature, for: light)
+    /// The light an accessory is, when it keeps a `powerup`.
+    private func powerUpLight(_ accessoryID: String) -> HueLight? {
+        snapshot.lights.first { Self.accessoryID(lightID: $0.id) == accessoryID && $0.powerUp != nil }
     }
 
-    /// Writes each light's Power on setting where the bridge has it otherwise: once for each value the setting takes
-    /// in a run, so a change made in the Hue app since stays until the setting changes or the plugin starts again. A
-    /// light without `powerup` is told once in the log; a write that fails is tried again at the next read, told once.
-    func applyPowerUps(_ snapshot: HueSnapshot) async {
-        guard let client else { return }
-        for light in snapshot.lights where !isExcluded(light) {
-            guard let wanted = wantedPowerUp(light) else {
-                powerUpsApplied[light.id] = nil
-                continue
-            }
-            guard powerUpsApplied[light.id] != wanted else { continue }
-            guard light.powerUp != nil else {
-                powerUpsApplied[light.id] = wanted
-                logger.notice("\(light.name) has no Power on setting on the Hue Bridge (its firmware may be too old)", metadata: ["light": "\(light.id)"])
-                continue
-            }
-            guard !wanted.isMet(by: light.powerUp) else {
-                powerUpsApplied[light.id] = wanted
-                continue
-            }
-            do {
-                try await client.put("light", id: light.id, wanted.body(for: light))
-                powerUpsApplied[light.id] = wanted
-                powerUpFailures.remove(light.id)
-                logger.info("Set what \(light.name) does when its power comes on", metadata: ["light": "\(light.id)", "powerOn": "\(wanted.summary)"])
-            } catch {
-                if powerUpFailures.insert(light.id).inserted {
-                    logger.warning("Could not set what \(light.name) does when its power comes on: \(error)", metadata: ["light": "\(light.id)"])
-                }
-            }
-        }
+    public func powerOnSupport(of accessoryID: String) async -> PowerOnSupport? {
+        guard let light = powerUpLight(accessoryID) else { return nil }
+        let white = light.mirekRange.map { PowerOn.kelvin(mirek: $0.upperBound)...PowerOn.kelvin(mirek: $0.lowerBound) }
+        return PowerOnSupport(behaviours: (white != nil ? [.natural] : []) + [.default, .lastOn, .powerLoss, .off, .custom],
+                              brightness: light.dims, white: white)
+    }
+
+    public func powerOn(of accessoryID: String) async throws -> PowerOn? {
+        powerUpLight(accessoryID)?.powerUp?.powerOn
+    }
+
+    public func setPowerOn(_ value: PowerOn, of accessoryID: String) async throws {
+        guard let light = powerUpLight(accessoryID), let client else { throw PowerOnError("This Hue light has no Power on on the Hue Bridge") }
+        let powerUp = HuePowerUp(value, for: light)
+        try await client.put("light", id: light.id, powerUp.body(for: light))
+        // What the next read will say, kept now so the sheet shows it at once.
+        if let index = snapshot.lights.firstIndex(where: { $0.id == light.id }) { snapshot.lights[index].powerUp = powerUp }
     }
 }

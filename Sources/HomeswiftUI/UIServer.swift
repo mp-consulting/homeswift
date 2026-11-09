@@ -685,6 +685,21 @@ public final class UIServer: Sendable {
         }
         if route.first == "assistant", route.count >= 2, route[1] != "chat", route[1] != "chats",
            let reply = try await assistantRoute(Array(route.dropFirst()), request, body: body, username: username) { return reply }
+        // A light's Power On (PowerOnTools.swift), on its sheet: what it does when its power comes back.
+        if route.count == 2, route[0] == "power-on" {
+            switch request.method {
+            case .GET:
+                return .json(try await catalog.powerOnJSON(route[1]))
+            case .PUT:
+                let value: PowerOn
+                do { value = try PowerOn(json: body) } catch let error as PowerOnError { return .error(400, error.description) }
+                let answer = try await catalog.setPowerOn(value, of: route[1], who: "web UI \(username)")
+                logger.info("Web UI set a light's Power On", metadata: ["user": "\(username)", "accessory": "\(route[1])", "behaviour": "\(value.behaviour.rawValue)"])
+                return .json(answer)
+            default:
+                return .error(405, "GET or PUT")
+            }
+        }
         // Rooms, scenes and notifications (HomeRoutes.swift).
         if let reply = try await homeAPI(route, request.method, body: body, username: username, language: Self.language(request)) { return reply }
         switch request.method {

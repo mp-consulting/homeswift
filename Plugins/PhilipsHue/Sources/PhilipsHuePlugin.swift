@@ -101,10 +101,6 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     let trust: HTTPClient.TrustOnFirstUse
     private(set) var client: HueClient?
     var snapshot = HueSnapshot()
-    /// The Power on each light was given (or found to have) in this run, and the lights whose write failed, told once
-    /// (`applyPowerUps`).
-    var powerUpsApplied: [String: HuePowerUp] = [:]
-    var powerUpFailures: Set<String> = []
     private(set) var lastError: String?
     /// The task that finds the bridge and polls it.
     private var poller: Task<Void, Never>?
@@ -360,7 +356,6 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         lights = lights.filter { keep.contains(Self.accessoryID(lightID: $0.key)) }
         sceneAccessories = sceneAccessories.filter { keep.contains(Self.sceneAccessoryID(groupID: $0.key)) }
         _ = await context.removeAccessories(keeping: keep, message: "Removing a Hue light, sensor or scene the bridge no longer has")
-        await applyPowerUps(snapshot)
     }
 
     /// Excluded by its Accessory Settings, or left out by `excludeLights`.
