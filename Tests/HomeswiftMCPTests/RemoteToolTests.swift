@@ -20,6 +20,28 @@ struct RemoteToolTests {
         return environment
     }
 
+    /// A light in a Group says so: the page lists the Group's members under it.
+    @Test func aTargetSaysItsGroup() async throws {
+        let environment = try MCPTestEnvironment(config: """
+            {
+              "bridge": { "name": "Test Bridge", "username": "0E:11:22:33:44:55", "pin": "031-45-154", "port": 0 },
+              "platforms": [{ "platform": "Devices", "name": "Devices", "remote": true, "colourBulbs": 2 }]
+            }
+            """)
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let client = DirectClient(server: environment.server)
+        try await client.initialize()
+        let grouped = try await client.tool("set_wall_layout", ["groups": [["name": "Office lights", "members": ["Devices:lamp", "Devices:bulb1"]]]])
+        #expect(grouped["isError"] != true, "\(grouped)")
+
+        let targets = try #require(try await client.tool("list_remotes", [:])["structuredContent"]?["targets"]?.arrayValue)
+        let group = { (id: String) in targets.first { $0["id"]?.stringValue == id }?["group"]?["name"] }
+        #expect(group("Devices:lamp") == "Office lights")
+        #expect(group("Devices:bulb1") == "Office lights")
+        #expect(group("Devices:bulb2") == nil)
+    }
+
     @Test func theAssistantSetsARemotesControls() async throws {
         let environment = try await environment()
         defer { Task { await environment.stop() } }

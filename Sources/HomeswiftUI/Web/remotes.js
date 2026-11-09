@@ -138,11 +138,38 @@
     // A part's gestures drive the same lights; one with none yet starts from its Channel's other part.
     const driving = mine.find((control) => control.targets?.length)
       ?? remote.controls.find((control) => control.targets?.length && remote.parts.some((other) => other.id === control.part && other.channel != null && other.channel === part.channel));
+    // Listed by room in the home's order (no room last), the pills keeping one kind; a chosen one's chip names its room.
     // A light without brightness says so: it only turns on and off.
-    const choice = (one, group) => ({ value: one.id, group,
-      title: [one.name, one.room, one.onOffOnly ? t("On and off only") : null].filter(Boolean).join(" · ") });
-    const targetPicker = HomeswiftForms.searchSet(data.targets.map((one) => choice(one, one.kind === "shutter" ? "Blinds" : "Lights")), driving?.targets ?? []);
-    const powerPicker = HomeswiftForms.searchSet(data.power.map((one) => choice(one, one.kind === "outlet" ? "Outlets" : "Switches")), driving?.power ?? []);
+    const roomRank = (room) => { const at = (data.rooms ?? []).indexOf(room); return room == null ? Infinity : at < 0 ? (data.rooms ?? []).length : at; };
+    const byRoom = (list) => list.slice().sort((a, b) => roomRank(a.room) - roomRank(b.room)
+      || (a.room ?? "").localeCompare(b.room ?? "") || a.name.localeCompare(b.name, undefined, { numeric: true }));
+    const choice = (one, kind) => {
+      const only = one.onOffOnly ? t("On and off only") : null;
+      return { value: one.id, group: one.room ?? t("No room"), filter: kind,
+        label: [one.name, only].filter(Boolean).join(" · "), title: [one.name, one.room, only].filter(Boolean).join(" · ") };
+    };
+    // A Group's members under its row, in its first member's room as on the wall; its row ticks them all. A Group with
+    // one member left here (the others drive nothing) lists it on its own.
+    const listed = (list, kindOf) => {
+      const groups = new Map();
+      for (const one of list.filter((one) => one.group)) {
+        if (!groups.has(one.group.id)) groups.set(one.group.id, { name: one.group.name, members: [] });
+        groups.get(one.group.id).members.push(one);
+      }
+      const whole = [...groups.values()].filter((group) => group.members.length > 1);
+      const inGroup = new Set(whole.flatMap((group) => group.members.map((one) => one.id)));
+      const rows = [...list.filter((one) => !inGroup.has(one.id)), ...whole.map((group) => ({ ...group, room: group.members[0].room ?? null }))];
+      return byRoom(rows).flatMap((row) => {
+        if (!row.members) return [choice(row, kindOf(row))];
+        const heading = row.room ?? t("No room");
+        return [{ title: row.name, group: heading, filter: kindOf(row.members[0]), members: row.members.map((one) => one.id),
+          search: row.members.map((one) => one.name).join(" ") },
+        ...byRoom(row.members).map((one) => ({ ...choice(one, kindOf(one)), group: heading, nested: true, search: row.name }))];
+      });
+    };
+    const sceneChoices = byRoom(data.scenes).map((scene) => choice(scene, "Scenes"));
+    const targetPicker = HomeswiftForms.searchSet(listed(data.targets, (one) => one.kind === "shutter" ? "Blinds" : "Lights"), driving?.targets ?? []);
+    const powerPicker = HomeswiftForms.searchSet(listed(data.power, (one) => one.kind === "outlet" ? "Outlets" : "Switches"), driving?.power ?? []);
     const options = driving ?? mine[0] ?? {};
     const step = el("input", { type: "number", min: 1, max: 25, value: options.step ?? 5, "aria-describedby": "remote-step-help" });
     const powerDelay = el("input", { type: "number", min: 1, max: 30, value: options.powerDelay ?? 5 });
@@ -153,7 +180,7 @@
     const gestureFields = part.gestures.map((gesture) => {
       const control = mine.find((one) => one.gesture === gesture);
       const select = el("select", { "aria-label": gestureNames[gesture]() });
-      const scenePicker = HomeswiftForms.searchSelect(data.scenes.map((scene) => choice(scene, "Scenes")), control?.scene, t("Choose a scene"));
+      const scenePicker = HomeswiftForms.searchSelect(sceneChoices, control?.scene, t("Choose a scene"));
       const sceneRow = el("div", { class: "remote-scene" }, scenePicker.button);
       const fill = () => {
         const current = select.value || (control ? valueOf(control) : "");
@@ -178,9 +205,11 @@
       hold.select.disabled = long.select.value !== "";
     };
     syncHoldAndLong();
-    // Each gesture keeps the targets it has (the Assistant may give each its own) until the list here changes.
-    let targetsChanged = false;
+    // Each gesture keeps the targets and Power Switches it has (the Assistant may give each its own) until the list
+    // here changes.
+    let targetsChanged = false, powerChanged = false;
     targetPicker.node.addEventListener("change", () => { targetsChanged = true; gestureFields.forEach((one) => one.fill()); });
+    powerPicker.node.addEventListener("change", () => { powerChanged = true; });
 
     const message = el("p", { class: "muted", role: "status" });
     return HomeswiftCommon.openSheet((done) => {
@@ -194,7 +223,7 @@
           } else {
             const kept = !targetsChanged && mine.find((old) => old.gesture === one.gesture && old.targets?.length);
             control.targets = kept ? kept.targets : targets;
-            const powered = kept ? kept.power ?? [] : power;
+            const powered = kept && !powerChanged ? kept.power ?? [] : power;
             if (powered.length) { control.power = powered; if (Number(powerDelay.value) !== 5) control.powerDelay = Number(powerDelay.value); }
             if (direction) control.direction = direction;
             if (["dim", "step", "toggle"].includes(action) && Number(step.value) !== 5) control.step = Number(step.value);

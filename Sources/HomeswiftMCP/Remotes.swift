@@ -13,6 +13,8 @@ extension HomeswiftCatalog {
         let all = located()
         var answer = remotesJSON(all).objectValue ?? [:]
         for (key, value) in (await remoteTargetsJSON(all)).objectValue ?? [:] { answer[key] = value }
+        // The rooms in the home's order, which the page lists the targets in.
+        answer["rooms"] = .array(allRoomNames(all).map(JSONValue.string))
         return .object(answer)
     }
 
@@ -74,12 +76,14 @@ extension HomeswiftCatalog {
     }
 
     /// What a Control may drive (lights and shutters), power (switches and outlets) and run (the home's Scenes: Homeswift's
-    /// own and its hubs').
+    /// own and its hubs'). Each accessory says its Group, if any, which the page lists its members under.
     func remoteTargetsJSON(_ located: [Located]) async -> JSONValue {
         let all = located.filter { !$0.accessory.isRemote }
+        let groupOf = Dictionary(wallGroups.flatMap { group in group.members.map { ($0, group) } }, uniquingKeysWith: { first, _ in first })
         func entry(_ located: Located, kind: String) -> JSONValue {
             var item: [String: JSONValue] = ["id": .string(located.accessory.id), "name": .string(located.accessory.name), "kind": .string(kind),
                                              "room": located.room.map(JSONValue.string) ?? .null]
+            if let group = groupOf[located.accessory.id] { item["group"] = ["id": .string(group.id), "name": .string(group.name)] }
             if kind == RemoteControl.TargetKind.light.rawValue, !located.accessory.services.contains(where: { $0[.brightness] != nil }) { item["onOffOnly"] = true }
             return .object(item)
         }

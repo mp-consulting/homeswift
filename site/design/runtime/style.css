@@ -500,8 +500,16 @@ button.busy::after {
     margin: auto 0 0; width: 100%; max-width: 100%; max-height: 100%;
     height: calc(100% - 16px - env(safe-area-inset-top) - var(--viewport-top, 0px) - var(--keyboard, 0px));
     border-radius: var(--radius) var(--radius) 0 0; border-bottom: 0;
-    padding: 26px var(--space-18) calc(var(--space-18) + env(safe-area-inset-bottom));
+    padding: 26px var(--space-18) 0;
   }
+  /* The buttons stay in reach under a long form, clear of the home indicator. The clearance is the buttons' own (or,
+     without them, a last item's): Safari leaves a scrolling flex box's bottom padding out, the buttons then flush with
+     the screen's edge in the Home Screen app. Opaque from 8px above the buttons, as the setup sheet's. */
+  .admin-dialog.sheet .account-form > .actions:last-child { position: sticky; bottom: 0; z-index: 1;
+    padding-bottom: calc(var(--space-18) + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(to bottom, transparent, var(--material-solid) var(--space-8)); }
+  .admin-dialog.sheet:not(:has(:is(.account-form, .setup-step) > .actions:last-child))::after {
+    content: ""; flex: none; height: calc(var(--space-18) + env(safe-area-inset-bottom, 0px)); }
   .admin-dialog.sheet[open] { animation-name: sheet-up; }
   .sheet-grabber { display: block; position: absolute; top: 0; left: 0; right: 0; height: 26px; touch-action: none; cursor: grab; }
   .sheet-grabber::before { content: ""; position: absolute; top: 8px; left: 50%; width: 36px; height: 5px; margin-left: -18px; border-radius: 3px; background: var(--line); }
@@ -1407,7 +1415,9 @@ textarea.short { min-height: 220px; }
 .menu-scrim { position: fixed; inset: 0; z-index: calc(var(--layer-menu) - 1); background: rgba(10, 14, 24, 0.28); animation: sheet-dim 200ms var(--ease-out); }
 .menu-scrim.closing { animation: sheet-undim 180ms var(--ease-out) forwards; }
 .menu.sheet-menu {
-  left: 10px; right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); max-height: calc(100dvh - 24px - env(safe-area-inset-top));
+  /* Above the keyboard while it is up (menu()'s --keyboard and --viewport-top, as openSheet's), its top in view. */
+  left: 10px; right: 10px; bottom: calc(max(10px, env(safe-area-inset-bottom)) + var(--keyboard, 0px));
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top) - var(--viewport-top, 0px) - var(--keyboard, 0px));
   overflow-y: auto; overscroll-behavior: contain; padding: var(--space-8); border-radius: var(--radius-xl); transform-origin: 50% 100%;
   animation: menu-sheet-in 280ms cubic-bezier(0.32, 0.72, 0, 1);
 }
@@ -1419,6 +1429,15 @@ textarea.short { min-height: 220px; }
   display: block; position: sticky; top: 0; z-index: 1; height: 22px; margin: 0 calc(-1 * var(--space-8)) 2px;
   touch-action: none; cursor: grab;
 }
+/* A menu with a search or a Done: they stay put, the items between them scroll. */
+.menu.framed-menu { display: flex; flex-direction: column; overflow: hidden; }
+.menu-items { display: grid; gap: 1px; grid-auto-rows: max-content; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; touch-action: pan-y; }
+.menu-head { flex: none; padding-bottom: var(--space-4); margin-bottom: var(--space-4); border-bottom: 1px solid var(--line); }
+.menu-foot { flex: none; padding-top: var(--space-8); margin-top: var(--space-4); border-top: 1px solid var(--line); }
+.menu-foot > button { width: 100%; }
+/* A Group's members, under its row: set in as a list's children, a rule along them. */
+.menu .menu-nested { padding-left: calc(var(--space-12) + var(--space-16)); position: relative; }
+.menu .menu-nested::before { content: ""; position: absolute; left: calc(var(--space-12) + 5px); top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: var(--line); }
 @keyframes menu-sheet-in { from { transform: translateY(calc(100% + 12px)); } }
 @keyframes menu-sheet-out { to { transform: translateY(calc(100% + 12px)); } }
 @media (prefers-reduced-motion: reduce) { .menu, .menu.closing, .menu.sheet-menu, .menu.sheet-menu.closing { animation-name: fade; } }
@@ -2964,7 +2983,10 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .notice-list p { margin: var(--space-4) 0; font-size: var(--text-md); }
 .secret-note { margin: 0 0 var(--space-8); font-size: var(--text-sm); color: var(--warn); }
-.admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); max-height: calc(100dvh - 48px); overflow: auto; overscroll-behavior: contain; padding: var(--space-20) 22px; color: var(--text); background-color: var(--material-solid); }
+/* Opaque, so no glass: a backdrop filter would show nothing through it, and would make the dialog the box its fixed
+   children (a menu, a phone's sheet of choices) are placed in, scrolled and shrunk with it. */
+.admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); max-height: calc(100dvh - 48px); overflow: auto; overscroll-behavior: contain; padding: var(--space-20) 22px; color: var(--text); background-color: var(--material-solid);
+  -webkit-backdrop-filter: none; backdrop-filter: none; }
 /* A modal grows in from a little smaller, in place (it has no trigger to grow from), with its backdrop fading in. */
 .admin-dialog:not(.sheet)[open] { animation: dialog-in 200ms var(--ease-out); }
 .admin-dialog:not(.sheet)[open]::backdrop { animation: fade 200ms ease; }
@@ -4531,8 +4553,7 @@ select option:disabled { color: var(--muted); }
   background: linear-gradient(to bottom, transparent, var(--material-solid) var(--space-8)); }
 /* Opaque from 8px above the buttons: only the space above that fades, so nothing scrolls through under them. */
 @media (max-width: 640px) {
-  .setup-step > .actions:last-child { bottom: calc(-1 * (var(--space-18) + env(safe-area-inset-bottom)));
-    margin-bottom: calc(-1 * (var(--space-18) + env(safe-area-inset-bottom))); padding-bottom: calc(var(--space-18) + env(safe-area-inset-bottom)); }
+  .setup-step > .actions:last-child { bottom: 0; margin-bottom: 0; padding-bottom: calc(var(--space-18) + env(safe-area-inset-bottom, 0px)); }
 }
 .setup-pick input { margin: 0; }
 .setup-pick .who { display: grid; min-width: 0; }
@@ -5644,6 +5665,8 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .remote-sheet-section > p { margin: 0; font-size: var(--text-sm); }
 .remote-scene { margin-top: var(--space-6); }
 .remote-more { display: grid; gap: var(--space-10); }
+/* A switch beside its words, as a settings row. */
+.remote-more .toggle-field { display: flex; align-items: center; gap: var(--space-10); }
 .remote-more[open] summary { margin-bottom: var(--space-8); }
 /* A phone: the gesture over what it does, whole, rather than both on a line cut short. */
 @media (max-width: 480px) {

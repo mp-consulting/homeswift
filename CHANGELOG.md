@@ -33,6 +33,9 @@ All notable changes to this project are documented here. The format follows
 - The scene editor's values, a scene animation's speed and brightness, and an accessory's number controls (a TV's
   contrast) use the wall's sliders: a light's warm fill, its whites, the colour wheel's hues. A colour is a hue and a
   saturation on those sliders beside a swatch, rather than the browser's colour picker.
+- **Remotes**: the lights, blinds and Power Switches a Control drives are listed by room, a Group's lights under its
+  row (ticking the Group ticks them all), and the list stays open while several are ticked, with Done on a phone. Its
+  search and kind filters stay at the top while the list scrolls.
 
 ### Fixed
 
@@ -52,6 +55,11 @@ All notable changes to this project are documented here. The format follows
 - A history chart built before it was shown (an accessory's Consumption by day) stayed at its smallest width; its
   value labels lost their first digit ("12.5 kWh"), the last two day labels overlapped, and months of days read as
   hatching.
+- **Remotes**: Power Switches changed under More were not saved when what the Control drives stayed the same.
+- On a phone, the accessory list opened from a remote's editor could hide its search field (above the screen, or
+  behind the keyboard); it now keeps to what is visible.
+- On a phone, a side sheet's buttons (Save, Cancel, Done) sat on the screen's bottom edge in the Home Screen app: they
+  now stay above the home indicator, and in reach under a long form.
 
 ## [0.27.0] - 2026-11-09
 
