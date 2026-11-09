@@ -331,8 +331,9 @@ extension Accessory {
     func service(subtype: String) -> Service? { services.first { $0.subtype == subtype } }
 }
 
-/// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+/// Polls `condition` until it holds or `timeout` passes: generous, as a loaded CI runner can stall the whole process (a
+/// reconnect after a silent stream took longer than 5 s on one), and a condition that holds returns at once.
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
