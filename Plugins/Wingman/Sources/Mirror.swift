@@ -114,7 +114,10 @@ struct Mirror {
     func update(from source: WingmanAPI.Accessory) {
         for service in source.services {
             for item in service.characteristics {
-                if let id = item.id, let characteristic = characteristics[id] { Self.apply(item.value, to: characteristic) }
+                // A press is an event, not a state: a read carries the last one, which is never pressed again.
+                guard let id = item.id, let characteristic = characteristics[id],
+                      characteristic.type.uuid != CharacteristicType.programmableSwitchEvent.uuid else { continue }
+                Self.apply(item.value, to: characteristic)
             }
         }
         accessory.isUnreachable = source.reachable == false
@@ -152,10 +155,15 @@ struct Mirror {
         json.flatMap(HAPValue.init).flatMap(type.coerce)
     }
 
-    /// Sets a characteristic from an event: the web UI and the moods see it at once.
+    /// Sets a characteristic from an event: the web UI and the moods see it at once. A button's press is an event, not a
+    /// value: each one is sent, the same press twice in a row too, so a Remote's Controls and Automations hear it.
     static func apply(_ json: JSONValue?, to characteristic: Characteristic) {
         guard let value = value(json, as: characteristic.type) else { return }
-        characteristic.value = value
+        if characteristic.type.uuid == CharacteristicType.programmableSwitchEvent.uuid {
+            characteristic.sendEvent(value)
+        } else {
+            characteristic.value = value
+        }
     }
 
     private static func isMain(_ uuid: HAPUUID) -> Bool {

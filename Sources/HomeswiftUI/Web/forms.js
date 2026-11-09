@@ -275,9 +275,7 @@
       }
       if (options) {
         const option = (o) => el("option", { value: JSON.stringify(o.value), text: o.title, selected: current !== undefined ? same(o.value, current) : !inherits && same(o.value, property.default) });
-        const kinds = [...new Set(options.map((o) => o.group).filter(Boolean))];
-        const select = el("select", {}, el("option", { value: "", text: inherits ? defaultText(named(fallback ?? property.default)) : "—" }),
-          ...(kinds.length > 1 ? kinds.map((kind) => el("optgroup", { label: t(kind) }, options.filter((o) => o.group === kind).map(option))) : options.map(option)));
+        const select = el("select", {}, el("option", { value: "", text: inherits ? defaultText(named(fallback ?? property.default)) : "—" }), ...options.map(option));
         return { element: wrap(select), get: () => (select.value === "" ? undefined : JSON.parse(select.value)) };
       }
       if (type === "boolean" && inherits) {
@@ -385,13 +383,9 @@
             } };
           }
           const boxes = choices.map((choice) => ({ choice, input: el("input", { type: "checkbox", checked: chosen.some((value) => same(value, choice.value)) }) }));
-          // Choices of several kinds (lights and blinds) under a heading each.
-          const kinds = [...new Set(boxes.map(({ choice }) => choice.group).filter(Boolean))];
-          const grid = (list) => el("div", { class: "choices" }, list.map(({ choice, input }) => el("label", { class: "check" }, input, el("span", { text: choice.title }))));
           const element = el("fieldset", { class: "choice-set" }, el("legend", { text: title }), help,
             boxes.length === 0 ? el("p", { class: "muted choice-empty", text: t("Nothing to choose from yet.") })
-              : kinds.length > 1 ? kinds.flatMap((kind) => [el("h5", { class: "choice-group", text: t(kind) }), grid(boxes.filter(({ choice }) => choice.group === kind))])
-              : grid(boxes));
+              : el("div", { class: "choices" }, boxes.map(({ choice, input }) => el("label", { class: "check" }, input, el("span", { text: choice.title })))));
           return { element, get: () => {
             const v = boxes.filter(({ input }) => input.checked).map(({ choice }) => choice.value);
             return v.length || current !== undefined ? v : undefined;
@@ -752,20 +746,10 @@
   /// Tells the form a picker's value changed, as a select or a checkbox would: the settings sheet saves on `change`.
   const announce = (node) => { node.dispatchEvent(new Event("input", { bubbles: true })); node.dispatchEvent(new Event("change", { bubbles: true })); };
 
-  /// A field's choices, from a `oneOf` of single `enum`s (titled by `choiceTitle`, of a kind with `x-group`) or an `enum`;
-  /// null for none.
+  /// A field's choices, from a `oneOf` of single `enum`s (titled by `choiceTitle`) or an `enum`; null for none.
   function choicesOf(schema, choiceTitle) {
-    if (schema.oneOf && schema.oneOf.every((o) => Array.isArray(o.enum))) {
-      return byGroup(schema.oneOf.map((o) => ({ value: o.enum[0], title: choiceTitle(o), group: o["x-group"] })));
-    }
+    if (schema.oneOf && schema.oneOf.every((o) => Array.isArray(o.enum))) return schema.oneOf.map((o) => ({ value: o.enum[0], title: choiceTitle(o) }));
     return Array.isArray(schema.enum) ? schema.enum.map((v) => ({ value: v, title: String(v) })) : null;
-  }
-
-  /// Choices of several kinds (`x-group`: lights, blinds, scenes) in their kinds' order of first appearance, each kind
-  /// together; the plugin's order within a kind.
-  function byGroup(choices) {
-    const order = [...new Set(choices.map((c) => c.group ?? ""))];
-    return order.length > 1 ? order.flatMap((group) => choices.filter((c) => (c.group ?? "") === group)) : choices;
   }
 
   /// One choice among many: a select button whose menu has a search field. `none` is the empty choice's words.
@@ -815,6 +799,8 @@
 
   window.HomeswiftForms = {
     buildForm, dropZone, schemaCondition, isSecretKey, isReference, readSecretRule,
+    /// A searchable choice among many, and a searchable set of them (the Remotes page's targets and Scenes).
+    searchSelect, searchSet,
     secretRule: () => secretRule,
     /// Sets the rule from the plugin list (`/api/plugins`), or clears it with null; answers it.
     setSecretRule: (rule) => { secretRule = rule; return rule; },

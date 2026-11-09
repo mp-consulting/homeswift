@@ -875,7 +875,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .keys { display: flex; flex-wrap: wrap; gap: var(--space-6); justify-content: flex-end; }
 .keys button { padding: 5px 11px; font-size: var(--text-sm); }
 .more > summary { font-size: var(--text-sm); padding: var(--space-4) 0; }
-.service-name { font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin: var(--space-12) 0 2px; }
+.service-name, .remote-channel { font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin: var(--space-12) 0 2px; }
 .card-remote { padding: var(--space-8) 0 2px; display: flex; justify-content: center; }
 .card-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-10); padding-top: var(--space-10); border-top: 1px solid var(--line); font-size: var(--text-sm); }
 .card-foot .link { padding: 0; font-size: inherit; }
@@ -2029,8 +2029,6 @@ legend { color: var(--muted); padding: 0 var(--space-8); font-weight: var(--weig
 /* A list of choices: a checkbox per choice, wrapping into columns. */
 .choice-set .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--space-4) var(--space-14); }
 .choice-set .check { margin: var(--space-6) 0; font-weight: var(--weight-regular); }
-/* A list's choices of several kinds (lights, blinds, scenes): a quiet heading over each kind's. */
-.choice-set .choice-group { margin: var(--space-10) 0 var(--space-2); font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 /* A searchable menu of several kinds (common.js's menu, items with `group`): pills that keep one kind, and a heading
    over each kind's items. */
 .menu-filters { display: flex; flex-wrap: wrap; gap: var(--space-4); padding: var(--space-4) var(--space-6) var(--space-6); }
@@ -5481,3 +5479,59 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .house-photo-editor .house-photo-marker,
 .house-photo-editor .house-photo-marker:hover,
 .house-photo-editor .house-photo-marker:active:not(:disabled) { transform: translate(-50%, -50%); transition: none; }
+
+/* Remotes (remotes.js): one surface, a section per Remote, its Buttons and Wheels by Channel as rows that open their
+   Controls. A press on the remote flashes its row. */
+.remote-list { display: grid; gap: 0; padding: 0; }
+.remote { padding: var(--space-16) var(--space-18); }
+.remote + .remote { border-top: 1px solid var(--line); }
+.remote-head { display: flex; align-items: center; gap: var(--space-12); flex-wrap: wrap; margin-bottom: var(--space-12); }
+.remote-title { flex: 1; min-width: 160px; }
+.remote-title h3 { margin: 0; font-size: var(--text-base); font-weight: var(--weight-semibold); }
+.remote-title p { margin: 2px 0 0; font-size: var(--text-sm); }
+.remote-head .chips { justify-content: flex-end; }
+.chip.warn { color: var(--warn); border-color: currentColor; }
+.remote-group + .remote-group { margin-top: var(--space-10); }
+.remote .remote-channel { margin: 0 0 var(--space-6); }
+.remote-parts { display: grid; gap: var(--space-6); margin: 0; padding: 0; list-style: none; }
+.remote-part {
+  display: flex; align-items: center; gap: var(--space-12); width: 100%; min-height: 0; margin: 0; padding: var(--space-10) var(--space-12);
+  border-radius: var(--radius-md); background: var(--material-thin); border: 1px solid var(--line); box-shadow: none;
+  color: inherit; font: inherit; text-align: start; transition: transform 160ms var(--ease-out), background-color 160ms ease;
+}
+button.remote-part { cursor: pointer; }
+@media (hover: hover) and (pointer: fine) { button.remote-part:hover { background: var(--material); } button.remote-part:hover .chevron { color: var(--text); } }
+button.remote-part:active { transform: scale(0.98); }
+button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.remote-part-glyph { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--material); border: 1px solid var(--line); color: var(--muted); }
+.remote-part-glyph svg { width: 16px; height: 16px; }
+.remote-part .body { flex: 1; min-width: 0; display: grid; gap: var(--space-4); }
+.remote-part-name { display: flex; align-items: baseline; gap: var(--space-8); flex-wrap: wrap; }
+.remote-part-name strong { font-weight: var(--weight-medium); }
+.remote-part-name .muted { font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.remote-controls { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
+.remote-controls li { display: flex; gap: var(--space-8); min-width: 0; }
+.remote-controls li > span:last-child, .remote-controls li > a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remote-gesture { flex: none; min-width: 7.5em; color: var(--muted); }
+.remote-part > .muted, .remote-part .body > .muted { font-size: var(--text-sm); }
+.remote-part .chevron { flex: none; color: var(--muted); display: grid; transition: color 160ms ease; }
+.remote-part .chevron svg { width: 16px; height: 16px; }
+/* The row of the Button just pressed: a short glow, quick enough for presses in a row. */
+.remote-part.pressed { animation: remote-pressed 700ms var(--ease-out); }
+@keyframes remote-pressed { from { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); } to { background: var(--material-thin); } }
+.remote-sheet { gap: var(--space-18); }
+.remote-sheet-section { display: grid; gap: var(--space-8); }
+.remote-sheet-section h3, .remote-more summary { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.remote-sheet-section > p { margin: 0; font-size: var(--text-sm); }
+.remote-scene { margin-top: var(--space-6); }
+.remote-more { display: grid; gap: var(--space-10); }
+.remote-more[open] summary { margin-bottom: var(--space-8); }
+/* A phone: the gesture over what it does, whole, rather than both on a line cut short. */
+@media (max-width: 480px) {
+  .remote { padding: var(--space-14) var(--space-12); }
+  .remote-controls li { flex-direction: column; gap: 0; }
+  .remote-controls li + li { margin-top: var(--space-4); }
+  .remote-controls li > span:last-child, .remote-controls li > a { white-space: normal; }
+  .remote-gesture { min-width: 0; font-size: var(--text-xs); }
+}
+@media (prefers-reduced-motion: reduce) { .remote-part.pressed { animation: none; outline: 2px solid var(--accent); } button.remote-part:active { transform: none; } }

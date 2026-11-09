@@ -60,6 +60,8 @@
     system: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
     wall: '<rect x="3" y="3" width="11" height="10" rx="1.5"/><rect x="17" y="3" width="4" height="6" rx="1.2"/><rect x="17" y="12" width="4" height="9" rx="1.2"/><rect x="3" y="16" width="5" height="5" rx="1.2"/><rect x="11" y="16" width="3" height="5" rx="1"/>',
     grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/>',
+    press: '<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.5"/>',
+    remote: '<rect x="7" y="2" width="10" height="20" rx="3"/><circle cx="12" cy="9" r="2.5"/><path d="M10 15.5h4M10 18.5h4"/>',
     blind: '<path d="M4 4h16M5 4v13h14V4M5 8h14M5 12h14M5 16h14M21 4v15"/><circle cx="21" cy="20" r="1"/>',
     bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
     switch: '<rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="9" r="2"/>',

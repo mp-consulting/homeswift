@@ -34,14 +34,18 @@ final class NodeAccessory: Sendable {
     private let updaters: [ValueID: [Updater]]
     /// What a value notification (Central Scene's key presses) sends, by value id.
     private let notifiers: [ValueID: Updater]
+    /// Where its buttons' moments go (`PluginContext.remoteMoment`): set by the plugin once the accessory is on the bridge.
+    let moments: NIOLockedValueBox<(@Sendable (_ part: String, _ moment: RemoteMoment) -> Void)?>
     fileprivate init(accessory: Accessory, shape: NodeShape, kind: String, adaptiveLighting: AdaptiveLightingController?,
-                     updaters: [ValueID: [Updater]], notifiers: [ValueID: Updater]) {
+                     updaters: [ValueID: [Updater]], notifiers: [ValueID: Updater],
+                     moments: NIOLockedValueBox<(@Sendable (String, RemoteMoment) -> Void)?>) {
         self.accessory = accessory
         self.shape = shape
         self.kind = kind
         self.adaptiveLighting = adaptiveLighting
         self.updaters = updaters
         self.notifiers = notifiers
+        self.moments = moments
     }
 
     /// A value changed on the node (the state dump's values and `value updated`).
@@ -78,6 +82,7 @@ struct NodeBuilder {
     private var services: [Service] = []
     private var updaters: [ValueID: [NodeAccessory.Updater]] = [:]
     private var notifiers: [ValueID: NodeAccessory.Updater] = [:]
+    private let moments = NIOLockedValueBox<(@Sendable (String, RemoteMoment) -> Void)?>(nil)
     private var adaptiveLighting: AdaptiveLightingController?
     /// The value ids a function took, so another does not show them twice.
     private var claimed: Set<ValueID> = []
@@ -139,7 +144,8 @@ struct NodeBuilder {
             id: ZWaveJSPlugin.accessoryID(deviceID: deviceID), name: name, manufacturer: node.manufacturer ?? "Z-Wave",
             model: node.label ?? node.productDescription ?? "Z-Wave device", serialNumber: node.serialNumber ?? deviceID,
             firmwareRevision: node.firmwareVersion ?? "1.0.0", category: category, services: ordered)
-        let built = NodeAccessory(accessory: accessory, shape: shape, kind: kind, adaptiveLighting: adaptiveLighting, updaters: updaters, notifiers: notifiers)
+        let built = NodeAccessory(accessory: accessory, shape: shape, kind: kind, adaptiveLighting: adaptiveLighting, updaters: updaters, notifiers: notifiers,
+                                  moments: moments)
         for value in node.values.values {
             if let current = value.value { built.update(value.id, current) }
         }
@@ -796,6 +802,24 @@ struct NodeBuilder {
         add(service)
     }
 
+    /// Central Scene's key attributes as a Remote's moments: Key Pressed 1 time a press, 2 times a double press, the first
+    /// Held Down of a hold its start (the device repeats it while held), Released its end.
+    static func moment(_ attribute: Int, held: inout Bool) -> RemoteMoment? {
+        switch attribute {
+        case 0: return .press
+        case 3: return .doublePress
+        case 2:
+            guard !held else { return nil }
+            held = true
+            return .holdStart
+        case 1:
+            guard held else { return nil }
+            held = false
+            return .holdEnd
+        default: return nil
+        }
+    }
+
     /// Central Scene's key attributes as HomeKit's presses: Key Pressed 1 time is a single press, 2 times a double,
     /// Held Down a long press; Released and the other counts are not sent.
     static func pressEvent(_ attribute: Int) -> Int? {
@@ -820,8 +844,11 @@ struct NodeBuilder {
                                   optional: [.serviceLabelIndex], extra: [event])
             service.characteristic(.serviceLabelIndex).value = .int(number)
             let characteristic = service.characteristic(.programmableSwitchEvent)
+            let part = RemoteLayout.partID(of: service), moments = moments, held = NIOLockedValueBox(false)
             notifiers[scene.id] = { value in
-                guard let attribute = value.intValue, let press = Self.pressEvent(attribute), events.contains(press) else { return }
+                guard let attribute = value.intValue else { return }
+                if let moment = held.withLockedValue({ Self.moment(attribute, held: &$0) }) { moments.withLockedValue { $0 }?(part, moment) }
+                guard let press = Self.pressEvent(attribute), events.contains(press) else { return }
                 characteristic.sendEvent(.int(press))
             }
             claimed.insert(scene.id)

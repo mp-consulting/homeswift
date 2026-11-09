@@ -80,24 +80,25 @@ extension MatterDevicesPlugin {
                         "rotary": .bool(endpoint.isRotary),
                     ]
                 })
-                let settings = DimmerSettings(context.accessorySettings(for: deviceID).plugin)
+                // What each channel drives: its Wheel's and its Button's Controls (the Remotes page sets them).
+                let controls = context.accessorySettings(for: deviceID).controls
                 // The Home app numbers a remote's buttons by their Service Label Index, and shows no names.
                 func button(_ endpoint: EndpointNumber?) -> JSONValue {
                     endpoint.flatMap { node.plan.buttons[$0]?[.serviceLabelIndex]?.value.intValue }.map { .number(Double($0)) } ?? .null
                 }
                 entry["channels"] = .array(node.channels.map { channel in
-                    let lights = settings.lights[channel.number] ?? []
-                    let power = settings.power[channel.number] ?? []
+                    let parts = [MatterRemote.part(wheel: channel)] + (channel.press.map { [MatterRemote.part(button: $0)] } ?? [])
+                    let mine = controls.filter { parts.contains($0.part) }
+                    let targets = mine.flatMap(\.targets).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
                     let name = { (id: String) in self.context.hostAccessory(id: id)?.name ?? id }
                     return [
                         "buttons": ["up": button(channel.up), "down": button(channel.down), "press": button(channel.press)],
                         "number": .number(Double(channel.number)), "up": .number(Double(channel.up)), "down": .number(Double(channel.down)),
                         "press": channel.press.map { .number(Double($0)) } ?? .null,
-                        "lights": .array(lights.map { ["id": .string($0), "name": .string(name($0))] }),
-                        "power": .array(power.map { ["id": .string($0), "name": .string(name($0))] }),
+                        "targets": .array(targets.map { ["id": .string($0), "name": .string(name($0))] }),
+                        "controls": .number(Double(mine.count)),
                     ]
                 })
-                entry["step"] = .number(Double(settings.step))
                 entry["events"] = .array(node.events.suffix(20).reversed().map { event in
                     [
                         "time": .string(Timestamp.iso8601(event.time)), "endpoint": .number(Double(event.endpoint)),

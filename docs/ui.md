@@ -428,7 +428,7 @@ Deleting a scene opens a confirmation in the UI’s design system. Cancel is foc
 
 ### Automations
 
-**Automations** (`/automations`, in the menu, with Scenes as its second tab; GLOSSARY.md): what the bridge does on its own. When any of its
+**Automations** (`/automations`, in the menu, with Scenes and [Remotes](#remotes) as its other tabs; GLOSSARY.md): what the bridge does on its own. When any of its
 **Triggers** fires and all its **Conditions** hold, its **Steps** run in order.
 
 - **Triggers**: a time of day on chosen days; sunrise or sunset with an offset (-12 to +12 hours); a cron expression
@@ -472,6 +472,25 @@ its picture and its switch. Every change an Automation makes is its own in the [
 `/api/automations` (GET; POST, PUT and DELETE for administrators), `/api/automations/<id>/run` and
 `/api/automations/draft` answer the page; over MCP, `list_automations`, `save_automation`, `run_automation` and
 `delete_automation` ([docs/mcp.md](mcp.md)).
+
+### Remotes
+
+**Remotes** (`/remotes`, the third tab of Automations; GLOSSARY.md "Remotes"): every remote the bridge has, from any
+plugin, in one list by room: a section per Remote with its Buttons and Wheels (by Channel where it has them), the Home
+app's numbers for each, what each gesture does, and the Automations a Button starts. A chip says when its presses reach
+Apple Home too (an automation there on the same button runs as well; Not in Home keeps the remote out of it), or come
+through Apple Home (a remote mirrored by Wingman, a moment later). **Press a button** of a remote while the page is open:
+its row lights up and its Controls open.
+
+A part's sheet sets **What it drives** (lights and shutters, a searchable list) and **What each gesture does**: a press, a
+double or a long press toggles them, turns them on or off, runs a Scene or stops moving shutters; a hold dims them (up,
+down, or each hold the other way); a Wheel steps them per notch. The words follow what it drives (Opens rather than
+Brightens for shutters). **More** has the step (1–25 %), the Wheel's direction, the **Power Switches** that power the
+lights and the wait after they come on. A long press and a hold are the same press: one or the other. Controls are the
+Remote's Accessory Settings (`controls`), saved without reloading its plugin; a change they make shows the Remote in the
+Logbook. Locks, doors and alarms are never driven by a remote.
+
+![The Remotes page](images/ui/remotes.png)
 
 ### Notifications
 

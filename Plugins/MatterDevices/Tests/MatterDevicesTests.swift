@@ -174,7 +174,7 @@ struct MatterDevicesTests {
     }
 
     /// A remote of the BILRESA's shape behind the node (a wheel channel: two rotary parts and a button) dims a light of
-    /// the bridge, a step per notch as the turn's running count comes in, and its button toggles it.
+    /// the bridge as its Controls say, a step per notch as the turn's running count comes in, and its button toggles it.
     @Test func aWheelDimsTheLightItsChannelIsSetTo() async throws {
         let environment = try await TestEnvironment()
         let lamp = try await environment.bridge.add(BridgedDeviceInfo(id: "lamp", name: "Desk lamp"), kind: .dimmableLight,
@@ -187,11 +187,23 @@ struct MatterDevicesTests {
         let deviceID = try await environment.addNode(host)
         await host.stop()
         let lampID = "MatterDevices:\(deviceID):\(lamp.endpoint)"
-        host = try await environment.start(settings: ["_accessories": [deviceID: ["light1": lampID, "dimStep": 10, "double1": "evening", "long1": "night"]]])
+        // Its Controls (the Remotes page's): the wheel a step of 10 % per notch, the button toggles, its double and long
+        // presses run Scenes.
+        let lamp1: JSONValue = ["targets": [.string(lampID)]]
+        func control(_ part: String, _ gesture: String, _ action: String, _ extra: [String: JSONValue] = [:]) -> JSONValue {
+            .object(["part": .string(part), "gesture": .string(gesture), "action": .string(action)].merging(extra) { $1 })
+        }
+        let controls: JSONValue = [
+            control("wheel:\(wheel.partEndpoints[0])", "turn", "step", ["targets": lamp1["targets"]!, "step": 10]),
+            control("button:\(wheel.partEndpoints[2])", "press", "toggle", ["targets": lamp1["targets"]!]),
+            control("button:\(wheel.partEndpoints[2])", "double", "scene", ["scene": "evening"]),
+            control("button:\(wheel.partEndpoints[2])", "long", "scene", ["scene": "night"]),
+        ]
+        // A bridged remote is an accessory of the node, its settings under its own key.
+        host = try await environment.start(settings: ["_accessories": ["\(deviceID):\(wheel.endpoint)": ["controls": try JSONSerialization.jsonObject(with: controls.encoded())]]])
         // The home's scenes, as the catalog lends them: what the button's double and long presses run.
         let ran = NIOLockedValueBox<[String]>([])
-        host.homeScenes = HomeScenes(list: { [HomeScene(id: "evening", name: "Evening"), HomeScene(id: "night", name: "Night")] },
-                                     run: { id in ran.withLockedValue { $0.append(id) } })
+        host.homeScenes = HomeScenes { id in ran.withLockedValue { $0.append(id) } }
         let bulb = try #require(try await accessory(host, lampID).services.first { $0.type == .lightbulb })
         #expect(await eventually { await environment.plugin?.nodes[deviceID]?.channels.count == 1 })
         // Subscribed: what the remote sends from now on is acted on (what came before is the priming report's, listed only).
@@ -221,9 +233,6 @@ struct MatterDevicesTests {
         #expect(await eventually { ran.withLockedValue { $0 } == ["evening"] })
         await wheel.press(.long, part: 2)
         #expect(await eventually { ran.withLockedValue { $0 } == ["evening", "night"] })
-        // The settings offer the home's scenes for them.
-        let choices = await environment.plugin?.accessorySettingChoices("double1", deviceID: deviceID)
-        #expect(choices?.map(\.label) == ["Evening", "Night"] && choices?.first?.group == "Scenes")
         await host.stop()
     }
 
@@ -312,7 +321,7 @@ let bilresa: NodeStructure = {
 }()
 
 struct MatterRemoteTests {
-    @Test func aScrollWheelIsARemoteWithButtonsChannelsAndABattery() {
+    @Test func aScrollWheelIsARemoteWithButtonsChannelsAndABattery() throws {
         let plan = MatterAccessories.plan(bilresa, accessoryID: "MatterDevices:0123", serialNumber: "0123") { _, _, _, _ in }
         #expect(plan.deviceKind == "remote")
         #expect(plan.accessories.count == 1)
@@ -331,11 +340,11 @@ struct MatterRemoteTests {
             WheelChannel(number: 1, up: 1, down: 2, press: 3), WheelChannel(number: 2, up: 4, down: 5, press: 6),
             WheelChannel(number: 3, up: 7, down: 8, press: 9),
         ])
-        // Its settings: a light for each of its three channels, no fourth.
-        #expect(DimmerSettings.keys(channels: WheelChannel.channels(bilresa).count)
-            == ["light1", "light2", "light3", "power1", "power2", "power3", "double1", "double2", "double3", "long1", "long2", "long3", "hold1", "hold2", "hold3",
-                "dimStep", "reverseWheel", "powerDelay"])
-        #expect(DimmerSettings.keys(channels: 0).isEmpty)
+        // As a Remote: each channel's Wheel (its two directions) and Button, by Channel.
+        let layout = try #require(MatterRemote.layout(of: plan.accessories[0], channels: WheelChannel.channels(bilresa)))
+        #expect(layout.parts.map(\.id) == ["wheel:1", "button:3", "wheel:4", "button:6", "wheel:7", "button:9"])
+        #expect(layout.parts[0] == RemotePart(id: "wheel:1", kind: .wheel, name: "Channel 1 wheel", channel: 1, services: ["button:1", "button:2"]))
+        #expect(layout.parts[1].name == "Channel 1 button" && layout.parts[1].channel == 1)
         // Its battery and its first button's events are subscribed.
         #expect(plan.attributes.contains(ConcreteAttribute(0, PowerSourceCluster.id, PowerSourceCluster.Attribute.batPercentRemaining)))
     }
@@ -373,17 +382,20 @@ struct MatterRemoteTests {
             (E.initialPress, position), (E.multiPressOngoing, ongoing(9)), (E.shortRelease, position),
             (E.multiPressComplete, ongoing(9)),
         ]
-        let actions = sequence.compactMap { gestures.handle($0.0, data: $0.1, endpoint: 1, channel: channel, reversed: false) }
-        #expect(actions == [.step(1), .step(3), .step(4), .step(1)])
-        // Down, reversed: the same notches the other way.
+        let notches = sequence.compactMap { gestures.notches($0.0, data: $0.1, endpoint: 1, up: true) }
+        #expect(notches == [1, 3, 4, 1])
+        // Down: the same notches the other way.
         let down = [(E.initialPress, position), (E.multiPressOngoing, ongoing(9)), (E.multiPressComplete, ongoing(10))]
-            .compactMap { gestures.handle($0.0, data: $0.1, endpoint: 2, channel: channel, reversed: true) }
-        #expect(down == [.step(9), .step(1)])
-        // The button toggles on a single press only, as `MatterAccessories.buttonEvent` reads its events.
+            .compactMap { gestures.notches($0.0, data: $0.1, endpoint: 2, up: false) }
+        #expect(down == [-9, -1])
+        // The button's presses and holds are moments of their own (`MatterRemote.moment`).
         let single = HAPConstants.ProgrammableSwitchEvent.singlePress, double = HAPConstants.ProgrammableSwitchEvent.doublePress
-        #expect(gestures.handle(E.multiPressComplete, data: ongoing(1), endpoint: 3, channel: channel, reversed: false, press: single) == .toggle)
-        #expect(gestures.handle(E.multiPressComplete, data: ongoing(2), endpoint: 3, channel: channel, reversed: false, press: double) == nil)
-        #expect(gestures.handle(E.initialPress, data: position, endpoint: 3, channel: channel, reversed: false) == nil)
+        #expect(MatterRemote.moment(E.multiPressComplete, press: single) == .press)
+        #expect(MatterRemote.moment(E.multiPressComplete, press: double) == .doublePress)
+        #expect(MatterRemote.moment(E.longPress, press: HAPConstants.ProgrammableSwitchEvent.longPress) == .holdStart)
+        #expect(MatterRemote.moment(E.longRelease, press: nil) == .holdEnd)
+        #expect(MatterRemote.moment(E.initialPress, press: nil) == nil)
+        _ = channel
     }
 
     /// A turn whose MultiPressComplete was lost (the subscription went down) does not hold the next turn back.
@@ -393,11 +405,12 @@ struct MatterRemoteTests {
         typealias E = SwitchCluster.Event
         let count = { (value: UInt64) in TLVValue.structure([.field(0, .unsigned(1)), .field(1, .unsigned(value))]) }
         let first = [(E.initialPress, count(0)), (E.multiPressOngoing, count(9))]
-            .compactMap { gestures.handle($0.0, data: $0.1, endpoint: 1, channel: channel, reversed: false) }
-        #expect(first == [.step(9)])
+            .compactMap { gestures.notches($0.0, data: $0.1, endpoint: 1, up: true) }
+        #expect(first == [9])
         let next = [(E.initialPress, count(0)), (E.multiPressOngoing, count(3)), (E.multiPressOngoing, count(6)), (E.multiPressComplete, count(6))]
-            .compactMap { gestures.handle($0.0, data: $0.1, endpoint: 1, channel: channel, reversed: false) }
-        #expect(next == [.step(3), .step(3)])
+            .compactMap { gestures.notches($0.0, data: $0.1, endpoint: 1, up: true) }
+        #expect(next == [3, 3])
+        _ = channel
     }
 
     @Test func aWiredPowerSourceIsNoBattery() {
@@ -405,172 +418,6 @@ struct MatterRemoteTests {
         structure.endpoints[0].powerFeatures = 1
         let plan = MatterAccessories.plan(structure, accessoryID: "MatterDevices:0123", serialNumber: "0123") { _, _, _, _ in }
         #expect(!plan.accessories[0].services.contains { $0.type == .battery })
-    }
-
-    @Test func dimsWithinTheLightsRange() {
-        #expect(DimmerWriter.target(current: 50, change: 10, isOn: true) == 60)
-        #expect(DimmerWriter.target(current: 95, change: 10, isOn: true) == 100)
-        #expect(DimmerWriter.target(current: 30, change: -50, isOn: true) == 1)
-        #expect(DimmerWriter.target(current: 1, change: -5, isOn: true) == 0)
-        #expect(DimmerWriter.target(current: 80, change: 15, isOn: false) == 15)
-        #expect(DimmerWriter.target(current: 80, change: -5, isOn: false) == 0)
-    }
-
-    @Test func writesTheLightThroughItsCharacteristics() async throws {
-        let bulb = Service(.lightbulb, name: "Lamp", optional: [.brightness], isPrimary: true)
-        bulb.characteristic(.on).value = .bool(true)
-        bulb[.brightness]?.value = .int(40)
-        let lamp = Accessory(id: "Other:lamp", name: "Lamp", category: .lightbulb, services: [bulb])
-        let writer = DimmerWriter(lightID: lamp.id) { $0 == lamp.id ? lamp : nil }
-        await writer.apply(.step(3), step: 5)
-        #expect(bulb[.brightness]?.value.intValue == 55)
-        await writer.apply(.step(-20), step: 5)
-        #expect(bulb[.brightness]?.value.intValue == 1 && bulb[.on]?.value.boolValue == true)
-        await writer.apply(.step(-1), step: 5)
-        #expect(bulb[.on]?.value.boolValue == false)
-        // The button turns it back on at the level it had before the wheel took it to the floor, not at 1 %.
-        await writer.apply(.toggle, step: 5)
-        #expect(bulb[.on]?.value.boolValue == true && bulb[.brightness]?.value.intValue == 55)
-        await writer.apply(.toggle, step: 5)
-        #expect(bulb[.on]?.value.boolValue == false && bulb[.brightness]?.value.intValue == 55)
-        await writer.apply(.toggle, step: 5)
-        #expect(bulb[.on]?.value.boolValue == true && bulb[.brightness]?.value.intValue == 55)
-    }
-
-    @Test func stepsFromWhatItSetNotFromALateReport() async throws {
-        // Govee's cloud reports a level from before the last writes, late: the next notch steps from what the wheel set.
-        let bulb = Service(.lightbulb, name: "Lamp", optional: [.brightness], isPrimary: true)
-        bulb.characteristic(.on).value = .bool(true)
-        bulb[.brightness]?.value = .int(40)
-        let lamp = Accessory(id: "Other:lamp", name: "Lamp", category: .lightbulb, services: [bulb])
-        let writer = DimmerWriter(lightID: lamp.id) { $0 == lamp.id ? lamp : nil }
-        await writer.apply(.step(1), step: 5)
-        bulb[.brightness]?.value = .int(20)   // the late report
-        await writer.apply(.step(1), step: 5)
-        #expect(bulb[.brightness]?.value.intValue == 50)
-        // Once the moment has passed, the light's own value counts again (another app may have changed it).
-        let later = DimmerWriter(lightID: lamp.id, trustLastSet: .zero) { $0 == lamp.id ? lamp : nil }
-        await later.apply(.step(1), step: 5)
-        bulb[.brightness]?.value = .int(20)
-        await later.apply(.step(1), step: 5)
-        #expect(bulb[.brightness]?.value.intValue == 25)
-    }
-
-    static func lamp(_ id: String, on: Bool, level: Int) -> Accessory {
-        let bulb = Service(.lightbulb, name: id, optional: [.brightness], isPrimary: true)
-        bulb.characteristic(.on).value = .bool(on)
-        bulb[.brightness]?.value = .int(level)
-        return Accessory(id: id, name: id, category: .lightbulb, services: [bulb])
-    }
-
-    static func bulb(_ accessory: Accessory) -> Service { accessory.services.first { $0.type == .lightbulb }! }
-
-    static func channel(_ accessories: [Accessory], power: [String] = []) -> ChannelDimmer {
-        let byID = Dictionary(uniqueKeysWithValues: accessories.map { ($0.id, $0) })
-        let find: @Sendable (String) -> Accessory? = { byID[$0] }
-        let lights = accessories.filter { [.lightbulb, .windowCovering].contains($0.category) }.map(\.id)
-        return ChannelDimmer(targets: ChannelTargets(lights: lights, power: power, powerDelay: .milliseconds(20)),
-                             writers: lights.map { DimmerWriter(lightID: $0, find: find) }, find: find)
-    }
-
-    @Test func aChannelDimsItsLightsTogetherAndSwitchesThemTheSameWay() async throws {
-        let a = Self.lamp("A", on: true, level: 40), b = Self.lamp("B", on: false, level: 70)
-        let channel = Self.channel([a, b])
-        await channel.apply(.step(2), step: 5)
-        #expect(Self.bulb(a)[.brightness]?.value.intValue == 50)
-        #expect(Self.bulb(b)[.on]?.value.boolValue == true && Self.bulb(b)[.brightness]?.value.intValue == 10)
-        // Both on: the button switches both off; then both on.
-        await channel.apply(.toggle, step: 5)
-        #expect(Self.bulb(a)[.on]?.value.boolValue == false && Self.bulb(b)[.on]?.value.boolValue == false)
-        await channel.apply(.toggle, step: 5)
-        #expect(Self.bulb(a)[.on]?.value.boolValue == true && Self.bulb(b)[.on]?.value.boolValue == true)
-    }
-
-    @Test func aChannelSwitchesThePowerOfItsLights() async throws {
-        let relay = Service(.switch, name: "Relay", isPrimary: true)
-        relay.characteristic(.on).value = .bool(false)
-        let power = Accessory(id: "EWeLink:relay", name: "Relay", category: .switch, services: [relay])
-        // A second relay, an outlet, switched with it.
-        let socket = Service(.outlet, name: "Socket", isPrimary: true)
-        socket.characteristic(.on).value = .bool(false)
-        let second = Accessory(id: "EWeLink:socket", name: "Socket", category: .outlet, services: [socket])
-        let a = Self.lamp("A", on: true, level: 30), b = Self.lamp("B", on: true, level: 30)
-        let channel = Self.channel([power, second, a, b], power: [power.id, second.id])
-        // Turning up with the power off: on first, then, once the lights are back, the notches.
-        await channel.apply(.step(2), step: 5)
-        #expect(relay[.on]?.value.boolValue == true && socket[.on]?.value.boolValue == true)
-        #expect(Self.bulb(a)[.brightness]?.value.intValue == 40 && Self.bulb(b)[.on]?.value.boolValue == true)
-        // Down past the floor: the power goes off, the lights stay on (they come back with it).
-        await channel.apply(.step(-20), step: 5)
-        #expect(Self.bulb(a)[.brightness]?.value.intValue == 1 && relay[.on]?.value.boolValue == true)
-        await channel.apply(.step(-1), step: 5)
-        #expect(relay[.on]?.value.boolValue == false && socket[.on]?.value.boolValue == false && Self.bulb(a)[.on]?.value.boolValue == true)
-        // Turning down with the power off does nothing; the button switches it on, the lights back at their level.
-        await channel.apply(.step(-1), step: 5)
-        #expect(relay[.on]?.value.boolValue == false)
-        await channel.apply(.toggle, step: 5)
-        #expect(relay[.on]?.value.boolValue == true && Self.bulb(a)[.brightness]?.value.intValue == 40)
-        await channel.apply(.toggle, step: 5)
-        #expect(relay[.on]?.value.boolValue == false)
-    }
-
-    /// A shutter on a channel: a notch moves its Target Position a step from where the wheel last sent it; the button
-    /// stops it while it moves, else opens it, or closes it when more than half open.
-    @Test func aChannelMovesItsShuttersPrecisely() async throws {
-        let covering = Service(.windowCovering, name: "Shutter", optional: [.holdPosition], isPrimary: true)
-        covering[.targetPosition]?.value = .int(40)
-        covering[.currentPosition]?.value = .int(40)
-        covering[.positionState]?.value = .int(2)
-        let shutter = Accessory(id: "Somfy:1", name: "Shutter", category: .windowCovering, services: [covering])
-        let channel = Self.channel([shutter])
-        await channel.apply(.step(3), step: 5)
-        #expect(covering[.targetPosition]?.value.intValue == 55)
-        await channel.apply(.step(-20), step: 5)
-        #expect(covering[.targetPosition]?.value.intValue == 0)
-        // Still, closed: the button opens it; moving, it stops.
-        await channel.apply(.toggle, step: 5)
-        #expect(covering[.targetPosition]?.value.intValue == 100)
-        covering[.positionState]?.value = .int(1)
-        await channel.apply(.toggle, step: 5)
-        #expect(covering[.holdPosition]?.value.boolValue == true && covering[.targetPosition]?.value.intValue == 100)
-    }
-
-    /// A held button dims a step at a time until it is let go: up or down as set, or each hold the other way.
-    @Test func aHeldButtonDimsUntilLetGo() async throws {
-        let lamp = Self.lamp("A", on: true, level: 30)
-        let channel = Self.channel([lamp])
-        let level: @Sendable () -> Int = { Self.bulb(lamp)[.brightness]?.value.intValue ?? 0 }
-        await channel.hold(step: 5, direction: .up)
-        #expect(await eventually { level() >= 40 })
-        await channel.release()
-        let stopped = level()
-        try await Task.sleep(for: .milliseconds(700))
-        #expect(level() == stopped)
-        await channel.hold(step: 5, direction: .down)
-        #expect(await eventually { level() < stopped })
-        await channel.release()
-        // Alternating: the hold after a hold goes the other way (the last was down: up now), however long after.
-        let before = level()
-        await channel.hold(step: 5, direction: .alternate)
-        #expect(await eventually { level() > before })
-        await channel.release()
-        // Never against a limit: at full, the next hold dims although the last one brightened.
-        try await Task.sleep(for: .seconds(3.1))   // past the writer's trust in its own last level
-        Self.bulb(lamp)[.brightness]?.value = .int(100)
-        await channel.hold(step: 5, direction: .alternate)
-        #expect(await eventually { level() < 100 })
-        await channel.release()
-    }
-
-    @Test func turnsOnAtFullALightLeftAtTheFloor() async throws {
-        // Dimmed to 1 % by something else: the writer knows no level before, so full.
-        let bulb = Service(.lightbulb, name: "Lamp", optional: [.brightness], isPrimary: true)
-        bulb.characteristic(.on).value = .bool(false)
-        bulb[.brightness]?.value = .int(1)
-        let lamp = Accessory(id: "Other:lamp", name: "Lamp", category: .lightbulb, services: [bulb])
-        let writer = DimmerWriter(lightID: lamp.id) { $0 == lamp.id ? lamp : nil }
-        await writer.apply(.toggle, step: 5)
-        #expect(bulb[.on]?.value.boolValue == true && bulb[.brightness]?.value.intValue == 100)
     }
 
     @Test func readsAStructureWithAListSentAsAppends() {

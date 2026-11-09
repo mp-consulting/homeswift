@@ -250,6 +250,11 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
             logger.error("Could not add \(name): \(error)")
             return false
         }
+        // A remote's Central Scene buttons, whose moments it reports (a hold from its first Held Down to its Released).
+        if built.accessory.isRemote {
+            context.declareRemote(accessoryID, .inferred(from: built.accessory))
+            built.moments.withLockedValue { $0 = { [context] part, moment in context.remoteMoment(moment, part: part, of: accessoryID) } }
+        }
         accessories[deviceID] = built
         return true
     }

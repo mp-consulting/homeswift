@@ -38,9 +38,12 @@ public struct AccessorySettings: Sendable, Equatable {
     /// Separate Functions: each of its Functions an accessory of its own (`Separation`), applied by the runtime.
     public var separateFunctions: Bool
 
-    public static let coreKeys: Set<String> = ["excluded", "name", "room", "hidden", "notInHome", "parts", "energyRoles", "separateFunctions"]
+    /// A Remote's Controls (`RemoteControl`), run by the bridge.
+    public var controls: [RemoteControl] = []
+
+    public static let coreKeys: Set<String> = ["excluded", "name", "room", "hidden", "notInHome", "parts", "energyRoles", "separateFunctions", "controls"]
     /// The Core Accessory Settings that apply without reloading the plugin: they never reach it.
-    public static let liveKeys: Set<String> = ["name", "room", "hidden", "notInHome", "energyRoles", "separateFunctions"]
+    public static let liveKeys: Set<String> = ["name", "room", "hidden", "notInHome", "energyRoles", "separateFunctions", "controls"]
     /// What `energyRoles` holds for a Meter: a power role's name, or `none`.
     public static let energyRoleChoices = ["solar", "home", "grid", "battery", "none"]
 
@@ -80,6 +83,7 @@ public struct AccessorySettings: Sendable, Equatable {
         parts = (fields["parts"]?.objectValue ?? [:]).compactMapValues(\.boolValue)
         energyRoles = Self.energyRoles(from: fields["energyRoles"])
         separateFunctions = fields["separateFunctions"]?.boolValue ?? false
+        controls = RemoteControl.readable(from: fields["controls"])
         plugin = fields.filter { !Self.coreKeys.contains($0.key) }
     }
 
@@ -93,6 +97,7 @@ public struct AccessorySettings: Sendable, Equatable {
         if !parts.isEmpty { fields["parts"] = .object(parts.mapValues(JSONValue.bool)) }
         if !energyRoles.isEmpty { fields["energyRoles"] = .object(energyRoles.mapValues { .string($0?.rawValue ?? "none") }) }
         if separateFunctions { fields["separateFunctions"] = true }
+        if !controls.isEmpty { fields["controls"] = RemoteControl.json(controls) }
         return .object(fields)
     }
 

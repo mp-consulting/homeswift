@@ -79,11 +79,6 @@ public protocol HomeswiftPlugin: Sendable {
     /// false: the runtime warns about accessory blocks naming it.
     static var runsAccessoryBlocks: Bool { get }
 
-    /// Whether it reads its Plugin Accessory Settings (`context.accessorySettings(for:).plugin`) each time it uses them,
-    /// so a change to them applies without reloading it: a remote's dimming choices, saved while its node stays connected.
-    /// A change to the Core Accessory Settings it reads (Excluded, parts) still reloads it. Defaults to false.
-    static var appliesAccessorySettingsLive: Bool { get }
-
     /// Creates the instance. Throw for settings the plugin cannot work with; the runtime logs the error
     /// and leaves this block out, the other plugins keep running.
     init(configuration: Configuration, context: PluginContext) async throws
@@ -209,17 +204,6 @@ public protocol HomeswiftPlugin: Sendable {
     /// writers still check the schema's own declaration, so the plugin checks what it reads. Defaults to nil: the schema's.
     func accessorySettingChoices(_ key: String, deviceID: String) async -> [SetupOption]?
 
-    /// Which of its Plugin Accessory Settings apply to one of its devices, when that depends on the device itself rather
-    /// than on its Device Kind (a remote's `light<N>`, one per channel it has): the settings editor shows only those, and
-    /// one with a value saved, so it can be cleared. Asked of the running instance; answer from what it knows. Defaults to
-    /// nil: every field of its kind.
-    func accessorySettingKeys(deviceID: String) async -> Set<String>?
-
-    /// The words of one of its Plugin Accessory Settings for one of its devices, when they depend on what its other
-    /// settings chose (a remote channel's shutters: Opens rather than Brightens): its title and description, in English,
-    /// which the schema's `i18n` translates. The editor fetches them again after each change. Defaults to nil: the schema's.
-    func accessorySettingWording(_ key: String, deviceID: String) async -> SettingWording?
-
     /// The block in its canonical shape (docs/adr/0001-canonical-accessory-settings.md): the plugin's Homebridge shapes
     /// (a `devices` list, exclude lists by name or id, typed arrays, feature-option strings) turned into Accessory Settings
     /// in `_accessories` by Device Id and declared Plugin Settings, the legacy keys dropped. The bridge asks the running
@@ -251,7 +235,6 @@ extension HomeswiftPlugin {
     public static var assistantActions: [AssistantAction] { [] }
     public static var assistantBackground: String? { nil }
     public static var runsAccessoryBlocks: Bool { false }
-    public static var appliesAccessorySettingsLive: Bool { false }
     public func stop() async {}
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse { .error(404, "\(Self.name) has no web API") }
     public func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? { nil }
@@ -266,21 +249,7 @@ extension HomeswiftPlugin {
     public static func deviceID(ofAccessory suffix: String) -> String? { nil }
     public func deviceKind(of deviceID: String) async -> String? { nil }
     public func accessorySettingChoices(_ key: String, deviceID: String) async -> [SetupOption]? { nil }
-    public func accessorySettingKeys(deviceID: String) async -> Set<String>? { nil }
-    public func accessorySettingWording(_ key: String, deviceID: String) async -> SettingWording? { nil }
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue { block }
-}
-
-/// A setting's words for one device (`HomeswiftPlugin.accessorySettingWording`): its title and description, in English,
-/// translated by the schema's `i18n`; nil keeps the schema's.
-public struct SettingWording: Sendable, Equatable {
-    public var title: String?
-    public var description: String?
-
-    public init(title: String? = nil, description: String? = nil) {
-        self.title = title
-        self.description = description
-    }
 }
 
 /// One route of a plugin's `handleWebRequest` that the Assistant may call, as the tool
@@ -593,13 +562,6 @@ public final class PluginContext: @unchecked Sendable {
     }
     private let logsBox = NIOLockedValueBox<LogBuffer?>(nil)
 
-    /// Where `homeScenes` comes from: the host's, set by `PluginHost`.
-    var homeScenesSource: @Sendable () -> HomeScenes? {
-        get { homeScenesBox.withLockedValue { $0 } }
-        set { homeScenesBox.withLockedValue { $0 = newValue } }
-    }
-    private let homeScenesBox = NIOLockedValueBox<@Sendable () -> HomeScenes?>({ nil })
-
     /// Who of the Persons is home, the host's (`PluginHost.presence`): the Presence plugin publishes on it. A context
     /// without a host has a board of its own.
     public internal(set) var presence: PresenceBoard {
@@ -633,6 +595,16 @@ public final class PluginContext: @unchecked Sendable {
         set { publishedBox.withLockedValue { $0 = newValue } }
     }
     private let publishedBox = NIOLockedValueBox<@Sendable () -> [PublishedServer]>({ [] })
+
+    /// The Remotes it declared (`declareRemote`), by accessory id.
+    let remoteLayouts = NIOLockedValueBox<[String: RemoteLayout]>([:])
+
+    /// Where `remoteMoment` sends a moment: the host's Controls, set by `PluginHost`.
+    var remoteMoments: (@Sendable (_ accessoryID: String, _ part: String, _ moment: RemoteMoment) -> Void)? {
+        get { remoteMomentsBox.withLockedValue { $0 } }
+        set { remoteMomentsBox.withLockedValue { $0 = newValue } }
+    }
+    private let remoteMomentsBox = NIOLockedValueBox<(@Sendable (String, String, RemoteMoment) -> Void)?>(nil)
 
     /// The host's feeds of changes and of accessories added or removed, set by `PluginHost` (`observeHostChanges`).
     var hostFeeds: HostFeeds? {
@@ -904,6 +876,7 @@ public final class PluginContext: @unchecked Sendable {
         }
         bridge.release(id)
         naming.forget(id)
+        remoteLayouts.withLockedValue { $0[id] = nil }
         list.withLockedValue { entries in
             entries.accessories.removeAll { $0.id == id }
             entries.external.remove(id)

@@ -138,30 +138,8 @@
     node.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.isComposing && event.target.matches?.("input:not([type=checkbox])")) { event.preventDefault(); event.target.blur(); }
     });
-    /// What was drawn last: its fields, rooms and the plugin's schema file, for a redraw after a change.
-    let shown = null;
     const ready = load();
     return { node, ready };
-
-    /// After a change to one of the plugin's own settings, its other fields' words and choices may follow it (a remote
-    /// channel's shutters: Opens rather than Brightens): fetched again, and drawn again only when they changed, the open
-    /// groups kept open and the sheet where it was.
-    async function refreshFields() {
-      let next;
-      try { next = await api(accessoryPath(accessoryID, instance)); } catch { return; }
-      if (!shown || JSON.stringify(next.fields) === JSON.stringify(shown.answer.fields)) return;
-      const groupName = (details) => details.dataset.section || details.querySelector(":scope > summary")?.textContent;
-      const open = new Set([...node.querySelectorAll("details")].filter((details) => details.open).map(groupName));
-      const scroller = node.closest("dialog") ?? document.scrollingElement;
-      const top = scroller.scrollTop;
-      // The control that had the focus, by its place among the editor's controls: the redraw keeps their order.
-      const controls = () => [...node.querySelectorAll("input, select, textarea, button, summary, [tabindex]")];
-      const focused = controls().indexOf(document.activeElement);
-      draw(next, shown.home, shown.schemaFile);
-      for (const details of node.querySelectorAll("details")) details.open = open.has(groupName(details));
-      scroller.scrollTop = top;
-      if (focused >= 0) controls()[focused]?.focus({ preventScroll: true });
-    }
 
     async function load() {
       let answer, rooms, schemaFile;
@@ -179,7 +157,6 @@
     }
 
     function draw(answer, home, schemaFile) {
-      shown = { answer, home, schemaFile };
       node.removeAttribute("aria-busy");
       const settings = answer.settings ?? {};
       if (settings.name || answer.name) onTitle(settings.name || answer.name);
@@ -204,7 +181,6 @@
             }
           }
           onChange(key);
-          if (fields[key] && !fields[key].core) refreshFields();
           return true;
         } catch (e) {
           // The schema's words without their place in config.json (`_accessories.<id>.<key> must be…`): the field is the place.
@@ -345,8 +321,7 @@
           // in it, as the bridge merges objects key by key.
           onCommit: (key, value, state) => save({ [key]: value === undefined ? null : mergePatch(settings[key], value) }, state, key),
         });
-        pluginSection = section(t("Plugin settings"), answer.appliesLive ? t("Declared by {plugin} for it. A change applies at once.", { plugin })
-          : t("Declared by {plugin} for it. A change reloads {plugin}.", { plugin }), form.element);
+        pluginSection = section(t("Plugin settings"), t("Declared by {plugin} for it. A change reloads {plugin}.", { plugin }), form.element);
       }
 
       // Exclude (or Include) and Forget, set apart at the end.
@@ -386,6 +361,9 @@
         dangerRow(t("Forget"), answer.addLabel ? t("Deletes it and its settings for good: {plugin} cannot find it again.", { plugin })
           : t("Drops its sign-in and its settings; it is only a device {plugin} finds again.", { plugin }), forget));
 
+      // A Remote: what its Buttons and Wheels do is set on the Remotes page (its Controls), where this opens it.
+      const remoteSection = fields.controls ? section(t("Its buttons"), t("What each button and wheel does is set on the Remotes page."),
+        el("a", { class: "button", href: `/remotes/${enc(answer.accessory ?? accessoryID)}`, actionIcon: "remote", text: t("Set what its buttons do") })) : null;
       // The renderer's own buttons (a list's Add) never submit a form around the editor.
       for (const button of pluginSection?.querySelectorAll("button:not([type])") ?? []) button.type = "button";
       node.replaceChildren(...[
@@ -393,6 +371,7 @@
         section(null, null, nameField, roomField),
         section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null, separate?.node ?? null, functionOf),
         energySection,
+        remoteSection,
         partsSection,
         pluginSection,
         danger,
@@ -407,8 +386,7 @@
 
   /// The editor in a side sheet, from the wall's ⋯, a plugin's Devices or Setup: its name and plugin at the top, Done
   /// at the bottom. `after(changed)` runs once it has gone, with whether anything was saved (or it was forgotten).
-  /// `section`: a group of the plugin's layout to open and show first (its title as a slug, `channel-2`).
-  function openAccessory({ accessoryID, instance = null, device = null, name = null, glyph = "accessory", trigger = null, after = null, section = null }) {
+  function openAccessory({ accessoryID, instance = null, device = null, name = null, glyph = "accessory", trigger = null, after = null }) {
     let changed = false, gone = false;
     HomeswiftCommon.openSheet((done) => {
       const title = el("h2", { id: "accessory-settings-title", tabIndex: -1, text: name ?? device?.name ?? accessoryID });
@@ -418,11 +396,7 @@
         onTitle: (text) => { title.textContent = text; } });
       // Once drawn, the title takes the focus (rather than Done, or a field whose keyboard would cover a phone's sheet),
       // unless the person already moved into the editor; Tab goes on to the Name.
-      editor.ready.then(() => {
-        const group = section && editor.node.querySelector(`details[data-section="${CSS.escape(section)}"]`);
-        if (group) { group.open = true; group.scrollIntoView({ block: "nearest" }); }
-        if (!editor.node.contains(document.activeElement)) title.focus({ preventScroll: true });
-      });
+      editor.ready.then(() => { if (!editor.node.contains(document.activeElement)) title.focus({ preventScroll: true }); });
       return el("div", { class: "account-form accessory-settings-sheet" },
         el("div", { class: "setup-sheet-head" }, tile(glyph, "blue"),
           el("div", {}, title, el("p", { class: "muted setup-method", text: t("Settings") }))),

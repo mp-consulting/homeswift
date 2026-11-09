@@ -183,6 +183,14 @@ func id(_ node: Int) -> String { ZWaveJSPlugin.accessoryID(deviceID: "\(FakeServ
 
 @Suite(.timeLimit(.minutes(1)))
 struct ZWaveJSTests {
+    /// Central Scene as a Remote's moments: the first Held Down of a hold starts it (the device repeats it while held),
+    /// Released ends it, a press and a double press as they come.
+    @Test func centralSceneKeysAsMoments() {
+        var held = false
+        let moments = [0, 2, 2, 2, 1, 1, 3].map { NodeBuilder.moment($0, held: &held) }
+        #expect(moments == [.press, .holdStart, nil, nil, .holdEnd, nil, .doublePress])
+    }
+
     let environment = TestEnvironment()
 
     func started() async throws -> PluginHost {

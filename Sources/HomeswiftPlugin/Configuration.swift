@@ -248,6 +248,7 @@ public struct HomeswiftConfiguration: Sendable {
         var hiddenOnWall: Set<String> = []
         var separated: Set<String> = []
         var energyRoles: [String: [String: EnergyRole?]] = [:]
+        var controls: [String: [RemoteControl]] = [:]
         // The devices whose entry holds live settings only: out of the plugin's JSON (a rename reloads nothing), but still
         // among its Accessory Settings (`context.allAccessorySettings`), as a device set up with a Name only.
         var liveOnly: Set<String> = []
@@ -273,6 +274,12 @@ public struct HomeswiftConfiguration: Sendable {
                         throw ConfigurationError.invalidValue(key: "\(at).energyRoles", expected: "each Meter's role: solar, home, grid, battery or none")
                     }
                     energyRoles[deviceID] = AccessorySettings.energyRoles(from: JSONValue.object(roles.compactMapValues { ($0 as? String).map(JSONValue.string) }))
+                }
+                if let given = fields["controls"] {
+                    guard given is [Any] else { throw ConfigurationError.invalidValue(key: "\(at).controls", expected: "a list of Controls: part, gesture, action, targets") }
+                    // A Control that does not read is left out, the others kept: it never stops the bridge.
+                    let list = RemoteControl.readable(from: try JSONValue(any: given))
+                    if !list.isEmpty { controls[deviceID] = list }
                 }
                 for key in ["hidden", "notInHome", "separateFunctions"] {
                     guard let given = fields[key] else { continue }
@@ -302,6 +309,7 @@ public struct HomeswiftConfiguration: Sendable {
         for deviceID in hiddenOnWall { entry.accessorySettings[deviceID]?.hidden = true }
         for deviceID in separated { entry.accessorySettings[deviceID]?.separateFunctions = true }
         for (deviceID, roles) in energyRoles { entry.accessorySettings[deviceID]?.energyRoles = roles }
+        for (deviceID, list) in controls { entry.accessorySettings[deviceID]?.controls = list }
         for id in hidden where id.hasPrefix("\(platform):") { entry.accessorySettings[String(id.dropFirst(platform.count + 1))]?.notInHome = true }
         return entry
     }
@@ -312,21 +320,6 @@ public struct HomeswiftConfiguration: Sendable {
     public static func pluginJSON(of block: JSONValue) -> Data? {
         guard let object = try? JSONSerialization.jsonObject(with: block.encoded()) as? [String: Any] else { return nil }
         return try? platform(from: object, index: 0).json
-    }
-
-    /// `json` without the Plugin Accessory Settings (each device's keys outside `AccessorySettings.coreKeys`), for a plugin
-    /// that applies them live (`HomeswiftPlugin.appliesAccessorySettingsLive`): two blocks with the same answer differ only
-    /// in those. nil when the JSON does not decode.
-    static func withoutPluginAccessorySettings(_ json: Data) -> Data? {
-        guard var block = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return nil }
-        if let byDevice = block["_accessories"] as? [String: Any] {
-            let core = byDevice.compactMapValues { fields -> [String: Any]? in
-                let kept = (fields as? [String: Any])?.filter { AccessorySettings.coreKeys.contains($0.key) } ?? [:]
-                return kept.isEmpty ? nil : kept
-            }
-            block["_accessories"] = core.isEmpty ? nil : core
-        }
-        return try? JSONSerialization.data(withJSONObject: block, options: [.sortedKeys])
     }
 
     public static func decode(_ data: Data) throws -> HomeswiftConfiguration {

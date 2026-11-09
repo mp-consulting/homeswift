@@ -862,6 +862,10 @@ struct HueSensorTests {
         #expect(HueSensorDevice.switchEvent("double_short_release") == 1)
         #expect(HueSensorDevice.switchEvent("long_press") == 2)
         #expect(HueSensorDevice.switchEvent("initial_press") == nil && HueSensorDevice.switchEvent("repeat") == nil)
+        // As a Remote's moments: a held button from its long press to its release (the repeats between say nothing).
+        #expect(HueSensorDevice.moment("short_release") == .press && HueSensorDevice.moment("double_short_release") == .doublePress)
+        #expect(HueSensorDevice.moment("long_press") == .holdStart && HueSensorDevice.moment("long_release") == .holdEnd)
+        #expect(HueSensorDevice.moment("repeat") == nil && HueSensorDevice.moment("initial_press") == nil)
         // A device with a light belongs to the light, and one without a sensor or button is no sensor.
         let snapshot = HueSnapshot(resources: FakeBridge.resources)
         #expect(snapshot.sensors.map(\.id) == ["dev-4", "dev-3"])

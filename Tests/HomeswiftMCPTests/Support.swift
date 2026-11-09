@@ -27,6 +27,8 @@ actor DevicesPlugin: HomeswiftPlugin {
         var mirroredBulb: Bool?
         /// A second one, `Devices:mirrored2`, in this room.
         var secondMirroredRoom: String?
+        /// A remote, `Devices:remote`, with two buttons (`top`, `bottom`).
+        var remote: Bool?
     }
 
     static let platform = "Devices"
@@ -76,6 +78,11 @@ actor DevicesPlugin: HomeswiftPlugin {
         let trigger = Service(.switch, name: "Door Trigger", subtype: "trigger", extra: [Characteristic(.setupEndpoints, value: "c3J0cC1tYXN0ZXIta2V5")])
         trigger.characteristic(.on).securityControl().onWrite { value in writes.withLockedValue { $0.append(("trigger.on", value)) } }
         try context.add(Accessory(id: "Devices:lock", name: "Front Door", category: .doorLock, services: [lock, trigger]))
+
+        if configuration.remote == true {
+            let buttons = ["top", "bottom"].map { (button: String) in Service(.statelessProgrammableSwitch, name: button.capitalized, subtype: button, optional: [.serviceLabelIndex]) }
+            try context.add(Accessory(id: "Devices:remote", name: "Hall Remote", category: .programmableSwitch, services: buttons))
+        }
 
         let bulbs = configuration.colourBulbs ?? 0
         for number in 0..<bulbs {
@@ -185,16 +192,6 @@ actor DevicesPlugin: HomeswiftPlugin {
     /// The lamp is a light, the lock a lock; the others say nothing.
     func deviceKind(of deviceID: String) async -> String? {
         ["lamp": "light", "lock": "lock"][deviceID]
-    }
-
-    /// The lock's Show as has words of its own.
-    func accessorySettingWording(_ key: String, deviceID: String) async -> SettingWording? {
-        deviceID == "lock" && key == "showAs" ? SettingWording(title: "Shown in the Home app as") : nil
-    }
-
-    /// Of its Plugin Accessory Settings, only Show as means anything to the lock; the others say nothing.
-    func accessorySettingKeys(deviceID: String) async -> Set<String>? {
-        deviceID == "lock" ? ["showAs"] : nil
     }
 
     /// The Homebridge shape it reads: `legacyExcluded`, a list of Device Ids, becomes Excluded in `_accessories`, and is

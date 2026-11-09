@@ -150,8 +150,8 @@
   // ---- The Logbook
 
   const sourceKinds = [["", t("Everyone and everything")], ["homeApp", t("The Home app")], ["user", t("Homeswift users")], ["mcp", t("MCP clients")],
-    ["automation", t("Automations")], ["scene", t("Scenes")], ["device", t("The devices themselves")]];
-  const sourceIcons = { homeApp: "house", user: "user", mcp: "sparkle", automation: "workflow", scene: "play", device: "accessory" };
+    ["automation", t("Automations")], ["scene", t("Scenes")], ["remote", t("Remotes")], ["device", t("The devices themselves")]];
+  const sourceIcons = { homeApp: "house", user: "user", mcp: "sparkle", automation: "workflow", scene: "play", remote: "remote", device: "accessory" };
   /// Who made a change, as a person reads it.
   function sourceText(source) {
     switch (source.kind) {
@@ -159,6 +159,8 @@
       case "device": return t("The device");
       case "automation": return t("Automation {name}", { name: source.name });
       case "scene": return t("Scene {name}", { name: source.name });
+      // A Remote's Control: the remote and its Button or Wheel ("BILRESA · Channel 2 wheel").
+      case "remote": return source.name;
       case "user": return source.name ?? t("A Homeswift user");
       case "mcp": return source.name ?? t("An MCP client");
       default: return source.name ?? "";

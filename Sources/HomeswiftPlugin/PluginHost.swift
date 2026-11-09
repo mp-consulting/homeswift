@@ -258,6 +258,9 @@ public final class PluginHost: @unchecked Sendable {
     let reloads = SerialTasks()
     /// The key of the instance that last answered as the Home Link, asked first (`homeLink()`).
     let homeLinkKey = NIOLockedValueBox<String?>(nil)
+    /// Runs the Remotes' Controls (`RemoteControls`), and follows HomeKit's presses for them.
+    private let remoteControlsBox = NIOLockedValueBox<RemoteControls?>(nil)
+    private let remotePresses = NIOLockedValueBox<Observation?>(nil)
 
     /// Prepares the bridges and the plugins' contexts and restores the accessory caches. Nothing listens
     /// until `start()`.
@@ -319,6 +322,31 @@ public final class PluginHost: @unchecked Sendable {
         }
         instanceList.withLockedValue { $0 = instances }
         for instance in instances { instance.context.restoreCache() }
+
+        let controls = RemoteControls(find: { [weak self] id in self?.accessory(id: id) }, remote: { [weak self] id in self?.remote(of: id) },
+                                      scenes: { [weak self] in self?.homeScenes }, logger: logger)
+        remoteControlsBox.withLockedValue { $0 = controls }
+        remotePresses.withLockedValue { $0 = changes.add { accessory, characteristic, value in controls.observed(accessory, characteristic, value) } }
+    }
+
+    /// An accessory on any server the host runs.
+    private func accessory(id: String) -> Accessory? {
+        bridges.lazy.compactMap { $0.server.accessory(id: id) }.first
+    }
+
+    /// A Remote as the instance that has it knows it; nil for an accessory that is no Remote. Its Controls are its
+    /// Accessory Settings' (`controls`), a live setting kept under the accessory's own key (`<platform>:` left out).
+    public func remote(of accessoryID: String) -> RemoteState? {
+        for instance in instances {
+            let context = instance.context
+            guard let accessory = context.accessory(id: accessoryID) else { continue }
+            guard accessory.isRemote else { return nil }
+            let declared = context.remoteLayout(of: accessoryID)
+            let key = AccessoryNaming.deviceID(of: accessoryID, platform: context.platform)
+            return RemoteState(name: accessory.name, layout: declared ?? .inferred(from: accessory), isDeclared: declared != nil,
+                               controls: context.accessorySettings(for: key).controls)
+        }
+        return nil
     }
 
     /// How long `start()` waits for the plugins' `start()`, and `stop()` for each plugin's `stop()`: a plugin
@@ -357,6 +385,8 @@ public final class PluginHost: @unchecked Sendable {
     /// longer than `pluginStopWait` is left to finish on its own.
     public func stop() async {
         await reloads.idle()
+        remotePresses.withLockedValue { $0 }?.cancel()
+        await remoteControlsBox.withLockedValue { $0 }?.stop()
         await withTaskGroup(of: Void.self) { group in
             for instance in instances {
                 group.addTask {
@@ -563,16 +593,6 @@ public final class PluginHost: @unchecked Sendable {
                     old.context.accessorySettingsBox.withLockedValue { $0 = block.accessorySettings }
                     continue
                 }
-                // Only Plugin Accessory Settings changed, which the plugin reads on each use: it keeps running with them.
-                // (The JSON holds `_bridge` and `_paused` too; a plugin that failed to start still reloads.)
-                if old.entry.appliesAccessorySettingsLive, old.plugin.withLockedValue({ $0 }) != nil,
-                   let before = HomeswiftConfiguration.withoutPluginAccessorySettings(old.block.json),
-                   before == HomeswiftConfiguration.withoutPluginAccessorySettings(block.json) {
-                    old.adopt(block)
-                    old.context.accessorySettingsBox.withLockedValue { $0 = block.accessorySettings }
-                    old.context.logger.debug("Applied its Accessory Settings without reloading")
-                    continue
-                }
                 // Only its canonical shape changed, from the block its plugin runs: it keeps running on the new one.
                 if moves.contains(CanonicalMove(platform: block.platform, name: block.name, from: old.block.json)),
                    old.block.childBridge == block.childBridge, old.block.paused == block.paused, old.plugin.withLockedValue({ $0 }) != nil {
@@ -606,6 +626,8 @@ public final class PluginHost: @unchecked Sendable {
             }
         }
         applySeparations(next)
+        // The Controls as they are now: the runners of targets none has any more go.
+        await remoteControlsBox.withLockedValue { $0 }?.prune(keeping: instances.flatMap { $0.context.allAccessorySettings.values.flatMap(\.controls) })
         applyHomeKitVisibility(next)
         applyAccessoryNames(next)
         logApplied(report)
@@ -744,6 +766,8 @@ public final class PluginHost: @unchecked Sendable {
     func stopPlugin(_ instance: Instance) async {
         if let plugin = instance.plugin.withLockedValue({ $0 }) {
             await plugin.stop()
+            // A hold its remote started never gets its release now.
+            await remoteControlsBox.withLockedValue { $0 }?.releaseHolds()
         }
         instance.plugin.withLockedValue { $0 = nil }
         instance.context.saveCache()
@@ -797,7 +821,7 @@ public final class PluginHost: @unchecked Sendable {
         return Instance(entry: entry, block: block, context: context)
     }
 
-    /// The home's Scenes, lent to plugins (`PluginContext.homeScenes`): set by whoever runs the catalog (the CLI, a test).
+    /// The home's Scenes, which Remotes' Controls run (`RemoteControls`): set by whoever runs the catalog (the CLI, a test).
     public var homeScenes: HomeScenes? {
         get { homeScenesBox.withLockedValue { $0 } }
         set { homeScenesBox.withLockedValue { $0 = newValue } }
@@ -806,12 +830,14 @@ public final class PluginHost: @unchecked Sendable {
 
     /// Gives a context the host's servers: what they publish (`hostAccessories`) and their changes.
     func attachHost(_ context: PluginContext) {
-        context.homeScenesSource = { [weak self] in self?.homeScenes }
+        context.remoteMoments = { [weak self] accessoryID, part, moment in
+            self?.remoteControlsBox.withLockedValue { $0 }?.moment(moment, part: part, of: accessoryID)
+        }
         context.publishedServers = { [weak self] in
             self?.bridges.map { PluginContext.PublishedServer(deviceID: $0.server.deviceID, isExternal: $0.isExternal, accessories: $0.server.accessories) } ?? []
         }
         context.hostFeeds = HostFeeds(
-            find: { [weak self] id in self?.bridges.lazy.compactMap { $0.server.accessory(id: id) }.first },
+            find: { [weak self] id in self?.accessory(id: id) },
             changes: { [weak self] observer in self?.observeChanges(observer) ?? Observation {} },
             structure: { [weak self] observer in self?.observeStructure(observer) ?? Observation {} })
     }

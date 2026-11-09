@@ -128,6 +128,11 @@ HomeswiftUI, JSON, MCP, OAuth, plugins' and brands' names, units.
 | plugin | plugin | plugin | plugin |
 | platform (config block) | plateforme | plataforma | plataforma |
 | scene | scène | escena | cena |
+| remote | télécommande | mando | comando |
+| button (of a remote) | bouton | botón | botão |
+| wheel (of a remote) | molette | rueda | roda |
+| channel (of a remote) | canal | canal | canal |
+| press, long press, hold | appui, appui long, maintien | pulsación, pulsación larga, mantener | pressão, pressão longa, manter |
 | template (scene) | modèle | plantilla | modelo |
 | room | pièce | habitación | divisão |
 | the Home app | l'app Maison | la app Casa | a app Casa |

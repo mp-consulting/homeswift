@@ -17,11 +17,11 @@
 #nodes.grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
 .node .server-head .who strong { white-space: normal; overflow-wrap: anywhere; }
 
-/* A remote's channels: what each dims, a row each that opens its Settings. */
+/* A remote's channels: what each drives, a row each that opens it on the Remotes page. */
 .channels { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .channel {
   display: flex; align-items: center; gap: 12px; width: 100%; min-height: 0; padding: 10px 12px; margin: 0; border-radius: 12px;
-  background: var(--material-thin); border: 1px solid var(--line); box-shadow: none; color: inherit; font: inherit; text-align: start;
+  background: var(--material-thin); border: 1px solid var(--line); box-shadow: none; color: inherit; font: inherit; text-align: start; text-decoration: none;
   cursor: pointer; transition: transform 160ms var(--ease-out), background-color 160ms ease;
 }
 @media (hover: hover) and (pointer: fine) { .channel:hover { background: var(--material); } .channel:hover .chevron { color: var(--text); } }

@@ -89,19 +89,6 @@ extension PluginHost {
         return await plugin.accessorySettingChoices(key, deviceID: deviceID)
     }
 
-    /// The Plugin Accessory Settings the running instance says apply to a device (`HomeswiftPlugin.accessorySettingKeys`);
-    /// nil when it says nothing, or does not run.
-    public func accessorySettingKeys(platform: String, name: String, deviceID: String) async -> Set<String>? {
-        guard let plugin = running(platform: platform, name: name) else { return nil }
-        return await plugin.accessorySettingKeys(deviceID: deviceID)
-    }
-
-    /// A setting's words for a device, as the running instance gives them (`HomeswiftPlugin.accessorySettingWording`).
-    public func accessorySettingWording(platform: String, name: String, key: String, deviceID: String) async -> SettingWording? {
-        guard let plugin = running(platform: platform, name: name) else { return nil }
-        return await plugin.accessorySettingWording(key, deviceID: deviceID)
-    }
-
     /// The block in its canonical shape, as its running instance writes it (`HomeswiftPlugin.canonicalSettings`), and what
     /// the plugin asked to do once the block is written (`PluginContext.whenSettingsWritten`), for the writer to run just
     /// before it writes config.json, never on a dry run; the block as it is, and nothing to do, when the instance does

@@ -478,7 +478,7 @@ public final class UIServer: Sendable {
             if route.count == 3, route[0] == "scenes", route[2] == "picture" { return .read }
             // The rooms, zones, scenes and Quick Controls the Accessories and Status pages show, and whether the rooms are
             // Apple Home's; this browser's Web Push.
-            if [["layout"], ["rooms"], ["zones"], ["home-link"], ["scenes"], ["scenes", "templates"], ["automations"], ["notifications", "push"]].contains(route) { return .read }
+            if [["layout"], ["rooms"], ["zones"], ["home-link"], ["scenes"], ["scenes", "templates"], ["automations"], ["remotes"], ["notifications", "push"]].contains(route) { return .read }
             if route.count == 3, route[0] == "notifications", route[1] == "actions" { return .read }
             if route == ["assistant", "chat"] || route == ["assistant", "models"] { return .control }
             // Today's digest, as the Status page's widget shows it (writing one is an administrator's); each user's
@@ -1642,7 +1642,7 @@ final class EventHub: Sendable {
                 ]
                 if let service {
                     payload["service"] = .string(service.type.name)
-                    if let subtype = service.subtype { payload["subtype"] = .string(subtype) }
+                    if let subtype = service.subtype { payload["subtype"] = .string(subtype) } else { payload["serviceIID"] = .number(Double(service.iid)) }
                 }
                 return .object(payload)
             }())

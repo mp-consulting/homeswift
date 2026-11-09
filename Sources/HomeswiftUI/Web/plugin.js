@@ -28,7 +28,7 @@
   /// ⋯ and the Settings page): a page shows it rather than sending the person away, and still writes no settings itself.
   /// `after(changed)` runs once it has gone, with whether anything was saved. Falls back to the Settings page when the
   /// editor cannot load.
-  async function openAccessorySettings({ accessoryID, name: title = null, glyph = "accessory", trigger = null, after = null, section = null }) {
+  async function openAccessorySettings({ accessoryID, name: title = null, glyph = "accessory", trigger = null, after = null }) {
     try {
       await loadScript("/forms.js");
       await loadScript("/settings.js");
@@ -37,7 +37,7 @@
       location.href = accessorySettings(accessoryID);
       return;
     }
-    HomeswiftSettings.openAccessory({ accessoryID, instance: name, name: title, glyph, trigger, section, after: (changed) => after?.(changed) });
+    HomeswiftSettings.openAccessory({ accessoryID, instance: name, name: title, glyph, trigger, after: (changed) => after?.(changed) });
   }
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
