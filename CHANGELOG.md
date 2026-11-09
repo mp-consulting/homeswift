@@ -14,6 +14,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **Matter Devices**: adding a Thread device on a host that has no route to its Thread network (a Linux kernel that
+  does not learn the border routers' routes, as on a Synology NAS) now says so and names the network's prefix, instead
+  of asking for a new code. The plugin's README explains how to add the route.
 - **Remotes**: Power Switches changed under More were not saved when what the Control drives stayed the same.
 - On a phone, the accessory list opened from a remote's editor could hide its search field (above the screen, or
   behind the keyboard); it now keeps to what is visible.
