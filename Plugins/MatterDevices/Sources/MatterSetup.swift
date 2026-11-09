@@ -154,8 +154,10 @@ extension MatterDevicesPlugin {
             logger.warning("Matter commissioning failed: \(error)", metadata: ["address": "\(node.address.description)"])
             throw SetupError(Self.explain(error))
         } catch {
-            logger.warning("Matter commissioning failed: \(MatterNodeLink.describe(error))", metadata: ["address": "\(node.address.description)"])
-            throw SetupError("The device did not answer at \(node.address.description). Check that it is on and that its pairing window is still open, then try again with a new code.")
+            let missingRoute = dependencies.missingRoute(node.address.host)
+            let reason = missingRoute.map { "this host has no route to \($0)" } ?? MatterNodeLink.describe(error)
+            logger.warning("Matter commissioning failed: \(reason)", metadata: ["address": "\(node.address.description)"])
+            throw SetupError(Self.unanswered(node.address, missingRoute: missingRoute))
         }
         // The serial number of the next certificate moved: the fabric is saved again before anything can fail.
         try fabricFile.save(await commissioner.snapshot)
@@ -169,6 +171,16 @@ extension MatterDevicesPlugin {
 
     /// A node id in the operational range (Core §2.5.5): 0x0000_0000_0000_0001 to 0xFFFF_FFEF_FFFF_FFFF.
     static func randomNodeID() -> NodeID { UInt64.random(in: 1...0xFFFF_FFEF_FFFF_FFFF) }
+
+    /// Why a device did not answer: the host has no route to its Thread network (`HostRoutes`), else the device itself.
+    static func unanswered(_ address: NodeAddress, missingRoute: String?) -> String {
+        guard let missingRoute else {
+            return "The device did not answer at \(address.description). Check that it is on and that its pairing window is still open, then try again with a new code."
+        }
+        return "This server has no route to the device's Thread network (\(missingRoute)), so it cannot reach it at \(address.description). "
+            + "Its system does not learn the routes Thread border routers announce: add one through a border router, as the Matter Devices "
+            + "README explains (Network), then try again with a new code."
+    }
 
     static func explain(_ error: CommissioningError) -> String {
         switch error {
