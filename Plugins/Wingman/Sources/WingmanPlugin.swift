@@ -331,13 +331,22 @@ actor Link {
     /// Reads the homes. An accessory whose shape is as it was keeps its objects and takes the new values; the others
     /// are built again and replace theirs.
     /// `scenes` false after a structural edit: the homes changed, not the scenes or automations.
+    /// Reads of the homes started, and edits put in the copy, counted; and the latest one applied. A read applies what it
+    /// read only when nothing that started after it was applied first: a read from before an edit never puts an old name back.
+    private var reads = 0
+    private var applied = 0
+
     func refresh(scenes: Bool = true) async throws {
         guard !client.host.isEmpty else { throw WingmanError.unreachable("no address yet: waiting for Bonjour") }
         guard let plugin else { return }
+        reads += 1
+        let read = reads
         let info = try await client.info().info
         // Changes from now on, counted before the read: one made while the homes are read comes as an event too.
         since = try await client.events(since: Int.max - 1, wait: 0).last ?? 0
         let homes = try await client.homes()
+        guard read > applied else { return }
+        applied = read
         let homeswift = plugin.context.publishedSerialNumbers
         let bridges = plugin.context.homeswiftBridgeSerialNumbers
         let bridgeHome = Structure.bridgeHome(of: homes, bridges: bridges)
@@ -496,6 +505,9 @@ actor Link {
             throw HomeChangeError(.unreachable, "\(error)")
         }
         if let moved {
+            // The copy has the move now: a read already under way, from before it, keeps its old room to itself.
+            reads += 1
+            applied = reads
             structure?.devices[moved.accessory]?.roomID = moved.roomID
             let home = structure?.devices[moved.accessory].flatMap { structure?.home($0.home) }
             structure?.devices[moved.accessory]?.room = moved.roomID.flatMap { id in home?.rooms.first { $0.id == id }?.name } ?? home?.defaultRoom?.name
