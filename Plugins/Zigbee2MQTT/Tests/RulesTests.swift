@@ -48,6 +48,15 @@ struct RulesTests {
         }
     }
 
+    /// A held button's release, among an action's values, makes its long press a hold that ends.
+    @Test func aHeldButtonsRelease() throws {
+        let values = ["1_single", "1_hold", "1_release", "2_single", "2_hold"]
+        let mappings = try ButtonMapping.mappings(for: values)
+        #expect(mappings.map { ActionHandler.release(of: $0, in: values) } == ["1_release", nil])
+        let one = try ButtonMapping.mappings(for: ["single", "hold", "release"])
+        #expect(ActionHandler.release(of: one[0], in: ["single", "hold", "release"]) == "release")
+    }
+
     @Test func buttonMappings() throws {
         #expect(try Self.describe(["single", "double", "hold"]) == [" 1: single double hold"])
         #expect(try Self.describe(["off", "single", "double", "hold"]) == [" 1: single double hold", "off 2: off - -"])

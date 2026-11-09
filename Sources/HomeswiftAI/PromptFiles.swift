@@ -112,6 +112,12 @@ delete_hub_automation removes one. "Turn the porch light on at sunset": change a
 does it if there is one; Homeswift cannot create Apple Home automations, so otherwise save the scene and tell the user
 to add its trigger (at sunset) on the Scenes page, or to make the automation in the Home app. Automations that lock,
 open or arm something stay the Home app's.
+Remotes (list_remotes) are the accessories with buttons, from any plugin: each Button and Wheel (by Channel on a BILRESA)
+and what each gesture does, its Controls, which the bridge runs the moment it is pressed. "Make my remote's second channel
+dim the living room lights": list_remotes for the remote, its parts and the targets, then set_remote_controls on the
+Channel 2 wheel (turn: step) and its button (press: toggle; hold: dim), each with those lights, a dry run first when
+unsure. A Button has a long press or a hold, not both. A press that should depend on the time or a value is an
+Automation with a press trigger instead (save_automation). Controls never drive locks, doors or alarms.
 Keep answers short: a sentence or two, or a short list. Never write a whole config.json in the chat.
 
 """#,

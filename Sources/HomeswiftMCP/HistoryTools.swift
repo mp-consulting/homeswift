@@ -136,11 +136,11 @@ extension HomeswiftCatalog {
                     + "each with its Change Source: the Home app (by pairing), a Homeswift user, an MCP client, an Automation or Scene, or the device itself "
                     + "(which user or client only with the admin scope). "
                     + "Numeric readings (temperature, power) are not in it: get_accessory_history has them. Kept for the bridge's History retention (14 days by default). "
-                    + "Filter by room, accessory (an id from list_accessories), source (homeApp, user, mcp, automation, scene, device) and sourceName, and since/until "
+                    + "Filter by room, accessory (an id from list_accessories), source (homeApp, user, mcp, automation, scene, remote, device) and sourceName, and since/until "
                     + "(ISO time or 30m, 1h, 2d). For questions like \"who opened the garage\" or \"what turned the heating on\".",
                 inputSchema: ["type": "object", "properties": [
                     "room": ["type": "string", "maxLength": 100], "accessory": ["type": "string", "maxLength": 200],
-                    "source": ["type": "string", "enum": ["homeApp", "user", "mcp", "automation", "scene", "device"]],
+                    "source": ["type": "string", "enum": ["homeApp", "user", "mcp", "automation", "scene", "remote", "device"]],
                     "sourceName": ["type": "string", "maxLength": 200],
                     "since": ["type": "string", "maxLength": 40], "until": ["type": "string", "maxLength": 40],
                     "limit": ["type": "integer", "minimum": 1, "maximum": 1000, "description": "Entries returned (default 100)"],

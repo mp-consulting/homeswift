@@ -110,7 +110,7 @@ struct HueSensorDevice: Sendable, Equatable {
     struct Button: Sendable, Equatable { var id: String; var controlID: Int; var event: String?; var updated: String? }
     /// A Tap dial's ring (`relative_rotary`) and its last report: `start` when a turn begins, `repeat` while it goes on,
     /// its direction, and when it came.
-    struct Rotary: Sendable, Equatable { var id: String; var action: String?; var clockwise: Bool?; var updated: String? }
+    struct Rotary: Sendable, Equatable { var id: String; var action: String?; var clockwise: Bool?; var steps: Int?; var updated: String? }
 
     var id: String
     var name: String
@@ -151,6 +151,21 @@ struct HueSensorDevice: Sendable, Equatable {
         default: nil
         }
     }
+
+    /// A button's report as a Remote's moment (`RemoteMoment`): a press on release, a double press, held from the long
+    /// press to its release; nil for the steps in between (`initial_press`, `repeat`).
+    static func moment(_ event: String) -> RemoteMoment? {
+        switch event {
+        case "short_release": .press
+        case "double_short_release": .doublePress
+        case "long_press": .holdStart
+        case "long_release": .holdEnd
+        default: nil
+        }
+    }
+
+    /// The ring's steps per notch of a Remote's Wheel: a Tap dial reports 15 for its slowest click.
+    static let stepsPerNotch = 15
 
     /// The services of `device` among `resources` (by id); nil when it has no sensor or button.
     static func make(device: JSONValue, id: String, resources: [String: JSONValue], reachable: Bool) -> HueSensorDevice? {
@@ -218,6 +233,7 @@ struct HueSensorDevice: Sendable, Equatable {
             var rotary = self.rotary ?? Rotary(id: rid)
             if let action = report?["action"]?.stringValue { rotary.action = action }
             if let direction = report?["rotation"]?["direction"]?.stringValue { rotary.clockwise = direction == "clock_wise" }
+            rotary.steps = report?["rotation"]?["steps"]?.intValue
             // `last_event` has no time: a report of that shape leaves none.
             if report != nil { rotary.updated = report?["updated"]?.stringValue }
             self.rotary = rotary

@@ -1,163 +1,20 @@
 import Foundation
 import Homeswift
-import HomeswiftPlugin
-import Matter
 
-/// A remote's wheel or rocker channel (BILRESA's): two rotary Switch endpoints, one for each direction, and the button
-/// that usually follows them.
-struct WheelChannel: Sendable, Equatable {
-    var number: Int
-    var up: EndpointNumber
-    var down: EndpointNumber
-    var press: EndpointNumber?
+// How a Remote's Controls drive their targets (`RemoteControls`): a writer per light or shutter, one write at a time, and
+// a runner per set of targets that powers them, toggles them, holds and steps them.
 
-    /// A remote's channels, in endpoint order: two rotary endpoints in a row make one, with the button after them.
-    static func channels(_ structure: NodeStructure) -> [WheelChannel] {
-        let switches = structure.switches
-        var channels: [WheelChannel] = []
-        var index = 0
-        while index + 1 < switches.count {
-            let first = switches[index], second = switches[index + 1]
-            guard first.isRotary, second.isRotary else { index += 1; continue }
-            var channel = WheelChannel(number: channels.count + 1, up: first.id, down: second.id)
-            if index + 2 < switches.count, !switches[index + 2].isRotary {
-                channel.press = switches[index + 2].id
-                index += 3
-            } else {
-                index += 2
-            }
-            channels.append(channel)
-        }
-        return channels
-    }
+/// What a Control asks of its targets' writers: a step of so many notches, or a toggle.
+enum DimmerAction: Equatable, Sendable {
+    case step(Int)
+    case toggle
 }
 
-/// What a channel dims, from the remote's Plugin Accessory Settings: `light1`… the lights' accessory ids, `power1`… the
-/// switch that powers them (a relay), `dimStep` the percent per notch, `reverseWheel` to turn the other way, `powerDelay`
-/// the seconds the lights take to come back once powered.
-struct DimmerSettings: Sendable, Equatable {
-    static let maximumChannels = 4
-    static let defaultStep = 5
-    static let defaultPowerDelay = 5
-
-    var lights: [Int: [String]] = [:]
-    var power: [Int: [String]] = [:]
-    /// The scenes a channel's button runs on a double press and on a long press (`double1`, `long1`…).
-    var doubleScene: [Int: String] = [:]
-    var longScene: [Int: String] = [:]
-    /// What a channel's button does held (`hold1`…), when it dims rather than run `longScene`.
-    var hold: [Int: HoldDirection] = [:]
-    var step = defaultStep
-    var reversed = false
-    var powerDelay: Duration = .seconds(defaultPowerDelay)
-
-    init(_ settings: [String: JSONValue]) {
-        for channel in 1...Self.maximumChannels {
-            // A list of lights; a single one (as the first builds wrote) still reads.
-            if let ids = Self.ids(settings["light\(channel)"]) { lights[channel] = ids }
-            if let ids = Self.ids(settings["power\(channel)"]) { power[channel] = ids }
-            if let id = settings["double\(channel)"]?.stringValue, !id.isEmpty { doubleScene[channel] = id }
-            if let id = settings["long\(channel)"]?.stringValue, !id.isEmpty { longScene[channel] = id }
-            if let mode = settings["hold\(channel)"]?.stringValue.flatMap(HoldDirection.init(rawValue:)) { hold[channel] = mode }
-        }
-        if let step = settings["dimStep"]?.intValue { self.step = min(max(step, 1), 25) }
-        reversed = settings["reverseWheel"]?.boolValue ?? false
-        if let seconds = settings["powerDelay"]?.intValue { powerDelay = .seconds(min(max(seconds, 1), 30)) }
-    }
-
-    init() {}
-
-    /// The per-channel keys (`light1`…) and the remote's own, which `init` reads.
-    static let channelKeys = ["light", "power", "double", "long", "hold"]
-    static let remoteKeys = ["dimStep", "reverseWheel", "powerDelay"]
-
-    /// The keys a remote with this many channels has; none without a channel.
-    static func keys(channels: Int) -> Set<String> {
-        let count = min(channels, maximumChannels)
-        guard count > 0 else { return [] }
-        return Set((1...count).flatMap { channel in channelKeys.map { "\($0)\(channel)" } }).union(remoteKeys)
-    }
-
-    /// A key's prefix and channel (`hold2`: hold, 2), or the remote's own key without a channel; nil for another key.
-    static func parse(_ key: String) -> (prefix: String, channel: Int?)? {
-        if remoteKeys.contains(key) { return (key, nil) }
-        for prefix in channelKeys where key.hasPrefix(prefix) {
-            guard let channel = Int(key.dropFirst(prefix.count)), (1...maximumChannels).contains(channel) else { return nil }
-            return (prefix, channel)
-        }
-        return nil
-    }
-
-    /// A list of accessory ids, each once; a single one (as the first builds wrote) still reads. nil for none.
-    static func ids(_ value: JSONValue?) -> [String]? {
-        let ids = value?.arrayValue?.compactMap(\.stringValue) ?? value?.stringValue.map { [$0] } ?? []
-        let unique = ids.filter { !$0.isEmpty }.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
-        return unique.isEmpty ? nil : unique
-    }
-
-    /// A channel's part: its lights and the switch that powers them.
-    func channel(_ number: Int) -> ChannelTargets? {
-        guard let lights = lights[number] else { return nil }
-        return ChannelTargets(lights: lights, power: power[number] ?? [], powerDelay: powerDelay)
-    }
-}
-
-/// Which way a held button dims: each hold the other way, or always up or always down.
-enum HoldDirection: String, Sendable, Equatable {
-    case alternate, up, down
-}
-
-/// The lights a channel dims together, and the switches that power them, when it has some.
-struct ChannelTargets: Sendable, Equatable {
+/// The lights and shutters a Control drives together, and the switches that power them, when it has some.
+struct ControlTargets: Sendable, Hashable {
     var lights: [String]
     var power: [String]
     var powerDelay: Duration
-}
-
-/// Turns a remote's Switch events into a light's brightness (Application Clusters §1.13.6, §1.13.8): a turn reports
-/// MultiPressOngoing with the presses counted so far, about twice a second, then MultiPressComplete; each new press
-/// moves the light by a step. The channel's button toggles the light.
-struct WheelGestures: Sendable {
-    /// Presses already applied of the gesture going on, by endpoint.
-    private var applied: [EndpointNumber: Int] = [:]
-
-    enum Action: Equatable, Sendable {
-        /// Moves the light by this many notches, up or down.
-        case step(Int)
-        case toggle
-    }
-
-    /// What an event on one of the channel's endpoints does to its light. `press`: the Programmable Switch Event the
-    /// event made (`MatterAccessories.buttonEvent`), which is what the channel's button reads.
-    mutating func handle(_ event: EventID, data: TLVValue, endpoint: EndpointNumber, channel: WheelChannel, reversed: Bool, press: Int? = nil) -> Action? {
-        if endpoint == channel.press {
-            // The button: a single press toggles. Its double and long presses stay HomeKit's.
-            return press == HAPConstants.ProgrammableSwitchEvent.singlePress ? .toggle : nil
-        }
-        guard endpoint == channel.up || endpoint == channel.down else { return nil }
-        let direction = (endpoint == channel.up) != reversed ? 1 : -1
-        let total: Int
-        switch event {
-        case SwitchCluster.Event.initialPress where applied[endpoint] == nil:
-            applied[endpoint] = 0
-            return nil
-        case SwitchCluster.Event.shortRelease:
-            // A turn's first ShortRelease counts one before any MultiPressOngoing.
-            total = max(applied[endpoint] ?? 0, 1)
-        case SwitchCluster.Event.multiPressOngoing, SwitchCluster.Event.multiPressComplete:
-            // The running count of this turn, as the remote reports it.
-            total = Int(data[1]?.uint ?? 0)
-        default:
-            return nil
-        }
-        var done = applied[endpoint] ?? 0
-        // A count lower than what was applied is a new turn whose start was missed (its MultiPressComplete lost with a
-        // subscription): it counts from nothing.
-        if total < done { done = 0 }
-        applied[endpoint] = event == SwitchCluster.Event.multiPressComplete ? nil : max(done, total)
-        let notches = total - done
-        return notches > 0 ? .step(notches * direction) : nil
-    }
 }
 
 /// Writes a light's brightness as the wheel turns, the way the Home app does (through its characteristics, so its own
@@ -208,7 +65,7 @@ actor DimmerWriter {
     /// whether a notch asked for less than the lowest brightness. `holdAtFloor`: such a notch leaves the light on at the
     /// floor rather than off, for a channel whose power switch goes off instead (the light comes back on with its power).
     @discardableResult
-    func apply(_ action: WheelGestures.Action, step: Int, holdAtFloor: Bool = false) async -> Bool {
+    func apply(_ action: DimmerAction, step: Int, holdAtFloor: Bool = false) async -> Bool {
         switch action {
         case .step(let notches): pending += notches * step
         case .toggle: toggles += 1
@@ -301,12 +158,18 @@ actor DimmerWriter {
         }
     }
 
+    /// Whether a light's or a shutter's service has a characteristic its plugin marks a security control: a Control never
+    /// writes one (locks, doors and alarms are set only by a person).
+    static func isSecure(_ service: Service) -> Bool {
+        service.characteristics.contains { $0.isSecurityControl }
+    }
+
     private func target() -> Target? {
         guard let accessory = find(lightID) else { return nil }
-        if let covering = Self.covering(in: accessory) { return .covering(covering) }
+        if let covering = Self.covering(in: accessory) { return Self.isSecure(covering) ? nil : .covering(covering) }
         guard let service = accessory.services.first(where: { $0.type == .lightbulb && $0[.brightness] != nil })
                 ?? accessory.services.first(where: { $0.type == .lightbulb }),
-              let on = service[.on] else { return nil }
+              let on = service[.on], !Self.isSecure(service) else { return nil }
         return .light(service, on: on)
     }
 
@@ -402,14 +265,15 @@ actor DimmerWriter {
     }
 }
 
-/// A channel's lights dimmed together, and the switches that power them when it has some (relays such as eWeLink's),
-/// switched together: its button switches that power (off when any is on, else on), turning up switches it on first (then
-/// waits `powerDelay` for the lights to come back), and turning down past the floor switches it off, the lights left on so
-/// they come back with it. Without power switches, the button switches the lights, all the same way.
-actor ChannelDimmer {
-    let targets: ChannelTargets
+/// A Control's lights and shutters driven together, and the switches that power them when it has some (Power Switches,
+/// relays such as eWeLink's), switched together: a toggle switches that power (off when any is on, else on), dimming up
+/// switches it on first (then waits `powerDelay` for the lights to come back), and dimming down past the floor switches it
+/// off, the lights left on so they come back with it. Without Power Switches, a toggle switches the lights, all the same
+/// way. One runner per set of targets: the Controls that share them share its power and its hold.
+actor ControlRunner {
+    let targets: ControlTargets
     private let find: @Sendable (String) -> Accessory?
-    /// Its lights' writers, in `targets.lights`' order: the plugin's, shared with any other channel dimming the same light.
+    /// Its lights' writers, in `targets.lights`' order, shared with every runner that drives the same light.
     private let writers: [DimmerWriter]
     /// Notches that came while the power was coming on, applied once the lights are back.
     private var queued = 0
@@ -419,16 +283,16 @@ actor ChannelDimmer {
     /// The last hold's way, for the next to go the other.
     private var lastHoldUp: Bool?
     static let holdInterval: Duration = .milliseconds(300)
-    /// The longest a hold dims, should its release be lost (the remote's LongRelease with a subscription): 60 steps.
+    /// The longest a hold dims, should its end be lost (a remote's release missed): 60 steps.
     static let longestHold = 60
 
-    init(targets: ChannelTargets, writers: [DimmerWriter], find: @escaping @Sendable (String) -> Accessory?) {
+    init(targets: ControlTargets, writers: [DimmerWriter], find: @escaping @Sendable (String) -> Accessory?) {
         self.targets = targets
         self.writers = writers
         self.find = find
     }
 
-    func apply(_ action: WheelGestures.Action, step: Int) async {
+    func apply(_ action: DimmerAction, step: Int) async {
         let power = powerSwitches()
         guard !power.isEmpty else {
             switch action {
@@ -470,10 +334,35 @@ actor ChannelDimmer {
         }
     }
 
-    /// The button held (LongPress): dims a step every `holdInterval` until `release()`, up or down as `direction` says;
-    /// alternating, the other way from the last hold (the first: up when the lights are off or at half or below), and
-    /// never against a limit: at full it dims, at the lowest it brightens.
-    func hold(step: Int, direction: HoldDirection = .alternate) async {
+    /// Switches them all on or off: with Power Switches, the power (on, then the lights woken), else each light.
+    func switchTo(_ on: Bool, step: Int) async {
+        let power = powerSwitches()
+        guard !power.isEmpty else {
+            await Self.each(writers) { await $0.switchTo(on) }
+            return
+        }
+        if on {
+            // Powered already: the lights themselves (switched off while their relay stayed on).
+            if power.contains(where: { $0.value.boolValue == true }) {
+                if !powering { await Self.each(writers) { await $0.switchTo(true) } }
+            } else if !powering {
+                await powerOn(power, step: step)
+            }
+        } else {
+            await Self.switchAll(power, false)
+        }
+    }
+
+    /// Moving shutters stop where they are.
+    func stop() async {
+        _ = await Self.stopMoving(writers)
+    }
+
+    /// The button held: dims a step every `holdInterval` until `release()`, or for `duration` when the end will not be
+    /// known (HomeKit's long press), up or down as `direction` says; alternating, the other way from the last hold (the
+    /// first: up when the lights are off or at half or below), and never against a limit: at full it dims, at the lowest
+    /// it brightens.
+    func hold(step: Int, direction: RemoteControl.Direction = .alternate, for duration: Duration? = nil) async {
         holding?.cancel()
         var level: Int?
         for writer in writers { if let state = await writer.state() { level = state.on ? (state.brightness ?? 100) : 0; break } }
@@ -487,15 +376,16 @@ actor ChannelDimmer {
             if let level, !up, level <= 1 { up = true }
         }
         lastHoldUp = up
+        let steps = duration.map { max(1, Int($0 / Self.holdInterval)) } ?? Self.longestHold
         holding = Task {
-            for _ in 0..<Self.longestHold where !Task.isCancelled {
+            for _ in 0..<steps where !Task.isCancelled {
                 await self.apply(.step(up ? 1 : -1), step: step)
                 try? await Task.sleep(for: Self.holdInterval)
             }
         }
     }
 
-    /// The button let go (LongRelease): the dimming stops where it is.
+    /// The button let go: the dimming stops where it is.
     func release() {
         holding?.cancel()
         holding = nil
@@ -503,7 +393,7 @@ actor ChannelDimmer {
 
     /// The power switches' On: each a Switch's or an Outlet's.
     private func powerSwitches() -> [Characteristic] {
-        targets.power.compactMap { id in find(id)?.services.first { $0.type == .switch || $0.type == .outlet }?[.on] }
+        targets.power.compactMap { id in find(id).flatMap(RemoteControl.powerSwitch(of:)) }
     }
 
     private func powerOn(_ power: [Characteristic], step: Int) async {

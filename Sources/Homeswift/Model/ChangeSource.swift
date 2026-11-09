@@ -1,7 +1,7 @@
 import Foundation
 
-/// Who or what made a change (GLOSSARY.md): the Home app, a Homeswift user, an MCP client, an Automation or Scene,
-/// or the Device itself.
+/// Who or what made a change (GLOSSARY.md): the Home app, a Homeswift user, an MCP client, an Automation or Scene, a
+/// Remote's Control, or the Device itself.
 ///
 /// The paths that write a characteristic set it for the task that writes (`ChangeSource.$current`): the HAP server
 /// for a controller's write, the web UI for its user, the MCP server for its client, the scenes runner for its Scene
@@ -19,6 +19,8 @@ public enum ChangeSource: Sendable, Hashable, Codable, CustomStringConvertible {
     case automation(String)
     /// A Scene, by name.
     case scene(String)
+    /// A Remote's Control, by the Remote's name and its Button or Wheel's ("BILRESA · Channel 2 wheel").
+    case remote(String)
     /// The device itself: changed at the device, by its hub, or by its plugin.
     case device
 
@@ -54,6 +56,7 @@ public enum ChangeSource: Sendable, Hashable, Codable, CustomStringConvertible {
         case .mcpClient: "mcp"
         case .automation: "automation"
         case .scene: "scene"
+        case .remote: "remote"
         case .device: "device"
         }
     }
@@ -62,7 +65,7 @@ public enum ChangeSource: Sendable, Hashable, Codable, CustomStringConvertible {
     public var namesSomeone: Bool {
         switch self {
         case .user, .mcpClient: true
-        case .homeApp, .automation, .scene, .device: false
+        case .homeApp, .automation, .scene, .remote, .device: false
         }
     }
 
@@ -73,7 +76,7 @@ public enum ChangeSource: Sendable, Hashable, Codable, CustomStringConvertible {
     public var name: String? {
         switch self {
         case .homeApp(let pairing): pairing
-        case .user(let name), .mcpClient(let name), .automation(let name), .scene(let name): name
+        case .user(let name), .mcpClient(let name), .automation(let name), .scene(let name), .remote(let name): name
         case .device: nil
         }
     }
@@ -85,6 +88,7 @@ public enum ChangeSource: Sendable, Hashable, Codable, CustomStringConvertible {
         case ("mcp", let name?): self = .mcpClient(name)
         case ("automation", let name?): self = .automation(name)
         case ("scene", let name?): self = .scene(name)
+        case ("remote", let name?): self = .remote(name)
         case ("device", _): self = .device
         default: return nil
         }
@@ -97,6 +101,7 @@ public enum ChangeSource: Sendable, Hashable, Codable, CustomStringConvertible {
         case .mcpClient(let name): "MCP client \(name)"
         case .automation(let name): "automation \(name)"
         case .scene(let name): "scene \(name)"
+        case .remote(let name): "remote \(name)"
         case .device: "the device"
         }
     }

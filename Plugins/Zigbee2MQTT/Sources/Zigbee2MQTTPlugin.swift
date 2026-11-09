@@ -426,6 +426,15 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
         } catch {
             log.error("Could not add \(name): \(error)")
         }
+        // A remote: a Button per action switch, whose moments it reports (a hold only where the device says its release).
+        let actions = handlers.compactMap { $0 as? ActionHandler }
+        if !actions.isEmpty {
+            context.declareRemote(accessoryID, .inferred(from: accessory))
+            for handler in actions {
+                let part = RemoteLayout.partID(of: handler.service)
+                handler.onMoment = { [context] moment in context.remoteMoment(moment, part: part, of: accessoryID) }
+            }
+        }
         applyAvailability(device)
         link.get(device.gettableKeys)
         return device

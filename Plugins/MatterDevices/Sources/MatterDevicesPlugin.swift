@@ -37,8 +37,6 @@ public actor MatterDevicesPlugin: HomeswiftPlugin {
     public static let icon: String? = "matter"
     public static let summary: String? = "Matter devices other apps already have, controlled by Homeswift too"
     public static let newDevices: NewDevices? = .made(label: "Add a Matter device…")
-    /// A remote's dimming settings are read on each event: saving them leaves every node connected.
-    public static let appliesAccessorySettingsLive = true
 
     let configuration: Configuration
     nonisolated let context: PluginContext
@@ -106,8 +104,6 @@ public actor MatterDevicesPlugin: HomeswiftPlugin {
         var kind: String?
         var address: NodeAddress?
         var added: Date?
-        /// A remote's wheel channels, as its structure last said: its settings while it reconnects.
-        var channels: Int?
     }
 
     /// The node records, one file each so Setup and the running instance never write over each other's.
@@ -160,10 +156,6 @@ public actor MatterDevicesPlugin: HomeswiftPlugin {
 
     public func stop() async {
         tasks.cancelAll()
-        // A hold under way stops with the plugin (a reload, Forget), not 60 steps later.
-        for controller in channelDimmers.values { await controller.release() }
-        channelDimmers = [:]
-        writers = [:]
         for node in nodes.values { await node.link.stop() }
         nodes = [:]
         await layer?.stop()
@@ -217,7 +209,6 @@ public actor MatterDevicesPlugin: HomeswiftPlugin {
         record.vendorID = structure.vendorID
         record.productID = structure.productID
         record.kind = plan.deviceKind
-        record.channels = node.channels.count
         if record != node.record {
             node.record = record
             try? recordFile(deviceID).save(record)
@@ -225,6 +216,8 @@ public actor MatterDevicesPlugin: HomeswiftPlugin {
         nodes[deviceID] = node
         for accessory in plan.accessories {
             if let cached = context.accessory(id: accessory.id) { accessory.takeValues(from: cached) }
+            // A remote's Buttons and Wheels, whose moments it reports (`reported`): the bridge runs their Controls.
+            if let layout = MatterRemote.layout(of: accessory, channels: node.channels) { context.declareRemote(accessory.id, layout) }
             do { try context.add(accessory) } catch { logger.warning("Matter device \(structure.name): \(error)") }
         }
         // A bridged device the node no longer has goes; the other nodes' accessories stay.
@@ -244,83 +237,19 @@ public actor MatterDevicesPlugin: HomeswiftPlugin {
             nodes[deviceID]?.events.append(RecentEvent(time: Date(), endpoint: record.endpoint, name: Self.eventName(record), detail: Self.eventDetail(record)))
             guard !priming, record.cluster == SwitchCluster.id, let endpoint = nodes[deviceID]?.structure?.endpoint(record.endpoint) else { continue }
             let press = MatterAccessories.buttonEvent(record.event, data: record.data, endpoint: endpoint)
-            if let press { plan.buttons[record.endpoint]?.characteristic(.programmableSwitchEvent).sendEvent(.int(press)) }
-            guard let channel = nodes[deviceID]?.channels.first(where: { [$0.up, $0.down, $0.press].contains(record.endpoint) }) else { continue }
-            // What its channels do: its Plugin Accessory Settings as they are now (`appliesAccessorySettingsLive`).
-            let settings = DimmerSettings(context.accessorySettings(for: deviceID).plugin)
-            dim(deviceID, channel: channel, settings: settings, record: record, press: press)
-            if record.endpoint == channel.press {
-                runScene(channel: channel, settings: settings, press: press)
-                holdToDim(deviceID, channel: channel, settings: settings, event: record.event)
+            guard let button = plan.buttons[record.endpoint] else { continue }
+            if let press { button.characteristic(.programmableSwitchEvent).sendEvent(.int(press)) }
+            guard let remote = plan.accessories.first(where: { $0.services.contains { $0 === button } })?.id else { continue }
+            // A Wheel's turn in notches, a Button's press or hold: the bridge runs their Controls.
+            if let channel = nodes[deviceID]?.channels.first(where: { $0.up == record.endpoint || $0.down == record.endpoint }) {
+                if let notches = nodes[deviceID]?.gestures.notches(record.event, data: record.data, endpoint: record.endpoint, up: record.endpoint == channel.up) {
+                    context.remoteMoment(.turned(notches), part: MatterRemote.part(wheel: channel), of: remote)
+                }
+            } else if let moment = MatterRemote.moment(record.event, press: press) {
+                context.remoteMoment(moment, part: MatterRemote.part(button: record.endpoint), of: remote)
             }
         }
         if let count = nodes[deviceID]?.events.count, count > 40 { nodes[deviceID]?.events.removeFirst(count - 40) }
-    }
-
-    /// A channel button's double or long press, when the remote's settings give it a scene: the home's scene runs
-    /// (`PluginContext.homeScenes`). The press still reaches HomeKit.
-    private func runScene(channel: WheelChannel, settings dimmer: DimmerSettings, press: Int?) {
-        let scene: String?
-        switch press {
-        case HAPConstants.ProgrammableSwitchEvent.doublePress: scene = dimmer.doubleScene[channel.number]
-        case HAPConstants.ProgrammableSwitchEvent.longPress where dimmer.hold[channel.number] == nil: scene = dimmer.longScene[channel.number]
-        default: scene = nil
-        }
-        guard let scene, let scenes = context.homeScenes else { return }
-        let logger = logger
-        tasks.add {
-            do { try await scenes.run(scene) } catch { logger.warning("The remote's scene \(scene) did not run: \(error)") }
-        }
-    }
-
-    /// A channel button held, when its channel's button dims when held: dims until it is let go.
-    private func holdToDim(_ deviceID: String, channel: WheelChannel, settings: DimmerSettings, event: EventID) {
-        guard let direction = settings.hold[channel.number], let controller = channelDimmer(deviceID, channel, settings) else { return }
-        let step = settings.step
-        switch event {
-        case SwitchCluster.Event.longPress: tasks.add { await controller.hold(step: step, direction: direction) }
-        case SwitchCluster.Event.longRelease: tasks.add { await controller.release() }
-        default: break
-        }
-    }
-
-    /// A wheel's turn or its button, on a channel that dims lights.
-    private func dim(_ deviceID: String, channel: WheelChannel, settings: DimmerSettings, record: EventRecord, press: Int?) {
-        guard settings.channel(channel.number) != nil,
-              let action = nodes[deviceID]?.gestures.handle(record.event, data: record.data, endpoint: record.endpoint, channel: channel,
-                                                            reversed: settings.reversed, press: press),
-              let controller = channelDimmer(deviceID, channel, settings) else { return }
-        let step = settings.step
-        tasks.add { await controller.apply(action, step: step) }
-    }
-
-    /// Each remote channel's controller (its power state while it comes on), made again when its settings change.
-    private var channelDimmers: [String: ChannelDimmer] = [:]
-
-    /// A remote channel's controller, while its settings give it lights: made again when they change.
-    private func channelDimmer(_ deviceID: String, _ channel: WheelChannel, _ settings: DimmerSettings) -> ChannelDimmer? {
-        guard let targets = settings.channel(channel.number) else { return nil }
-        let key = "\(deviceID)#\(channel.number)"
-        if let controller = channelDimmers[key], controller.targets == targets { return controller }
-        // Its settings changed: the old controller's hold, if any, stops; the lights no channel drives any more go.
-        if let old = channelDimmers[key] { tasks.add { await old.release() } }
-        let driven = Set(channelDimmers.filter { $0.key != key }.values.flatMap(\.targets.lights) + targets.lights)
-        writers = writers.filter { driven.contains($0.key) }
-        let context = context
-        let controller = ChannelDimmer(targets: targets, writers: targets.lights.map(dimmer(for:))) { id in context.hostAccessory(id: id) }
-        channelDimmers[key] = controller
-        return controller
-    }
-
-    /// Each light's writer, shared by the channels that dim it.
-    private var writers: [String: DimmerWriter] = [:]
-
-    private func dimmer(for lightID: String) -> DimmerWriter {
-        if let writer = writers[lightID] { return writer }
-        let context = context
-        let writer = DimmerWriter(lightID: lightID) { id in context.hostAccessory(id: id) }
-        writers[lightID] = writer
-        return writer
     }
 
     private func statusChanged(_ deviceID: String, _ status: MatterNodeLink.Status, error: String?) async {
@@ -364,91 +293,5 @@ public actor MatterDevicesPlugin: HomeswiftPlugin {
 
     public func deviceKind(of deviceID: String) async -> String? {
         nodes[deviceID]?.record.kind ?? recordFile(deviceID).load()?.kind
-    }
-
-    /// A remote's dimming settings as it is made: lights and a power switch to choose per wheel channel it has (BILRESA's
-    /// three), the step, the direction and the wait only with a wheel. nil until its structure was ever read: every field
-    /// of its kind. The record keeps the channels from the last time (it reconnects after a restart).
-    public func accessorySettingKeys(deviceID: String) async -> Set<String>? {
-        guard let channels = (nodes[deviceID]?.record ?? recordFile(deviceID).load())?.channels else { return nil }
-        return DimmerSettings.keys(channels: channels)
-    }
-
-    /// What a remote's channels drive, for the words of its settings: lights, shutters, or both.
-    enum Drives { case lights, shutters, both }
-
-    func drives(_ ids: [String]) -> Drives {
-        var lights = false, shutters = false
-        for id in ids {
-            guard let accessory = context.hostAccessory(id: id) else { continue }
-            if DimmerWriter.covering(in: accessory) != nil { shutters = true } else { lights = true }
-        }
-        return shutters ? (lights ? .both : .shutters) : .lights
-    }
-
-    /// The words of a remote's settings for what its channels drive (GLOSSARY: Plugin Accessory Settings): a shutter
-    /// opens and closes where a light brightens and dims.
-    public func accessorySettingWording(_ key: String, deviceID: String) async -> SettingWording? {
-        let settings = DimmerSettings(context.accessorySettings(for: deviceID).plugin)
-        switch DimmerSettings.parse(key) {
-        case ("hold", let channel?)?:
-            return switch drives(settings.lights[channel] ?? []) {
-            case .lights: nil
-            case .shutters: SettingWording(description: "What the channel's button does while held: runs the long press's scene, or moves the shutters until let go")
-            case .both: SettingWording(description: "What the channel's button does while held: runs the long press's scene, or dims the lights and moves the shutters until let go")
-            }
-        case ("dimStep", nil)?, ("reverseWheel", nil)?:
-            break
-        default:
-            return nil
-        }
-        switch (key, drives(settings.lights.values.flatMap { $0 })) {
-        case ("dimStep", .shutters): return SettingWording(title: "Position per notch", description: "Percent of position one notch of the wheel moves the shutters")
-        case ("dimStep", .both): return SettingWording(title: "Step per notch", description: "Percent one notch of the wheel moves a light's brightness or a shutter's position")
-        case ("reverseWheel", .shutters): return SettingWording(description: "Turning the other way opens")
-        case ("reverseWheel", .both): return SettingWording(description: "Turning the other way brightens and opens")
-        default: return nil
-        }
-    }
-
-    public func accessorySettingChoices(_ key: String, deviceID: String) async -> [SetupOption]? {
-        guard case let (prefix, channel?)? = DimmerSettings.parse(key) else { return nil }
-        let byName = { (a: Accessory, b: Accessory) in a.name.localizedStandardCompare(b.name) == .orderedAscending }
-        switch prefix {
-        case "hold":
-            // Held, the button opens and closes a channel's shutters where it brightens and dims its lights.
-            let words: (alternate: String, up: String, down: String) = switch drives(DimmerSettings(context.accessorySettings(for: deviceID).plugin).lights[channel] ?? []) {
-            case .lights: ("Brightens, then dims, in turn", "Brightens", "Dims")
-            case .shutters: ("Opens, then closes, in turn", "Opens", "Closes")
-            case .both: ("Brightens and opens, then dims and closes, in turn", "Brightens and opens", "Dims and closes")
-            }
-            return [SetupOption("scene", label: "Runs the long press's scene", isWording: true), SetupOption("alternate", label: words.alternate, isWording: true),
-                    SetupOption("up", label: words.up, isWording: true), SetupOption("down", label: words.down, isWording: true)]
-        case "double", "long":
-            // A press's scene: the home's, Homeswift's own and its hubs'.
-            let scenes = await context.homeScenes?.list() ?? []
-            return scenes.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-                .map { SetupOption($0.id, label: $0.name, detail: $0.room, group: "Scenes") }
-        case "power":
-            // A channel's power: a switch or an outlet of the bridge, another plugin's (an eWeLink relay).
-            let switches = context.hostAccessories.filter { accessory in
-                !context.isAccessory(accessory.id, of: deviceID) && accessory.services.contains { $0.type == .switch || $0.type == .outlet }
-            }.sorted(by: byName)
-            return switches.map { accessory in
-                SetupOption(accessory.id, label: accessory.name, group: accessory.services.contains { $0.type == .outlet } ? "Outlets" : "Switches")
-            }
-        case "light":
-            // Lights to dim and shutters (window coverings) to move, whichever plugin has them.
-            let lights = context.hostAccessories.filter { accessory in
-                DimmerWriter.covering(in: accessory) != nil || accessory.services.contains { $0.type == .lightbulb }
-            }.sorted(by: byName)
-            return lights.map { accessory in
-                let isBlind = DimmerWriter.covering(in: accessory) != nil
-                let detail: String? = isBlind || accessory.services.contains { $0[.brightness] != nil } ? nil : "On and off only"
-                return SetupOption(accessory.id, label: accessory.name, detail: detail, group: isBlind ? "Blinds" : "Lights")
-            }
-        default:
-            return nil
-        }
     }
 }

@@ -122,9 +122,9 @@ struct AutomationTests {
         #expect(AutomationRules.crosses(SceneTrigger(type: "threshold", value: 50, direction: "below"), previous: 60, next: 40) == true)
     }
 
-    /// The home's scenes lent to plugins (`PluginContext.homeScenes`): listed by id and name, and run as an Automation's
-    /// step runs one.
-    @Test func thePluginsSeeAndRunTheHomesScenes() async throws {
+    /// The home's scenes lent to the host (`PluginHost.homeScenes`), for Remotes' Controls: run by id as an Automation's step
+    /// runs one; the Remotes page lists them.
+    @Test func theHostRunsTheHomesScenes() async throws {
         let environment = try await environment()
         let catalog = environment.catalog
         catalog.startHome(restarted: true)
@@ -134,8 +134,8 @@ struct AutomationTests {
                                      triggers: [], conditions: [], lastRun: nil, lastSkipped: nil))
         }
         let scenes = try #require(environment.host.homeScenes)
-        let dim = try #require(await scenes.list().first { $0.name == "Dim" })
-        try await scenes.run(dim.id)
+        #expect(await catalog.remotesPageJSON()["scenes"]?.arrayValue?.contains { $0["id"] == "dim" && $0["name"] == "Dim" } == true)
+        try await scenes.run("dim")
         #expect(await eventually { lampWrites(environment, "lamp.brightness") == [.int(15)] })
     }
 

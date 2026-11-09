@@ -50,30 +50,15 @@ Homeswift gave it on its fabric, 16 hexadecimal digits.
 ## A remote's wheel
 
 A remote whose Switch endpoints come in pairs of rotary parts, with a button after them (IKEA BILRESA's scroll wheel: three
-channels, endpoints 1/2/3, 4/5/6, 7/8/9), has wheel channels. Each dims lights and moves shutters (window coverings) of
-the bridge, whichever plugin has them: its Accessory Settings show a section per channel the remote has, its **Channel N
-controls** a list of the lights and shutters it drives together (past ten choices, chosen ones as chips and a searchable
-menu of the rest);
-**Brightness per notch** sets the step (5 % by default) and **Reverse the wheel** turns the other way. A turn reports
-MultiPressOngoing with the notches counted so far about twice a second; each new notch moves the lights by a step,
-written through their characteristics as the Home app would, and the writes that come while one is out add up into the
-next. For a few seconds the level the wheel set is the light's, whatever its plugin reports late (Govee's cloud). The
-channel's button switches its lights on and off, all the same way (its **Double press runs** and **Long press runs** each
-run one of the home's scenes, Homeswift's or a hub's; **Holding the button** may instead dim its lights, a step every
-0.3 seconds until it is let go: always up, always down, or each hold the other way); a light the wheel dimmed away comes back at the
-level it had, not at 1 %. A shutter moves a step per notch from where the wheel last sent it (its Target Position, so
-a fast turn adds up); the button stops a shutter that is moving, else opens it, or closes it when more than half open.
-Its double and long presses are free for HomeKit or an Automation.
+channels, endpoints 1/2/3, 4/5/6, 7/8/9), is a Remote with a Wheel and a Button per Channel (GLOSSARY.md). What each does
+is set on the Remotes page (Automations › Remotes), as for any plugin's remote: the plugin reports each moment
+(`MatterRemote`), and the bridge runs its Controls. A turn reports MultiPressOngoing with the notches counted so far,
+about twice a second; each new notch is one more step of the Wheel. The button's single and double presses come once the
+remote's multi-press window closes (MultiPressComplete); LongPress starts a hold and LongRelease ends it.
 
-**Channel N power** names switches (relays such as eWeLink's, or outlets) that power the channel's lights, switched
-together. The button then switches them; turning up with them off switches them on first and waits **Wait after power
-on** (5 seconds by default, for the lights to rejoin) before setting the lights; turning down past the lowest brightness
-switches them off, the lights left on so they come back with their power.
-
-The plugin page names each channel's Home app buttons ("Button 1 up, 2 down, 3 press"): the Home app numbers a remote's
-buttons and shows no names. Any button's press can start an Automation (**When a button is pressed**: single, double or
-long), to apply a Scene or anything else an Automation does; the Assistant sets them up with `save_automation`, and the
-channels with `update_settings`.
+The plugin page names each channel's Home app buttons ("Button 1 up, 2 down, 3 press"), the Home app numbering a
+remote's buttons without names, and opens its Wheel on the Remotes page. Any button's press can also start an Automation
+(**When a button is pressed**).
 
 ## Network
 
@@ -86,17 +71,7 @@ several seconds. Each node keeps one subscription (minimum interval 0, urgent Sw
 seconds that the device may raise to its idle time); a subscription that goes quiet for longer than it promised is opened
 again from the event after the last one delivered, so presses are never replayed.
 
-## Settings
-
-| Plugin Accessory Setting | For | What it does |
-|---|---|---|
-| `light1`…`light4` | remotes | The accessory ids of the lights a wheel channel dims and the shutters it moves, one field per channel the remote has |
-| `power1`…`power4` | remotes | The accessory ids of the switches or outlets that power a channel's lights |
-| `dimStep` | remotes | Percent of brightness per notch, 1–25, 5 by default |
-| `reverseWheel` | remotes | Turning the other way brightens |
-| `double1`…`double4`, `long1`…`long4` | remotes | The scene a channel's button runs on a double press, and when held |
-| `hold1`…`hold4` | remotes | What holding the button does: `scene` (the long press's, the default), `alternate`, `up` or `down` dims until let go |
-| `powerDelay` | remotes | Seconds the lights take to come back once powered, 1–30, 5 by default |
+## Storage
 
 The fabric's keys (its root and operational private keys, its IPK epoch key) are in the bridge's vault
 (`plugin.<instance>.matter-fabric.json`); each node's credentials (its node id) are its Authorization. The plugin keeps a

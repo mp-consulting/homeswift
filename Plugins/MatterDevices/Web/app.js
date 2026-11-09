@@ -10,11 +10,9 @@
 
   const list = $("#nodes");
   $("#add").href = homeswift.setupAddress();
-  /// The device's Accessory Settings (its channels' lights) in the UI's side sheet, over this page; the link's address
-  /// stays for a new tab.
-  const openSettings = (node, trigger, channel = null) => homeswift.openAccessorySettings({
+  /// The device's Accessory Settings in the UI's side sheet, over this page; the link's address stays for a new tab.
+  const openSettings = (node, trigger) => homeswift.openAccessorySettings({
     accessoryID: node.accessory, name: node.name, glyph: (glyphs[node.kind] ?? ["matter"])[0], trigger, after: (changed) => { if (changed) refresh(); },
-    section: channel ? `channel-${channel}` : null,
   });
 
   const statuses = {
@@ -49,16 +47,17 @@
 
   // MARK: A device
 
+  /// A Remote's card on the Remotes page, where its Controls are set; a channel's part opened there.
+  const remoteAddress = (node, part = null) => `/remotes/${encodeURIComponent(node.accessory)}${part ? `?part=${encodeURIComponent(part)}` : ""}`;
+
   function channelRow(node, channel) {
-    const names = (channel.lights ?? []).map((light) => light.name).join(", ");
-    const what = el("span", { class: `what${names ? "" : " unset"}`, text: names || t("Choose a light"), title: names || null });
-    const powers = (channel.power ?? []).map((one) => one.name).join(", ");
-    const power = powers ? el("span", { class: "endpoints power", text: t("Powered by {name}", { name: powers }) }) : null;
-    // The whole row opens the remote's Settings (its lights, power and step), over the page.
-    return el("li", {}, el("button", { type: "button", class: "channel", onclick: (event) => openSettings(node, event.currentTarget, channel.number),
-      "aria-label": t("Channel {number}: {lights}. Open its settings", { number: channel.number, lights: names || t("nothing chosen") }) },
+    const names = (channel.targets ?? []).map((target) => target.name).join(", ");
+    const what = el("span", { class: `what${names ? "" : " unset"}`, text: names || t("Nothing set yet"), title: names || null });
+    // The whole row opens the channel's Wheel on the Remotes page, where what it does is set.
+    return el("li", {}, el("a", { class: "channel", href: remoteAddress(node, `wheel:${channel.up}`),
+      "aria-label": t("Channel {number}: {lights}. Set what it does", { number: channel.number, lights: names || t("nothing set") }) },
       el("span", { class: "number", "aria-hidden": "true", text: String(channel.number) }),
-      el("span", { class: "body" }, what, power, el("span", { class: "endpoints", text: buttonsText(channel) })),
+      el("span", { class: "body" }, what, el("span", { class: "endpoints", text: buttonsText(channel) })),
       el("span", { class: "chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("forward"))));
   }
 
@@ -153,7 +152,8 @@
         HomeswiftCommon.menuButton(t("Actions for {name}", { name: node.name }), () => [
           node.status !== "forgotten" && node.status !== "excluded" && node.status !== "stopped"
             ? { label: t("Reconnect"), icon: "loop", onSelect: () => request("reconnect", { method: "POST", body: { device: node.device } }).then(refresh).catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
-          { label: node.channels?.length ? t("Choose the lights it dims") : t("Settings"), icon: "gear", onSelect: (event) => openSettings(node, event?.currentTarget) },
+          node.channels?.length ? { label: t("Set what its buttons do"), icon: "sliders", href: remoteAddress(node) } : null,
+          { label: t("Settings"), icon: "gear", onSelect: (event) => openSettings(node, event?.currentTarget) },
           { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(node.accessory)}` },
           window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: HomeswiftCommon.sparkle(), onSelect: () => HomeswiftChat.ask(t("About my Matter device {name}: ", { name: node.name })) } : null,
         ].filter(Boolean))));

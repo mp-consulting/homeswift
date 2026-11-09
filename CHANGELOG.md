@@ -13,34 +13,39 @@ All notable changes to this project are documented here. The format follows
   with its code: Homeswift commissions it onto a fabric of its own (its keys in the vault) and follows it over CASE with a
   subscription, Thread devices through their border router. Lights, plugs, switches, contact, occupancy, temperature and
   humidity sensors, batteries and remotes' buttons show in HomeKit; a remote's wheel (IKEA BILRESA) dims any light of the
-  bridge, a step per notch as it turns. Forget removes Homeswift from the device. Its page lists each device, how it is
+  bridge, a step per notch as it turns (its Controls, on the Remotes page). Forget removes Homeswift from the device. Its page lists each device, how it is
   reached and its last events, and the pairing windows open on the network. Each device's attestation is checked against
   the Matter registry (its manufacturer's root certificate and the CSA-signed certification), as Apple Home and Home
   Assistant do; an uncertified device is added only once the person says so, told why.
+- **Remotes**: every remote Homeswift has, from any plugin, in one place (Automations › Remotes): its Buttons and Wheels by
+  Channel, the Home app's numbers for them, and what each gesture does. A Control (GLOSSARY.md) is run by the bridge the
+  moment a remote is pressed: a press, a double or a long press toggles lights and shutters, turns them on or off, runs a
+  Scene or stops moving shutters; holding a button dims them until let go (up, down, or each hold the other way); a
+  wheel steps them per notch; relays that power the lights (Power Switches, eWeLink's) switch on before they brighten and
+  off past the lowest level. Pressing a remote's button finds it on the page. Controls are a Core Accessory Setting of
+  the remote (`controls`), applied without reloading its plugin; the Assistant sets them with `list_remotes` and
+  `set_remote_controls` (one Button or Wheel at a time, checked first). A change a Control makes shows the remote in the Logbook. Locks, doors and alarms are never driven,
+  nor anything a plugin marks a security control (docs/adr/0009-remote-controls-are-not-automations.md).
+- Plugins report their remotes' moments beyond HomeKit's three presses (`PluginContext.declareRemote`, `remoteMoment`):
+  a hold's start and end, a wheel's notches. Matter Devices (BILRESA's wheels), Philips Hue (a Tap dial's ring, a held
+  button), Zigbee2MQTT (a held button that reports its release) and Z-Wave (Central Scene's held keys) do; the other
+  plugins' buttons run their Controls from the presses HomeKit gets, a long press as a hold of two seconds. Wingman's
+  mirrored presses are sent as events, so a remote paired to Apple Home is a Remote too.
 - Plugin pages open an accessory's Settings in the side sheet over themselves (`homeswift.openAccessorySettings`), the
   same editor as the wall's ⋯ Settings: the settings form (`forms.js`), the sheet and its confirmations (`common.js`) are
-  shared rather than the main app's alone. A plugin narrows a device's settings beyond its kind with
-  `accessorySettingKeys` (a remote shows one light to choose per channel it has).
+  shared rather than the main app's alone.
 - Automations start on a button's press (`press`: single, double or long, every press, of a Stateless Programmable
   Switch of any plugin): a remote's double press applies a Scene. The editor offers it as When a button is pressed.
-- Matter Devices: a wheel channel dims several lights together and moves shutters a step per notch (its button stops
-  or opens and closes them), and may switch the relays that power the lights (eWeLink switches): on before brightening,
-  after a wait for the lights to rejoin, off past the lowest brightness. The settings sheet draws a section per channel.
 - The settings forms show a field with more than ten choices (a home's lights) as its chosen ones and a searchable menu,
   whose pills keep one kind of choice (lights, blinds, switches, scenes: `SetupOption.group`); a list of several kinds
-  is grouped by kind. Plugins read and run the home's scenes (`PluginContext.homeScenes`): a Matter remote's double
-  and long presses run one, or holding its button dims the lights until let go (up, down, or each hold the other way).
-  A plugin words a setting for what the device's other settings chose (`accessorySettingWording`): a channel of shutters
-  opens and closes where one of lights brightens and dims, the sheet redrawn as it changes.
-- A plugin that reads its Plugin Accessory Settings on each use says so (`appliesAccessorySettingsLive`), and a change
-  to them no longer reloads it: saving a Matter remote's channel leaves every Matter device connected.
+  is grouped by kind.
 
 ### Fixed
 
 - **Home Assistant**: a new accessory is added with its entities' states, its battery and its availability already
   applied, so HomeKit never sees it a moment with the services' defaults (a lock unsecured, a plug off) or No Response.
 - A light restored from the accessory cache, before its plugin found it again, was not a Lightbulb to what looked for
-  one (a remote's dimmer, its light choices): a service type is now its UUID.
+  one (a remote's Controls, their choices): a service type is now its UUID.
 
 ## [0.26.0] - 2026-11-08
 

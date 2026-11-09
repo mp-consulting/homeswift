@@ -591,24 +591,8 @@ Two hooks, both optional, help the settings editor and the writers:
   depend on the home rather than on the schema (the accessories a Helper reads), for one device. The settings editor
   shows them as the field's choices, a menu or, for a list, checkboxes; the writers still check the schema's own
   declaration, so the plugin checks what it reads. nil (the default) leaves the schema's.
-- **`context.homeScenes`** (`HomeScenes?`): the home's Scenes, Homeswift's own and its hubs' (`list()`: id, name, room),
-  and `run(id)`, which runs one as an Automation's step does (locks, garage doors and alarms left as they are). For a
-  plugin that offers a scene as a setting's choice (a remote's double press, `SetupOption.group` "Scenes") and runs it.
-  nil in a context no host runs.
 - **`SetupOption.group`**: what sort of choice it is ("Lights", "Blinds", "Switches", "Scenes"); the settings editor
   groups a list by it, and a long list's searchable menu filters by it.
-- **`accessorySettingWording(_ key:deviceID:) async -> SettingWording?`**: a setting's title and description for one
-  device, when they depend on what its other settings chose (a remote channel's shutters: Opens rather than Brightens),
-  in English, translated by the schema's `i18n`. The editor fetches the fields again after each change of the plugin's
-  settings and redraws them when their words or choices changed. A choice whose label is the plugin's own words rather
-  than a name from the home is `SetupOption(…, isWording: true)`, translated the same way.
-- **`accessorySettingKeys(deviceID:) async -> Set<String>?`**: which Plugin Accessory Settings apply to one device, when
-  that depends on the device rather than on its Device Kind (a remote's `light<N>`, one per channel it has). The editor
-  shows only those, and one that has a value saved, so it can be cleared. nil (the default) shows every field of its kind.
-- **`static var appliesAccessorySettingsLive: Bool`**: true when the plugin reads its Plugin Accessory Settings
-  (`context.accessorySettings(for:).plugin`) each time it uses them rather than once at start: a change to them then
-  keeps the plugin running with the new values instead of reloading it (a Matter remote's channels, saved while every
-  node stays connected). A change to the Core Accessory Settings it reads (Excluded, parts) still reloads it. False by default.
 - **`canonicalSettings(_ block: JSONValue) async -> JSONValue`**: the block in its canonical shape. The bridge asks the
   running instance just before each settings write to the block (`update_settings` and the web UI's settings, Setup's
   last step, Exclude and Include) and writes what it answers. Turn the plugin's Homebridge shapes (a `devices` list,
@@ -623,6 +607,25 @@ Two hooks, both optional, help the settings editor and the writers:
   that means what it was given: when the canonical shape is all a write changes of what the plugin reads (a person
   renaming a device of a block still in Homebridge's shape), the running instance is not reloaded; it takes the new
   block, reads the moved Accessory Settings through its context, and loses the accessories they Exclude.
+
+### Remotes
+
+A Remote (GLOSSARY.md) is any accessory with Stateless Programmable Switches; the bridge runs its Controls
+(docs/adr/0009-remote-controls-are-not-automations.md), set on the Remotes page, `controls` in its Accessory Settings. A
+plugin does nothing more for a button that has HomeKit's three presses: the bridge reads them (a long press holds for two
+seconds). A plugin whose devices say more declares the remote and reports each moment:
+
+- **`context.declareRemote(accessoryID, RemoteLayout(parts:))`**: its Buttons and Wheels in its own order, each a
+  `RemotePart` with an id (a Button's switch subtype, `RemoteLayout.partID(of:)`; `RemotePart.button(_:)`), a name when
+  the Home app's is not enough, its Channel, and the switches HomeKit has for it (a Wheel's two directions), which the
+  page uses to find a part when it is pressed. `RemoteLayout.inferred(from:)` is a Button per switch. Declare it before
+  or after `context.add`, again when it changes; removing the accessory forgets it.
+- **`context.remoteMoment(_:part:of:)`**: `.press`, `.doublePress`, `.holdStart` and `.holdEnd` (a hold whose release the
+  device sends), `.longPress` (one whose release never comes: a timed hold), `.turned(notches)` (a Wheel, up positive).
+  The plugin still sends HomeKit's presses itself; the bridge no longer reads them as moments for a declared Remote.
+
+Matter Devices (`MatterRemote`), Philips Hue (`noteButton`, `noteRotary`), Zigbee2MQTT (`ActionHandler`) and Z-Wave
+(`buildCentralScene`) are the examples.
 
 ### Web pages
 

@@ -543,17 +543,13 @@ extension HomeswiftCatalog {
 
     // MARK: Running
 
-    /// Lends the plugins the home's Scenes (`PluginContext.homeScenes`): Homeswift's and its hubs', run as an
+    /// Lends the host the home's Scenes (`PluginHost.homeScenes`), for Remotes' Controls: Homeswift's and its hubs', run as an
     /// Automation's step runs one (locks, garage doors and alarms left as they are).
     func lendScenes() {
         let catalog = self
-        host.homeScenes = HomeScenes(list: {
-            let own = catalog.home.scenes.value.scenes.map { HomeScene(id: $0.id, name: $0.name) }
-            let hubs = await catalog.foundPluginScenes().map { HomeScene(id: $0.id, name: $0.scene.name, room: $0.scene.room) }
-            return own + hubs
-        }, run: { id in
+        host.homeScenes = HomeScenes { id in
             _ = try await catalog.runScene(id, trigger: .automation)
-        })
+        }
     }
 
     /// Sets every value of a scene in order; an action that fails is reported and the rest still run. A security

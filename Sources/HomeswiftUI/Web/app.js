@@ -537,7 +537,7 @@
     }
     for (const link of document.querySelectorAll("nav a")) {
       // Scenes are a tab of Automations.
-      const current = link.getAttribute("href") === `/${name === "scenes" ? "automations" : name}`;
+      const current = link.getAttribute("href") === `/${name === "scenes" || name === "remotes" ? "automations" : name}`;
       link.classList.toggle("active", current);
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
@@ -3092,6 +3092,7 @@
     window.HomeswiftCamera?.event(event);
     HomeswiftWidgets.event(event);
     if (location.pathname === "/accessories") window.homeswiftGroupEvent?.(event);
+    window.HomeswiftRemotes?.event(event);
   }
 
   // ---- Plugins and settings forms -----------------------------------------
@@ -4757,6 +4758,7 @@
   // The Homebridge import (import.js): its page at /import and the welcome page at /welcome.
   views.logbook = (main) => window.HomeswiftHistory.logbookView(main);
   views.automations = (main, args) => window.HomeswiftAutomations.view(main, args);
+  views.remotes = (main, args) => window.HomeswiftRemotes.view(main, args);
   views.notify = (main, [id] = []) => window.HomeswiftAutomations.confirmView(main, id);
   views.import = (main) => window.HomeswiftImport.view(main);
   views.setup = (main) => window.HomeswiftSetup.view(main);

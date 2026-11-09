@@ -159,7 +159,7 @@ enum MatterAccessories {
             let number = plan.buttons.count + 1
             let validValues = buttonEvents(endpoint)
             let name = buttonName ?? "Button \(number)"
-            let service = Service(.statelessProgrammableSwitch, name: name, subtype: "button:\(ep)",
+            let service = Service(.statelessProgrammableSwitch, name: name, subtype: MatterRemote.part(button: ep),
                                   optional: [.serviceLabelIndex, .configuredName,
                                              .programmableSwitchEvent.with(minValue: 0, maxValue: Double(validValues.max() ?? 0), validValues: validValues)],
                                   isPrimary: primary())

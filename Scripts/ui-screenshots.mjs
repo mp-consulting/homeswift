@@ -42,6 +42,9 @@ writeFileSync(join(storage, "config.json"), JSON.stringify({
       { id: "lamp", name: "Desk Lamp", type: "Lightbulb", isDimmer: true },
       { id: "door", name: "Front Door", type: "LockMechanism" },
       { id: "motion", name: "Hallway Motion", type: "MotionSensor" },
+      // A remote and a blind, for the Remotes page.
+      { id: "remote", name: "Living Room Remote", type: "StatelessProgrammableSwitch" },
+      { id: "blind", name: "Living Room Blind", type: "WindowCovering" },
     ] },
   ],
 }, null, 2));
@@ -284,6 +287,15 @@ try {
     HomeswiftAdmin.history(list.find((one) => one.name === "Living Room"));
     for (let i = 0; i < 40 && !document.querySelector(".history-full .chart-card"); i++) await new Promise((r) => setTimeout(r, 100));
     await new Promise((r) => setTimeout(r, 600));` });
+  // The remote's Controls: its press toggles the lamp and the blind, held it dims the lamp.
+  const remotes = await (await fetch(`${base}/api/remotes`)).json();
+  const remote = remotes.remotes?.find((one) => one.id === "HomebridgeDummy:remote");
+  if (remote) {
+    const part = remote.parts[0].id, targets = ["HomebridgeDummy:lamp", "HomebridgeDummy:blind"];
+    await api(`/api/settings/accessories/${encodeURIComponent(remote.id)}?instance=Demo`, "PATCH", {
+      controls: [{ part, gesture: "press", action: "toggle", targets }, { part, gesture: "hold", action: "dim", targets: ["HomebridgeDummy:lamp"] }] });
+  }
+  await shot("remotes", "/remotes", { ready: ".remote-part", tall: 700 });
   await shot("logbook", "/logbook", { ready: ".logbook-entry", tall: 1000 });
   await shot("logbook-phone", "/logbook", { width: 390, height: 844, mobile: true, ready: ".logbook-entry" });
 } finally {

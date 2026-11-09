@@ -261,17 +261,38 @@ final class ActionHandler: ServiceHandler, @unchecked Sendable {
     let gettableKeys: [String]
     private let property: String
     private let mapping: ButtonMapping
+    /// The value its device sends when the held button is let go (`<button>_release`), when it sends one.
+    private let release: String?
+    /// Where its Remote's moments go (`PluginContext.remoteMoment`), set once its accessory is on the bridge.
+    var onMoment: (@Sendable (RemoteMoment) -> Void)?
 
-    init(service: Service, property: String, mapping: ButtonMapping, gettable: Bool) {
+    init(service: Service, property: String, mapping: ButtonMapping, gettable: Bool, release: String? = nil) {
         self.service = service
         self.property = property
         self.mapping = mapping
+        self.release = release
         gettableKeys = gettable ? [property] : []
+    }
+
+    /// The release value among an `action` entry's values for a button with a long press: `<id>_release`,
+    /// `<id>_hold_release` and their dashed spellings, or `release` for a device of one button.
+    static func release(of mapping: ButtonMapping, in values: [String]) -> String? {
+        guard mapping.long != nil, mapping.extension_ == 0 else { return nil }
+        let names = mapping.identifier.map { id in ["_release", "-release", "_hold_release", "_hold-release"].map { id + $0 } } ?? ["release", "hold_release", "hold-release"]
+        return names.first(where: values.contains)
     }
 
     func update(_ message: [String: JSONValue]) {
         guard let action = message[property]?.stringValue else { return }
         let event: Int? = action == mapping.single ? 0 : action == mapping.double ? 1 : action == mapping.long ? 2 : nil
+        // A Remote's moment: a long press whose release comes is a hold, one whose release never comes a long press.
+        let moment: RemoteMoment? = switch event {
+        case 0: .press
+        case 1: .doublePress
+        case 2: release == nil ? .longPress : .holdStart
+        default: action == release ? .holdEnd : nil
+        }
+        if let moment { onMoment?(moment) }
         if let event { service.characteristic(.programmableSwitchEvent).sendEvent(.int(event)) }
     }
 }
@@ -302,7 +323,8 @@ extension ServiceBuilder {
                 let service = service(.statelessProgrammableSwitch, subtype: subtype, optional: [.serviceLabelIndex], extra: [event])
                 service.characteristic(.serviceLabelIndex).value = .int(label)
                 link.log.info("Button \(label) (\(mapping.identifier ?? "")) \(mapping.extension_ > 0 ? "#ext\(mapping.extension_) " : ""): SINGLE = \(mapping.single ?? "-"), DOUBLE = \(mapping.double ?? "-"), LONG = \(mapping.long ?? "-")")
-                add(ActionHandler(service: service, property: property, mapping: mapping, gettable: expose.isGettable))
+                add(ActionHandler(service: service, property: property, mapping: mapping, gettable: expose.isGettable,
+                                  release: ActionHandler.release(of: mapping, in: expose.valueStrings)))
             }
         }
     }

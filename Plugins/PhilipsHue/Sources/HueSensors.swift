@@ -68,9 +68,17 @@ extension PhilipsHuePlugin {
     func noteButton(_ button: HueSensorDevice.Button, on services: SensorServices) {
         guard let updated = button.updated, let last = buttonReports[button.id], updated > last else { return }
         buttonReports[button.id] = updated
+        if let moment = button.event.flatMap(HueSensorDevice.moment) {
+            context.remoteMoment(moment, part: Self.buttonPart(button.controlID), of: services.accessory.id)
+        }
         guard let event = button.event.flatMap(HueSensorDevice.switchEvent) else { return }
         services.buttons[button.id]?.characteristic(.programmableSwitchEvent).sendEvent(.int(event))
     }
+
+    /// A button's part among the Remote's (`RemotePart`): its switch's subtype.
+    static func buttonPart(_ controlID: Int) -> String { "button:\(controlID)" }
+    /// A Tap dial's ring, a Remote's Wheel turning both of its switches.
+    static let ringPart = "rotary"
 
     /// Fires the ring's switch for a report newer than the last one seen (as `noteButton`): Single Press when a turn
     /// starts, Long Press once when it goes on past its first report (a longer turn), on the switch of its direction.
@@ -84,6 +92,11 @@ extension PhilipsHuePlugin {
             return
         }
         guard let clockwise = rotary.clockwise, let service = clockwise ? services.clockwise : services.anticlockwise else { return }
+        // Each report's steps since the last, as a Wheel's notches (a slow click at least one).
+        if let steps = rotary.steps, steps > 0, rotary.action == "start" || rotary.action == "repeat" {
+            let notches = max(1, steps / HueSensorDevice.stepsPerNotch)
+            context.remoteMoment(.turned(clockwise ? notches : -notches), part: Self.ringPart, of: services.accessory.id)
+        }
         let event: Int?
         switch rotary.action {
         case "start":
@@ -175,7 +188,7 @@ extension PhilipsHuePlugin {
             for button in sensor.buttons {
                 let name = sensor.buttons.count == 1 ? sensor.name : "Button \(button.controlID)"
                 let service = Service(
-                    .statelessProgrammableSwitch, name: name, subtype: "button:\(button.controlID)",
+                    .statelessProgrammableSwitch, name: name, subtype: Self.buttonPart(button.controlID),
                     optional: [.serviceLabelIndex, .configuredName], isPrimary: leading && button.controlID == sensor.buttons.first?.controlID)
                 service[.serviceLabelIndex]?.value = .int(min(max(button.controlID, 1), 255))
                 service[.configuredName]?.value = .string(name)
@@ -236,6 +249,14 @@ extension PhilipsHuePlugin {
         Self.showValues(sensor, on: built)
         record(sensor, on: built)
         accessory.isUnavailable = !sensor.reachable
+        // A remote: its buttons and its ring, whose every moment it reports (`noteButton`, `noteRotary`).
+        if !buttons.isEmpty || clockwise != nil {
+            var parts = sensor.buttons.compactMap { buttons[$0.id] }.map { RemotePart.button(RemoteLayout.partID(of: $0)) }
+            if let clockwise, let anticlockwise {
+                parts.append(RemotePart(id: Self.ringPart, kind: .wheel, name: "Ring", services: [clockwise, anticlockwise].map(RemoteLayout.partID(of:))))
+            }
+            context.declareRemote(accessory.id, RemoteLayout(parts: parts))
+        }
         try context.add(accessory)
         return built
     }

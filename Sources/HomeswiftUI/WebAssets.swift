@@ -2899,7 +2899,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
     for (const link of document.querySelectorAll("nav a")) {
       // Scenes are a tab of Automations.
-      const current = link.getAttribute("href") === `/${name === "scenes" ? "automations" : name}`;
+      const current = link.getAttribute("href") === `/${name === "scenes" || name === "remotes" ? "automations" : name}`;
       link.classList.toggle("active", current);
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
@@ -5454,6 +5454,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     window.HomeswiftCamera?.event(event);
     HomeswiftWidgets.event(event);
     if (location.pathname === "/accessories") window.homeswiftGroupEvent?.(event);
+    window.HomeswiftRemotes?.event(event);
   }
 
   // ---- Plugins and settings forms -----------------------------------------
@@ -7119,6 +7120,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // The Homebridge import (import.js): its page at /import and the welcome page at /welcome.
   views.logbook = (main) => window.HomeswiftHistory.logbookView(main);
   views.automations = (main, args) => window.HomeswiftAutomations.view(main, args);
+  views.remotes = (main, args) => window.HomeswiftRemotes.view(main, args);
   views.notify = (main, [id] = []) => window.HomeswiftAutomations.confirmView(main, id);
   views.import = (main) => window.HomeswiftImport.view(main);
   views.setup = (main) => window.HomeswiftSetup.view(main);
@@ -9874,6 +9876,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     system: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
     wall: '<rect x="3" y="3" width="11" height="10" rx="1.5"/><rect x="17" y="3" width="4" height="6" rx="1.2"/><rect x="17" y="12" width="4" height="9" rx="1.2"/><rect x="3" y="16" width="5" height="5" rx="1.2"/><rect x="11" y="16" width="3" height="5" rx="1"/>',
     grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/>',
+    press: '<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.5"/>',
+    remote: '<rect x="7" y="2" width="10" height="20" rx="3"/><circle cx="12" cy="9" r="2.5"/><path d="M10 15.5h4M10 18.5h4"/>',
     blind: '<path d="M4 4h16M5 4v13h14V4M5 8h14M5 12h14M5 16h14M21 4v15"/><circle cx="21" cy="20" r="1"/>',
     bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
     switch: '<rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="9" r="2"/>',
@@ -15252,9 +15256,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       if (options) {
         const option = (o) => el("option", { value: JSON.stringify(o.value), text: o.title, selected: current !== undefined ? same(o.value, current) : !inherits && same(o.value, property.default) });
-        const kinds = [...new Set(options.map((o) => o.group).filter(Boolean))];
-        const select = el("select", {}, el("option", { value: "", text: inherits ? defaultText(named(fallback ?? property.default)) : "—" }),
-          ...(kinds.length > 1 ? kinds.map((kind) => el("optgroup", { label: t(kind) }, options.filter((o) => o.group === kind).map(option))) : options.map(option)));
+        const select = el("select", {}, el("option", { value: "", text: inherits ? defaultText(named(fallback ?? property.default)) : "—" }), ...options.map(option));
         return { element: wrap(select), get: () => (select.value === "" ? undefined : JSON.parse(select.value)) };
       }
       if (type === "boolean" && inherits) {
@@ -15362,13 +15364,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             } };
           }
           const boxes = choices.map((choice) => ({ choice, input: el("input", { type: "checkbox", checked: chosen.some((value) => same(value, choice.value)) }) }));
-          // Choices of several kinds (lights and blinds) under a heading each.
-          const kinds = [...new Set(boxes.map(({ choice }) => choice.group).filter(Boolean))];
-          const grid = (list) => el("div", { class: "choices" }, list.map(({ choice, input }) => el("label", { class: "check" }, input, el("span", { text: choice.title }))));
           const element = el("fieldset", { class: "choice-set" }, el("legend", { text: title }), help,
             boxes.length === 0 ? el("p", { class: "muted choice-empty", text: t("Nothing to choose from yet.") })
-              : kinds.length > 1 ? kinds.flatMap((kind) => [el("h5", { class: "choice-group", text: t(kind) }), grid(boxes.filter(({ choice }) => choice.group === kind))])
-              : grid(boxes));
+              : el("div", { class: "choices" }, boxes.map(({ choice, input }) => el("label", { class: "check" }, input, el("span", { text: choice.title })))));
           return { element, get: () => {
             const v = boxes.filter(({ input }) => input.checked).map(({ choice }) => choice.value);
             return v.length || current !== undefined ? v : undefined;
@@ -15729,20 +15727,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// Tells the form a picker's value changed, as a select or a checkbox would: the settings sheet saves on `change`.
   const announce = (node) => { node.dispatchEvent(new Event("input", { bubbles: true })); node.dispatchEvent(new Event("change", { bubbles: true })); };
 
-  /// A field's choices, from a `oneOf` of single `enum`s (titled by `choiceTitle`, of a kind with `x-group`) or an `enum`;
-  /// null for none.
+  /// A field's choices, from a `oneOf` of single `enum`s (titled by `choiceTitle`) or an `enum`; null for none.
   function choicesOf(schema, choiceTitle) {
-    if (schema.oneOf && schema.oneOf.every((o) => Array.isArray(o.enum))) {
-      return byGroup(schema.oneOf.map((o) => ({ value: o.enum[0], title: choiceTitle(o), group: o["x-group"] })));
-    }
+    if (schema.oneOf && schema.oneOf.every((o) => Array.isArray(o.enum))) return schema.oneOf.map((o) => ({ value: o.enum[0], title: choiceTitle(o) }));
     return Array.isArray(schema.enum) ? schema.enum.map((v) => ({ value: v, title: String(v) })) : null;
-  }
-
-  /// Choices of several kinds (`x-group`: lights, blinds, scenes) in their kinds' order of first appearance, each kind
-  /// together; the plugin's order within a kind.
-  function byGroup(choices) {
-    const order = [...new Set(choices.map((c) => c.group ?? ""))];
-    return order.length > 1 ? order.flatMap((group) => choices.filter((c) => (c.group ?? "") === group)) : choices;
   }
 
   /// One choice among many: a select button whose menu has a search field. `none` is the empty choice's words.
@@ -15792,6 +15780,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   window.HomeswiftForms = {
     buildForm, dropZone, schemaCondition, isSecretKey, isReference, readSecretRule,
+    /// A searchable choice among many, and a searchable set of them (the Remotes page's targets and Scenes).
+    searchSelect, searchSet,
     secretRule: () => secretRule,
     /// Sets the rule from the plugin list (`/api/plugins`), or clears it with null; answers it.
     setSecretRule: (rule) => { secretRule = rule; return rule; },
@@ -16309,8 +16299,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // ---- The Logbook
 
   const sourceKinds = [["", t("Everyone and everything")], ["homeApp", t("The Home app")], ["user", t("Homeswift users")], ["mcp", t("MCP clients")],
-    ["automation", t("Automations")], ["scene", t("Scenes")], ["device", t("The devices themselves")]];
-  const sourceIcons = { homeApp: "house", user: "user", mcp: "sparkle", automation: "workflow", scene: "play", device: "accessory" };
+    ["automation", t("Automations")], ["scene", t("Scenes")], ["remote", t("Remotes")], ["device", t("The devices themselves")]];
+  const sourceIcons = { homeApp: "house", user: "user", mcp: "sparkle", automation: "workflow", scene: "play", remote: "remote", device: "accessory" };
   /// Who made a change, as a person reads it.
   function sourceText(source) {
     switch (source.kind) {
@@ -16318,6 +16308,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       case "device": return t("The device");
       case "automation": return t("Automation {name}", { name: source.name });
       case "scene": return t("Scene {name}", { name: source.name });
+      // A Remote's Control: the remote and its Button or Wheel ("BILRESA · Channel 2 wheel").
+      case "remote": return source.name;
       case "user": return source.name ?? t("A Homeswift user");
       case "mcp": return source.name ?? t("An MCP client");
       default: return source.name ?? "";
@@ -17238,7 +17230,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   /// The Scenes and Automations pages, as tabs.
-  const scenesTabs = (current) => HomeswiftCommon.subnav(t("Scenes and automations"), "", [["automations", t("Automations"), "workflow"], ["scenes", t("Scenes"), "play"]], current);
+  const scenesTabs = (current) => HomeswiftCommon.subnav(t("Scenes and automations"), "", [["automations", t("Automations"), "workflow"], ["scenes", t("Scenes"), "play"], ["remotes", t("Remotes"), "remote"]], current);
   /// What a scene of Homeswift's is, in a line: its room, the Home app, its animation.
   function sceneSummary(scene) {
     return [scene.room, scene.homeKit ? t("In the Home app") : null,
@@ -21388,7 +21380,6 @@ HomeswiftI18n.add("es", {
   "Default": "Predeterminado",
   "Default ({value})": "Predeterminado ({value})",
   "Declared by {plugin} for it. A change reloads {plugin}.": "Declarados por {plugin} para él. Un cambio recarga {plugin}.",
-  "Declared by {plugin} for it. A change applies at once.": "Declarados por {plugin} para él. Un cambio se aplica al momento.",
   "Move up": "Subir",
   "Move down": "Bajar",
   "Move {name} up": "Subir {name}",
@@ -21969,6 +21960,65 @@ HomeswiftI18n.add("es", {
   "When {button} of {who} is double-pressed": "Cuando se pulsa dos veces {button} de {who}",
   "When {button} of {who} is held": "Cuando se mantiene pulsado {button} de {who}",
   "Nothing to choose from yet.": "Todavía no hay nada que elegir.",
+  "A missing accessory": "Un accesorio que ya no está",
+  "Also in Apple Home": "También en Casa",
+  "Apple Home gets its presses too: an automation there on the same button also runs. Not in Home, in its Settings, keeps it out.": "La app Casa también recibe sus pulsaciones: una automatización en el mismo botón también se ejecuta allí. Fuera de Casa, en sus ajustes, lo deja fuera.",
+  "Automation": "Automatización",
+  "Brightens": "Aumenta el brillo",
+  "Brightens and opens": "Aumenta el brillo y abre",
+  "Brightens and opens, then dims and closes, in turn": "Aumenta el brillo y abre, luego atenúa y cierra, por turnos",
+  "Brightens, then dims, in turn": "Aumenta el brillo, luego atenúa, por turnos",
+  "Button {number}": "Botón {number}",
+  "Channel {number}": "Canal {number}",
+  "Channel {number} button": "Botón del canal {number}",
+  "Channel {number} wheel": "Rueda del canal {number}",
+  "Choose a scene": "Elegir una escena",
+  "Choose the scene it runs.": "Elige la escena que ejecuta.",
+  "Choose what it drives.": "Elige lo que controla.",
+  "Closes": "Cierra",
+  "Dims": "Atenúa",
+  "Dims a step per notch": "Regula un paso por muesca",
+  "Dims and closes": "Atenúa y cierra",
+  "Dims and moves a step per notch": "Regula las luces y mueve las persianas un paso por muesca",
+  "Does nothing yet": "Todavía no hace nada",
+  "Hold": "Mantener",
+  "Home app: {buttons}": "App Casa: {buttons}",
+  "Lights it dims and switches, shutters it moves. Locks, doors and alarms are never driven by a remote.": "Las luces que regula y enciende, las persianas que mueve. Las cerraduras, puertas y alarmas nunca se controlan desde un mando.",
+  "Moves a step per notch": "Mueve un paso por muesca",
+  "No remote yet. Add one from Add accessories: a Matter remote, a Hue dimmer switch, an IKEA remote through its hub, a Zigbee button.": "Todavía no hay ningún mando. Añade uno desde Añadir accesorios: un mando Matter, un regulador Hue, un mando IKEA a través de su hub, un botón Zigbee.",
+  "No response": "Sin respuesta",
+  "Nothing": "Nada",
+  "Opens": "Abre",
+  "Opens or closes": "Abre o cierra",
+  "Opens, then closes, in turn": "Abre, luego cierra, por turnos",
+  "Paired to Apple Home, which tells the bridge its presses: they can come a moment later.": "Emparejado con la app Casa, que pasa sus pulsaciones al puente: pueden llegar un momento después.",
+  "Percent of brightness or position per notch or per step of a hold, 1 to 25.": "Porcentaje de brillo o de posición por muesca o por paso al mantener, de 1 a 25.",
+  "Power Switches": "Interruptores de alimentación",
+  "Relays that power the lights: switched on before they brighten, off once they are dimmed past the lowest level.": "Los relés que alimentan las luces: se encienden antes de aumentar el brillo y se apagan cuando bajan del nivel mínimo.",
+  "Remotes": "Mandos",
+  "Ring": "Anillo",
+  "Runs a scene": "Ejecuta una escena",
+  "Runs {scene}": "Ejecuta {scene}",
+  "Seconds the lights take to come back once their power is on, 1 to 30.": "Los segundos que tardan las luces en volver una vez alimentadas, de 1 a 30.",
+  "Stops the shutters": "Detiene las persianas",
+  "Through Apple Home": "A través de Casa",
+  "Turn": "Giro",
+  "Turning up dims and closes": "Girar hacia arriba atenúa y cierra",
+  "Turns off": "Apaga",
+  "Turns off and closes": "Apaga y cierra",
+  "Turns on and opens": "Enciende y abre",
+  "Turns on or off": "Enciende o apaga",
+  "Turns on or off, opens or closes": "Enciende o apaga, abre o cierra",
+  "Wait after power on": "Espera tras encender",
+  "What each Button and Wheel of your remotes does, run by the bridge the moment you press. Press a button to find it here.": "Lo que hace cada botón y cada rueda de tus mandos, ejecutado por el puente en cuanto pulsas. Pulsa un botón para encontrarlo aquí.",
+  "What each gesture does": "Lo que hace cada gesto",
+  "What it drives": "Lo que controla",
+  "{name}: set what it does": "{name}: elegir qué hace",
+  "Wheel": "Rueda",
+  "Its buttons": "Sus botones",
+  "What each button and wheel does is set on the Remotes page.": "Lo que hace cada botón y cada rueda se configura en la página Mandos.",
+  "Set what its buttons do": "Elegir qué hacen sus botones",
+  "A long press and a hold are the same press: choose one.": "Una pulsación larga y mantener son la misma pulsación: elige una.",
 });
 
 """#),
@@ -24908,7 +24958,6 @@ HomeswiftI18n.add("fr", {
   "Default": "Par défaut",
   "Default ({value})": "Par défaut ({value})",
   "Declared by {plugin} for it. A change reloads {plugin}.": "Déclarés par {plugin} pour lui. Un changement redémarre {plugin}.",
-  "Declared by {plugin} for it. A change applies at once.": "Déclarés par {plugin} pour lui. Un changement s'applique aussitôt.",
   "Move up": "Monter",
   "Move down": "Descendre",
   "Move {name} up": "Monter {name}",
@@ -25489,6 +25538,65 @@ HomeswiftI18n.add("fr", {
   "When {button} of {who} is double-pressed": "Quand {button} de {who} est appuyé deux fois",
   "When {button} of {who} is held": "Quand {button} de {who} est maintenu",
   "Nothing to choose from yet.": "Rien à choisir pour l'instant.",
+  "A missing accessory": "Un accessoire disparu",
+  "Also in Apple Home": "Aussi dans Maison",
+  "Apple Home gets its presses too: an automation there on the same button also runs. Not in Home, in its Settings, keeps it out.": "L'app Maison reçoit aussi ses appuis : une automatisation sur le même bouton y tourne aussi. Hors de Maison, dans ses réglages, l'en écarte.",
+  "Automation": "Automatisation",
+  "Brightens": "Éclaire",
+  "Brightens and opens": "Éclaire et ouvre",
+  "Brightens and opens, then dims and closes, in turn": "Éclaire et ouvre, puis baisse et ferme, tour à tour",
+  "Brightens, then dims, in turn": "Éclaire, puis baisse, tour à tour",
+  "Button {number}": "Bouton {number}",
+  "Channel {number}": "Canal {number}",
+  "Channel {number} button": "Bouton du canal {number}",
+  "Channel {number} wheel": "Molette du canal {number}",
+  "Choose a scene": "Choisir une scène",
+  "Choose the scene it runs.": "Choisissez la scène qu'il lance.",
+  "Choose what it drives.": "Choisissez ce qu'il commande.",
+  "Closes": "Ferme",
+  "Dims": "Baisse",
+  "Dims a step per notch": "Règle d'un pas par cran",
+  "Dims and closes": "Baisse et ferme",
+  "Dims and moves a step per notch": "Règle les lumières et déplace les volets d'un pas par cran",
+  "Does nothing yet": "Ne fait rien pour l'instant",
+  "Hold": "Maintien",
+  "Home app: {buttons}": "App Maison : {buttons}",
+  "Lights it dims and switches, shutters it moves. Locks, doors and alarms are never driven by a remote.": "Les lumières qu'il règle et allume, les volets qu'il déplace. Les serrures, portes et alarmes ne sont jamais commandées par une télécommande.",
+  "Moves a step per notch": "Déplace d'un pas par cran",
+  "No remote yet. Add one from Add accessories: a Matter remote, a Hue dimmer switch, an IKEA remote through its hub, a Zigbee button.": "Pas encore de télécommande. Ajoutez-en une depuis Ajouter des accessoires : une télécommande Matter, un variateur Hue, une télécommande IKEA via sa passerelle, un bouton Zigbee.",
+  "No response": "Pas de réponse",
+  "Nothing": "Rien",
+  "Opens": "Ouvre",
+  "Opens or closes": "Ouvre ou ferme",
+  "Opens, then closes, in turn": "Ouvre, puis ferme, tour à tour",
+  "Paired to Apple Home, which tells the bridge its presses: they can come a moment later.": "Appairée à l'app Maison, qui transmet ses appuis au pont : ils peuvent arriver un instant plus tard.",
+  "Percent of brightness or position per notch or per step of a hold, 1 to 25.": "Pourcentage de luminosité ou de position par cran ou par pas d'un maintien, de 1 à 25.",
+  "Power Switches": "Interrupteurs d'alimentation",
+  "Relays that power the lights: switched on before they brighten, off once they are dimmed past the lowest level.": "Les relais qui alimentent les lumières : allumés avant qu'elles éclairent, éteints une fois baissées sous le niveau le plus bas.",
+  "Remotes": "Télécommandes",
+  "Ring": "Couronne",
+  "Runs a scene": "Lance une scène",
+  "Runs {scene}": "Lance {scene}",
+  "Seconds the lights take to come back once their power is on, 1 to 30.": "Les secondes que mettent les lumières à revenir une fois alimentées, de 1 à 30.",
+  "Stops the shutters": "Arrête les volets",
+  "Through Apple Home": "Via l'app Maison",
+  "Turn": "Rotation",
+  "Turning up dims and closes": "Tourner vers le haut baisse et ferme",
+  "Turns off": "Éteint",
+  "Turns off and closes": "Éteint et ferme",
+  "Turns on and opens": "Allume et ouvre",
+  "Turns on or off": "Allume ou éteint",
+  "Turns on or off, opens or closes": "Allume ou éteint, ouvre ou ferme",
+  "Wait after power on": "Attente après l'allumage",
+  "What each Button and Wheel of your remotes does, run by the bridge the moment you press. Press a button to find it here.": "Ce que fait chaque bouton et chaque molette de vos télécommandes, lancé par le pont dès que vous appuyez. Appuyez sur un bouton pour le retrouver ici.",
+  "What each gesture does": "Ce que fait chaque geste",
+  "What it drives": "Ce qu'il commande",
+  "{name}: set what it does": "{name} : choisir ce qu'il fait",
+  "Wheel": "Molette",
+  "Its buttons": "Ses boutons",
+  "What each button and wheel does is set on the Remotes page.": "Ce que fait chaque bouton et chaque molette se règle sur la page Télécommandes.",
+  "Set what its buttons do": "Choisir ce que font ses boutons",
+  "A long press and a hold are the same press: choose one.": "Un appui long et un maintien sont le même appui : choisissez l'un des deux.",
 });
 
 """#),
@@ -28428,7 +28536,6 @@ HomeswiftI18n.add("pt", {
   "Default": "Predefinição",
   "Default ({value})": "Predefinição ({value})",
   "Declared by {plugin} for it. A change reloads {plugin}.": "Declaradas por {plugin} para ele. Uma alteração recarrega {plugin}.",
-  "Declared by {plugin} for it. A change applies at once.": "Declaradas por {plugin} para ele. Uma alteração aplica-se de imediato.",
   "Move up": "Subir",
   "Move down": "Descer",
   "Move {name} up": "Subir {name}",
@@ -29009,6 +29116,65 @@ HomeswiftI18n.add("pt", {
   "When {button} of {who} is double-pressed": "Quando {button} de {who} é premido duas vezes",
   "When {button} of {who} is held": "Quando {button} de {who} é mantido premido",
   "Nothing to choose from yet.": "Ainda não há nada para escolher.",
+  "A missing accessory": "Um acessório em falta",
+  "Also in Apple Home": "Também na Casa",
+  "Apple Home gets its presses too: an automation there on the same button also runs. Not in Home, in its Settings, keeps it out.": "A app Casa também recebe as pressões: uma automação no mesmo botão também corre lá. Fora da Casa, nas definições, deixa-o de fora.",
+  "Automation": "Automação",
+  "Brightens": "Aumenta o brilho",
+  "Brightens and opens": "Aumenta o brilho e abre",
+  "Brightens and opens, then dims and closes, in turn": "Aumenta o brilho e abre, depois baixa e fecha, alternadamente",
+  "Brightens, then dims, in turn": "Aumenta o brilho, depois baixa, alternadamente",
+  "Button {number}": "Botão {number}",
+  "Channel {number}": "Canal {number}",
+  "Channel {number} button": "Botão do canal {number}",
+  "Channel {number} wheel": "Roda do canal {number}",
+  "Choose a scene": "Escolher uma cena",
+  "Choose the scene it runs.": "Escolha a cena que executa.",
+  "Choose what it drives.": "Escolha o que controla.",
+  "Closes": "Fecha",
+  "Dims": "Baixa o brilho",
+  "Dims a step per notch": "Regula um passo por entalhe",
+  "Dims and closes": "Baixa o brilho e fecha",
+  "Dims and moves a step per notch": "Regula as luzes e move os estores um passo por entalhe",
+  "Does nothing yet": "Ainda não faz nada",
+  "Hold": "Manter",
+  "Home app: {buttons}": "App Casa: {buttons}",
+  "Lights it dims and switches, shutters it moves. Locks, doors and alarms are never driven by a remote.": "As luzes que regula e liga, os estores que move. Fechaduras, portas e alarmes nunca são controlados por um comando.",
+  "Moves a step per notch": "Move um passo por entalhe",
+  "No remote yet. Add one from Add accessories: a Matter remote, a Hue dimmer switch, an IKEA remote through its hub, a Zigbee button.": "Ainda não há comandos. Adicione um em Adicionar acessórios: um comando Matter, um regulador Hue, um comando IKEA através do seu hub, um botão Zigbee.",
+  "No response": "Sem resposta",
+  "Nothing": "Nada",
+  "Opens": "Abre",
+  "Opens or closes": "Abre ou fecha",
+  "Opens, then closes, in turn": "Abre, depois fecha, alternadamente",
+  "Paired to Apple Home, which tells the bridge its presses: they can come a moment later.": "Emparelhado com a app Casa, que passa as pressões à ponte: podem chegar um momento depois.",
+  "Percent of brightness or position per notch or per step of a hold, 1 to 25.": "Percentagem de brilho ou de posição por entalhe ou por passo ao manter, de 1 a 25.",
+  "Power Switches": "Interruptores de alimentação",
+  "Relays that power the lights: switched on before they brighten, off once they are dimmed past the lowest level.": "Os relés que alimentam as luzes: ligados antes de aumentarem o brilho, desligados quando baixam abaixo do nível mínimo.",
+  "Remotes": "Comandos",
+  "Ring": "Anel",
+  "Runs a scene": "Executa uma cena",
+  "Runs {scene}": "Executa {scene}",
+  "Seconds the lights take to come back once their power is on, 1 to 30.": "Os segundos que as luzes demoram a voltar depois de alimentadas, de 1 a 30.",
+  "Stops the shutters": "Para os estores",
+  "Through Apple Home": "Através da Casa",
+  "Turn": "Rotação",
+  "Turning up dims and closes": "Rodar para cima baixa o brilho e fecha",
+  "Turns off": "Desliga",
+  "Turns off and closes": "Desliga e fecha",
+  "Turns on and opens": "Liga e abre",
+  "Turns on or off": "Liga ou desliga",
+  "Turns on or off, opens or closes": "Liga ou desliga, abre ou fecha",
+  "Wait after power on": "Espera depois de ligar",
+  "What each Button and Wheel of your remotes does, run by the bridge the moment you press. Press a button to find it here.": "O que faz cada botão e cada roda dos seus comandos, executado pela ponte assim que carrega. Carregue num botão para o encontrar aqui.",
+  "What each gesture does": "O que faz cada gesto",
+  "What it drives": "O que controla",
+  "{name}: set what it does": "{name}: escolher o que faz",
+  "Wheel": "Roda",
+  "Its buttons": "Os seus botões",
+  "What each button and wheel does is set on the Remotes page.": "O que faz cada botão e cada roda define-se na página Comandos.",
+  "Set what its buttons do": "Escolher o que fazem os botões",
+  "A long press and a hold are the same press: choose one.": "Uma pressão longa e manter são a mesma pressão: escolha uma.",
 });
 
 """#),
@@ -29896,6 +30062,7 @@ HomeswiftI18n.add("pt", {
 <script src="/chat.js"></script>
 <script src="/home.js"></script>
 <script src="/automations.js"></script>
+<script src="/remotes.js"></script>
 <script src="/admin.js"></script>
 <script src="/import.js"></script>
 <script src="/setup.js"></script>
@@ -30055,7 +30222,7 @@ HomeswiftI18n.add("pt", {
   /// ⋯ and the Settings page): a page shows it rather than sending the person away, and still writes no settings itself.
   /// `after(changed)` runs once it has gone, with whether anything was saved. Falls back to the Settings page when the
   /// editor cannot load.
-  async function openAccessorySettings({ accessoryID, name: title = null, glyph = "accessory", trigger = null, after = null, section = null }) {
+  async function openAccessorySettings({ accessoryID, name: title = null, glyph = "accessory", trigger = null, after = null }) {
     try {
       await loadScript("/forms.js");
       await loadScript("/settings.js");
@@ -30064,7 +30231,7 @@ HomeswiftI18n.add("pt", {
       location.href = accessorySettings(accessoryID);
       return;
     }
-    HomeswiftSettings.openAccessory({ accessoryID, instance: name, name: title, glyph, trigger, section, after: (changed) => after?.(changed) });
+    HomeswiftSettings.openAccessory({ accessoryID, instance: name, name: title, glyph, trigger, after: (changed) => after?.(changed) });
   }
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
@@ -30850,6 +31017,275 @@ HomeswiftI18n.add("pt", {
 })();
 
 """#),
+        "remotes.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// The Remotes page (/remotes, beside Automations and Scenes): every Remote (GLOSSARY.md), its Buttons and Wheels by
+// Channel, and what each gesture does: its Controls, run by the bridge the moment it comes
+// (docs/adr/0009-remote-controls-are-not-automations.md). A press on a remote finds its Button here. Controls are saved
+// as the Remote's Accessory Settings (`controls`); /remotes/<id>?part=<part> opens one.
+(() => {
+  "use strict";
+
+  const { t } = HomeswiftI18n;
+  const { el, api } = HomeswiftCommon;
+  const app = () => window.HomeswiftApp;
+  const enc = encodeURIComponent;
+
+  /// What the page shows now, for the presses that find a Button (`event`).
+  let shown = null;
+
+  const gestureNames = {
+    press: () => t("Press"), double: () => t("Double press"), long: () => t("Long press"), hold: () => t("Hold"), turn: () => t("Turn"),
+  };
+
+  /// What a set of targets is, for the words: lights, shutters, or both.
+  function drives(ids, targets) {
+    const kinds = new Set(ids.map((id) => targets.get(id)?.kind).filter(Boolean));
+    return kinds.has("shutter") ? (kinds.has("light") ? "both" : "shutters") : "lights";
+  }
+
+  /// An action's words, for what its targets are: a shutter opens and closes where a light brightens and dims.
+  function actionWords(action, direction, kind) {
+    const pick = (lights, shutters, both) => ({ lights, shutters, both })[kind]();
+    switch (action) {
+      case "toggle": return pick(() => t("Turns on or off"), () => t("Opens or closes"), () => t("Turns on or off, opens or closes"));
+      case "on": return pick(() => t("Turns on"), () => t("Opens"), () => t("Turns on and opens"));
+      case "off": return pick(() => t("Turns off"), () => t("Closes"), () => t("Turns off and closes"));
+      case "stop": return t("Stops the shutters");
+      case "step": return pick(() => t("Dims a step per notch"), () => t("Moves a step per notch"), () => t("Dims and moves a step per notch"));
+      case "dim":
+        if (direction === "up") return pick(() => t("Brightens"), () => t("Opens"), () => t("Brightens and opens"));
+        if (direction === "down") return pick(() => t("Dims"), () => t("Closes"), () => t("Dims and closes"));
+        return pick(() => t("Brightens, then dims, in turn"), () => t("Opens, then closes, in turn"), () => t("Brightens and opens, then dims and closes, in turn"));
+      default: return action;
+    }
+  }
+
+  /// A part's name in the reader's language: a Channel's Wheel or Button by its number, a Tap dial's ring, the name its
+  /// plugin or HomeKit gives, else its number (a remote's only button: Button).
+  function partName(part, remote) {
+    if (part.channel != null) return part.kind === "wheel" ? t("Channel {number} wheel", { number: part.channel }) : t("Channel {number} button", { number: part.channel });
+    if (part.name === "Ring") return t("Ring");
+    if (part.name) return part.name;
+    if (part.kind === "wheel") return t("Wheel");
+    return remote.parts.length === 1 ? t("Button") : t("Button {number}", { number: part.number });
+  }
+
+  /// A Control in a line: what it does, and to what.
+  function describe(control, lists) {
+    if (control.action === "scene") return t("Runs {scene}", { scene: lists.scenes.get(control.scene)?.name ?? control.scene });
+    const words = actionWords(control.action, control.direction, drives(control.targets ?? [], lists.targets));
+    const names = (control.targets ?? []).map((id) => lists.targets.get(id)?.name ?? t("A missing accessory"));
+    return names.length ? `${words} · ${names.join(", ")}` : words;
+  }
+
+  async function view(main, [remoteID] = []) {
+    const data = await api("/api/remotes");
+    const lists = {
+      targets: new Map(data.targets.map((one) => [one.id, one])), power: new Map(data.power.map((one) => [one.id, one])),
+      scenes: new Map(data.scenes.map((one) => [one.id, one])),
+    };
+    const admin = app().isAdmin();
+    const rows = new Map();
+    shown = { data, lists, admin, rows };
+    const empty = el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("remote")),
+      el("p", { class: "muted", text: t("No remote yet. Add one from Add accessories: a Matter remote, a Hue dimmer switch, an IKEA remote through its hub, a Zigbee button.") }),
+      admin ? el("a", { class: "button primary", href: "/setup", actionIcon: "plus", text: t("Add accessories") }) : null);
+    app().show(main,
+      app().pageHead(t("Remotes"), t("What each Button and Wheel of your remotes does, run by the bridge the moment you press. Press a button to find it here.")),
+      window.HomeswiftHome.scenesTabs("remotes"),
+      data.remotes.length ? el("div", { class: "card remote-list" }, data.remotes.map((remote) => remoteSection(remote))) : empty);
+    // /remotes/<id>?part=<part>: that Remote, its part opened (from a plugin page's channel).
+    if (remoteID) {
+      const remote = data.remotes.find((one) => one.id === remoteID);
+      const part = remote?.parts.find((one) => one.id === new URLSearchParams(location.search).get("part"));
+      document.getElementById(sectionID(remoteID))?.scrollIntoView({ block: "start" });
+      if (remote && part && admin) openEditor(remote, part, rows.get(rowKey(remote.id, part.id)));
+    }
+  }
+
+  const sectionID = (id) => `remote-${id.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+  const rowKey = (remoteID, partID) => `${remoteID}\u0000${partID}`;
+
+  /// A Remote: its name and where it is, whether its presses reach Apple Home, then its parts by Channel.
+  function remoteSection(remote) {
+    const { admin, rows } = shown;
+    const facts = [remote.room, remote.plugin].filter(Boolean).join(" · ");
+    const flags = [
+      remote.mirrored ? el("span", { class: "chip", title: t("Paired to Apple Home, which tells the bridge its presses: they can come a moment later."), text: t("Through Apple Home") }) : null,
+      remote.inAppleHome ? el("span", { class: "chip", title: t("Apple Home gets its presses too: an automation there on the same button also runs. Not in Home, in its Settings, keeps it out."), text: t("Also in Apple Home") }) : null,
+      remote.unavailable ? el("span", { class: "chip warn", text: t("No response") }) : null,
+    ].filter(Boolean);
+    const groups = [...Map.groupBy(remote.parts, (part) => part.channel ?? 0).entries()].map(([channel, parts]) => el("div", { class: "remote-group" },
+      channel ? el("h4", { class: "remote-channel", text: t("Channel {number}", { number: channel }) }) : null,
+      el("ul", { class: "remote-parts" }, parts.map((part) => {
+        const row = partRow(remote, part, admin);
+        rows.set(rowKey(remote.id, part.id), row);
+        return el("li", {}, row);
+      }))));
+    return el("section", { class: "remote", id: sectionID(remote.id) },
+      el("div", { class: "remote-head" },
+        HomeswiftCommon.tile("remote", "blue"),
+        el("div", { class: "remote-title" }, el("h3", { text: remote.name }), facts ? el("p", { class: "muted", text: facts }) : null),
+        flags.length ? el("div", { class: "chips" }, flags) : null),
+      groups);
+  }
+
+  /// A Button or Wheel: its name, the Home app's numbers for it, what each gesture does, the Automations it starts.
+  function partRow(remote, part, admin) {
+    const { lists } = shown;
+    const controls = remote.controls.filter((control) => control.part === part.id);
+    const lines = part.gestures.map((gesture) => {
+      const control = controls.find((one) => one.gesture === gesture);
+      return control ? el("li", {}, el("span", { class: "remote-gesture", text: gestureNames[gesture]() }), el("span", { text: describe(control, lists) })) : null;
+    }).filter(Boolean);
+    const starts = part.automations.map((automation) => el("li", { class: "muted" },
+      el("span", { class: "remote-gesture", text: t("Automation") }), el("a", { href: `/automations/${enc(automation.id)}`, text: automation.name })));
+    const homeKit = part.homeKit.length ? t("Home app: {buttons}", { buttons: part.homeKit.map((number) => t("Button {number}", { number })).join(", ") }) : null;
+    const body = el("span", { class: "body" },
+      el("span", { class: "remote-part-name" }, el("strong", { text: partName(part, remote) }), homeKit ? el("span", { class: "muted", text: homeKit }) : null),
+      lines.length || starts.length ? el("ul", { class: "remote-controls" }, lines, starts) : el("span", { class: "muted", text: t("Does nothing yet") }));
+    const glyph = el("span", { class: "remote-part-glyph", "aria-hidden": "true" }, HomeswiftCommon.icon(part.kind === "wheel" ? "loop" : "press"));
+    if (!admin) return el("div", { class: "remote-part" }, glyph, body);
+    return el("button", { type: "button", class: "remote-part", "aria-label": t("{name}: set what it does", { name: partName(part, remote) }),
+      onclick: (event) => openEditor(remote, part, event.currentTarget) }, glyph, body,
+      el("span", { class: "chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("forward")));
+  }
+
+  /// A part's Controls in the side sheet: what it drives (and their Power Switches), then what each gesture does.
+  function openEditor(remote, part, trigger) {
+    const { data, lists } = shown;
+    const mine = remote.controls.filter((control) => control.part === part.id);
+    // A part's gestures drive the same lights; one with none yet starts from its Channel's other part.
+    const driving = mine.find((control) => control.targets?.length)
+      ?? remote.controls.find((control) => control.targets?.length && remote.parts.some((other) => other.id === control.part && other.channel != null && other.channel === part.channel));
+    // A light without brightness says so: it only turns on and off.
+    const choice = (one, group) => ({ value: one.id, group,
+      title: [one.name, one.room, one.onOffOnly ? t("On and off only") : null].filter(Boolean).join(" · ") });
+    const targetPicker = HomeswiftForms.searchSet(data.targets.map((one) => choice(one, one.kind === "shutter" ? "Blinds" : "Lights")), driving?.targets ?? []);
+    const powerPicker = HomeswiftForms.searchSet(data.power.map((one) => choice(one, one.kind === "outlet" ? "Outlets" : "Switches")), driving?.power ?? []);
+    const options = driving ?? mine[0] ?? {};
+    const step = el("input", { type: "number", min: 1, max: 25, value: options.step ?? 5, "aria-describedby": "remote-step-help" });
+    const powerDelay = el("input", { type: "number", min: 1, max: 30, value: options.powerDelay ?? 5 });
+    const reversed = el("input", { type: "checkbox", role: "switch", checked: options.reversed === true });
+    const kind = () => drives(targetPicker.get(), lists.targets);
+
+    // Each gesture: a choice of what it does; the words follow what it drives.
+    const gestureFields = part.gestures.map((gesture) => {
+      const control = mine.find((one) => one.gesture === gesture);
+      const select = el("select", { "aria-label": gestureNames[gesture]() });
+      const scenePicker = HomeswiftForms.searchSelect(data.scenes.map((scene) => choice(scene, "Scenes")), control?.scene, t("Choose a scene"));
+      const sceneRow = el("div", { class: "remote-scene" }, scenePicker.button);
+      const fill = () => {
+        const current = select.value || (control ? valueOf(control) : "");
+        // Stopping is for shutters: offered when it drives some (or already chosen).
+        const offered = choicesFor(gesture).filter(([value, action]) => action !== "stop" || kind() !== "lights" || current === value);
+        select.replaceChildren(el("option", { value: "", text: t("Nothing") }), ...offered.map(([value, action, direction]) =>
+          el("option", { value, text: action === "scene" ? t("Runs a scene") : actionWords(action, direction, kind()) })));
+        select.value = current;
+        sceneRow.hidden = select.value !== "scene";
+      };
+      select.addEventListener("change", () => { sceneRow.hidden = select.value !== "scene"; syncHoldAndLong(); });
+      fill();
+      // A long press and a hold are the same press: the one not chosen says why it waits.
+      const help = gesture === "long" && part.gestures.includes("hold") ? el("span", { class: "help", text: t("A long press and a hold are the same press: choose one.") }) : null;
+      return { gesture, select, fill, scene: scenePicker, row: el("label", { class: "field" }, el("span", { class: "field-title", text: gestureNames[gesture]() }), select, sceneRow, help) };
+    });
+    // A long press and a hold are the same press: one or the other.
+    const syncHoldAndLong = () => {
+      const hold = gestureFields.find((one) => one.gesture === "hold"), long = gestureFields.find((one) => one.gesture === "long");
+      if (!hold || !long) return;
+      long.select.disabled = hold.select.value !== "";
+      hold.select.disabled = long.select.value !== "";
+    };
+    syncHoldAndLong();
+    // Each gesture keeps the targets it has (the Assistant may give each its own) until the list here changes.
+    let targetsChanged = false;
+    targetPicker.node.addEventListener("change", () => { targetsChanged = true; gestureFields.forEach((one) => one.fill()); });
+
+    const message = el("p", { class: "muted", role: "status" });
+    return HomeswiftCommon.openSheet((done) => {
+      const save = el("button", { type: "button", class: "primary", actionIcon: "check", text: t("Save"), onclick: () => HomeswiftCommon.busyButton(save, async () => {
+        const targets = targetPicker.get(), power = targets.length ? powerPicker.get() : [];
+        const made = gestureFields.filter((one) => one.select.value).map((one) => {
+          const [, action, direction] = choicesFor(one.gesture).find(([value]) => value === one.select.value);
+          const control = { part: part.id, gesture: one.gesture, action };
+          if (action === "scene") {
+            control.scene = one.scene.get();
+          } else {
+            const kept = !targetsChanged && mine.find((old) => old.gesture === one.gesture && old.targets?.length);
+            control.targets = kept ? kept.targets : targets;
+            const powered = kept ? kept.power ?? [] : power;
+            if (powered.length) { control.power = powered; if (Number(powerDelay.value) !== 5) control.powerDelay = Number(powerDelay.value); }
+            if (direction) control.direction = direction;
+            if (["dim", "step", "toggle"].includes(action) && Number(step.value) !== 5) control.step = Number(step.value);
+            if (action === "step" && reversed.checked) control.reversed = true;
+          }
+          return control;
+        });
+        if (made.some((control) => control.action === "scene" && !control.scene)) throw new Error(t("Choose the scene it runs."));
+        if (made.some((control) => control.action !== "scene" && !control.targets.length)) throw new Error(t("Choose what it drives."));
+        const controls = [...remote.controls.filter((control) => control.part !== part.id), ...made];
+        await api(`/api/settings/accessories/${enc(remote.id)}${remote.instance ? `?instance=${enc(remote.instance)}` : ""}`, { method: "PATCH", body: { controls: controls.length ? controls : null } });
+        remote.controls = controls;
+        // Only this remote is drawn again: its rows (and the presses that find them) follow.
+        document.getElementById(sectionID(remote.id))?.replaceWith(remoteSection(remote));
+        done(true);
+      }, { report: (e) => { message.className = "error"; message.textContent = e.message; } }) });
+      return el("div", { class: "account-form remote-sheet" },
+        el("div", { class: "setup-sheet-head" }, HomeswiftCommon.tile(part.kind === "wheel" ? "loop" : "press", "blue"),
+          el("div", {}, el("h2", { id: "remote-sheet-title", text: partName(part, remote) }), el("p", { class: "muted setup-method", text: remote.name }))),
+        el("section", { class: "remote-sheet-section" },
+          el("h3", { text: t("What it drives") }),
+          el("p", { class: "muted", text: t("Lights it dims and switches, shutters it moves. Locks, doors and alarms are never driven by a remote.") }),
+          targetPicker.node),
+        el("section", { class: "remote-sheet-section" },
+          el("h3", { text: t("What each gesture does") }), gestureFields.map((one) => one.row)),
+        el("details", { class: "remote-more" }, el("summary", { text: t("More") }),
+          el("label", { class: "field" }, el("span", { class: "field-title", text: t("Step") }), step,
+            el("span", { class: "help", id: "remote-step-help", text: t("Percent of brightness or position per notch or per step of a hold, 1 to 25.") })),
+          part.kind === "wheel" ? el("label", { class: "field toggle-field" }, reversed, el("span", { text: t("Turning up dims and closes") })) : null,
+          el("div", { class: "field" }, el("span", { class: "field-title", text: t("Power Switches") }),
+            el("span", { class: "help", text: t("Relays that power the lights: switched on before they brighten, off once they are dimmed past the lowest level.") }), powerPicker.node),
+          el("label", { class: "field" }, el("span", { class: "field-title", text: t("Wait after power on") }), powerDelay,
+            el("span", { class: "help", text: t("Seconds the lights take to come back once their power is on, 1 to 30.") }))),
+        message,
+        el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => done(false) }), save));
+    }, "remote-sheet-title", { returnFocus: trigger, onClose: () => { if (trigger?.isConnected) trigger.focus(); else shown?.rows.get(rowKey(remote.id, part.id))?.focus(); } });
+  }
+
+  /// The choices of a gesture: [value, action, direction].
+  function choicesFor(gesture) {
+    switch (gesture) {
+      case "hold": return [["dim", "dim", null], ["dim-up", "dim", "up"], ["dim-down", "dim", "down"]];
+      case "turn": return [["step", "step", null]];
+      default: return [["toggle", "toggle"], ["on", "on"], ["off", "off"], ["scene", "scene"], ["stop", "stop"]];
+    }
+  }
+
+  /// A saved Control's choice value.
+  function valueOf(control) {
+    return control.action === "dim" && control.direction && control.direction !== "alternate" ? `dim-${control.direction}` : control.action;
+  }
+
+  /// A press on a Remote shown: its Button or Wheel lights up, and its Controls open when nothing else is open.
+  function event(change) {
+    if (!shown || location.pathname.split("/")[1] !== "remotes" || change.characteristic !== "Programmable Switch Event") return;
+    const remote = shown.data.remotes.find((one) => one.id === change.id);
+    const service = change.subtype ?? `iid:${change.serviceIID}`;
+    const part = remote?.parts.find((one) => one.services.includes(service));
+    const row = part && shown.rows.get(rowKey(remote.id, part.id));
+    if (!row?.isConnected) return;
+    row.classList.remove("pressed");
+    void row.offsetWidth;   // the flash again for a second press
+    row.classList.add("pressed");
+    row.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    if (shown.admin && !document.querySelector("dialog[open]")) openEditor(remote, part, row);
+  }
+
+  window.HomeswiftRemotes = { view, event };
+})();
+
+"""#),
         "scene-artwork-themes.json": WebFile(contentType: "application/json", body: #"""
 [
   {
@@ -31327,30 +31763,8 @@ HomeswiftI18n.add("pt", {
     node.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.isComposing && event.target.matches?.("input:not([type=checkbox])")) { event.preventDefault(); event.target.blur(); }
     });
-    /// What was drawn last: its fields, rooms and the plugin's schema file, for a redraw after a change.
-    let shown = null;
     const ready = load();
     return { node, ready };
-
-    /// After a change to one of the plugin's own settings, its other fields' words and choices may follow it (a remote
-    /// channel's shutters: Opens rather than Brightens): fetched again, and drawn again only when they changed, the open
-    /// groups kept open and the sheet where it was.
-    async function refreshFields() {
-      let next;
-      try { next = await api(accessoryPath(accessoryID, instance)); } catch { return; }
-      if (!shown || JSON.stringify(next.fields) === JSON.stringify(shown.answer.fields)) return;
-      const groupName = (details) => details.dataset.section || details.querySelector(":scope > summary")?.textContent;
-      const open = new Set([...node.querySelectorAll("details")].filter((details) => details.open).map(groupName));
-      const scroller = node.closest("dialog") ?? document.scrollingElement;
-      const top = scroller.scrollTop;
-      // The control that had the focus, by its place among the editor's controls: the redraw keeps their order.
-      const controls = () => [...node.querySelectorAll("input, select, textarea, button, summary, [tabindex]")];
-      const focused = controls().indexOf(document.activeElement);
-      draw(next, shown.home, shown.schemaFile);
-      for (const details of node.querySelectorAll("details")) details.open = open.has(groupName(details));
-      scroller.scrollTop = top;
-      if (focused >= 0) controls()[focused]?.focus({ preventScroll: true });
-    }
 
     async function load() {
       let answer, rooms, schemaFile;
@@ -31368,7 +31782,6 @@ HomeswiftI18n.add("pt", {
     }
 
     function draw(answer, home, schemaFile) {
-      shown = { answer, home, schemaFile };
       node.removeAttribute("aria-busy");
       const settings = answer.settings ?? {};
       if (settings.name || answer.name) onTitle(settings.name || answer.name);
@@ -31393,7 +31806,6 @@ HomeswiftI18n.add("pt", {
             }
           }
           onChange(key);
-          if (fields[key] && !fields[key].core) refreshFields();
           return true;
         } catch (e) {
           // The schema's words without their place in config.json (`_accessories.<id>.<key> must be…`): the field is the place.
@@ -31534,8 +31946,7 @@ HomeswiftI18n.add("pt", {
           // in it, as the bridge merges objects key by key.
           onCommit: (key, value, state) => save({ [key]: value === undefined ? null : mergePatch(settings[key], value) }, state, key),
         });
-        pluginSection = section(t("Plugin settings"), answer.appliesLive ? t("Declared by {plugin} for it. A change applies at once.", { plugin })
-          : t("Declared by {plugin} for it. A change reloads {plugin}.", { plugin }), form.element);
+        pluginSection = section(t("Plugin settings"), t("Declared by {plugin} for it. A change reloads {plugin}.", { plugin }), form.element);
       }
 
       // Exclude (or Include) and Forget, set apart at the end.
@@ -31575,6 +31986,9 @@ HomeswiftI18n.add("pt", {
         dangerRow(t("Forget"), answer.addLabel ? t("Deletes it and its settings for good: {plugin} cannot find it again.", { plugin })
           : t("Drops its sign-in and its settings; it is only a device {plugin} finds again.", { plugin }), forget));
 
+      // A Remote: what its Buttons and Wheels do is set on the Remotes page (its Controls), where this opens it.
+      const remoteSection = fields.controls ? section(t("Its buttons"), t("What each button and wheel does is set on the Remotes page."),
+        el("a", { class: "button", href: `/remotes/${enc(answer.accessory ?? accessoryID)}`, actionIcon: "remote", text: t("Set what its buttons do") })) : null;
       // The renderer's own buttons (a list's Add) never submit a form around the editor.
       for (const button of pluginSection?.querySelectorAll("button:not([type])") ?? []) button.type = "button";
       node.replaceChildren(...[
@@ -31582,6 +31996,7 @@ HomeswiftI18n.add("pt", {
         section(null, null, nameField, roomField),
         section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null, separate?.node ?? null, functionOf),
         energySection,
+        remoteSection,
         partsSection,
         pluginSection,
         danger,
@@ -31596,8 +32011,7 @@ HomeswiftI18n.add("pt", {
 
   /// The editor in a side sheet, from the wall's ⋯, a plugin's Devices or Setup: its name and plugin at the top, Done
   /// at the bottom. `after(changed)` runs once it has gone, with whether anything was saved (or it was forgotten).
-  /// `section`: a group of the plugin's layout to open and show first (its title as a slug, `channel-2`).
-  function openAccessory({ accessoryID, instance = null, device = null, name = null, glyph = "accessory", trigger = null, after = null, section = null }) {
+  function openAccessory({ accessoryID, instance = null, device = null, name = null, glyph = "accessory", trigger = null, after = null }) {
     let changed = false, gone = false;
     HomeswiftCommon.openSheet((done) => {
       const title = el("h2", { id: "accessory-settings-title", tabIndex: -1, text: name ?? device?.name ?? accessoryID });
@@ -31607,11 +32021,7 @@ HomeswiftI18n.add("pt", {
         onTitle: (text) => { title.textContent = text; } });
       // Once drawn, the title takes the focus (rather than Done, or a field whose keyboard would cover a phone's sheet),
       // unless the person already moved into the editor; Tab goes on to the Name.
-      editor.ready.then(() => {
-        const group = section && editor.node.querySelector(`details[data-section="${CSS.escape(section)}"]`);
-        if (group) { group.open = true; group.scrollIntoView({ block: "nearest" }); }
-        if (!editor.node.contains(document.activeElement)) title.focus({ preventScroll: true });
-      });
+      editor.ready.then(() => { if (!editor.node.contains(document.activeElement)) title.focus({ preventScroll: true }); });
       return el("div", { class: "account-form accessory-settings-sheet" },
         el("div", { class: "setup-sheet-head" }, tile(glyph, "blue"),
           el("div", {}, title, el("p", { class: "muted setup-method", text: t("Settings") }))),
@@ -33502,7 +33912,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .keys { display: flex; flex-wrap: wrap; gap: var(--space-6); justify-content: flex-end; }
 .keys button { padding: 5px 11px; font-size: var(--text-sm); }
 .more > summary { font-size: var(--text-sm); padding: var(--space-4) 0; }
-.service-name { font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin: var(--space-12) 0 2px; }
+.service-name, .remote-channel { font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin: var(--space-12) 0 2px; }
 .card-remote { padding: var(--space-8) 0 2px; display: flex; justify-content: center; }
 .card-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-10); padding-top: var(--space-10); border-top: 1px solid var(--line); font-size: var(--text-sm); }
 .card-foot .link { padding: 0; font-size: inherit; }
@@ -34656,8 +35066,6 @@ legend { color: var(--muted); padding: 0 var(--space-8); font-weight: var(--weig
 /* A list of choices: a checkbox per choice, wrapping into columns. */
 .choice-set .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--space-4) var(--space-14); }
 .choice-set .check { margin: var(--space-6) 0; font-weight: var(--weight-regular); }
-/* A list's choices of several kinds (lights, blinds, scenes): a quiet heading over each kind's. */
-.choice-set .choice-group { margin: var(--space-10) 0 var(--space-2); font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 /* A searchable menu of several kinds (common.js's menu, items with `group`): pills that keep one kind, and a heading
    over each kind's items. */
 .menu-filters { display: flex; flex-wrap: wrap; gap: var(--space-4); padding: var(--space-4) var(--space-6) var(--space-6); }
@@ -38108,6 +38516,62 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .house-photo-editor .house-photo-marker,
 .house-photo-editor .house-photo-marker:hover,
 .house-photo-editor .house-photo-marker:active:not(:disabled) { transform: translate(-50%, -50%); transition: none; }
+
+/* Remotes (remotes.js): one surface, a section per Remote, its Buttons and Wheels by Channel as rows that open their
+   Controls. A press on the remote flashes its row. */
+.remote-list { display: grid; gap: 0; padding: 0; }
+.remote { padding: var(--space-16) var(--space-18); }
+.remote + .remote { border-top: 1px solid var(--line); }
+.remote-head { display: flex; align-items: center; gap: var(--space-12); flex-wrap: wrap; margin-bottom: var(--space-12); }
+.remote-title { flex: 1; min-width: 160px; }
+.remote-title h3 { margin: 0; font-size: var(--text-base); font-weight: var(--weight-semibold); }
+.remote-title p { margin: 2px 0 0; font-size: var(--text-sm); }
+.remote-head .chips { justify-content: flex-end; }
+.chip.warn { color: var(--warn); border-color: currentColor; }
+.remote-group + .remote-group { margin-top: var(--space-10); }
+.remote .remote-channel { margin: 0 0 var(--space-6); }
+.remote-parts { display: grid; gap: var(--space-6); margin: 0; padding: 0; list-style: none; }
+.remote-part {
+  display: flex; align-items: center; gap: var(--space-12); width: 100%; min-height: 0; margin: 0; padding: var(--space-10) var(--space-12);
+  border-radius: var(--radius-md); background: var(--material-thin); border: 1px solid var(--line); box-shadow: none;
+  color: inherit; font: inherit; text-align: start; transition: transform 160ms var(--ease-out), background-color 160ms ease;
+}
+button.remote-part { cursor: pointer; }
+@media (hover: hover) and (pointer: fine) { button.remote-part:hover { background: var(--material); } button.remote-part:hover .chevron { color: var(--text); } }
+button.remote-part:active { transform: scale(0.98); }
+button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.remote-part-glyph { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--material); border: 1px solid var(--line); color: var(--muted); }
+.remote-part-glyph svg { width: 16px; height: 16px; }
+.remote-part .body { flex: 1; min-width: 0; display: grid; gap: var(--space-4); }
+.remote-part-name { display: flex; align-items: baseline; gap: var(--space-8); flex-wrap: wrap; }
+.remote-part-name strong { font-weight: var(--weight-medium); }
+.remote-part-name .muted { font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.remote-controls { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
+.remote-controls li { display: flex; gap: var(--space-8); min-width: 0; }
+.remote-controls li > span:last-child, .remote-controls li > a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remote-gesture { flex: none; min-width: 7.5em; color: var(--muted); }
+.remote-part > .muted, .remote-part .body > .muted { font-size: var(--text-sm); }
+.remote-part .chevron { flex: none; color: var(--muted); display: grid; transition: color 160ms ease; }
+.remote-part .chevron svg { width: 16px; height: 16px; }
+/* The row of the Button just pressed: a short glow, quick enough for presses in a row. */
+.remote-part.pressed { animation: remote-pressed 700ms var(--ease-out); }
+@keyframes remote-pressed { from { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); } to { background: var(--material-thin); } }
+.remote-sheet { gap: var(--space-18); }
+.remote-sheet-section { display: grid; gap: var(--space-8); }
+.remote-sheet-section h3, .remote-more summary { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.remote-sheet-section > p { margin: 0; font-size: var(--text-sm); }
+.remote-scene { margin-top: var(--space-6); }
+.remote-more { display: grid; gap: var(--space-10); }
+.remote-more[open] summary { margin-bottom: var(--space-8); }
+/* A phone: the gesture over what it does, whole, rather than both on a line cut short. */
+@media (max-width: 480px) {
+  .remote { padding: var(--space-14) var(--space-12); }
+  .remote-controls li { flex-direction: column; gap: 0; }
+  .remote-controls li + li { margin-top: var(--space-4); }
+  .remote-controls li > span:last-child, .remote-controls li > a { white-space: normal; }
+  .remote-gesture { min-width: 0; font-size: var(--text-xs); }
+}
+@media (prefers-reduced-motion: reduce) { .remote-part.pressed { animation: none; outline: 2px solid var(--accent); } button.remote-part:active { transform: none; } }
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""

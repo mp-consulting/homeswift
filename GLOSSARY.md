@@ -50,8 +50,8 @@ _Avoid_: Device settings, device options, overrides, feature options
 
 **Core Accessory Settings**:
 The Accessory Settings every accessory has whatever its plugin: its Name, its room, whether it is Excluded, Hidden
-or Not in Home, which of its Parts are included, whether its Functions are Separate, and the Energy Role of each of
-its Meters.
+or Not in Home, which of its Parts are included, whether its Functions are Separate, the Energy Role of each of its
+Meters, and a Remote's Controls.
 _Avoid_: Layout, common settings
 
 **Arrangement**:
@@ -297,6 +297,39 @@ _Avoid_: Filter, guard, if
 One thing an Automation does: apply a Scene, set a value, wait, wait until, notify, or call a plugin's action.
 _Avoid_: Action, task
 
+## Remotes
+
+**Remote**:
+An accessory whose job is to send presses rather than show a state, with at least one Button, whatever plugin it
+comes from, Apple Home's mirrored through Wingman included. A doorbell is not a Remote, nor a wall switch whose relay
+switches its light.
+_Avoid_: Controller, switch, clicker, keypad
+
+**Button**:
+One thing on a Remote a person presses: it can be pressed once or twice, held, and let go.
+_Avoid_: Key, input, Stateless Programmable Switch (HomeKit's word for its accessory)
+
+**Wheel**:
+A part of a Remote a person turns, which reports how far it turned up or down, such as BILRESA's scroll wheel or the
+ring of a Hue Tap dial.
+_Avoid_: Dial, rotary, ring, scroll
+
+**Channel**:
+One of the sets of Buttons and Wheels a Remote switches between on itself, such as BILRESA's three; a Remote without
+them has none.
+_Avoid_: Mode, page, bank
+
+**Control**:
+What one gesture of a Remote's Button or Wheel does, run by the bridge the moment it comes: toggle its targets, turn
+them on or off, run a Scene, stop shutters, dim or move them while held, or step them as the Wheel turns. It is not an
+Automation: it has no Conditions and no history of its own.
+_Avoid_: Binding, mapping, shortcut, button action
+
+**Power Switch**:
+A switch or outlet that powers a Control's lights, switched on before they brighten and off once they are dimmed past
+their lowest level.
+_Avoid_: Relay, master switch
+
 ## History
 
 **History**:
@@ -308,7 +341,8 @@ The list of what changed in the home, each entry with its Change Source.
 _Avoid_: Activity, events, audit log
 
 **Change Source**:
-Who or what made a change: the Home app, a Homeswift user, an MCP client, an Automation or Scene, or the Device itself.
+Who or what made a change: the Home app, a Homeswift user, an MCP client, an Automation or Scene, a Remote's
+Control, or the Device itself.
 _Avoid_: Origin, actor, context, initiator
 
 ## Support

@@ -22,9 +22,6 @@ struct AccessorySettingsTests {
         #expect(one["oneOf"]?[0]?["title"] == "Kitchen")
         #expect(one["oneOf"]?[0]?["x-detail"] == "Current Temperature")
         #expect(one["oneOf"]?[0]?["x-catalog"] == true)
-        // The plugin's own words (`isWording`) are translated by its schema's i18n: no `x-catalog`.
-        let words = HomeswiftCatalog.withChoices(["type": "string"], [SetupOption("up", label: "Opens", isWording: true)])
-        #expect(words["oneOf"]?[0]?["x-catalog"] == nil && words["oneOf"]?[0]?["title"] == "Opens")
         let list = HomeswiftCatalog.withChoices(["type": "array", "items": ["type": "string"]], choices)
         #expect(list["oneOf"] == nil)
         #expect(list["items"]?["oneOf"]?.arrayValue?.count == 1)
@@ -446,20 +443,6 @@ struct AccessorySettingsTests {
         _ = try await update(environment, "Devices:lock", ["excluded": false])
         #expect(await eventually { environment.catalog.find(id: "Devices:lock") != nil })
         #expect(try block(environment)?["_accessories"]?["lock"] == nil)
-        await environment.stop()
-    }
-
-    /// A plugin narrows a device's fields beyond its kind (`accessorySettingKeys`): the lock shows Show as only, and a field
-    /// with a value saved, so it can be cleared.
-    @Test func getSettingsAnswersOnlyTheFieldsThatApplyToTheDevice() async throws {
-        let environment = try await environment()
-        var fields = try #require(try await environment.catalog.accessorySettingsJSON(accessoryID: "Devices:lock")["fields"]?.objectValue)
-        #expect(fields.filter { $0.value["core"] == false }.keys.sorted() == ["showAs"])
-        // Its words for this device replace the schema's (`accessorySettingWording`).
-        #expect(fields["showAs"]?["schema"]?["title"] == "Shown in the Home app as")
-        _ = try await update(environment, "Devices:lock", ["offset": 2])
-        fields = try #require(try await environment.catalog.accessorySettingsJSON(accessoryID: "Devices:lock")["fields"]?.objectValue)
-        #expect(fields.filter { $0.value["core"] == false }.keys.sorted() == ["offset", "showAs"])
         await environment.stop()
     }
 

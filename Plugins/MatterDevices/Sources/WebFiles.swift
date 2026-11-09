@@ -26,11 +26,11 @@ extension MatterDevicesPlugin {
 #nodes.grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
 .node .server-head .who strong { white-space: normal; overflow-wrap: anywhere; }
 
-/* A remote's channels: what each dims, a row each that opens its Settings. */
+/* A remote's channels: what each drives, a row each that opens it on the Remotes page. */
 .channels { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .channel {
   display: flex; align-items: center; gap: 12px; width: 100%; min-height: 0; padding: 10px 12px; margin: 0; border-radius: 12px;
-  background: var(--material-thin); border: 1px solid var(--line); box-shadow: none; color: inherit; font: inherit; text-align: start;
+  background: var(--material-thin); border: 1px solid var(--line); box-shadow: none; color: inherit; font: inherit; text-align: start; text-decoration: none;
   cursor: pointer; transition: transform 160ms var(--ease-out), background-color 160ms ease;
 }
 @media (hover: hover) and (pointer: fine) { .channel:hover { background: var(--material); } .channel:hover .chevron { color: var(--text); } }
@@ -77,11 +77,9 @@ extension MatterDevicesPlugin {
 
   const list = $("#nodes");
   $("#add").href = homeswift.setupAddress();
-  /// The device's Accessory Settings (its channels' lights) in the UI's side sheet, over this page; the link's address
-  /// stays for a new tab.
-  const openSettings = (node, trigger, channel = null) => homeswift.openAccessorySettings({
+  /// The device's Accessory Settings in the UI's side sheet, over this page; the link's address stays for a new tab.
+  const openSettings = (node, trigger) => homeswift.openAccessorySettings({
     accessoryID: node.accessory, name: node.name, glyph: (glyphs[node.kind] ?? ["matter"])[0], trigger, after: (changed) => { if (changed) refresh(); },
-    section: channel ? `channel-${channel}` : null,
   });
 
   const statuses = {
@@ -116,16 +114,17 @@ extension MatterDevicesPlugin {
 
   // MARK: A device
 
+  /// A Remote's card on the Remotes page, where its Controls are set; a channel's part opened there.
+  const remoteAddress = (node, part = null) => `/remotes/${encodeURIComponent(node.accessory)}${part ? `?part=${encodeURIComponent(part)}` : ""}`;
+
   function channelRow(node, channel) {
-    const names = (channel.lights ?? []).map((light) => light.name).join(", ");
-    const what = el("span", { class: `what${names ? "" : " unset"}`, text: names || t("Choose a light"), title: names || null });
-    const powers = (channel.power ?? []).map((one) => one.name).join(", ");
-    const power = powers ? el("span", { class: "endpoints power", text: t("Powered by {name}", { name: powers }) }) : null;
-    // The whole row opens the remote's Settings (its lights, power and step), over the page.
-    return el("li", {}, el("button", { type: "button", class: "channel", onclick: (event) => openSettings(node, event.currentTarget, channel.number),
-      "aria-label": t("Channel {number}: {lights}. Open its settings", { number: channel.number, lights: names || t("nothing chosen") }) },
+    const names = (channel.targets ?? []).map((target) => target.name).join(", ");
+    const what = el("span", { class: `what${names ? "" : " unset"}`, text: names || t("Nothing set yet"), title: names || null });
+    // The whole row opens the channel's Wheel on the Remotes page, where what it does is set.
+    return el("li", {}, el("a", { class: "channel", href: remoteAddress(node, `wheel:${channel.up}`),
+      "aria-label": t("Channel {number}: {lights}. Set what it does", { number: channel.number, lights: names || t("nothing set") }) },
       el("span", { class: "number", "aria-hidden": "true", text: String(channel.number) }),
-      el("span", { class: "body" }, what, power, el("span", { class: "endpoints", text: buttonsText(channel) })),
+      el("span", { class: "body" }, what, el("span", { class: "endpoints", text: buttonsText(channel) })),
       el("span", { class: "chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("forward"))));
   }
 
@@ -220,7 +219,8 @@ extension MatterDevicesPlugin {
         HomeswiftCommon.menuButton(t("Actions for {name}", { name: node.name }), () => [
           node.status !== "forgotten" && node.status !== "excluded" && node.status !== "stopped"
             ? { label: t("Reconnect"), icon: "loop", onSelect: () => request("reconnect", { method: "POST", body: { device: node.device } }).then(refresh).catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
-          { label: node.channels?.length ? t("Choose the lights it dims") : t("Settings"), icon: "gear", onSelect: (event) => openSettings(node, event?.currentTarget) },
+          node.channels?.length ? { label: t("Set what its buttons do"), icon: "sliders", href: remoteAddress(node) } : null,
+          { label: t("Settings"), icon: "gear", onSelect: (event) => openSettings(node, event?.currentTarget) },
           { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(node.accessory)}` },
           window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: HomeswiftCommon.sparkle(), onSelect: () => HomeswiftChat.ask(t("About my Matter device {name}: ", { name: node.name })) } : null,
         ].filter(Boolean))));
@@ -293,8 +293,10 @@ extension MatterDevicesPlugin {
 // The Matter Devices page in French, Spanish and Portuguese (docs/translations.md).
 HomeswiftI18n.add({
   "fr": {
-    "Channel {number}: {lights}. Open its settings": "Canal {number} : {lights}. Ouvrir ses réglages",
-    "nothing chosen": "rien de choisi",
+    "Channel {number}: {lights}. Set what it does": "Canal {number} : {lights}. Choisir ce qu'il fait",
+    "nothing set": "rien de réglé",
+    "Nothing set yet": "Rien de réglé pour l'instant",
+    "Set what its buttons do": "Choisir ce que font ses boutons",
     "Held": "Maintenu",
     "Pressed {n} times": "Appuyé {n} fois",
     "Pressed": "Appuyé",
@@ -303,7 +305,6 @@ HomeswiftI18n.add({
     "{n} notch": "{n} cran",
     "{n} notches": "{n} crans",
     "Double press": "Double appui",
-    "Choose a light": "Choisir une lampe",
     "Channel {number} up": "Canal {number} vers le haut",
     "Channel {number} down": "Canal {number} vers le bas",
     "Channel {number} button": "Bouton du canal {number}",
@@ -320,7 +321,6 @@ HomeswiftI18n.add({
     "Added": "Ajouté",
     "Ask the Assistant": "Demander à l'Assistant",
     "Being removed": "En cours de retrait",
-    "Choose the lights it dims": "Choisir les lampes qu'elle règle",
     "Connected": "Connecté",
     "Connected since": "Connecté depuis",
     "Connecting…": "Connexion…",
@@ -328,7 +328,6 @@ HomeswiftI18n.add({
     "Discriminator {number}": "Discriminateur {number}",
     "Endpoint {number}": "Point {number}",
     "Endpoints {up}, {down}, {press}": "Points {up}, {down}, {press}",
-    "Powered by {name}": "Alimenté par {name}",
     "Home app: Button {up} up, {down} down": "Maison : bouton {up} haut, {down} bas",
     "Home app: Button {up} up, {down} down, {press} press": "Maison : bouton {up} haut, {down} bas, {press} appui",
     "Excluded": "Exclu",
@@ -356,8 +355,10 @@ HomeswiftI18n.add({
     "{step} % per notch": "{step} % par cran",
   },
   "es": {
-    "Channel {number}: {lights}. Open its settings": "Canal {number}: {lights}. Abrir sus ajustes",
-    "nothing chosen": "nada elegido",
+    "Channel {number}: {lights}. Set what it does": "Canal {number}: {lights}. Elegir qué hace",
+    "nothing set": "nada configurado",
+    "Nothing set yet": "Nada configurado todavía",
+    "Set what its buttons do": "Elegir qué hacen sus botones",
     "Held": "Mantenido",
     "Pressed {n} times": "Pulsado {n} veces",
     "Pressed": "Pulsado",
@@ -366,7 +367,6 @@ HomeswiftI18n.add({
     "{n} notch": "{n} muesca",
     "{n} notches": "{n} muescas",
     "Double press": "Doble pulsación",
-    "Choose a light": "Elegir una luz",
     "Channel {number} up": "Canal {number} arriba",
     "Channel {number} down": "Canal {number} abajo",
     "Channel {number} button": "Botón del canal {number}",
@@ -383,7 +383,6 @@ HomeswiftI18n.add({
     "Added": "Añadido",
     "Ask the Assistant": "Preguntar al Asistente",
     "Being removed": "Quitándose",
-    "Choose the lights it dims": "Elegir las luces que regula",
     "Connected": "Conectado",
     "Connected since": "Conectado desde",
     "Connecting…": "Conectando…",
@@ -391,7 +390,6 @@ HomeswiftI18n.add({
     "Discriminator {number}": "Discriminador {number}",
     "Endpoint {number}": "Punto {number}",
     "Endpoints {up}, {down}, {press}": "Puntos {up}, {down}, {press}",
-    "Powered by {name}": "Alimentado por {name}",
     "Home app: Button {up} up, {down} down": "Casa: botón {up} arriba, {down} abajo",
     "Home app: Button {up} up, {down} down, {press} press": "Casa: botón {up} arriba, {down} abajo, {press} pulsación",
     "Excluded": "Excluido",
@@ -419,8 +417,10 @@ HomeswiftI18n.add({
     "{step} % per notch": "{step} % por muesca",
   },
   "pt": {
-    "Channel {number}: {lights}. Open its settings": "Canal {number}: {lights}. Abrir os ajustes",
-    "nothing chosen": "nada escolhido",
+    "Channel {number}: {lights}. Set what it does": "Canal {number}: {lights}. Escolher o que faz",
+    "nothing set": "nada definido",
+    "Nothing set yet": "Nada definido ainda",
+    "Set what its buttons do": "Escolher o que fazem os botões",
     "Held": "Mantido",
     "Pressed {n} times": "Premido {n} vezes",
     "Pressed": "Premido",
@@ -429,7 +429,6 @@ HomeswiftI18n.add({
     "{n} notch": "{n} entalhe",
     "{n} notches": "{n} entalhes",
     "Double press": "Pressão dupla",
-    "Choose a light": "Escolher uma luz",
     "Channel {number} up": "Canal {number} para cima",
     "Channel {number} down": "Canal {number} para baixo",
     "Channel {number} button": "Botão do canal {number}",
@@ -446,7 +445,6 @@ HomeswiftI18n.add({
     "Added": "Adicionado",
     "Ask the Assistant": "Perguntar ao Assistente",
     "Being removed": "A ser removido",
-    "Choose the lights it dims": "Escolher as luzes que regula",
     "Connected": "Ligado",
     "Connected since": "Ligado desde",
     "Connecting…": "A ligar…",
@@ -454,7 +452,6 @@ HomeswiftI18n.add({
     "Discriminator {number}": "Discriminador {number}",
     "Endpoint {number}": "Ponto {number}",
     "Endpoints {up}, {down}, {press}": "Pontos {up}, {down}, {press}",
-    "Powered by {name}": "Alimentado por {name}",
     "Home app: Button {up} up, {down} down": "Casa: botão {up} cima, {down} baixo",
     "Home app: Button {up} up, {down} down, {press} press": "Casa: botão {up} cima, {down} baixo, {press} premir",
     "Excluded": "Excluído",

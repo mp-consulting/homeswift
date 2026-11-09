@@ -45,7 +45,7 @@ import NIOHTTP1
 //   DELETE /api/notifications/push/subscriptions/<id>
 extension UIServer {
     func homeAPI(_ route: [String], _ method: HTTPMethod, body: JSONValue, username: String, language: String? = nil) async throws -> Reply? {
-        guard let first = route.first, ["rooms", "home-link", "zones", "scenes", "automations", "notifications"].contains(first) else { return nil }
+        guard let first = route.first, ["rooms", "home-link", "zones", "scenes", "automations", "remotes", "notifications"].contains(first) else { return nil }
         do {
             return try await homeRoute(route, method, body: body, username: username, language: language)
         } catch let error as CatalogError {
@@ -90,6 +90,8 @@ extension UIServer {
             let result = try await catalog.pressNotificationButton(path[2], index: index, by: username, confirmSecurity: body["confirmSecurity"]?.boolValue == true)
             logger.info("Web UI pressed a notification's button", metadata: ["user": "\(username)", "button": "\(result["done"]?.stringValue ?? "")"])
             return .json(result)
+        case (.GET, ["remotes"]):
+            return .json(await catalog.remotesPageJSON())
         case (.GET, ["automations"]):
             var answer = catalog.automationsJSON().objectValue ?? [:]
             answer["tools"] = catalog.automationToolsJSON()["tools"]
