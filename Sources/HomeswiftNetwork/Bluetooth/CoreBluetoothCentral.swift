@@ -358,7 +358,8 @@ final class CoreBluetoothConnection: NSObject, BLEConnection, CBPeripheralDelega
         _ key: String, in waiters: ReferenceWritableKeyPath<CoreBluetoothConnection, [String: CheckedContinuation<Void, any Error>]>,
         start: @escaping (CBCharacteristic) -> Void
     ) async throws {
-        let waiters = Unchecked(value: waiters)
+        // Both run on the connection's queue only, as CoreBluetooth's own objects do.
+        let waiters = Unchecked(value: waiters), start = Unchecked(value: start)
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 queue.async {
@@ -372,7 +373,7 @@ final class CoreBluetoothConnection: NSObject, BLEConnection, CBPeripheralDelega
                     }
                     self[keyPath: waiters.value].removeValue(forKey: key)?.resume(throwing: CancellationError())
                     self[keyPath: waiters.value][key] = continuation
-                    start(target)
+                    start.value(target)
                 }
             }
         } onCancel: {

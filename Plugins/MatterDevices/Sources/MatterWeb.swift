@@ -114,7 +114,7 @@ extension MatterDevicesPlugin {
         var answer: [String: JSONValue] = ["nodes": .array(list), "fabric": .bool(commissioner != nil)]
         if let commissioner {
             // The fabric's public identity only: its compressed fabric id names its nodes on the network.
-            answer["compressedFabricID"] = .string((await commissioner.compressedFabricID).map { String(format: "%02X", $0) }.joined())
+            answer["compressedFabricID"] = .string(commissioner.compressedFabricID.map { String(format: "%02X", $0) }.joined())
         }
         return .object(answer)
     }

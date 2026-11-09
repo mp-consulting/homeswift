@@ -304,7 +304,7 @@ extension HomeswiftCatalog {
         let token = home.notifications.value.channels.telegram.botToken
         guard let url = URL(string: "https://api.telegram.org/bot\(token)/\(method)\(query.isEmpty ? "" : "?" + query)") else { throw CatalogError("invalid Telegram request") }
         return try await home.http.send(HomeswiftNetwork.HTTPRequest(method: body == nil ? "GET" : "POST", url: url, headers: body == nil ? [] : [(name: "Content-Type", value: "application/json")],
-                                                    body: try body?.encoded(), timeout: timeout))
+                                                    body: body?.encoded(), timeout: timeout))
     }
 
     /// An error's text with every secret of the notification settings masked, as the channels' errors are.

@@ -676,7 +676,7 @@ final class RecordingStreamingDelegate: HomebridgeStreamingDelegate {
             returnPort: FfmpegReturnPort(addressVersion: .ipv4, port: 0)
         )
         #expect(await process.waitForHealthSocket())
-        FileManager.default.createFile(atPath: exit.path, contents: nil)
+        _ = FileManager.default.createFile(atPath: exit.path, contents: nil)
         #expect(await eventually(timeout: .seconds(15)) { process.isHealthSocketClosed })
     }
 
