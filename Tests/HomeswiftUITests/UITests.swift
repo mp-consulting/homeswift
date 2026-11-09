@@ -625,6 +625,29 @@ struct MetricsAPITests {
         #expect(try await browser.get("/api/metrics/energy/history?period=month&date=2026-13-01").status == 400)
     }
 
+    /// The Energy log and Worth knowing, worked out on the bridge: codes and values, which the page words.
+    @Test func servesTheEnergyStory() async throws {
+        // 2027-01-14 00:00 UTC: 250 Wh a night hour from the grid, 200 by day, 1.2 kWh at 18:00.
+        let day = Date(timeIntervalSince1970: 1_799_884_800)
+        let metrics = Metrics(directory: nil, now: { day.addingTimeInterval(32 * 3600) })
+        let grid = MeterID(accessory: "Meter:grid", meter: "grid")
+        metrics.meters.importHours((0..<32).map { hour in
+            MeterHourImport(start: day.addingTimeInterval(Double(hour) * 3600), consumption: hour == 18 ? 1200 : hour % 24 < 5 ? 250 : 200)
+        }, meter: grid)
+        metrics.meters.setSuggestedRole(.grid, meter: grid)
+        let environment = try UITestEnvironment(auth: .none, metrics: metrics)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+
+        let story = try #require(try await browser.get("/api/metrics/energy/story?from=2027-01-14T00:00:00Z&to=2027-01-15T08:00:00Z&timeZone=UTC").json)
+        let busiest = try #require(story["events"]?.arrayValue?.first { $0["code"] == "busiestGridHour" })
+        #expect(busiest == ["at": "2027-01-14T18:00:00Z", "kind": "power", "code": "busiestGridHour", "values": ["value": 1.2]])
+        #expect(story["worth"]?.arrayValue == [["code": "nightFloor", "values": ["watts": 250], "severity": "info"]])
+        #expect(try await browser.get("/api/metrics/energy/story?from=yesterday").status == 400)
+        #expect(try await browser.get("/api/metrics/energy/story?from=2027-01-15T00:00:00Z&to=2027-01-14T00:00:00Z").status == 400)
+    }
+
     @Test func answersNotFoundWithoutARecorder() async throws {
         let environment = try UITestEnvironment(auth: .none)
         let base = try await environment.start()

@@ -119,9 +119,11 @@ struct ACStatus {
 
     var isLightOn: Bool { JS.truthy(data["airState.lightingState.displayControl"]) }
 
-    var currentConsumption: Double {
-        let consumption = JS.number(data["airState.energy.onCurrent"])
-        return consumption.isNaN ? 0 : consumption / 100
+    /// The unit's power draw now, in watts (`airState.energy.onCurrent`); nil when the snapshot has none. A power
+    /// reading, not an energy counter: it falls back to zero when the unit stops.
+    var power: Double? {
+        let watts = JS.number(data["airState.energy.onCurrent"])
+        return watts.isNaN ? nil : max(watts, 0)
     }
 
     /// `AWHP` (air-to-water heat pump) or `RAC`.
@@ -207,8 +209,10 @@ class AirConditioner: BaseDevice {
         super.init(device: device, environment: environment)
         let name = device.name
 
+        // Its power as Current Consumption (watts), which the bridge follows as the unit's Meter. Never Total
+        // Consumption: the bridge reads that as a kWh counter, and onCurrent is a power that rises and falls.
         service = addService(.heaterCooler, name: name, optional: heaterCoolerCharacteristics() + [.swingMode],
-            extra: [Characteristic(.totalConsumption)])
+            extra: reportsPower ? [Characteristic(EveCharacteristic.currentConsumption)] : [])
         configureHeaterCooler()
 
         if config.flag("ac_air_quality"), status.airQuality != nil {
@@ -465,7 +469,7 @@ class AirConditioner: BaseDevice {
         updateAccessoryStateCharacteristics()
         updateAccessoryTemperatureCharacteristics()
         updateAccessoryFanStateCharacteristics()
-        updateAccessoryTotalConsumptionCharacteristic()
+        updateAccessoryCurrentConsumptionCharacteristic()
         updateAccessoryAirQualityCharacteristic()
         updateAccessoryTemperatureSensorCharacteristic()
         updateAccessoryHumiditySensorCharacteristic()
@@ -517,8 +521,12 @@ class AirConditioner: BaseDevice {
         service.set(.swingMode, status.isSwingOn ? 1 : 0)
     }
 
-    func updateAccessoryTotalConsumptionCharacteristic() {
-        service.set(.totalConsumption, status.currentConsumption)
+    /// Whether the unit reports its power: ThinQ2 units do; ThinQ1 ones have no reading (`AirConditionerV1`).
+    var reportsPower: Bool { true }
+
+    func updateAccessoryCurrentConsumptionCharacteristic() {
+        guard reportsPower, let watts = status.power else { return }
+        service.set(EveCharacteristic.currentConsumption, watts)
     }
 
     func updateAccessoryAirQualityCharacteristic() {

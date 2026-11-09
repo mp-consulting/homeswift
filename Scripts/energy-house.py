@@ -363,6 +363,12 @@ for row in range(n_rows):
                            [(0, 1, 2, 3)], cells, lambda co: ((co.x + pw / 2) * 0.8, (co.y + pl / 2) * 0.8))
         cell.location, cell.rotation_euler = center, (PITCH, 0, 0)
         PANELS.append(center)
+# The array's corners, from the ridge's left end round to the eave's left end: the page draws its modules there.
+def slope(x, along):
+    return Vector((x, -along * math.cos(PITCH), RIDGE + 0.12 - along * math.sin(PITCH))) + normal * 0.16
+array_left, array_right = start_x, start_x + n_cols * pw + (n_cols - 1) * gap
+array_top, array_bottom = 0.5, 0.5 + n_rows * pl + (n_rows - 1) * gap
+ARRAY = [slope(array_left, array_top), slope(array_right, array_top), slope(array_right, array_bottom), slope(array_left, array_bottom)]
 
 # Inside: on the open room's back wall, where it is seen head on, the meter (the distribution board), the inverter and the
 # battery with its gauge, the kitchen left of them; a living room before them, a bedroom and a study above. Lamps glow at night ----------------------------
@@ -408,8 +414,10 @@ BAT = Vector((4.45, WALL - 0.16, 0.27))
 if BATTERY:
     span("Battery", (BAT.x - 0.34, WALL - 0.34, 0.27), (BAT.x + 0.34, WALL, 1.6), white_box, bevel=0.03)
     span("Battery face", (BAT.x - 0.27, WALL - 0.345, 0.42), (BAT.x + 0.27, WALL - 0.34, 1.45), screen_mat)
-    for i in range(5):   # the charge gauge, four bars of five lit
-        span(f"Gauge {i}", (BAT.x - 0.18, WALL - 0.35, 0.55 + i * 0.17), (BAT.x + 0.18, WALL - 0.345, 0.67 + i * 0.17), gauge_on if i < 4 else gauge_off)
+    # The charge gauge's five cells, dark: the page lights them to the battery's level (the layout's `gauge`).
+    GAUGE = [((BAT.x - 0.18, WALL - 0.35, 0.55 + i * 0.17), (BAT.x + 0.18, WALL - 0.345, 0.67 + i * 0.17)) for i in range(5)]
+    for i, (low, high) in enumerate(GAUGE):
+        span(f"Gauge {i}", low, high, gauge_off)
 # Conduits: the panels' cable down through the upper floor, the battery's, the meter's out to the wire.
 SOLAR_RUN = [(x1 - 0.35, -1.6, RIDGE + 0.12 - 1.6 * math.tan(PITCH) - THICK), (x1 - 0.35, -1.6, FLOOR + 0.27),
              (x1 - 0.35, -1.6, FLOOR - 0.05), (x1 - 0.35, WALL - 0.05, FLOOR - 0.05), (INVERTER.x + 0.2, WALL - 0.05, FLOOR - 0.05),
@@ -573,7 +581,7 @@ bpy.context.object.hide_render = NIGHT   # at night the catcher catches mostly d
 # sky and the rooms lit warm ------------------------------------------------------------------------------------------------------
 
 sun_data = bpy.data.lights.new("Sun", "SUN")
-sun_data.energy = 0.7 if NIGHT else 1.7   # at night a full moon
+sun_data.energy = 0.3 if NIGHT else 1.7   # at night a low moon: the garden in shade, the rooms the brightest
 sun_data.color = (0.72, 0.8, 1.0) if NIGHT else (1.0, 0.83, 0.65)
 sun_data.angle = math.radians(3)
 sun = bpy.data.objects.new("Sun", sun_data)
@@ -583,7 +591,7 @@ sun.rotation_euler = (math.radians(50), 0, math.radians(28))
 for name, location, size, energy in (("Room light", (3.0, 0.0, FLOOR - 0.1), (3.6, 5.6), 520 if NIGHT else 420),
                                      ("Upper light", (3.0, 0.0, RIDGE - 1.6), (3.0, 2.4), 420 if NIGHT else 320),
                                      ("Left room light", (-2.4, 0.0, FLOOR - 0.1), (3.6, 5.6), 300 if NIGHT else 0),
-                                     ("Fill", (x1 + 16, -12.0, 9.0), (8.0, 8.0), 420 if NIGHT else 1800)):
+                                     ("Fill", (x1 + 16, -12.0, 9.0), (8.0, 8.0), 150 if NIGHT else 1800)):
     data = bpy.data.lights.new(name, "AREA")
     data.shape = "RECTANGLE"
     data.size, data.size_y = size
@@ -600,16 +608,18 @@ scene.world = world
 world.use_nodes = True
 background = world.node_tree.nodes["Background"]
 background.inputs["Color"].default_value = (0.36, 0.43, 0.68, 1) if NIGHT else (0.95, 0.93, 0.9, 1)
-background.inputs["Strength"].default_value = 0.36 if NIGHT else 0.45
+background.inputs["Strength"].default_value = 0.16 if NIGHT else 0.45
 
-# Camera: a lower view favouring the open rooms, with breathing room for the live callouts --------------------------------------------------------------
+# Camera: a lower view favouring the open rooms, the model centred in a 3:2 frame with room on every side --------------------------------------------------------------
 
 cam_data = bpy.data.cameras.new("Camera")
-cam_data.lens = 54
+cam_data.lens = 50
+# The model a little left of centre: on a wide card the panel covers the image's right edge.
+cam_data.shift_x = 0.035
 camera = bpy.data.objects.new("Camera", cam_data)
 collection.objects.link(camera)
 camera.location = (32.0, -17.0, 12.0)
-target = Vector((2.0, 0.0, 3.0))
+target = Vector((2.0, 0.0, 1.4))
 camera.rotation_euler = (target - camera.location).to_track_quat("-Z", "Y").to_euler()
 scene.camera = camera
 
@@ -629,7 +639,8 @@ except Exception:
     pass
 scene.render.film_transparent = True
 scene.render.resolution_x = WIDTH
-scene.render.resolution_y = int(WIDTH * 0.75)
+# 3:2, as the photographic houses: the model is wider than it is tall, and fills the frame without an empty sky.
+scene.render.resolution_y = int(WIDTH * 2 / 3)
 scene.view_settings.view_transform = "AgX"
 for look in ("AgX - Medium High Contrast", "Medium High Contrast"):
     try:
@@ -698,6 +709,16 @@ layout = {
         "grid": [screen(p) for p in GRID_RUN] + [screen(p) for p in reversed(sag)],
     },
 }
+layout["panels"] = {"corners": [screen(c) for c in ARRAY], "columns": n_cols, "rows": n_rows}
+if BATTERY:
+    # The battery's charge gauge: each cell's face as the image shows it, in the battery's perspective (bottom left,
+    # bottom right, top right, top left; the bottom cell first), and the point beside the battery where the page puts
+    # its figures (`side`: which side of it).
+    face = GAUGE[0][0][1]
+    layout["gauge"] = {"cells": [[screen((x, face, z)) for x, z in ((low[0], low[2]), (high[0], low[2]), (high[0], high[2]), (low[0], high[2]))]
+                                 for low, high in GAUGE],
+                       # Right of the battery, where the wall ends and the garden begins: left of it are the rooms' figures.
+                       "label": screen((BAT.x + 0.4, WALL - 0.34, (GAUGE[0][0][2] + GAUGE[-1][1][2]) / 2)), "side": "right"}
 with open(os.path.join(OUT, LAYOUT + ".json"), "w") as file:
     json.dump(layout, file, indent=2)
 print("layout", json.dumps(layout["anchors"]))

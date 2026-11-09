@@ -5,7 +5,7 @@ import Testing
 
 @testable import HomeswiftDaikinCloud
 
-/// `consumptionData` as the Energy section's hours, and the plugin importing them only when asked.
+/// `consumptionData` as each unit's Meter's hours.
 @Suite(.timeLimit(.minutes(1)))
 struct ConsumptionTests {
     static var calendar: Calendar {
@@ -53,24 +53,57 @@ struct ConsumptionTests {
         #expect(abs(DaikinConsumption.today(totals, now: Self.now, calendar: Self.calendar) - 3.2) < 1e-9)
     }
 
-    @Test func slotsAndDaysBecomeHoursOfTheHomesUse() {
+    @Test func slotsAndDaysBecomeHoursOfTheUnitsMeter() {
         let totals = DaikinConsumption.totals(of: Self.unit, now: Self.now, calendar: Self.calendar)
         let result = DaikinConsumption.hours(totals, now: Self.now, calendar: Self.calendar)
         let hours = DaikinConsumption.imports(result.hours)
-        let byStart = Dictionary(uniqueKeysWithValues: hours.map { ($0.start, $0.flows) })
+        let byStart: [Date: Double] = Dictionary(uniqueKeysWithValues: hours.compactMap { hour in hour.consumption.map { (hour.start, $0) } })
         #expect(result.detailed == [Self.date("2026-11-03T00:00:00Z"), Self.date("2026-11-04T00:00:00Z")])
         // Yesterday and today come from the two-hour slots, the days before from the week's.
-        #expect(byStart[Self.date("2026-11-03T05:00:00Z")]?.home == 500)
-        #expect(abs((byStart[Self.date("2026-11-04T01:00:00Z")]?.home ?? 0) - 350) < 1e-9)
-        #expect(byStart[Self.date("2026-11-04T11:00:00Z")]?.home == 250)
+        #expect(byStart[Self.date("2026-11-03T05:00:00Z")] == 500)
+        #expect(abs((byStart[Self.date("2026-11-04T01:00:00Z")] ?? 0) - 350) < 1e-9)
+        #expect(byStart[Self.date("2026-11-04T11:00:00Z")] == 250)
         #expect(byStart[Self.date("2026-11-04T12:00:00Z")] == nil, "a slot not over is not imported")
-        #expect(abs((byStart[Self.date("2026-11-02T07:00:00Z")]?.home ?? 0) - 10000.0 / 24) < 1e-9)
+        #expect(abs((byStart[Self.date("2026-11-02T07:00:00Z")] ?? 0) - 10000.0 / 24) < 1e-9)
         #expect(byStart[Self.date("2026-10-25T23:00:00Z")] == nil)
         // Eight days of 24 hours from the weeks, yesterday's 24 and today's 12 from the slots.
         #expect(hours.count == 8 * 24 + 24 + 12)
-        #expect(hours.allSatisfy { $0.flows.solar == nil && $0.flows.gridImport == nil })
-        let total = hours.reduce(0) { $0 + ($1.flows.home ?? 0) }
+        #expect(hours.allSatisfy { $0.returned == nil })
+        let total = hours.reduce(0) { $0 + ($1.consumption ?? 0) }
         #expect(abs(total - (80_000 + 12_000 + 3_200)) < 1e-6)
+    }
+
+    /// The 24 months: last year's January to December, then this year's. October 2026 is 62 kWh, of which the two weeks
+    /// have 26–31 October (60 kWh): its 25 days before them share the other 2; September 2025 is 30 kWh over 30 days; a
+    /// month without use, and the months after this one, add nothing.
+    @Test func theMonthsFillTheTwoYearsBeforeTheTwoWeeks() {
+        var object = Self.unit.objectValue!
+        var months: [JSONValue] = Array(repeating: .number(0), count: 24)
+        months[8] = 30      // September 2025
+        months[21] = 62     // October 2026
+        months[22] = 45     // November 2026: the two weeks have it
+        months[23] = 99     // December 2026: not there yet
+        var points = object["managementPoints"]!.arrayValue!
+        var point = points[0].objectValue!
+        var electrical = point["consumptionData"]!["value"]!["electrical"]!.objectValue!
+        var heating = electrical["heating"]!.objectValue!
+        heating["m"] = .array(months)
+        electrical["heating"] = .object(heating)
+        point["consumptionData"] = ["value": ["electrical": .object(electrical)]]
+        points[0] = .object(point)
+        object["managementPoints"] = .array(points)
+        let unit = JSONValue.object(object)
+
+        let totals = DaikinConsumption.totals(of: unit, now: Self.now, calendar: Self.calendar)
+        #expect(totals.months[Self.date("2025-09-01T00:00:00Z")] == 30)
+        #expect(totals.months[Self.date("2026-12-01T00:00:00Z")] == nil, "a month to come")
+        let hours = DaikinConsumption.monthHours(totals, now: Self.now, calendar: Self.calendar)
+        #expect(abs((hours[Self.date("2025-09-14T10:00:00Z")] ?? 0) - 1000.0 / 24) < 1e-9, "a kWh a day")
+        #expect(abs((hours[Self.date("2026-10-25T23:00:00Z")] ?? 0) - 2000.0 / 25 / 24) < 1e-9)
+        #expect(hours[Self.date("2026-10-26T00:00:00Z")] == nil, "the two weeks' own")
+        #expect(hours[Self.date("2025-08-10T00:00:00Z")] == nil, "a month without use")
+        #expect(hours.keys.count == (30 + 25) * 24)
+        #expect(abs(hours.values.reduce(0, +) - 32_000) < 1e-6)
     }
 
     /// Monday's slots went into the Energy section on Tuesday: on Wednesday, its week's flat figure leaves them be.
@@ -114,28 +147,52 @@ struct ConsumptionTests {
         #expect(DaikinConsumption.totals(of: .object(other), now: Self.now, calendar: Self.calendar) == DaikinConsumption.Totals())
     }
 
-    /// The plugin records each unit's day in the history, and imports the hours into the Energy section only with
-    /// `energyHistory`.
-    @Test(arguments: [false, true]) func theEnergySectionGetsTheHoursWhenAsked(_ enabled: Bool) async throws {
+    /// The plugin records each unit's day in the history and puts its hours on the unit's own Meter
+    /// (`DaikinCloud:<Device Id>`, `consumption`), never as the home's use.
+    @Test func eachUnitsHoursGoOnItsOwnMeter() async throws {
         let environment = DaikinEnvironment(devices: [Self.unit])
         environment.tokens = (.developerPortal, DaikinEnvironment.validToken)
-        let host = try environment.host(developerBlock.merging(["energyHistory": enabled]) { $1 })
+        let host = try environment.host(developerBlock)
+        let received = NIOLockedValueBox<[(MeterID, [MeterHourImport])]>([])
         let imports = NIOLockedValueBox<[[EnergyHourImport]]>([])
         let values = NIOLockedValueBox<[String]>([])
         let observations = [
+            host.observeMeterReadings { reading in
+                guard case let .history(id, hours, _) = reading else { return }
+                received.withLockedValue { $0.append((id, hours)) }
+            },
             host.observeEnergyImports { _, hours, _ in imports.withLockedValue { $0.append(hours) } },
             host.observeValues { series, _ in values.withLockedValue { $0.append(series) } },
         ]
+        defer { observations.forEach { $0.cancel() } }
         try await host.start()
         await environment.plugin?.settle()
         #expect(await eventually { values.withLockedValue { $0 }.contains("plugin:DaikinCloud:unit-1:energyToday") })
-        if enabled {
-            #expect(await eventually { !imports.withLockedValue { $0 }.isEmpty })
-            #expect(imports.withLockedValue { $0 }.first?.allSatisfy { $0.flows.home != nil } == true)
-        } else {
-            #expect(imports.withLockedValue { $0 }.isEmpty)
-        }
-        _ = observations
+        #expect(await eventually { !received.withLockedValue { $0 }.isEmpty })
+        let (id, hours) = try #require(received.withLockedValue { $0 }.first)
+        #expect(id == MeterID(accessory: "DaikinCloud:unit-1", meter: "consumption"))
+        #expect(hours.allSatisfy { $0.consumption != nil && $0.returned == nil })
+        #expect(imports.withLockedValue { $0 }.allSatisfy { $0.isEmpty }, "nothing as the home's use")
+        await host.stop()
+    }
+
+    /// A bridge that imported the units' use as the home's (the former `energyHistory`) has it dropped once.
+    @Test func theHomesUseImportedBeforeIsDroppedOnce() async throws {
+        let environment = DaikinEnvironment(devices: [Self.unit])
+        environment.tokens = (.developerPortal, DaikinEnvironment.validToken)
+        let first = try await environment.start(developerBlock)
+        await first.stop()
+        let legacy = environment.storage.appendingPathComponent(DaikinCloudPlugin.legacyEnergyDaysFileName)
+        try JSONEncoder().encode([Self.now]).write(to: legacy)
+
+        let host = try environment.host(developerBlock)
+        let forgotten = NIOLockedValueBox(0)
+        let observation = host.observeEnergyImports { _, _, forget in if forget { forgotten.withLockedValue { $0 += 1 } } }
+        defer { observation.cancel() }
+        try await host.start()
+        await environment.plugin?.settle()
+        #expect(await eventually { forgotten.withLockedValue { $0 } == 1 })
+        #expect(await eventually { !FileManager.default.fileExists(atPath: legacy.path) })
         await host.stop()
     }
 }

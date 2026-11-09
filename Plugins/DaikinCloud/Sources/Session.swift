@@ -269,44 +269,72 @@ actor DaikinSession {
         }
         devices = updated
         lastFetched = Date()
-        recordConsumption(updated)
+        await recordConsumption(updated)
         return updated
     }
 
-    /// The hours last imported, so an unchanged read imports nothing again.
-    private var importedConsumption: [EnergyHourImport] = []
-    /// The days whose two-hour slots went into the Energy section (`daikin-energy-days.json`, the last 15 days): once
-    /// they leave the cloud's slots, their week's flat figure does not replace them.
-    private lazy var detailedDays: Set<Date> = Set(detailedDaysFile.load() ?? [])
-    private var detailedDaysFile: JSONFile<[Date]> { context.jsonFile(DaikinCloudPlugin.energyDaysFileName) }
+    /// Each unit's hours last imported, by Device Id (its months' by `<Device Id>#months`), so an unchanged read imports
+    /// nothing again: the months, two years of hours, change only while the two weeks start in one.
+    private var importedConsumption: [String: [MeterHourImport]] = [:]
+    /// The units' history, through the runtime's import (`EnergyHistoryImport`): the hours come with each poll, so each
+    /// poll that brings new ones is a pass. Each unit's days whose two-hour slots went onto its Meter are its note
+    /// `detailedDays` (the last 15 days, by Device Id): once they leave the cloud's slots, their week's flat figure does
+    /// not replace them.
+    private lazy var history = context.energyHistory("daikin-cloud")
+    private var legacyChecked = false
 
-    /// Each unit's `consumptionData`: today's kWh in the Status page's history (`<Device Id>:energyToday`), and, with
-    /// `energyHistory`, every unit's hours added up as the home's use in the Energy section (one import for all of them:
-    /// an import replaces the plugin's figures of its hours). Each unit's slots and days are on its own wall clock.
-    private func recordConsumption(_ devices: [DaikinCloudDevice], now: Date = Date()) {
-        var hours: [Date: Double] = [:]
-        var covered: Set<Date> = []
+    /// Each unit's `consumptionData`: today's kWh in the Status page's history (`<Device Id>:energyToday`), and its hours
+    /// on a Meter of its own (`DaikinCloud:<Device Id>`, `consumption`), so the unit is one of the devices measured on
+    /// their own on the Energy page. A unit's use is never the home's: a meter at the grid or the home already counts it.
+    /// Each unit's slots and days are on its own wall clock.
+    func recordConsumption(_ devices: [DaikinCloudDevice], now: Date = Date()) async {
+        // Before, with `energyHistory`, every unit's use went into the Energy section as the home's: dropped once, or it
+        // would count beside the Meters'.
+        if !legacyChecked {
+            legacyChecked = true
+            let legacy = context.jsonFile(DaikinCloudPlugin.legacyEnergyDaysFileName, as: [Date].self)
+            if legacy.load() != nil {
+                context.forgetImportedEnergy()
+                legacy.remove()
+                logger.info("[Platform] The units' energy use is on each unit's Meter now: the home's use imported before is dropped")
+            }
+        }
+        let kept = Self.detailedDays(history.state.notes["detailedDays"])
+        var days = kept
+        var parts: [(id: String, meter: PluginMeter, hours: [MeterHourImport])] = []
         for device in devices where !settings.isExcluded(device.id) {
             let calendar = DaikinConsumption.calendar(of: device.raw)
             let totals = DaikinConsumption.totals(of: device.raw, now: now, calendar: calendar)
             guard !totals.slots.isEmpty || !totals.days.isEmpty else { continue }
             context.recordValue(DaikinConsumption.today(totals, now: now, calendar: calendar), series: "\(device.id):energyToday")
-            guard settings.energyHistory else { continue }
-            let unit = DaikinConsumption.hours(totals, now: now, calendar: calendar, detailed: detailedDays)
-            hours.merge(unit.hours, uniquingKeysWith: +)
-            covered.formUnion(unit.detailed)
+            let unit = DaikinConsumption.hours(totals, now: now, calendar: calendar, detailed: days[device.id] ?? [])
+            days[device.id] = (days[device.id] ?? []).union(unit.detailed)
+            let meter = context.meter(DaikinCloudPlugin.meterKey, deviceID: device.id, device: DaikinAccessory.displayName(device))
+            let hours = DaikinConsumption.imports(unit.hours)
+            if !hours.isEmpty, hours != importedConsumption[device.id] { parts.append((device.id, meter, hours)) }
+            // Before the two weeks: the cloud's months, up to two years back.
+            let months = DaikinConsumption.imports(DaikinConsumption.monthHours(totals, now: now, calendar: calendar))
+            if !months.isEmpty, months != importedConsumption["\(device.id)#months"] { parts.append(("\(device.id)#months", meter, months)) }
         }
-        guard settings.energyHistory else { return }
-        let imports = DaikinConsumption.imports(hours)
-        guard !imports.isEmpty, imports != importedConsumption else { return }
-        importedConsumption = imports
-        context.importEnergy(imports)
-        context.reportEnergyImport(EnergyImportProgress(state: .done, done: 1, total: 1, from: imports.first?.start, through: imports.last.map { $0.start.addingTimeInterval(3600) }))
-        let kept = detailedDays.union(covered).filter { now.timeIntervalSince($0) < 15 * 86_400 }
-        if kept != detailedDays {
-            detailedDays = kept
-            try? detailedDaysFile.save(kept.sorted())
+        // The last 15 days, of every unit: a removed or Excluded one's go too.
+        days = days.mapValues { $0.filter { now.timeIntervalSince($0) < 15 * 86_400 } }.filter { !$0.value.isEmpty }
+        guard !parts.isEmpty || days != kept else { return }
+        let note = Self.note(days), found = parts
+        // Remembered once on the Meters only: a pass that did not run (another under way) leaves them for the next poll.
+        let passed = await history.pass(now: now) { pass in
+            for part in found { pass.add(part.meter, part.hours) }
+            pass.note("detailedDays", note)
         }
+        if passed { for part in found { importedConsumption[part.id] = part.hours } }
+    }
+
+    /// The note `detailedDays`: by Device Id, its days as Unix seconds.
+    static func detailedDays(_ note: JSONValue?) -> [String: Set<Date>] {
+        (note?.objectValue ?? [:]).mapValues { Set(($0.arrayValue ?? []).compactMap(\.doubleValue).map(Date.init(timeIntervalSince1970:))) }
+    }
+
+    static func note(_ days: [String: Set<Date>]) -> JSONValue {
+        .object(days.mapValues { .array($0.sorted().map { .number($0.timeIntervalSince1970) }) })
     }
 
     private func createAccessories(_ devices: [DaikinCloudDevice]) {

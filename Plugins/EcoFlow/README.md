@@ -23,7 +23,7 @@ on a real device: the plugin's page marks them **Untested**.
 
 | Device | HomeKit | The plugin's page |
 |---|---|---|
-| Each device the route reads | A Battery service on its own accessory, named after the device: its level, charging state, low below 10 % | Its power, laid out by kind (below), with the last hour of each reading and its source (MQTT, REST or App) |
+| Each device the route reads | A Battery service on its own accessory, named after the device: its level, charging state (once it has held for a minute), low below 10 % | Its power, laid out by kind (below), with the last hour of each reading and its source (MQTT, REST or App) |
 | Each output it switches ([Writes](#writes)) | An Outlet beside the Battery, named after the port (AC1, AC2, AC, DC 12 V, USB) | Its state and a button that switches it |
 | Its charge and discharge limits | Accessory Settings of the device (`chargeLimit`, `dischargeLimit`) | The device's limits |
 | A RIVER 3 Plus's light ([Writes](#writes)) | A Lightbulb "Light" (Dim, Bright) and a Switch "SOS" beside the Battery | Its mode and a choice of Off, Dim, Bright and SOS |
@@ -32,16 +32,20 @@ HomeKit has no characteristic for watts, so the power is on the plugin's page on
 on a wide screen; a card's grip drags it to another place (or moves it with the arrow keys), and the plugin keeps the
 order for every viewer. The page refreshes every few
 seconds and records each reading for the Status page's graphs. A STREAM's solar, home, grid and battery power and every device's
-battery level also feed the Status page's **Energy** section, added up across STREAM units: with an Ultra and an AC
-Pro, the Ultra reports the whole system's flows and the AC Pro 0 for each.
+battery level also feed the Status page's **Energy** section, added up across STREAM units: one unit of a system reports the whole system's flows and the
+others 0 for each (with an Ultra and an AC Pro, the AC Pro on the author's system).
 
 With the EcoFlow app's email and password, the plugin also imports the cloud's energy history into the Status page's
 month and year views (**Import the energy history**, `importHistory`, on by default): each hour's solar production and
-home use since the system was set up, from the app's Space dashboard (home use from the system's smart meter when it has
-one), and the STREAM system's battery charge and discharge and grid import and export, from its Battery and Grid pages,
-for the home of one STREAM: one the block's `devices` names, else the one earlier imports used, else the first by serial
-number of those that report, else the app's device list's first; never an Excluded one. The one chosen is kept in
-`energy-history.json`: when it changes, the old one's imported hours are dropped and the whole history is read onto the
+home use since the system was set up, from the app's Space dashboard, and the STREAM system's battery charge and
+discharge and grid import and export, from its Battery and Grid pages. Where the hour has the grid and the battery, the
+home's use is the balance of the flows (solar + grid - battery), as the live readings have it: the dashboard's home chart
+is the smart meter's grid import on a system with one. The history goes onto the meters of one STREAM: the unit whose
+live readings carry the system's flows, which records them live (an hour the bridge recorded keeps its own figures, so
+none counts twice), else the one earlier imports used, else one the block's `devices` names, else the first by serial
+number of those that report, else the app's device list's first; never an Excluded one. The one chosen is kept by the
+runtime's energy history import (`energy-history-ecoflow-cloud.json`, which took over the former `energy-history.json`):
+when it changes, the old one's imported hours are dropped and the whole history is read onto the
 new one's meters. With
 all four, the Status page splits each day's home use by source. Each hour goes to the meter of its Energy Role on that
 STREAM — solar, home, grid, battery, the same four the device reports live — so the Status page's **Consumption by

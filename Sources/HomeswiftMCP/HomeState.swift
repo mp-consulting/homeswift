@@ -158,4 +158,9 @@ struct DispatchState: Sendable {
     var digestDay: String?
     /// The last minute the automations ran for, so a late wake-up never runs one twice.
     var lastTick: Date?
+    /// The Energy story's last look for notifications (`checkEnergyStory`), what stood out then (nil before the first
+    /// look), and the day each one was last sent.
+    var energyCheckedAt: Date?
+    var energySeen: Set<String>?
+    var energyNotified: [String: String] = [:]
 }
