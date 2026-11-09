@@ -76,15 +76,25 @@ struct EcoFlowDevice: Sendable, Equatable {
     }
 
     /// The role of a reading in the Status page's Energy section: a home system's solar, home, grid and battery power.
-    /// The units of a system add up: in a STREAM Ultra with a STREAM AC Pro, the Ultra reports the whole system's flows
-    /// (they balance: home = solar + grid - battery) and the AC Pro reports 0 for each, so a figure counted once (an
-    /// average) would halve them. A RIVER's or a RAPID's flows have no role: they are a station's ports, not the home's.
+    /// The units of a system add up: in a system of several STREAM units, one of them reports the whole system's flows
+    /// (they balance: home = solar + grid - battery) and the others report 0 for each, so a figure counted once (an
+    /// average) would divide them. Which unit carries them is the system's, not the model's: on the author's STREAM
+    /// Ultra with a STREAM AC Pro it is the AC Pro, on the same keys (`powGetSysLoad`…) the Ultra reads 0 on
+    /// (`carriesSystemFlows`). A RIVER's or a RAPID's flows have no role: they are a station's ports, not the home's.
     func energyTag(_ key: String) -> EnergyTag? {
         // The flows' keys are the roles' names; the level is no flow.
         guard let role = EnergyRole(rawValue: key), role.isPower else { return nil }
         // A STREAM always has the four; a home system only those its model reports.
         guard kind == .stream || (kind == .home && series.contains { $0.key == key }) else { return nil }
         return EnergyTag(role: role, device: name)
+    }
+
+    /// Whether this STREAM unit's readings carry its system's flows: one of solar, home, grid and battery is at least a
+    /// watt. The system's other units read 0 for each; a home always draws something, so the unit that carries them
+    /// reads more than 0 at night too.
+    var carriesSystemFlows: Bool {
+        let power = state.power
+        return kind == .stream && [power.solar, power.home, power.grid, power.battery].contains { $0.isFinite && abs($0) >= 1 }
     }
 }
 

@@ -46,7 +46,7 @@ final class FakeCloud: HTTPSending, Sendable {
             let code = json["code"] as? String
             if code == EcoFlowHistory.batteryCode || code == EcoFlowHistory.gridCode {
                 let refused = refusedFrom.withLockedValue { $0 }.map { begin >= $0 } ?? false
-                guard twoWay, !refused, (json["sn"] as? String)?.hasPrefix("BK1") == true, params["sn"] as? String == json["sn"] as? String else {
+                guard twoWay, !refused, (json["sn"] as? String)?.hasPrefix("BK") == true, params["sn"] as? String == json["sn"] as? String else {
                     body = #"{"code":"1","message":"query fail"}"#
                     break
                 }
@@ -107,9 +107,10 @@ struct EcoFlowHistoryTests {
         let hours = try await history.hours(serial: "BK11", since: nil, now: local("2026-10-02 12:30:00"))
         #expect(hours.count == 24 + 24 + 12)
         #expect(hours.first?.start == local("2026-09-30 00:00:00"))
-        #expect(hours.first?.flows == EnergyFlows(solar: 100, home: 400, gridImport: 700, gridExport: 5, batteryCharge: 150, batteryDischarge: 40))
+        // The home's use from the balance of the flows (100 + 700 - 5 + 40 - 150), not the Space chart's 400.
+        #expect(hours.first?.flows == EnergyFlows(solar: 100, home: 685, gridImport: 700, gridExport: 5, batteryCharge: 150, batteryDischarge: 40))
         #expect(hours.last?.start == local("2026-10-02 11:00:00"))
-        #expect(hours.last?.flows == EnergyFlows(solar: 300, home: 600, gridImport: 700, gridExport: 5, batteryCharge: 150, batteryDischarge: 40))
+        #expect(hours.last?.flows == EnergyFlows(solar: 300, home: 885, gridImport: 700, gridExport: 5, batteryCharge: 150, batteryDischarge: 40))
 
         let requests = cloud.requests.withLockedValue { $0 }
         // One sign-in without the app's headers, then the space, the system and per month the solar, home, battery and
@@ -251,7 +252,7 @@ struct EcoFlowHistoryTests {
         #expect(forgotten.withLockedValue { $0 }.count == 1)
         #expect(forgotten.withLockedValue { $0 }.first?.hasPrefix("EcoFlow") == true)
         // Read from the start, not from two days before the old import ended.
-        #expect(file.load()?.version == EcoFlowPlugin.historyVersion)
+        #expect((await plugin.historyStatus).version == EcoFlowPlugin.historyVersion)
         #expect(host.energyImportProgress.first?.from == local("2026-09-30 00:00:00"))
 
         // The next import is a top-up again: nothing more is dropped.
@@ -327,7 +328,7 @@ struct EcoFlowHistoryTests {
         let file = context.jsonFile(EcoFlowPlugin.historyFile, as: EcoFlowPlugin.HistoryState.self)
         let cloud = FakeCloud()
         #expect(await plugin.importHistory(EcoFlowHistory(email: "me@example.test", password: "secret", transport: cloud), serial: "BK11", now: local("2026-10-02 12:30:00")))
-        #expect(file.load()?.serial == "BK11")
+        #expect((await plugin.historyStatus).serial == "BK11")
         #expect(await plugin.historySerial(remembered: "BK11") == "BK11")
         #expect(await plugin.historySerial(remembered: nil) == nil, "nothing reported nor configured: the app's list chooses")
 
@@ -338,8 +339,65 @@ struct EcoFlowHistoryTests {
         // From the start onto the new one: September's 24 hours too, not a top-up's last two days.
         #expect(after.contains("EcoFlow:BK12#home 24"))
         #expect(!after.contains { $0.hasPrefix("EcoFlow:BK11#") && !$0.hasPrefix("forget") })
-        #expect(file.load()?.serial == "BK12")
-        #expect(file.load()?.importedThrough == local("2026-10-02 13:30:00"))
+        #expect((await plugin.historyStatus).serial == "BK12")
+        #expect((await plugin.historyStatus).importedThrough == local("2026-10-02 13:30:00"))
+    }
+
+    /// The history goes onto the Meters of the STREAM unit whose live readings carry the system's flows, which record
+    /// them live: on the author's Ultra and AC Pro, the AC Pro. A history kept on the Ultra (whose flows read 0) is
+    /// dropped from its Meters and read again onto the AC Pro's, once: otherwise each hour counts on both.
+    @Test func theHistoryGoesOntoTheUnitThatCarriesTheSystemsFlows() async throws {
+        let environment = TestEnvironment()
+        var ultra = EcoFlowDevice(id: "BK11-ULTRA", name: "STREAM Ultra", online: true, model: EcoFlowModel.model(serial: "BK11-ULTRA"))
+        ultra.state = EcoFlowState(soc: 26, power: EcoFlowState.Power())
+        var acPro = EcoFlowDevice(id: "BK31-ACPRO", name: "STREAM AC Pro", online: true, model: EcoFlowModel.model(serial: "BK31-ACPRO"))
+        acPro.state = EcoFlowState(soc: 40, power: EcoFlowState.Power(solar: 409, home: 1296, grid: 970, battery: 83))
+        await environment.api.add(ultra)
+        await environment.api.add(acPro)
+        let host = try await environment.start(settings: ["devices": [["id": "BK11-ULTRA"], ["id": "BK31-ACPRO"]]])
+        defer { Task { await host.stop() } }
+        let readings = NIOLockedValueBox<[String]>([])
+        let observation = host.observeMeterReadings { reading in
+            switch reading {
+            case let .history(id, hours, _): readings.withLockedValue { $0.append("\(id.accessory)#\(id.meter) \(hours.count)") }
+            case let .forgetHistory(id): readings.withLockedValue { $0.append("forget \(id.accessory)#\(id.meter)") }
+            default: break
+            }
+        }
+        defer { observation.cancel() }
+        let plugin = try #require(environment.plugin)
+        let context = try #require(host.context(platform: EcoFlowPlugin.platform, name: EcoFlowPlugin.name))
+        let file = context.jsonFile(EcoFlowPlugin.historyFile, as: EcoFlowPlugin.HistoryState.self)
+        // What 0.26.0 kept: the history on the Ultra's Meters, the one the configuration names first.
+        try file.save(EcoFlowPlugin.HistoryState(importedThrough: local("2026-10-02 12:30:00"), from: local("2026-09-30 00:00:00"),
+                                                 version: 2, serial: "BK11-ULTRA"))
+        await plugin.refresh()
+        let serial = await plugin.historySerial(remembered: "BK11-ULTRA")
+        #expect(serial == "BK31-ACPRO", "the unit that carries the flows, whatever was remembered or named")
+
+        #expect(await plugin.importHistory(EcoFlowHistory(email: "me@example.test", password: "secret", transport: FakeCloud()),
+                                           serial: serial, now: local("2026-10-02 13:30:00")))
+        let after = readings.withLockedValue { $0 }
+        #expect(Set(after.filter { $0.hasPrefix("forget") }) == Set(["solar", "home", "grid", "battery"].map { "forget EcoFlow:BK11-ULTRA#\($0)" }))
+        #expect(!after.contains { $0.hasPrefix("EcoFlow:BK11-ULTRA#") }, "nothing imported onto the Ultra")
+        // The whole history, from September, onto the AC Pro's Meters.
+        #expect(after.contains("EcoFlow:BK31-ACPRO#home 24"))
+        #expect((await plugin.historyStatus).serial == "BK31-ACPRO")
+        #expect((await plugin.historyStatus).version == EcoFlowPlugin.historyVersion)
+
+        // Kept while it carries them; a moment when no unit reports keeps it too.
+        #expect(await plugin.historySerial(remembered: "BK31-ACPRO") == "BK31-ACPRO")
+        await environment.api.update(deviceID: "BK31-ACPRO") { $0.power = EcoFlowState.Power() }
+        await plugin.refresh()
+        #expect(await plugin.historySerial(remembered: "BK31-ACPRO") == "BK31-ACPRO")
+    }
+
+    @Test func aBalancedHourKeepsTheChartsHomeWithoutTheGridAndBattery() {
+        #expect(EcoFlowHistory.balanced(EnergyFlows(solar: 411, home: 973, gridImport: 962, gridExport: 0, batteryCharge: 76, batteryDischarge: 31))
+                == EnergyFlows(solar: 411, home: 1328, gridImport: 962, gridExport: 0, batteryCharge: 76, batteryDischarge: 31))
+        #expect(EcoFlowHistory.balanced(EnergyFlows(solar: 411, home: 973)) == EnergyFlows(solar: 411, home: 973))
+        // Never below zero: the charts' rounding.
+        #expect(EcoFlowHistory.balanced(EnergyFlows(solar: 0, gridImport: 0, batteryCharge: 3)).home == 0)
     }
 
     /// An Excluded STREAM has no Meters made for its history, chosen neither by the plugin nor from the app's list.
@@ -376,7 +434,7 @@ struct EcoFlowHistoryTests {
         var history = EcoFlowHistory(email: "me@example.test", password: "secret", transport: cloud)
         history.retryDelays = []
         #expect(await plugin.importHistory(history, serial: "BK11", now: local("2026-10-02 13:30:00")) == false)
-        let stopped = try #require(file.load())
+        let stopped = await plugin.historyStatus
         #expect(stopped.importedThrough == nil, "not done")
         #expect(stopped.resumeFrom == local("2026-10-01 00:00:00"))
         #expect(stopped.twoWay == true && stopped.refusals == 1, "September answered")
@@ -393,7 +451,7 @@ struct EcoFlowHistoryTests {
         }
         #expect(!begins.isEmpty && begins.allSatisfy { $0.hasPrefix("2026-10") })
         #expect(forgotten.withLockedValue { $0 } == 1)
-        let done = try #require(file.load())
+        let done = await plugin.historyStatus
         #expect(done.importedThrough == local("2026-10-02 14:30:00") && done.resumeFrom == nil)
         #expect(done.twoWay == true && done.refusals == nil)
         #expect(done.from == local("2026-09-30 00:00:00"))
@@ -414,7 +472,7 @@ struct EcoFlowHistoryTests {
             #expect(await plugin.importHistory(history, serial: "BK11", now: local("2026-10-02 13:30:00")) == false)
         }
         #expect(await plugin.importHistory(history, serial: "BK11", now: local("2026-10-02 13:30:00")))
-        #expect(file.load()?.twoWay == false)
+        #expect((await plugin.historyStatus).twoWay == false)
         #expect(await plugin.importHistory(history, serial: "BK11", now: local("2026-10-02 14:30:00")))
     }
 

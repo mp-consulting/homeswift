@@ -135,8 +135,8 @@ struct EcoFlowTests {
         #expect(configuration.accessKey == nil)
     }
 
-    /// A STREAM's four flows carry their roles and add up across units (an AC Pro beside an Ultra reports 0 for each,
-    /// the Ultra the system's: averaging them would halve the home's use). A station's ports have no role.
+    /// A STREAM's four flows carry their roles and add up across units (one unit of a system reports its flows, the
+    /// others 0 for each: averaging them would divide the home's use). A station's ports have no role.
     @Test func streamReadingsCarryEnergyRoles() {
         let stream = EcoFlowDevice(id: "BK11-TEST", name: "STREAM Ultra", online: true, model: EcoFlowModel.model(serial: "BK11-TEST"))
         #expect(stream.energyTag("solar") == EnergyTag(role: .solar, device: "STREAM Ultra"))
@@ -214,6 +214,53 @@ struct EcoFlowTests {
         #expect(batteryService[.statusLowBattery] != nil)
         #expect(batteryService[.batteryLevel] != nil)
         #expect(batteryService[.chargingState] != nil)
+        await host.stop()
+    }
+
+    /// A charging state reaches HomeKit once the device has reported it for `chargingSettle`: a RIVER 3 Plus at 99 %
+    /// on AC pass-through reads its input a few watts above its output for a few seconds every few minutes (its
+    /// battery's flow is the one less the other), which flipped Charging State to 1 and back three seconds later.
+    @Test func aChargingStateReachesHomeKitOnceItHolds() async throws {
+        let plus = "R631-TEST-0001"
+        var station = EcoFlowDevice(id: plus, name: "RIVER 3 Plus", online: true, model: EcoFlowModel.model(serial: plus))
+        station.state = EcoFlowState(soc: 99, power: EcoFlowState.Power(battery: -3, input: 189, output: 192))
+        await environment.api.add(station)
+        let clock = NIOLockedValueBox(ContinuousClock.now)
+        let host = try await environment.start(configure: { dependencies in
+            dependencies.now = { clock.withLockedValue { $0 } }
+            dependencies.chargingSettle = .seconds(60)
+        })
+        let id = EcoFlowPlugin.accessoryID(deviceID: plus)
+        #expect(await eventually { host.mainBridge.server.accessories.contains { $0.id == id } })
+        let chargingState = try #require(host.mainBridge.server.accessories.first { $0.id == id }?.service(.battery)?[.chargingState])
+        #expect(chargingState.value.intValue == 0)
+        let plugin = try #require(environment.plugin)
+        func report(input: Double, after seconds: Int) async {
+            clock.withLockedValue { $0 += .seconds(seconds) }
+            await environment.api.update(deviceID: plus) { state in
+                state = EcoFlowState(soc: 99, power: EcoFlowState.Power(battery: input - 192, input: input, output: 192))
+            }
+            await plugin.refresh()
+        }
+
+        // Three seconds of input above output, every few minutes: HomeKit hears nothing.
+        for _ in 0..<3 {
+            await report(input: 195, after: 200)
+            #expect(chargingState.value.intValue == 0)
+            await report(input: 189, after: 3)
+            #expect(chargingState.value.intValue == 0)
+        }
+        // Charging for a minute: it is.
+        await report(input: 400, after: 200)
+        await report(input: 400, after: 30)
+        #expect(chargingState.value.intValue == 0)
+        await report(input: 400, after: 30)
+        #expect(chargingState.value.intValue == 1)
+        // And the way back holds as long.
+        await report(input: 189, after: 5)
+        #expect(chargingState.value.intValue == 1)
+        await report(input: 189, after: 60)
+        #expect(chargingState.value.intValue == 0)
         await host.stop()
     }
 
