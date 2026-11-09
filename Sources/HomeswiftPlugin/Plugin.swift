@@ -204,6 +204,20 @@ public protocol HomeswiftPlugin: Sendable {
     /// writers still check the schema's own declaration, so the plugin checks what it reads. Defaults to nil: the schema's.
     func accessorySettingChoices(_ key: String, deviceID: String) async -> [SetupOption]?
 
+    /// Power On (GLOSSARY.md, `PowerOn.swift`): what one of its lights' device can do when its power comes back; nil when
+    /// it keeps nothing of the kind. `natural` among them when it can come back as it was in a white the bridge gives it
+    /// (`setPowerOn` with `.natural` and the white). Asked of the running instance; answer from what it knows. Defaults
+    /// to nil.
+    func powerOnSupport(of accessoryID: String) async -> PowerOnSupport?
+
+    /// What one of its lights' device does now when its power comes back, read from it; nil when it cannot tell. A white
+    /// the bridge gave for Natural Light reads as `custom` or as the device has it. Defaults to nil.
+    func powerOn(of accessoryID: String) async throws -> PowerOn?
+
+    /// Has one of its lights' device do `value` when its power comes back: one of `powerOnSupport`'s behaviours.
+    /// `.natural` comes with the white for now, within the light's range. Defaults to throwing.
+    func setPowerOn(_ value: PowerOn, of accessoryID: String) async throws
+
     /// The block in its canonical shape (docs/adr/0001-canonical-accessory-settings.md): the plugin's Homebridge shapes
     /// (a `devices` list, exclude lists by name or id, typed arrays, feature-option strings) turned into Accessory Settings
     /// in `_accessories` by Device Id and declared Plugin Settings, the legacy keys dropped. The bridge asks the running
@@ -249,6 +263,9 @@ extension HomeswiftPlugin {
     public static func deviceID(ofAccessory suffix: String) -> String? { nil }
     public func deviceKind(of deviceID: String) async -> String? { nil }
     public func accessorySettingChoices(_ key: String, deviceID: String) async -> [SetupOption]? { nil }
+    public func powerOnSupport(of accessoryID: String) async -> PowerOnSupport? { nil }
+    public func powerOn(of accessoryID: String) async throws -> PowerOn? { nil }
+    public func setPowerOn(_ value: PowerOn, of accessoryID: String) async throws { throw PowerOnError("\(Self.name) cannot set what its lights do when their power comes on") }
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue { block }
 }
 

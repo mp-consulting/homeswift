@@ -81,6 +81,13 @@ broker beside the bridge.
 - Adaptive Lighting is Homeswift's own controller; `only_when_on`, `min_delta` and `transition` apply to its writes, and
   a colour or a white more than 10 mireds away reported by the light turns it off.
 
+### Power On
+
+A light that exposes `power_on_behavior` has a Power On on its settings sheet (or `set_power_on`): Last on (`on`),
+Power loss recovery (`previous`) and Off (`off`). One that also exposes `color_temp_startup` comes back in a white:
+Custom (`on` at a white; Zigbee2MQTT has no power-on brightness) and the bridge's Natural Light (`previous` at the white
+the bridge keeps the time of day's). The values are read from the device's state and sent as one `set`.
+
 ## Clean-room implementation
 
 Compatible with the configuration of [homebridge-z2m](https://github.com/itavero/homebridge-z2m) by Arno Moonen

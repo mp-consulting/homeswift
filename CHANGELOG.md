@@ -6,8 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Power On**: every light's settings say what it does when its power comes back, from a wall switch or after a power
+  cut, as its device can: its default, Last on, Power loss recovery, Off, or Custom at a brightness and white. The device
+  keeps it, so what its maker's app sets shows here too. Philips Hue, Matter Devices, Zigbee2MQTT (`power_on_behavior`,
+  `color_temp_startup`) and Elgato Key Lights have it; the Assistant reads and sets it (`power_on`, `set_power_on`).
+- **Natural Light**: the bridge's own Power On, every light's that can have it unless given another: the light comes
+  back as it was, on or off, in the white for the time of day, warm at night and coolest at midday by the sun at the
+  Location. The bridge keeps the white the light comes back in up to date through the day; a light whose power-on is
+  changed in its maker's app keeps that one.
+
 ### Changed
 
+- **Elgato Key Lights**: the plugin no longer applies its power-on settings (`powerOnBehavior`, `powerOnBrightness`,
+  `powerOnTemperature`, plugin-wide and per light) at each start; a light's Power On is set on its settings sheet, and the
+  legacy keys are written out of the block (a light that had its own keeps what its device has).
 - The full-screen wall's page dots are a smaller pill, its slots narrowing with many rooms so it always fits a phone.
 - The full-screen wall's and graph's Filters, Leave full screen and zoom buttons sit at the bottom right on every
   screen, in the thumb's reach, rather than over the first widgets; on a phone above the Assistant's button, the page

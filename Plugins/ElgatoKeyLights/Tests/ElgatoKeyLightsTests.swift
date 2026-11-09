@@ -220,8 +220,7 @@ struct ElgatoKeyLightsTests {
     @Test func configuredLightBecomesAnAccessory() async throws {
         var light = configuredLight
         light["displayName"] = "Desk"
-        light["powerOnBehavior"] = 2
-        let host = try await environment.start(settings: ["devices": [light], "powerOnTemperature": 4000, "switchOffDurationMs": 50])
+        let host = try await environment.start(settings: ["devices": [light], "switchOffDurationMs": 50])
         let server = host.mainBridge.server
         let accessory = try #require(server.accessories.first { $0.id == lightID })
         #expect(accessory.name == "Desk")
@@ -243,9 +242,9 @@ struct ElgatoKeyLightsTests {
         #expect(lightbulb[.characteristicValueTransitionControl] != nil)
         #expect(lightbulb[.configuredName]?.value == .string("Desk"))
 
-        // Per-light settings win over the platform's, which win over the light's own; the rest stays.
+        // The platform's transitions over the light's own; its Power On stays as the light has it.
         #expect(await environment.light.settings == KeyLightSettings(
-            powerOnBehavior: 2, powerOnBrightness: 20, powerOnTemperature: 250,
+            powerOnBehavior: 1, powerOnBrightness: 20, powerOnTemperature: 213,
             switchOnDurationMs: 300, switchOffDurationMs: 50, colorChangeDurationMs: 100))
         await host.stop()
     }
@@ -382,17 +381,23 @@ struct ElgatoKeyLightsTests {
         await second.stop()
     }
 
-    @Test func powerOnTemperatureZeroKeepsTheLightsValue() async throws {
-        var light = configuredLight
-        light["powerOnTemperature"] = 0
-        let host = try await environment.start(settings: ["devices": [light], "powerOnTemperature": 4000])
-        #expect(await environment.light.settings.powerOnTemperature == 213)
+    /// The bridge's Power On: read from the light's settings, written to them; Natural Light at its brightness now.
+    @Test func setsALightsPowerOn() async throws {
+        let host = try await environment.start(settings: ["devices": [configuredLight]])
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.powerOnSupport(of: lightID)?.behaviours == [.natural, .lastOn, .custom])
+        #expect(try await plugin.powerOn(of: lightID) == PowerOn(.lastOn))
+        try await plugin.setPowerOn(PowerOn(.custom, brightness: 60, temperature: 4000), of: lightID)
+        var settings = await environment.light.settings
+        #expect(settings.powerOnBehavior == 2 && settings.powerOnBrightness == 60 && settings.powerOnTemperature == 250)
+        #expect(try await plugin.powerOn(of: lightID) == PowerOn(.custom, brightness: 60, temperature: 4000))
+        try await plugin.setPowerOn(PowerOn(.natural, temperature: 2700), of: lightID)
+        settings = await environment.light.settings
+        #expect(settings.powerOnBrightness == 50 && settings.powerOnTemperature == 344)
+        await #expect(throws: PowerOnError.self) { try await plugin.setPowerOn(PowerOn(.off), of: lightID) }
+        // Its transitions stay as they were.
+        #expect(await environment.light.settings.switchOnDurationMs == 300)
         await host.stop()
-
-        let platformOnly = ElgatoTestEnvironment()
-        let second = try await platformOnly.start(settings: ["devices": [configuredLight], "powerOnTemperature": 0])
-        #expect(await platformOnly.light.settings.powerOnTemperature == 213)
-        await second.stop()
     }
 
     @Test func hostNamesAreResolvedThroughTheARPTableThenTheAnnouncedAddresses() async throws {
@@ -556,7 +561,8 @@ struct ElgatoKeyLightsTests {
     // MARK: Settings
 
     /// A Homebridge block's `devices` moves into `_accessories` by MAC and `addresses`; what is there already stays, an
-    /// entry without a MAC stays in `devices`, and the platform's keys are left as they are.
+    /// entry without a MAC stays in `devices`, and the legacy power-on keys go (the light's own Power On now; one that
+    /// had its own keeps its device's rather than taking Natural Light).
     @Test func canonicalSettingsMovesTheDevicesList() throws {
         let block = try JSONValue(any: [
             "platform": "ElgatoKeyLights", "name": "Elgato Key Lights", "powerOnBrightness": 30,
@@ -572,7 +578,7 @@ struct ElgatoKeyLightsTests {
         ] as [String: Any])
         let canonical = ElgatoKeyLightsPlugin.canonical(block, learned: ["10.0.0.9:9123": "AA:BB:CC:00:11:22"])
         #expect(canonical == (try JSONValue(any: [
-            "platform": "ElgatoKeyLights", "name": "Elgato Key Lights", "powerOnBrightness": 30,
+            "platform": "ElgatoKeyLights", "name": "Elgato Key Lights",
             "devices": [["name": "No MAC", "ip": "10.0.0.1"]],
             "addresses": [
                 ["host": "10.0.0.9", "mac": "AA:BB:CC:00:11:22"],
@@ -580,7 +586,7 @@ struct ElgatoKeyLightsTests {
                 ["host": "spare.local", "mac": "11:22:33:44:55:66"],
             ],
             "_accessories": [
-                "3C:6A:9D:04:0A:0B": ["name": "Desk Light", "powerOnBehavior": 2, "powerOnBrightness": 40, "powerOnTemperature": 0],
+                "3C:6A:9D:04:0A:0B": ["name": "Desk Light", "naturalLight": false],
                 "11:22:33:44:55:66": ["excluded": true],
                 "AA:BB:CC:DD:EE:FF": ["name": "Kept"],
             ],
@@ -614,32 +620,12 @@ struct ElgatoKeyLightsTests {
         await host.stop()
     }
 
-    /// A light's own power-on settings in `_accessories` overrule the platform's and a Homebridge entry's.
-    @Test func aLightsAccessorySettingsOverruleThePlatform() async throws {
-        var light = configuredLight
-        light["powerOnBrightness"] = 70
-        let host = try await environment.start(settings: [
-            "devices": [light], "powerOnBehavior": 1, "powerOnBrightness": 10, "powerOnTemperature": 4000,
-            "_accessories": ["3C:6A:9D:04:0A:0B": ["powerOnBehavior": 2, "powerOnBrightness": 55]],
-        ])
-        let settings = await environment.light.settings
-        #expect(settings.powerOnBehavior == 2 && settings.powerOnBrightness == 55 && settings.powerOnTemperature == 250)
-        await host.stop()
-
-        // Without its own, the platform's is the default.
-        let platform = ElgatoTestEnvironment()
-        let second = try await platform.start(settings: ["addresses": [["host": "192.168.1.50", "mac": "3C:6A:9D:04:0A:0B"]], "powerOnBrightness": 10])
-        #expect(await platform.light.settings.powerOnBrightness == 10)
-        await second.stop()
-    }
-
-    /// The schema declares the lights' settings, each with its plugin-wide default.
+    /// The schema declares a light's address (Add by address); its Power On is the bridge's.
     @Test func theSchemaDeclaresTheAccessorySettings() throws {
         let schema = try JSONValue(string: try #require(ElgatoKeyLightsPlugin.configurationSchemaJSON))
         let fields = try #require(schema["accessorySchema"]?["properties"]?.objectValue)
-        #expect(Set(fields.keys) == ["powerOnBehavior", "powerOnBrightness", "powerOnTemperature", "host", "port"])
-        // The power-on settings default to the platform's; a light's address (Add by address) is its own.
-        for (key, field) in fields where !["host", "port"].contains(key) { #expect(field["x-default"] == .string(key) && schema["schema"]?["properties"]?[key] != nil) }
+        #expect(Set(fields.keys) == ["host", "port"])
+        #expect(schema["schema"]?["properties"]?["powerOnBehavior"] == nil)
         #expect(schema["schema"]?["properties"]?["devices"] == nil && schema["schema"]?["properties"]?["addresses"] != nil)
     }
 

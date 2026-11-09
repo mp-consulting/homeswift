@@ -36,6 +36,8 @@ struct HueLight: Sendable, Equatable {
     var gradientPoints: [HueXY] = []
     var gradientCapacity = 0
     var reachable = true
+    /// What it does when its power comes on (`powerup`); nil on a light without it.
+    var powerUp: HuePowerUp?
     /// Its device's Zigbee MAC, with the light's place among the device's lights when it has several; nil without one.
     var serialNumber: String?
 
@@ -372,6 +374,7 @@ struct HueSnapshot: Sendable, Equatable {
             model: product?["model_id"]?.stringValue ?? "Hue", manufacturer: product?["manufacturer_name"]?.stringValue ?? "Signify",
             product: product?["product_name"]?.stringValue ?? "Hue light", firmware: product?["software_version"]?.stringValue ?? "",
             on: resource["on"]?["on"]?.boolValue ?? false)
+        light.powerUp = HuePowerUp(resource: resource)
         if let dimming = resource["dimming"] {
             light.brightness = dimming["brightness"]?.doubleValue ?? 100
             light.minimumBrightness = dimming["min_dim_level"]?.doubleValue ?? 0

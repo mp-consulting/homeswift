@@ -249,6 +249,7 @@ public struct HomeswiftConfiguration: Sendable {
         var separated: Set<String> = []
         var energyRoles: [String: [String: EnergyRole?]] = [:]
         var controls: [String: [RemoteControl]] = [:]
+        var naturalLightOff: Set<String> = []
         // The devices whose entry holds live settings only: out of the plugin's JSON (a rename reloads nothing), but still
         // among its Accessory Settings (`context.allAccessorySettings`), as a device set up with a Name only.
         var liveOnly: Set<String> = []
@@ -281,12 +282,13 @@ public struct HomeswiftConfiguration: Sendable {
                     let list = RemoteControl.readable(from: try JSONValue(any: given))
                     if !list.isEmpty { controls[deviceID] = list }
                 }
-                for key in ["hidden", "notInHome", "separateFunctions"] {
+                for key in ["hidden", "notInHome", "separateFunctions", "naturalLight"] {
                     guard let given = fields[key] else { continue }
                     guard let flag = given as? Bool else { throw ConfigurationError.invalidValue(key: "\(at).\(key)", expected: "true or false") }
                     if flag, key == "hidden" { hiddenOnWall.insert(deviceID) }
                     if flag, key == "separateFunctions" { separated.insert(deviceID) }
                     if flag, key == "notInHome", !hidden.contains("\(platform):\(deviceID)") { hidden.append("\(platform):\(deviceID)") }
+                    if !flag, key == "naturalLight" { naturalLightOff.insert(deviceID) }
                 }
                 let rest = fields.filter { !AccessorySettings.liveKeys.contains($0.key) }
                 if rest.isEmpty { liveOnly.insert(deviceID) } else { others[deviceID] = rest }
@@ -310,6 +312,7 @@ public struct HomeswiftConfiguration: Sendable {
         for deviceID in separated { entry.accessorySettings[deviceID]?.separateFunctions = true }
         for (deviceID, roles) in energyRoles { entry.accessorySettings[deviceID]?.energyRoles = roles }
         for (deviceID, list) in controls { entry.accessorySettings[deviceID]?.controls = list }
+        for deviceID in naturalLightOff { entry.accessorySettings[deviceID]?.naturalLight = false }
         for id in hidden where id.hasPrefix("\(platform):") { entry.accessorySettings[String(id.dropFirst(platform.count + 1))]?.notInHome = true }
         return entry
     }

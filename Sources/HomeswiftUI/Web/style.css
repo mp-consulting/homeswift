@@ -5210,6 +5210,21 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 .settings-section-head { margin-bottom: var(--space-10); }
 .settings-section-head h3 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-semibold); }
 .settings-section-head h3 .muted { font-weight: var(--weight-regular); font-size: var(--text-sm); }
+/* A light's Power on (settings.js powerOnRows): its choices as a list, each its name and what it does beside its radio,
+   the chosen one tinted; Custom's sliders under it. */
+.power-on-choices { display: grid; gap: 2px; }
+.power-on-choice { display: flex; align-items: flex-start; gap: var(--space-10); padding: var(--space-8) var(--space-10); border-radius: var(--radius-sm); cursor: pointer;
+  transition: background-color var(--fast) var(--ease-out); }
+.power-on-choice:has(input:checked) { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.power-on-choice input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); }
+.power-on-text { display: grid; gap: 2px; min-width: 0; }
+.power-on-text .field-title { margin: 0; }
+@media (hover: hover) and (pointer: fine) { .power-on-choice:hover:not(:has(input:checked)) { background: color-mix(in srgb, var(--text) 5%, transparent); } }
+.power-on-custom > div { display: grid; gap: var(--space-6); padding-left: calc(var(--space-10) * 2 + 16px); }
+.power-on-custom.open > div { padding-top: var(--space-8); }
+.power-on-keep { display: flex; align-items: center; gap: var(--space-6); margin-top: var(--space-6); font-size: var(--text-sm); color: var(--muted); cursor: pointer; }
+.power-on-keep input { width: auto; margin: 0; accent-color: var(--accent); }
+.power-on-value { color: var(--muted); font-weight: var(--weight-regular); font-variant-numeric: tabular-nums; }
 .settings-section-head .help { margin-top: 2px; }
 .settings-section-head.with-tools { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-12); }
 .settings-section-head.with-tools > button { flex: none; }
