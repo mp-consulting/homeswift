@@ -38960,18 +38960,16 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { color: var(--text); background: var(--control); }
 .status-footer > .link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
 .status-footer > .link svg { width: 17px; height: 17px; }
-/* Icon only, a circle: its words stay its accessible name (its aria-label). */
-.status-footer > .link { justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; border-radius: 50%; }
+/* Icon only, a floating round button's circle: its words stay its accessible name (its aria-label). */
+.status-footer > .link { justify-content: center; width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); padding: 0; border-radius: 50%; }
 .status-footer > .link span { display: none; }
-.status-footer > .link svg { width: 19px; height: 19px; }
+.status-footer > .link svg { width: 22px; height: 22px; }
 /* On a phone, a round button stacked above the menu button (and above the Assistant's, when it is there), the same
    size, within thumb reach; its words stay its accessible name. */
 @media (max-width: 640px) {
   .status-footer { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--float-button) + var(--space-10)); margin: 0; }
   body:has(.chat-dock) .status-footer { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 2 * (var(--float-button) + var(--space-10))); }
-  .status-footer > .link { justify-content: center; width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); padding: 0; border-radius: 50%; color: var(--text); box-shadow: var(--shadow-thick); }
-  .status-footer > .link span { display: none; }
-  .status-footer > .link svg { width: 23px; height: 23px; }
+  .status-footer > .link { color: var(--text); box-shadow: var(--shadow-thick); }
   /* Room at the page's end, so its last card scrolls clear of the button. */
   #app > main:has(> .status-footer)::after { content: ""; display: block; height: calc(var(--float-button) + var(--space-10)); }
 }
@@ -39044,10 +39042,11 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .mobile-nav-panel .side-about .side-about-action.accent { color: var(--accent-ink); }
 .mobile-nav-panel .side-about .side-about-action svg { width: 21px; height: 21px; }
 @media (min-width: 1180px) {
-  /* Customise floats at the window's bottom right while the page scrolls, its middle on the Assistant's button's, to its
-     left (that button sits 24 px into the frame's 28 px padding, a floating round button wide). */
-  .status-footer { bottom: calc(var(--space-24) + var(--space-24) + (var(--float-button) - 40px) / 2); }
-  #app:has(.chat-open) .status-footer { padding-right: calc(var(--float-button) - var(--space-4) + var(--space-16)); }
+  /* Edit floats in the window's bottom right corner as the Assistant's button does, from the same corner, stacked above
+     that button when it is there (as on a phone); the page keeps room for it at its end. */
+  .status-footer { position: fixed; right: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24)); bottom: calc(var(--space-24) + var(--space-24)); margin: 0; }
+  #app:has(.chat-open) .status-footer { bottom: calc(var(--space-24) + var(--space-24) + var(--float-button) + var(--space-10)); }
+  #app > main:has(> .status-footer)::after { content: ""; display: block; grid-column: 1 / -1; height: calc(var(--float-button) + var(--space-16)); }
 
   header .side-about { display: block; position: relative; margin-top: var(--space-16); }
   header .side-about::before { content: ""; position: absolute; top: calc(-1 * var(--space-8)); left: var(--space-8); right: var(--space-8); border-top: 1px solid var(--line); }

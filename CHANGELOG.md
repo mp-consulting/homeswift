@@ -11,8 +11,9 @@ All notable changes to this project are documented here. The format follows
 - The full-screen wall's page dots are a smaller pill, its slots narrowing with many rooms so it always fits a phone.
 - The full-screen wall's and graph's Filters, Leave full screen and zoom buttons sit at the bottom right on every
   screen, in the thumb's reach, rather than over the first widgets; on a phone above the Assistant's button, the page
-  dots on its line. Every floating round button (the Assistant's, the sections', the full-screen ones) is one size, 54
-  px, on every screen.
+  dots on its line. Every floating round button (the Assistant's, the sections', the full-screen ones, the Status page's
+  Edit) is one size, 54 px, on every screen, and the Status page's Edit sits above the Assistant's button on a wide
+  window as on a phone, rather than overlapping it.
 - The Status page's bridge card shows its plugins as a cloud: each tag as large as its share of the accessories, in its
   own colour, with its count as a badge.
 - The scene editor's values, a scene animation's speed and brightness, and an accessory's number controls (a TV's
