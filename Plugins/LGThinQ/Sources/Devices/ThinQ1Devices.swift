@@ -10,6 +10,9 @@ final class AirConditionerV1: AirConditioner {
     nonisolated static let defaultCurrentRange = (min: -50.0, max: 100.0)
     nonisolated static let defaultTargetRange = (min: 10.0, max: 38.0)
 
+    /// ThinQ1 monitoring has no power: its snapshot's `onCurrent` is a placeholder zero, so it declares no Meter.
+    override var reportsPower: Bool { false }
+
     /// A model range, or the default when it is missing or empty.
     func range(_ key: String, _ fallback: (min: Double, max: Double)) -> (min: Double, max: Double) {
         guard case .range(let min?, let max?, _)? = device.deviceModel.value(key), min < max else { return fallback }
