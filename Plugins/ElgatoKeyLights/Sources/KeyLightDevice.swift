@@ -142,6 +142,12 @@ actor KeyLightDevice {
         }
     }
 
+    /// Writes the light's settings and reads them back; throws when the light does not take them (the bridge's Power On).
+    func updateSettings(_ settings: KeyLightSettings) async throws {
+        try await client.updateSettings(settings)
+        self.settings = (try? await client.settings()) ?? settings
+    }
+
     func identify() async {
         do {
             try await client.identify()

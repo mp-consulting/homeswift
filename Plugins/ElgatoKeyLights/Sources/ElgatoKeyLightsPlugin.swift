@@ -26,20 +26,11 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
             public var model: String?
             /// `false` keeps the light out of HomeKit.
             public var enabled: Bool?
-            /// 0 means the platform's setting.
-            public var powerOnBehavior: Int?
-            public var powerOnBrightness: Int?
-            /// Kelvin.
-            public var powerOnTemperature: Int?
         }
 
         public var name: String?
         /// Milliseconds between polls; 250 at least, 1000 by default.
         public var pollingRate: Int?
-        public var powerOnBehavior: Int?
-        public var powerOnBrightness: Int?
-        /// Kelvin, 2900 to 7000.
-        public var powerOnTemperature: Int?
         public var switchOnDurationMs: Int?
         public var switchOffDurationMs: Int?
         public var colorChangeDurationMs: Int?
@@ -430,7 +421,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
         let reportedName = await device.displayName
         // The name its Accessory Settings give it (the runtime applies it), else `displayName`, else the light's own.
         let name = context.accessorySettings(for: light.mac).name ?? deviceConfiguration?.displayName?.trimmingCharacters(in: .whitespaces).nonEmpty ?? reportedName
-        await device.applySettings(settings(for: device, light: lightSettings(mac: light.mac)))
+        await device.applySettings(settings(for: device))
 
         let (accessory, adaptiveLighting) = await KeyLightAccessory.make(device: device, name: name, idPrefix: Self.platform, logger: logger)
         // Its schedule survives restarts; the controller lives as long as the light is on the bridge.
@@ -475,16 +466,15 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
         return configuration.devices?.first { Self.canonicalMAC($0.mac) == target }
     }
 
-    /// Per-light settings win over the platform's, which win over what the light has, then the defaults.
-    func settings(for device: KeyLightDevice, light: LightSettings) async -> KeyLightSettings {
+    /// The platform's transitions over what the light has, then the defaults. Its Power On stays as the light has it: the
+    /// bridge's Power On sets it (`powerOn`, `setPowerOn`).
+    func settings(for device: KeyLightDevice) async -> KeyLightSettings {
         let current = await device.settings
         let defaults = KeyLightDevice.defaultSettings
-        // Kelvin, the light's own value when unset or 0 (a light's 0 does not fall back to the platform's).
-        let kelvin = (light.powerOnTemperature ?? configuration.powerOnTemperature).flatMap { $0 > 0 ? $0 : nil }
         return KeyLightSettings(
-            powerOnBehavior: light.powerOnBehavior ?? configuration.powerOnBehavior ?? current?.powerOnBehavior ?? defaults.powerOnBehavior,
-            powerOnBrightness: light.powerOnBrightness ?? configuration.powerOnBrightness ?? current?.powerOnBrightness ?? defaults.powerOnBrightness,
-            powerOnTemperature: kelvin.map(Self.mirek(kelvin:)) ?? current?.powerOnTemperature ?? defaults.powerOnTemperature,
+            powerOnBehavior: current?.powerOnBehavior ?? defaults.powerOnBehavior,
+            powerOnBrightness: current?.powerOnBrightness ?? defaults.powerOnBrightness,
+            powerOnTemperature: current?.powerOnTemperature ?? defaults.powerOnTemperature,
             switchOnDurationMs: configuration.switchOnDurationMs ?? current?.switchOnDurationMs ?? defaults.switchOnDurationMs,
             switchOffDurationMs: configuration.switchOffDurationMs ?? current?.switchOffDurationMs ?? defaults.switchOffDurationMs,
             colorChangeDurationMs: configuration.colorChangeDurationMs ?? current?.colorChangeDurationMs ?? defaults.colorChangeDurationMs)

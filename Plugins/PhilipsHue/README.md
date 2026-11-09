@@ -136,6 +136,14 @@ An effect switch plays the effect on the bulb itself (`effects_v2`, or `effects`
 flows as smoothly as in the Hue app; Off stops it. Flash uses the bridge's signaling (`on_off`, five seconds). With
 `gradientPoints`, writing a point's hue and saturation sends the whole gradient with that point changed.
 
+### Power On
+
+What a light does when its power comes back, from a wall switch or after a power cut, is its Power On, on its settings
+sheet (or `set_power_on`): the light's `powerup`, as the Hue app's Power on sets it, so a change made there shows here.
+Default (warm white, full brightness), Last on, Power loss recovery and Custom (a brightness and a white) are the Hue
+app's; Off and the bridge's Natural Light are `custom` presets (Natural Light: as it was, on or off, at the white the
+bridge keeps the time of day's).
+
 ## The web page
 
 With the web UI on, the plugin's page shows the bridge (its address, id, how many lights, sensors and scenes, and

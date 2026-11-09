@@ -40190,7 +40190,7 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 .power-on-choice { display: flex; align-items: flex-start; gap: var(--space-10); padding: var(--space-8) var(--space-10); border-radius: var(--radius-sm); cursor: pointer;
   transition: background-color var(--fast) var(--ease-out); }
 .power-on-choice:has(input:checked) { background: color-mix(in srgb, var(--accent) 10%, transparent); }
-.power-on-choice input { flex: none; margin: 3px 0 0; }
+.power-on-choice input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); }
 .power-on-text { display: grid; gap: 2px; min-width: 0; }
 .power-on-text .field-title { margin: 0; }
 .power-on-custom { display: grid; gap: var(--space-6); margin-top: var(--space-8); padding-left: calc(var(--space-10) * 2 + 16px); }

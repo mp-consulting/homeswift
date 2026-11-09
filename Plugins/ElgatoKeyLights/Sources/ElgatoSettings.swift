@@ -2,35 +2,17 @@ import Foundation
 import HomeswiftNetwork
 import HomeswiftPlugin
 
-// Settings (docs/plugins.md, "Settings"): the Plugin Settings are the platform's keys (`pollingRate`, the power-on
-// defaults, the durations, `useIP`) and `addresses`, the lights Bonjour does not reach; each light's Plugin Accessory
-// Settings (`powerOnBehavior`, `powerOnBrightness`, `powerOnTemperature`) sit in `_accessories` by its MAC, the
-// platform's keys of the same names being their plugin-wide defaults. The Homebridge plugin's `devices` list still loads
-// and is read where `_accessories` says nothing; `canonicalSettings` moves it there.
+// Settings (docs/plugins.md, "Settings"): the Plugin Settings are the platform's keys (`pollingRate`, the durations,
+// `useIP`) and `addresses`, the lights Bonjour does not reach; a light's Plugin Accessory Settings are its address (Add by
+// address). What a light does when its power comes on is the bridge's Power On (`powerOn`, `setPowerOn`), kept by the
+// light: the power-on keys the plugin once applied at each start (`powerOnBehavior`, `powerOnBrightness`,
+// `powerOnTemperature`, plugin-wide and per light) are legacy, dropped by `canonicalSettings`. The Homebridge plugin's
+// `devices` list still loads; `canonicalSettings` moves it to `_accessories` and `addresses`.
 extension ElgatoKeyLightsPlugin {
-    /// A light's own Plugin Accessory Settings (the schema's `accessorySchema`); nil takes the platform's.
-    struct LightSettings: Decodable, Sendable, Equatable {
-        /// 1 restores the last settings, 2 the defaults; 0 or nil is the platform's.
-        var powerOnBehavior: Int?
-        var powerOnBrightness: Int?
-        /// Kelvin; 0 keeps the light's own.
-        var powerOnTemperature: Int?
-    }
-
     /// Every light is a light: the one Device Kind.
     static let lightKind = "light"
 
     public func deviceKind(of deviceID: String) async -> String? { Self.lightKind }
-
-    /// A light's settings: its Accessory Settings, then its entry in the Homebridge-shaped `devices`.
-    func lightSettings(mac: String) -> LightSettings {
-        let own = context.accessorySettings(for: mac).decode(LightSettings.self) ?? LightSettings()
-        let legacy = deviceConfiguration(mac: mac)
-        let behavior = (own.powerOnBehavior ?? legacy?.powerOnBehavior).flatMap { $0 == 0 ? nil : $0 }
-        return LightSettings(
-            powerOnBehavior: behavior, powerOnBrightness: own.powerOnBrightness ?? legacy?.powerOnBrightness,
-            powerOnTemperature: own.powerOnTemperature ?? legacy?.powerOnTemperature)
-    }
 
     /// The lights reached at an address: `addresses`, and each light whose Accessory Settings give a `host` (Add by
     /// address), keyed by its MAC. A light in both is reached where Add by address last found it, its entry of `addresses`
@@ -52,7 +34,7 @@ extension ElgatoKeyLightsPlugin {
     }
 
     /// The block with `devices` moved into `_accessories` (by MAC: `enabled: false` as Excluded, `displayName` as the
-    /// Name, the power-on settings as they are, `powerOnBehavior: 0` dropped as the platform's) and `addresses` (each
+    /// Name) and `addresses` (each
     /// entry's `ip` or `host`, `port` and MAC). An entry without a MAC stays in `devices`; the MACs the plugin learned
     /// from lights in `addresses` without one are written beside them.
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
@@ -78,12 +60,6 @@ extension ElgatoKeyLightsPlugin {
             if let name = device["displayName"]?.stringValue?.trimmingCharacters(in: .whitespaces), !name.isEmpty, entry["name"] == nil {
                 entry["name"] = .string(name)
             }
-            if let behavior = device["powerOnBehavior"]?.intValue, behavior != 0, entry["powerOnBehavior"] == nil {
-                entry["powerOnBehavior"] = .number(Double(behavior))
-            }
-            for key in ["powerOnBrightness", "powerOnTemperature"] where entry[key] == nil {
-                if let value = device[key]?.intValue { entry[key] = .number(Double(value)) }
-            }
             if !entry.isEmpty { entries[mac] = .object(entry) }
             let host = [device["ip"], device["host"]].compactMap { $0?.stringValue?.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
             if let host, !hasAddress(of: mac) {
@@ -98,13 +74,22 @@ extension ElgatoKeyLightsPlugin {
             address["mac"] = .string(mac)
             return .object(address)
         }
+        // The legacy power-on keys, the light's own Power On now: plugin-wide and in each light's entry.
+        for key in legacyPowerOnKeys { fields.removeValue(forKey: key) }
+        entries = entries.mapValues { entry in
+            guard var object = entry.objectValue else { return entry }
+            for key in legacyPowerOnKeys { object.removeValue(forKey: key) }
+            return .object(object)
+        }.filter { $0.value.objectValue?.isEmpty != true }
         if fields["devices"] != nil {
             if left.isEmpty { fields.removeValue(forKey: "devices") } else { fields["devices"] = .array(left) }
         }
         if !addresses.isEmpty { fields["addresses"] = .array(addresses) }
-        if !entries.isEmpty { fields["_accessories"] = .object(entries) }
+        if !entries.isEmpty { fields["_accessories"] = .object(entries) } else { fields.removeValue(forKey: "_accessories") }
         return .object(fields)
     }
+
+    static let legacyPowerOnKeys = ["powerOnBehavior", "powerOnBrightness", "powerOnTemperature"]
 
     /// `host:port`, the key of a light in `addresses`.
     static func addressKey(host: String, port: Int?) -> String {

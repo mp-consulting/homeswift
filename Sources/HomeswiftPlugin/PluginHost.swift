@@ -356,12 +356,13 @@ public final class PluginHost: @unchecked Sendable {
 
     // MARK: Power On
 
-    /// The lights that may have Natural Light: those with a colour temperature, with their plugin and their setting.
+    /// The lights that may have Natural Light, with their plugin and their setting: every light, its plugin saying which
+    /// take a white (`powerOnSupport`), a Matter light with Color Control among them though HomeKit has no white of it.
     private func naturalLightCandidates() -> [NaturalLightRunner.Light] {
         instances.flatMap { instance -> [NaturalLightRunner.Light] in
             guard !instance.block.paused, let plugin = instance.plugin.withLockedValue({ $0 }) else { return [] }
             let context = instance.context
-            return context.accessories.filter { $0.services.contains { $0.type == .lightbulb && $0[.colorTemperature] != nil } }.map { accessory in
+            return context.accessories.filter { $0.services.contains { $0.type == .lightbulb } }.map { accessory in
                 let key = AccessoryNaming.deviceID(of: accessory.id, platform: context.platform)
                 return .init(accessoryID: accessory.id, name: accessory.name, plugin: plugin, wantsNatural: context.accessorySettings(for: key).naturalLight)
             }
