@@ -154,5 +154,6 @@ The controller side is swift-matter's `Commissioner` (PASE, device attestation a
 with `AttestationVerifier`, CSR and operational certificates, CASE), its `InteractionClient` (reads, invokes, subscriptions from an event number) and its DNS-SD records
 (`CommissionableNodeInfo`, `OperationalInstanceName`, `PairingCode`). A Thread device answers through a Thread border
 router: the bridge's host needs IPv6 routes to the Thread network (`netstat -rn -f inet6` on macOS, `ip -6 route` on
-Linux show the prefix a border router announces). A device the plugin controls is a plugin's accessory like any other, so
+Linux show the prefix a border router announces; a Linux kernel without Route Information Options, a Synology NAS's,
+needs the route added by hand, as the plugin's README says under Network). A device the plugin controls is a plugin's accessory like any other, so
 the Matter bridge publishes it to its controllers too unless `exclude` names it (`"exclude": ["MatterDevices"]`).

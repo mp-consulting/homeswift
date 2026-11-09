@@ -22,6 +22,12 @@ All notable changes to this project are documented here. The format follows
   `powerOnTemperature`, plugin-wide and per light) at each start; a light's Power On is set on its settings sheet, and the
   legacy keys are written out of the block.
 
+### Fixed
+
+- **Matter Devices**: adding a Thread device on a host that has no route to its Thread network (a Linux kernel that
+  does not learn the border routers' routes, as on a Synology NAS) now says so and names the network's prefix, instead
+  of asking for a new code. The plugin's README explains how to add the route.
+
 ## [0.27.0] - 2026-11-09
 
 ### Added

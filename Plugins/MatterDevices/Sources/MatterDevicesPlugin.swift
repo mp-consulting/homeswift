@@ -30,6 +30,8 @@ public actor MatterDevicesPlugin: HomeswiftPlugin {
         var reliability = ReliabilityParameters()
         /// The roots and keys device attestation is checked against: the Matter registry's.
         var trustStore = AttestationTrustStore.registry
+        /// The Thread network's prefix when the host has no route to an address (`HostRoutes`); tests give their own.
+        var missingRoute: @Sendable (String) -> String? = { HostRoutes.missingRoute(to: $0) }
     }
 
     public static let platform = "MatterDevices"

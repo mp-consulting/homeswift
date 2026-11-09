@@ -455,3 +455,38 @@ struct MatterRemoteTests {
         #expect(structure.endpoint(1)?.deviceTypes == [15])
     }
 }
+
+/// A Thread device the host has no route to: Setup blames the host's routes, not the device.
+struct HostRoutesTests {
+    /// A Synology NAS's table (/proc/net/ipv6_route): its own LAN prefix, link-local, a default route, an unreachable one.
+    static let table = """
+        fd112233445500010000000000000000 40 00000000000000000000000000000000 00 00000000000000000000000000000000 00000100 00000001 00000000 00000001     eth4
+        fe800000000000000000000000000000 40 00000000000000000000000000000000 00 00000000000000000000000000000000 00000100 00000001 00000000 00000001     eth4
+        00000000000000000000000000000000 00 00000000000000000000000000000000 00 fe80000000000000000000000000abcd 00000400 00000002 00000000 00450003     eth4
+        fd000000000000000000000000000000 08 00000000000000000000000000000000 00 00000000000000000000000000000000 ffffffff 00000001 00000000 00200200       lo
+        """
+    static let thread = "fd12:3456:789a:0:1:2:3:4"
+
+    @Test func findsTheMissingThreadRoute() throws {
+        #expect(HostRoutes.missingRoute(to: Self.thread, table: Self.table) == "fd12:3456:789a::/64")
+        // Added by hand through a border router: there is one.
+        let routed = Self.table + "\nfd123456789a00000000000000000000 40 00000000000000000000000000000000 00 fe80000000000000000000000000ef01 00000400 00000001 00000000 00000003     eth4"
+        #expect(HostRoutes.missingRoute(to: Self.thread, table: routed) == nil)
+        // A shorter prefix covers it too.
+        let wide = Self.table + "\nfd123456000000000000000000000000 20 00000000000000000000000000000000 00 00000000000000000000000000000000 00000400 00000001 00000000 00000001     eth4"
+        #expect(HostRoutes.missingRoute(to: Self.thread, table: wide) == nil)
+        // Its own LAN, a global address (the default route reaches it), IPv4, a test name, a host without the table.
+        #expect(HostRoutes.missingRoute(to: "fd11:2233:4455:1::1", table: Self.table) == nil)
+        #expect(HostRoutes.missingRoute(to: "2a01:e0a:1::5", table: Self.table) == nil)
+        #expect(HostRoutes.missingRoute(to: "192.168.1.20", table: Self.table) == nil)
+        #expect(HostRoutes.missingRoute(to: "node", table: Self.table) == nil)
+        #expect(HostRoutes.missingRoute(to: Self.thread, table: nil) == nil)
+        #expect(HostRoutes.prefix64(of: try #require(HostRoutes.bytes(of: "fd12:3:4:5::9"))) == "fd12:3:4:5::/64")
+    }
+
+    @Test func setupSaysWhatToFix() {
+        let address = NodeAddress(host: Self.thread, port: 5540)
+        #expect(MatterDevicesPlugin.unanswered(address, missingRoute: "fd12:3456:789a::/64").contains("no route to the device's Thread network (fd12:3456:789a::/64)"))
+        #expect(MatterDevicesPlugin.unanswered(address, missingRoute: nil).hasPrefix("The device did not answer at [\(Self.thread)]:5540."))
+    }
+}
