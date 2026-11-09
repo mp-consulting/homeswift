@@ -54,7 +54,7 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
     var settings: Settings?
     var log: Log
     var connection: (any MQTTConnection)?
-    private var publisher: Publisher?
+    private(set) var publisher: Publisher?
     /// By Device Id.
     var devices: [String: DeviceAccessory] = [:]
     /// IEEE addresses (a group's id) and friendly names to Device Ids, for the state topics.
@@ -523,6 +523,7 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
         device.lastState = .now
         if device.refresh == nil { startRefresh(device) }
         let state = object.filter { !$0.value.isNull }
+        for key in Self.powerOnKeys { if let value = state[key] { device.powerOnState[key] = value } }
         for handler in device.handlers { handler.update(state) }
         log.debug("Handled device update for \(id): \(String(decoding: payload.prefix(512), as: UTF8.self))")
     }

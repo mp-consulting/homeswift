@@ -12,8 +12,8 @@ extension ElgatoKeyLightsPlugin {
             description: "Asks the light at an address who it is: name, model, MAC address, serial number, firmware. "
                 + "For a light Bonjour does not reach: add it to the Plugin Setting addresses with update_settings (plugin {\"platform\": \"ElgatoKeyLights\"}, "
                 + "settings {\"addresses\": [entries]}, which replaces the whole list: read it with get_settings first and keep its entries) "
-                + "as {\"host\", \"mac\"}, plus \"port\" when it is not 9123. A light's own settings (powerOnBehavior, powerOnBrightness, "
-                + "powerOnTemperature, its name, Excluded) go through update_settings by accessory, ElgatoKeyLights:<MAC>.",
+                + "as {\"host\", \"mac\"}, plus \"port\" when it is not 9123. A light's own settings (its name, Excluded) go through "
+                + "update_settings by accessory, ElgatoKeyLights:<MAC>; what it does when its power comes on, through set_power_on.",
             // Configure, as adding the light it finds is: it reaches any address and port the caller names.
             path: "probe", access: .configure,
             inputSchema: [

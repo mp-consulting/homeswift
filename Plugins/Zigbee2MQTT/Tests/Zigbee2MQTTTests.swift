@@ -178,6 +178,31 @@ struct Zigbee2MQTTTests {
         #expect(accessory.name == "test light")
     }
 
+    /// Power On: `power_on_behavior` and `color_temp_startup`, read from its state and set as one message.
+    @Test func setsALightsPowerOn() async throws {
+        let startup = #"{"type":"numeric","name":"color_temp_startup","property":"color_temp_startup","access":7,"value_min":153,"value_max":500}"#
+        let light = Fixtures.device("0x00178d0009876549", "hall_light", [
+            #"{"type":"light","features":[\#(Fixtures.binary("state", on: "\"ON\"", off: "\"OFF\"")),{"type":"numeric","name":"color_temp","property":"color_temp","access":7,"value_min":153,"value_max":500},\#(startup)]}"#,
+            Fixtures.enumeration("power_on_behavior", ["off", "on", "toggle", "previous"], access: 7),
+        ])
+        let host = try await environment.started(devices: [light])
+        defer { Task { await host.stop() } }
+        #expect(await eventually { host.accessory("0x00178d0009876549") != nil })
+        let plugin = try #require(environment.plugin)
+        let id = Zigbee2MQTTPlugin.accessoryID(deviceID: "0x00178d0009876549")
+        let support = try #require(await plugin.powerOnSupport(of: id))
+        #expect(support.behaviours == [.natural, .lastOn, .powerLoss, .off, .custom] && !support.brightness && support.white == 2000...6536)
+        environment.send("hall_light", #"{"state":"ON","power_on_behavior":"on","color_temp_startup":65535}"#)
+        #expect(await eventually { (try? await plugin.powerOn(of: id)) == PowerOn(.lastOn) })
+        try await plugin.setPowerOn(PowerOn(.natural, temperature: 2700), of: id)
+        #expect(await eventually { environment.published("0x00178d0009876549/set").last == #"{"color_temp_startup":370,"power_on_behavior":"previous"}"# })
+        try await plugin.setPowerOn(PowerOn(.off), of: id)
+        #expect(await eventually { environment.published("0x00178d0009876549/set").last == #"{"power_on_behavior":"off"}"# })
+        #expect(try await plugin.powerOn(of: id) == PowerOn(.off))
+        // A light without power_on_behavior has none.
+        #expect(await plugin.powerOnSupport(of: Zigbee2MQTTPlugin.accessoryID(deviceID: "0x0000000000000002")) == nil)
+    }
+
     @Test func lightStateAndWrites() async throws {
         let host = try await environment.started(devices: [Fixtures.light])
         defer { Task { await host.stop() } }

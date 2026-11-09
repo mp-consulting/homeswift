@@ -86,6 +86,8 @@ final class DeviceAccessory {
     var refresh: Task<Void, Never>?
     /// Its last state message.
     var lastState: ContinuousClock.Instant?
+    /// What it does when its power comes on, as its state last said (`power_on_behavior`, `color_temp_startup`).
+    var powerOnState: [String: JSONValue] = [:]
 
     init(entry: DeviceEntry, options: DeviceOptions, handlers: [any ServiceHandler], accessory: Accessory) {
         self.entry = entry

@@ -21,59 +21,6 @@
         "minimum": 250,
         "description": "The polling rate for light status in milliseconds (minimum 250)"
       },
-      "powerOnBehavior": {
-        "title": "Power On Behaviour",
-        "type": "number",
-        "required": false,
-        "placeholder": 1,
-        "oneOf": [
-          {
-            "title": "Restore last settings used",
-            "enum": [
-              1
-            ]
-          },
-          {
-            "title": "Restore default settings",
-            "enum": [
-              2
-            ]
-          }
-        ],
-        "description": "What the lights do when switched on: their last settings, or the default brightness and colour temperature below. Empty keeps the light's own setting."
-      },
-      "powerOnBrightness": {
-        "title": "Default Power On Brightness (in percent)",
-        "type": "integer",
-        "required": false,
-        "placeholder": 20,
-        "minimum": 0,
-        "maximum": 100,
-        "description": "The brightness the lights switch on at with Restore default settings",
-        "x-schema-form": {
-          "type": "slider",
-          "track": "brightness",
-          "unit": "%"
-        }
-      },
-      "powerOnTemperature": {
-        "title": "Default Power On Colour Temperature (in Kelvin)",
-        "type": "integer",
-        "required": false,
-        "placeholder": 4695,
-        "minimum": 2900,
-        "maximum": 7000,
-        "step": 50,
-        "description": "The colour temperature the lights switch on at with Restore default settings",
-        "x-schema-form": {
-          "type": "slider",
-          "track": "white",
-          "unit": "K",
-          "min": 2900,
-          "max": 7000,
-          "step": 50
-        }
-      },
       "switchOnDurationMs": {
         "title": "Switch On Duration (in milliseconds)",
         "type": "integer",
@@ -135,55 +82,6 @@
   },
   "accessorySchema": {
     "properties": {
-      "powerOnBehavior": {
-        "title": "Power On Behaviour",
-        "type": "integer",
-        "oneOf": [
-          {
-            "title": "Restore last settings used",
-            "enum": [
-              1
-            ]
-          },
-          {
-            "title": "Restore default settings",
-            "enum": [
-              2
-            ]
-          }
-        ],
-        "description": "What this light does when switched on. Empty takes the plugin's setting.",
-        "x-default": "powerOnBehavior"
-      },
-      "powerOnBrightness": {
-        "title": "Default Brightness (%)",
-        "type": "integer",
-        "minimum": 0,
-        "maximum": 100,
-        "description": "This light's brightness with Restore default settings. Empty takes the plugin's setting.",
-        "x-default": "powerOnBrightness",
-        "x-schema-form": {
-          "type": "slider",
-          "track": "brightness",
-          "unit": "%"
-        }
-      },
-      "powerOnTemperature": {
-        "title": "Default Temperature (K)",
-        "type": "integer",
-        "minimum": 0,
-        "maximum": 7000,
-        "description": "This light's colour temperature with Restore default settings, 2900 to 7000. Empty takes the plugin's setting; 0 keeps the light's own.",
-        "x-default": "powerOnTemperature",
-        "x-schema-form": {
-          "type": "slider",
-          "track": "white",
-          "unit": "K",
-          "min": 2900,
-          "max": 7000,
-          "step": 50
-        }
-      },
       "host": {
         "title": "IP address or host name",
         "type": "string",
@@ -216,17 +114,6 @@
     },
     {
       "type": "fieldset",
-      "title": "Power On Behaviour",
-      "expandable": true,
-      "expanded": false,
-      "items": [
-        "powerOnBehavior",
-        "powerOnBrightness",
-        "powerOnTemperature"
-      ]
-    },
-    {
-      "type": "fieldset",
       "title": "Advanced",
       "expandable": true,
       "expanded": false,
@@ -241,10 +128,6 @@
       "Advanced": "Avancé",
       "By default, the hostname of the light is used for the connection. If this causes issues in your environment, you can enable this option to use the IP address instead.": "Par défaut, la connexion utilise le nom d'hôte de la lampe. Si cela pose problème dans votre environnement, activez cette option pour utiliser plutôt l'adresse IP.",
       "Colour Change Duration (in milliseconds)": "Durée du changement de couleur (en millisecondes)",
-      "Default Brightness (%)": "Luminosité par défaut (%)",
-      "Default Power On Brightness (in percent)": "Luminosité à l'allumage par défaut (en pourcentage)",
-      "Default Power On Colour Temperature (in Kelvin)": "Température de couleur à l'allumage par défaut (en kelvins)",
-      "Default Temperature (K)": "Température par défaut (K)",
       "Durations": "Durées",
       "How long the lights take to fade in when switched on": "Le temps que mettent les lampes à s'allumer progressivement",
       "How long the lights take to fade out when switched off": "Le temps que mettent les lampes à s'éteindre progressivement",
@@ -257,21 +140,12 @@
       "Plugin name as shown in the logs": "Nom du plugin tel qu'affiché dans les journaux",
       "Polling Rate (in milliseconds)": "Fréquence d'interrogation (en millisecondes)",
       "Port": "Port",
-      "Power On Behaviour": "Comportement à l'allumage",
-      "Restore default settings": "Rétablir les réglages par défaut",
-      "Restore last settings used": "Rétablir les derniers réglages utilisés",
       "Switch Off Duration (in milliseconds)": "Durée d'extinction (en millisecondes)",
       "Switch On Duration (in milliseconds)": "Durée d'allumage (en millisecondes)",
-      "The brightness the lights switch on at with Restore default settings": "La luminosité à laquelle les lampes s'allument avec Rétablir les réglages par défaut",
-      "The colour temperature the lights switch on at with Restore default settings": "La température de couleur à laquelle les lampes s'allument avec Rétablir les réglages par défaut",
       "The light's MAC address, which Homeswift keys lights by. Empty, Homeswift asks the light for it.": "L'adresse MAC de la lampe, qui sert de clé à Homeswift. Vide, Homeswift la demande à la lampe.",
       "The polling rate for light status in milliseconds (minimum 250)": "La fréquence d'interrogation de l'état des lampes en millisecondes (250 minimum)",
       "The port of the light's HTTP API, 9123 by default.": "Le port de l'API HTTP de la lampe, 9123 par défaut.",
-      "This light's brightness with Restore default settings. Empty takes the plugin's setting.": "La luminosité de cette lampe avec Rétablir les réglages par défaut. Vide prend le réglage du plugin.",
-      "This light's colour temperature with Restore default settings, 2900 to 7000. Empty takes the plugin's setting; 0 keeps the light's own.": "La température de couleur de cette lampe avec Rétablir les réglages par défaut, de 2900 à 7000. Vide prend le réglage du plugin ; 0 garde celle de la lampe.",
       "Use IP address instead of hostname": "Utiliser l'adresse IP au lieu du nom d'hôte",
-      "What the lights do when switched on: their last settings, or the default brightness and colour temperature below. Empty keeps the light's own setting.": "Ce que font les lampes à l'allumage : reprendre leurs derniers réglages, ou la luminosité et la température de couleur par défaut ci-dessous. Vide garde le réglage de la lampe.",
-      "What this light does when switched on. Empty takes the plugin's setting.": "Ce que fait cette lampe à l'allumage. Vide prend le réglage du plugin.",
       "Where the light answers, for example 192.168.1.50.": "Là où la lampe répond, par exemple 192.168.1.50.",
       "Where this light answers when Bonjour does not reach it, as Add by address set it. Empty, Bonjour finds it.": "Là où cette lampe répond quand Bonjour ne la joint pas, comme Ajouter par adresse l'a réglé. Vide, Bonjour la trouve."
     },
@@ -280,10 +154,6 @@
       "Advanced": "Avanzado",
       "By default, the hostname of the light is used for the connection. If this causes issues in your environment, you can enable this option to use the IP address instead.": "Por defecto, la conexión usa el nombre de host de la luz. Si eso da problemas en tu entorno, activa esta opción para usar la dirección IP.",
       "Colour Change Duration (in milliseconds)": "Duración del cambio de color (en milisegundos)",
-      "Default Brightness (%)": "Brillo predeterminado (%)",
-      "Default Power On Brightness (in percent)": "Brillo al encender predeterminado (en porcentaje)",
-      "Default Power On Colour Temperature (in Kelvin)": "Temperatura de color al encender predeterminada (en kelvin)",
-      "Default Temperature (K)": "Temperatura predeterminada (K)",
       "Durations": "Duraciones",
       "How long the lights take to fade in when switched on": "Lo que tardan las luces en encenderse gradualmente",
       "How long the lights take to fade out when switched off": "Lo que tardan las luces en apagarse gradualmente",
@@ -296,21 +166,12 @@
       "Plugin name as shown in the logs": "Nombre del plugin tal como aparece en los registros",
       "Polling Rate (in milliseconds)": "Frecuencia de consulta (en milisegundos)",
       "Port": "Puerto",
-      "Power On Behaviour": "Comportamiento al encender",
-      "Restore default settings": "Restaurar los ajustes predeterminados",
-      "Restore last settings used": "Restaurar los últimos ajustes usados",
       "Switch Off Duration (in milliseconds)": "Duración del apagado (en milisegundos)",
       "Switch On Duration (in milliseconds)": "Duración del encendido (en milisegundos)",
-      "The brightness the lights switch on at with Restore default settings": "El brillo con el que se encienden las luces con Restaurar los ajustes predeterminados",
-      "The colour temperature the lights switch on at with Restore default settings": "La temperatura de color con la que se encienden las luces con Restaurar los ajustes predeterminados",
       "The light's MAC address, which Homeswift keys lights by. Empty, Homeswift asks the light for it.": "La dirección MAC de la luz, con la que Homeswift identifica las luces. Vacía, Homeswift se la pide a la luz.",
       "The polling rate for light status in milliseconds (minimum 250)": "La frecuencia de consulta del estado de las luces en milisegundos (250 como mínimo)",
       "The port of the light's HTTP API, 9123 by default.": "El puerto de la API HTTP de la luz, 9123 por defecto.",
-      "This light's brightness with Restore default settings. Empty takes the plugin's setting.": "El brillo de esta luz con Restaurar los ajustes predeterminados. Vacío toma el ajuste del plugin.",
-      "This light's colour temperature with Restore default settings, 2900 to 7000. Empty takes the plugin's setting; 0 keeps the light's own.": "La temperatura de color de esta luz con Restaurar los ajustes predeterminados, de 2900 a 7000. Vacío toma el ajuste del plugin; 0 conserva la de la luz.",
       "Use IP address instead of hostname": "Usar la dirección IP en lugar del nombre de host",
-      "What the lights do when switched on: their last settings, or the default brightness and colour temperature below. Empty keeps the light's own setting.": "Lo que hacen las luces al encenderse: sus últimos ajustes, o el brillo y la temperatura de color predeterminados de abajo. Vacío conserva el ajuste de la luz.",
-      "What this light does when switched on. Empty takes the plugin's setting.": "Lo que hace esta luz al encenderse. Vacío toma el ajuste del plugin.",
       "Where the light answers, for example 192.168.1.50.": "Donde responde la luz, por ejemplo 192.168.1.50.",
       "Where this light answers when Bonjour does not reach it, as Add by address set it. Empty, Bonjour finds it.": "Donde responde esta luz cuando Bonjour no la alcanza, tal como lo fijó Añadir por dirección. Vacío, Bonjour la encuentra."
     },
@@ -319,10 +180,6 @@
       "Advanced": "Avançado",
       "By default, the hostname of the light is used for the connection. If this causes issues in your environment, you can enable this option to use the IP address instead.": "Por predefinição, a ligação usa o nome de anfitrião da luz. Se isso causar problemas no seu ambiente, ative esta opção para usar o endereço IP.",
       "Colour Change Duration (in milliseconds)": "Duração da mudança de cor (em milissegundos)",
-      "Default Brightness (%)": "Brilho predefinido (%)",
-      "Default Power On Brightness (in percent)": "Brilho ao ligar predefinido (em percentagem)",
-      "Default Power On Colour Temperature (in Kelvin)": "Temperatura de cor ao ligar predefinida (em kelvin)",
-      "Default Temperature (K)": "Temperatura predefinida (K)",
       "Durations": "Durações",
       "How long the lights take to fade in when switched on": "O tempo que as luzes demoram a acender gradualmente",
       "How long the lights take to fade out when switched off": "O tempo que as luzes demoram a apagar gradualmente",
@@ -335,21 +192,12 @@
       "Plugin name as shown in the logs": "Nome do plugin tal como aparece nos registos",
       "Polling Rate (in milliseconds)": "Frequência de consulta (em milissegundos)",
       "Port": "Porta",
-      "Power On Behaviour": "Comportamento ao ligar",
-      "Restore default settings": "Repor as definições predefinidas",
-      "Restore last settings used": "Repor as últimas definições usadas",
       "Switch Off Duration (in milliseconds)": "Duração ao desligar (em milissegundos)",
       "Switch On Duration (in milliseconds)": "Duração ao ligar (em milissegundos)",
-      "The brightness the lights switch on at with Restore default settings": "O brilho com que as luzes acendem com Repor as definições predefinidas",
-      "The colour temperature the lights switch on at with Restore default settings": "A temperatura de cor com que as luzes acendem com Repor as definições predefinidas",
       "The light's MAC address, which Homeswift keys lights by. Empty, Homeswift asks the light for it.": "O endereço MAC da luz, pelo qual o Homeswift identifica as luzes. Vazio, o Homeswift pede-o à luz.",
       "The polling rate for light status in milliseconds (minimum 250)": "A frequência de consulta do estado das luzes em milissegundos (250 no mínimo)",
       "The port of the light's HTTP API, 9123 by default.": "A porta da API HTTP da luz, 9123 por predefinição.",
-      "This light's brightness with Restore default settings. Empty takes the plugin's setting.": "O brilho desta luz com Repor as definições predefinidas. Vazio usa a definição do plugin.",
-      "This light's colour temperature with Restore default settings, 2900 to 7000. Empty takes the plugin's setting; 0 keeps the light's own.": "A temperatura de cor desta luz com Repor as definições predefinidas, de 2900 a 7000. Vazio usa a definição do plugin; 0 mantém a da luz.",
       "Use IP address instead of hostname": "Usar o endereço IP em vez do nome de anfitrião",
-      "What the lights do when switched on: their last settings, or the default brightness and colour temperature below. Empty keeps the light's own setting.": "O que as luzes fazem ao ligar: as últimas definições, ou o brilho e a temperatura de cor predefinidos abaixo. Vazio mantém a definição da luz.",
-      "What this light does when switched on. Empty takes the plugin's setting.": "O que esta luz faz ao ligar. Vazio usa a definição do plugin.",
       "Where the light answers, for example 192.168.1.50.": "Onde a luz responde, por exemplo 192.168.1.50.",
       "Where this light answers when Bonjour does not reach it, as Add by address set it. Empty, Bonjour finds it.": "Onde esta luz responde quando o Bonjour não a alcança, tal como Adicionar por endereço o definiu. Vazio, o Bonjour encontra-a."
     }

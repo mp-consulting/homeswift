@@ -361,6 +361,12 @@
         dangerRow(t("Forget"), answer.addLabel ? t("Deletes it and its settings for good: {plugin} cannot find it again.", { plugin })
           : t("Drops its sign-in and its settings; it is only a device {plugin} finds again.", { plugin }), forget));
 
+      // Power on: what a light does when its power comes back, its device's own or Natural Light (the bridge's), asked of
+      // the bridge once the rest is drawn; nothing for an accessory whose plugin keeps none.
+      const powerSection = section(t("Power on"), t("What it does when its power comes back, from a wall switch or after a power cut."));
+      powerSection.hidden = true;
+      api(`/api/power-on/${enc(id)}`).then((power) => powerOnRows(powerSection, power, id), () => {});
+
       // A Remote: what its Buttons and Wheels do is set on the Remotes page (its Controls), where this opens it.
       const remoteSection = fields.controls ? section(t("Its buttons"), t("What each button and wheel does is set on the Remotes page."),
         el("a", { class: "button", href: `/remotes/${enc(answer.accessory ?? accessoryID)}`, actionIcon: "remote", text: t("Set what its buttons do") })) : null;
@@ -370,6 +376,7 @@
         excluded ? el("p", { class: "settings-note", role: "note", text: t("Excluded: {plugin} makes no accessory of it. Its settings wait until it is included again.", { plugin }) }) : null,
         section(null, null, nameField, roomField),
         section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null, separate?.node ?? null, functionOf),
+        powerSection,
         energySection,
         remoteSection,
         partsSection,
@@ -382,6 +389,91 @@
       node.setAttribute("aria-busy", "true");
       await load();
     }
+  }
+
+  /// A light's Power on, as the Hue app shows it: one choice of a list, each with what it does, Natural Light first;
+  /// Custom's brightness and white unfold under it, each its light's last until set. A choice applies at once, to the
+  /// device or to the bridge's Natural Light.
+  function powerOnRows(box, power, id) {
+    const words = {
+      natural: [t("Natural light")],
+      default: [t("Default"), t("Warm white, full brightness")],
+      lastOn: [t("Last on"), t("On, in its last colour and brightness")],
+      powerLoss: [t("Power loss recovery"), t("Stays off or turns back on, as it was")],
+      off: [t("Off"), t("Stays off")],
+      custom: [t("Custom"), t("On, at the brightness and white below")],
+    };
+    // Natural Light's words say the white it gives now, which a choice may change.
+    const help = (behaviour) => behaviour === "natural"
+      ? t("As it was, on or off, in the white for the time of day: {kelvin} K now", { kelvin: power.naturalWhite ?? "–" }) : words[behaviour][1];
+    const support = power.support;
+    const offered = Object.keys(words).filter((behaviour) => support.behaviours.includes(behaviour));
+    if (!offered.length) return;
+    const state = stateNode();
+    const group = `power-on-${++ids}`;
+    const custom = power.behaviour === "custom" ? power.current ?? {} : {};
+    /// A value Custom may set, or leave as the light's last: the wall's slider (a light's fill, or its whites), dimmed
+    /// and saying so while it keeps the last; moving it sets one.
+    const setting = (label, { min, max, step = 1, start, unit, look }, value) => {
+      let chosen = value ?? undefined;
+      const keep = el("input", { type: "checkbox", checked: chosen === undefined });
+      const slider = HomeswiftWidgets.level({ label, showLabel: false, min, max, step, format: (v) => `${v} ${unit}`, ...look },
+        (v) => { chosen = v; keep.checked = false; paint(); choose("custom"); });
+      const paint = () => {
+        slider.set(chosen ?? start);
+        slider.node.classList.toggle("unset", keep.checked);
+        if (keep.checked) {
+          slider.node.querySelector(".level-text").textContent = t("Its last");
+          slider.node.setAttribute("aria-valuetext", t("Its last"));
+        }
+      };
+      keep.addEventListener("change", () => { chosen = keep.checked ? undefined : chosen ?? start; paint(); choose("custom"); });
+      paint();
+      return { get: () => keep.checked ? undefined : chosen,
+        node: el("div", { class: "field slider-field" }, el("span", { class: "field-title", text: label }), slider.node,
+          el("label", { class: "power-on-keep" }, keep, el("span", { text: t("Keep its last") }))) };
+    };
+    const level = support.brightness ? setting(t("Brightness"), { min: 1, max: 100, start: 100, unit: "%", look: { fill: HomeswiftWidgets.brightnessFill() } }, custom.brightness) : null;
+    const white = support.white ? setting(t("White"), { min: support.white[0], max: support.white[1], step: 50, start: 2700, unit: "K",
+      look: { gradient: HomeswiftWidgets.whiteTrack(support.white[0], support.white[1]) } }, custom.temperature) : null;
+    // Unfolds under Custom, its height eased (`.unfold`), out of the tab order while folded.
+    const customBox = el("div", { class: "unfold power-on-custom" }, el("div", {}, level?.node ?? null, white?.node ?? null));
+    const choices = offered.map((behaviour) => {
+      const input = el("input", { type: "radio", name: group, value: behaviour, checked: power.behaviour === behaviour });
+      const note = el("span", { class: "help", text: help(behaviour) });
+      input.addEventListener("change", () => { if (input.checked) choose(behaviour); });
+      return { behaviour, input, note, node: el("label", { class: "power-on-choice" }, input,
+        el("span", { class: "power-on-text" }, el("span", { class: "field-title", text: words[behaviour][0] }), note)) };
+    });
+    const showCustom = () => {
+      const open = (level || white) && choices.some((one) => one.behaviour === "custom" && one.input.checked);
+      customBox.classList.toggle("open", Boolean(open));
+      customBox.inert = !open;
+    };
+    const choose = async (behaviour) => {
+      showCustom();
+      setState(state, "busy", t("Saving…"));
+      const body = { behaviour };
+      if (behaviour === "custom") {
+        body.brightness = level?.get();
+        body.temperature = white?.get();
+      }
+      try {
+        power = await api(`/api/power-on/${enc(id)}`, { method: "PUT", body });
+        setState(state, "ok", t("Saved"));
+      } catch (e) {
+        setState(state, "error", e.message);
+      }
+      for (const one of choices) {
+        one.input.checked = one.behaviour === power.behaviour;
+        one.note.textContent = help(one.behaviour);
+      }
+      showCustom();
+    };
+    showCustom();
+    box.querySelector(".settings-section-head h3")?.append(" ", state);
+    box.append(el("div", { class: "power-on-choices", role: "radiogroup", "aria-label": t("Power on") }, choices.map((one) => one.node)), customBox);
+    box.hidden = false;
   }
 
   /// The editor in a side sheet, from the wall's ⋯, a plugin's Devices or Setup: its name and plugin at the top, Done

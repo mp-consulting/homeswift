@@ -145,7 +145,9 @@ final class FakeBridge: HueTransport, @unchecked Sendable {
          "signaling": ["signal_values": ["no_signal", "on_off", "on_off_color", "alternating"]],
          "gradient": ["points_capable": 5, "points": [["color": ["xy": ["x": 0.6915, "y": 0.3083]]], ["color": ["xy": ["x": 0.17, "y": 0.7]]]]]],
         ["id": "light-2", "type": "light", "owner": ["rid": "dev-2", "rtype": "device"], "on": ["on": false],
-         "dimming": ["brightness": 80.0], "color_temperature": ["mirek": 366, "mirek_valid": true, "mirek_schema": ["mirek_minimum": 153, "mirek_maximum": 454]]],
+         "dimming": ["brightness": 80.0], "color_temperature": ["mirek": 366, "mirek_valid": true, "mirek_schema": ["mirek_minimum": 153, "mirek_maximum": 454]],
+         "powerup": ["preset": "safety", "configured": true, "on": ["mode": "on", "on": ["on": true]],
+                     "dimming": ["mode": "dimming", "dimming": ["brightness": 100.0]], "color": ["mode": "color_temperature", "color_temperature": ["mirek": 366]]]],
         ["id": "zc-2", "type": "zigbee_connectivity", "owner": ["rid": "dev-2", "rtype": "device"], "status": "connected", "mac_address": "00:17:88:01:0b:aa:bb:02"],
         ["id": "room-1", "type": "room", "metadata": ["name": "Living room"], "children": [["rid": "dev-1", "rtype": "device"]],
          "services": [["rid": "group-1", "rtype": "grouped_light"]]],
@@ -1093,6 +1095,51 @@ struct HueSensorTests {
         environment.bridge.emit([["type": "update", "id": "e", "data": [["id": "light-2", "type": "light", "on": ["on": true]]]]])
         try await Task.sleep(for: .milliseconds(300))
         #expect(!host.mainBridge.server.accessories.contains { $0.id == PhilipsHuePlugin.accessoryID(lightID: "light-2") })
+        await host.stop()
+    }
+}
+
+/// Power On: what a Hue light does when its power comes back, its `powerup`, read and written for the bridge's Power On.
+@Suite(.timeLimit(.minutes(1)))
+struct HuePowerUpTests {
+    let desk = HueSnapshot.light(FakeBridge.resources.first { $0["id"] == "light-2" }!, id: "light-2", device: nil)
+
+    @Test func mapsThePowerOnToAndFromPowerUp() {
+        #expect(desk.powerUp?.powerOn == PowerOn(.default))
+        // The presets go alone; the others are custom, the light's white brought into its range (153-454 mirek).
+        #expect(HuePowerUp(PowerOn(.powerLoss), for: desk).body(for: desk) == ["powerup": ["preset": "powerfail"]])
+        #expect(HuePowerUp(PowerOn(.lastOn), for: desk).body(for: desk) == ["powerup": ["preset": "last_on_state"]])
+        #expect(HuePowerUp(PowerOn(.off), for: desk).body(for: desk) == ["powerup": ["preset": "custom", "on": ["mode": "on", "on": ["on": false]]]])
+        #expect(HuePowerUp(PowerOn(.custom, brightness: 80, temperature: 2000), for: desk).body(for: desk)
+            == ["powerup": ["preset": "custom", "on": ["mode": "on", "on": ["on": true]], "dimming": ["mode": "dimming", "dimming": ["brightness": 80]],
+                            "color": ["mode": "color_temperature", "color_temperature": ["mirek": 454]]]])
+        // Natural Light: as it was, at the white it is given.
+        let natural = HuePowerUp(PowerOn(.natural, temperature: 2700), for: desk)
+        #expect(natural.body(for: desk) == ["powerup": ["preset": "custom", "on": ["mode": "previous"], "dimming": ["mode": "previous"],
+                                                         "color": ["mode": "color_temperature", "color_temperature": ["mirek": 370]]]])
+        // Read back.
+        let read = HuePowerUp(resource: ["powerup": ["preset": "custom", "on": ["mode": "on", "on": ["on": true]],
+                                                     "dimming": ["mode": "dimming", "dimming": ["brightness": 60.0]], "color": ["mode": "color_temperature", "color_temperature": ["mirek": 250]]]])
+        #expect(read?.powerOn == PowerOn(.custom, brightness: 60, temperature: 4000))
+        #expect(HuePowerUp(resource: ["powerup": ["preset": "custom", "on": ["mode": "on", "on": ["on": false]]]])?.powerOn == PowerOn(.off))
+        #expect(HuePowerUp(resource: ["on": ["on": true]]) == nil)
+    }
+
+    /// Through the plugin: what the light can do, and a write that the next read shows.
+    @Test func setsALightsPowerOn() async throws {
+        let environment = TestEnvironment()
+        let host = try await environment.start()
+        let plugin = try #require(environment.plugin)
+        let desk = PhilipsHuePlugin.accessoryID(lightID: "light-2")
+        #expect(await eventually { await plugin.powerOnSupport(of: desk) != nil })
+        let support = try #require(await plugin.powerOnSupport(of: desk))
+        #expect(support.behaviours == [.natural, .default, .lastOn, .powerLoss, .off, .custom])
+        #expect(support.white == 2203...6536)
+        // The strip has no powerup in the fixture: none.
+        #expect(await plugin.powerOnSupport(of: PhilipsHuePlugin.accessoryID(lightID: "light-1")) == nil)
+        try await plugin.setPowerOn(PowerOn(.powerLoss), of: desk)
+        #expect(environment.bridge.sent.contains(.init(method: "PUT", path: "/clip/v2/resource/light/light-2", body: ["powerup": ["preset": "powerfail"]])))
+        #expect(try await plugin.powerOn(of: desk) == PowerOn(.powerLoss))
         await host.stop()
     }
 }
