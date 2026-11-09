@@ -72,8 +72,9 @@ extension ChildProcessTests {
         var buffer = [CChar](repeating: 0, count: 64)
         _ = confstr(Int32(_CS_GNU_LIBC_VERSION), &buffer, buffer.count)
         // "glibc 2.39"
-        let version = String(cString: buffer).split(separator: " ").last.map { $0.split(separator: ".").compactMap { Int($0) } } ?? []
-        try #require(version.count >= 2, "\(String(cString: buffer))")
+        let text = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        let version = text.split(separator: " ").last.map { $0.split(separator: ".").compactMap { Int($0) } } ?? []
+        try #require(version.count >= 2, "\(text)")
         guard (version[0], version[1]) >= (2, 34) else { return }
         #expect(ChildProcess.closesOtherDescriptorsInTheChild)
     }

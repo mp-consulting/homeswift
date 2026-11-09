@@ -396,7 +396,7 @@ extension HomeswiftCatalog {
                     return .object(object)
                 })
             }
-            let made = try JSONValue.object(fields).encoded()
+            let made = JSONValue.object(fields).encoded()
             encoded[language] = made
             return made
         }

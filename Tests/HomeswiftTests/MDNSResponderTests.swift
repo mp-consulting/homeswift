@@ -170,7 +170,7 @@ import Testing
             name: original, data: .srv(priority: 0, weight: 0, port: 40000, target: DNSName(dotted: "Other.local")), ttl: 120, cacheFlush: true)
         let answer = DNSMessage(isResponse: true, answers: [theirs]).encode()
         let peer = Self.peer, index = Self.interface.index
-        try responder.loop.submit {
+        try await responder.loop.submit { [responder] in
             let record = responder.send
             responder.send = { [weak responder] interface, destination, bytes in
                 record?(interface, destination, bytes)
@@ -178,7 +178,7 @@ import Testing
                       message.questions.contains(where: { $0.name == original }) else { return }
                 responder.loop.execute { responder.received(answer, from: peer, interface: index) }
             }
-        }.wait()
+        }.get()
         _ = try await responder.register(name: "Homeswift", port: 51826, txt: txt("1"), interfaces: [], logger: testLogger).get()
         let renamed = DNSRecord.Data.ptr(DNSName(["Homeswift (2)", "_hap", "_tcp", "local"]))
         let isRenamedAnnouncement: @Sendable (DNSMessage) -> Bool = { $0.isResponse && $0.answers.contains { $0.data == renamed } }
@@ -230,7 +230,7 @@ import Testing
         _ = wire.take()
         let query = DNSMessage(questions: [DNSQuestion(name: DNSName(dotted: "Homeswift.local"), type: DNSType.a)])
         // Five at once, in one turn of the responder's loop: well within its (scaled) second however loaded the runner.
-        try await responder.loop.submit {
+        try await responder.loop.submit { [responder] in
             for _ in 0..<5 { responder.received(query.encode(), from: Self.peer, interface: Self.interface.index) }
         }.get()
         try await Task.sleep(for: .milliseconds(200))

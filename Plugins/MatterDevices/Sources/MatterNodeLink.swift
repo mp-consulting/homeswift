@@ -142,7 +142,7 @@ actor MatterNodeLink {
             group.addTask { await self.waitForWake() }
             await group.next()
             group.cancelAll()
-            await self.cancelWake()
+            self.cancelWake()
         }
     }
 
