@@ -4080,7 +4080,7 @@
         if (now !== page) { page = now; mark(); }
       } : null;
       chrome.replaceChildren(exitButton, optionsButton,
-        ...(paged ? [previous, next, el("div", { class: "wall-dots", role: "group", "aria-label": t("Pages") }, dots)] : []));
+        ...(paged ? [previous, next, el("div", { class: "wall-dots", role: "group", "aria-label": t("Pages"), style: `--pages: ${dots.length}` }, dots)] : []));
       mark();
       if (paged) requestAnimationFrame(() => content.scrollTo({ left: page * content.clientWidth, behavior: "instant" }));
       wake();

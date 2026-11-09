@@ -5169,15 +5169,18 @@ html.wall-full:not(.wall-awake) .wall-full-chrome button { opacity: 0.32; }
 .wall-step.next { right: max(var(--space-12), env(safe-area-inset-right)); }
 .wall-step:disabled { visibility: hidden; }
 @media (hover: hover) and (pointer: fine) { .wall-step { display: grid; } }
+/* The pages' dots: a small pill of them, iOS's page control; with many pages (a home of twenty rooms) each slot narrows
+   so the pill always fits the screen (--pages, app.js). */
 .wall-dots {
+  --slot: min(16px, calc((100vw - 64px) / var(--pages, 1)));
   position: fixed; z-index: var(--layer-tabbar); left: 50%; bottom: max(var(--space-14), env(safe-area-inset-bottom)); transform: translateX(-50%);
-  display: flex; gap: 0; padding: var(--space-4) var(--space-6); border-radius: var(--radius-pill); border: 1px solid var(--edge); background: var(--material-thick);
+  display: flex; gap: 0; max-width: calc(100vw - 32px); padding: 3px var(--space-6); border-radius: var(--radius-pill); border: 1px solid var(--edge); background: var(--material-thick);
   -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur)); box-shadow: var(--shadow-control);
 }
-.wall-dots button { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; background: none; box-shadow: none; color: var(--text); }
-.wall-dots button::before { content: ""; width: 7px; height: 7px; border-radius: var(--radius-pill); background: currentColor; opacity: 0.3; transition: width 200ms var(--ease-out), opacity 200ms ease; }
-.wall-dots button[aria-current="true"] { width: 30px; }
-.wall-dots button[aria-current="true"]::before { width: 20px; opacity: 1; }
+.wall-dots button { display: grid; place-items: center; width: var(--slot); height: 18px; min-height: 0; padding: 0; border: 0; background: none; box-shadow: none; color: var(--text); }
+.wall-dots button::before { content: ""; width: min(6px, calc(var(--slot) - 4px)); height: min(6px, calc(var(--slot) - 4px)); border-radius: var(--radius-pill); background: currentColor; opacity: 0.3; transition: width 200ms var(--ease-out), opacity 200ms ease; }
+.wall-dots button[aria-current="true"] { width: calc(var(--slot) + 8px); }
+.wall-dots button[aria-current="true"]::before { width: calc(min(6px, calc(var(--slot) - 4px)) + 8px); opacity: 1; }
 html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 .wall-dots { transition: opacity 400ms ease; }
 @media (prefers-reduced-motion: reduce) {
