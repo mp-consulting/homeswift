@@ -5510,7 +5510,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .energy-battery-gauge.empty { --charge: #ff5a4f; }
 .energy-battery-gauge .cell { fill: rgba(16, 22, 30, 0.5); stroke: rgba(16, 22, 30, 0.5); stroke-width: var(--cell-round); stroke-linejoin: round; }
 .energy-battery-gauge .cell.on { fill: color-mix(in srgb, var(--charge) 80%, white); stroke: color-mix(in srgb, var(--charge) 80%, white);
-  filter: drop-shadow(0 0 3px var(--charge)) drop-shadow(0 0 8px var(--charge)); }
+  filter: drop-shadow(0 0 2px var(--charge)) drop-shadow(0 0 4px color-mix(in srgb, var(--charge) 60%, transparent)); }
 .energy-battery-gauge.charging .cell.top { animation: energy-battery-breathe 2.4s ease-in-out infinite; }
 @keyframes energy-battery-breathe { 50% { opacity: 0.62; } }
 @media (prefers-reduced-motion: reduce) { .energy-battery-gauge.charging .cell.top { animation: none; } }

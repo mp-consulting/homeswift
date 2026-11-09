@@ -50,9 +50,13 @@ public struct EnergyReport: Sendable {
         public var series: String
         public var device: String
         public var points: [(start: Date, percent: Double)]
+        /// Its device has the home's battery power too (a home battery system's unit), rather than being a battery of its
+        /// own (a portable power station): the home's charge is these ones'.
+        public var isHomeBattery = false
 
         public static func == (a: Level, b: Level) -> Bool {
-            a.series == b.series && a.device == b.device && a.points.map(\.start) == b.points.map(\.start) && a.points.map(\.percent) == b.points.map(\.percent)
+            a.series == b.series && a.device == b.device && a.isHomeBattery == b.isHomeBattery
+                && a.points.map(\.start) == b.points.map(\.start) && a.points.map(\.percent) == b.points.map(\.percent)
         }
     }
 
@@ -190,7 +194,8 @@ extension Metrics {
                                     imported: imported.contains(index))
         }
 
-        // The battery levels: a line per series, by device name.
+        // The battery levels: a line per series, by device name; the home's battery, a device with its battery power too.
+        let homeBatteries = Set(tags.values.filter { $0.role == .battery }.map(\.device))
         let levels = tags.filter { $0.value.role == .batteryLevel }.sorted { ($0.value.device, $0.key) < ($1.value.device, $1.key) }.map { series, tag in
             var steps: [Int: Values] = [:]
             for minute in charted {
@@ -200,7 +205,7 @@ extension Metrics {
             let points = steps.keys.sorted().compactMap { index in
                 steps[index]?.average.map { (start: base.addingTimeInterval(Double(index) * step), percent: $0) }
             }
-            return EnergyReport.Level(series: series, device: tag.device, points: points)
+            return EnergyReport.Level(series: series, device: tag.device, points: points, isHomeBattery: homeBatteries.contains(tag.device))
         }
 
         // The days' energy, from the closed minutes.
