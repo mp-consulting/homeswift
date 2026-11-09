@@ -990,20 +990,22 @@
       const temperature = characteristic.type === "Color Temperature";
       const min = characteristic.minValue ?? (temperature ? 140 : 0);
       const max = characteristic.maxValue ?? (temperature ? 500 : characteristic.type === "Hue" ? 360 : 100);
-      const slider = el("input", { type: "range", min, max, step: characteristic.minStep || 1,
-        value: value ?? characteristic.value ?? min, "aria-label": characteristicName(characteristic.type) });
-      const output = el("output", { class: "scene-slider-value" });
+      // The widgets' slider, coloured as the wall's: a white track in kelvin for a colour temperature (mireds run the other
+      // way), the hues for a hue, a light's fill for a brightness.
+      const W = HomeswiftWidgets;
       const format = new Intl.NumberFormat(HomeswiftI18n.numberLocale, { maximumFractionDigits: 0 });
-      const paint = () => {
-        const raw = Number(slider.value);
-        const unit = characteristic.unit === "celsius" ? " °C" : characteristic.type === "Hue" ? "°" : characteristic.unit === "percentage" || ["Brightness", "Saturation", "Rotation Speed", "Target Position", "Volume"].includes(characteristic.type) ? " %" : "";
-        const text = temperature ? `${format.format(Math.round(1000000 / raw))} K` : characteristic.unit === "celsius" ? HomeswiftCommon.formatTemperature(raw) : `${raw}${unit}`;
-        output.textContent = text;
-        slider.setAttribute("aria-valuetext", text);
-      };
-      slider.addEventListener("input", paint); paint();
-      const wrap = el("span", { class: `scene-value-slider${temperature ? " temperature" : " brightness"}` }, output, slider);
-      wrap.read = () => Number(slider.value);
+      const unit = characteristic.unit === "celsius" ? " °C" : characteristic.type === "Hue" ? "°" : characteristic.unit === "percentage" || ["Brightness", "Saturation", "Rotation Speed", "Target Position", "Volume"].includes(characteristic.type) ? " %" : "";
+      const kelvin = (mireds) => Math.round(1e6 / mireds / 50) * 50;
+      let current = Number(value ?? characteristic.value ?? min);
+      const look = temperature ? { min: kelvin(max), max: kelvin(min), step: 50, gradient: W.whiteTrack(kelvin(max), kelvin(min)), format: (k) => `${format.format(k)} K` }
+        : { min, max, step: characteristic.minStep || 1, format: (v) => characteristic.unit === "celsius" ? HomeswiftCommon.formatTemperature(v) : `${v}${unit}`,
+          gradient: characteristic.type === "Hue" ? W.hueTrack() : characteristic.type === "Saturation" ? W.saturationTrack(30) : undefined,
+          fill: characteristic.type === "Brightness" ? W.brightnessFill() : undefined };
+      const control = W.level({ label: characteristicName(characteristic.type), showLabel: false, thin: true, ...look },
+        (v) => { current = temperature ? Math.round(1e6 / v) : v; });
+      control.set(temperature ? kelvin(current) : current);
+      const wrap = el("span", { class: "scene-value-slider" }, control.node);
+      wrap.read = () => current;
       return wrap;
     }
     const labels = app.enumLabels[characteristic?.type];
@@ -1043,19 +1045,26 @@
       .map((c) => ({ ...c, type: "Light color", value: { hue: c.value, saturation: chars.find((s) => s.type === "Saturation" && s.service === c.service).value } }))];
   }
 
+  /// A light's colour as the wall's sliders pick one: its hue over the colour wheel's hues, then how much of it, over
+  /// white to that hue; a swatch shows the colour. `.read()` gives `{ hue, saturation }`.
   function colorInput(value = {}) {
-    const h = Number(value.hue || 0), sat = Number(value.saturation ?? 100) / 100;
-    const channel = (n) => { const k = (n + h / 60) % 6; return Math.round(255 * (1 - sat * Math.max(0, Math.min(k, 4 - k, 1)))).toString(16).padStart(2, "0"); };
-    const input = el("input", { type: "color", value: `#${channel(5)}${channel(3)}${channel(1)}`, "aria-label": t("Light color"), class: "scene-color-input" });
-    let selected = { hue: h, saturation: sat * 100 };
-    input.addEventListener("input", () => {
-      const [r, g, b] = [1, 3, 5].map((i) => parseInt(input.value.slice(i, i + 2), 16) / 255);
-      const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
-      const hue = d === 0 ? 0 : max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
-      selected = { hue: Math.round(hue * 60), saturation: Math.round(max === 0 ? 0 : d / max * 100) };
-    });
-    input.read = () => selected;
-    return input;
+    const W = HomeswiftWidgets;
+    const selected = { hue: Math.round(Number(value.hue || 0)), saturation: Math.round(Number(value.saturation ?? 100)) };
+    const swatch = el("span", { class: "scene-color-swatch", "aria-hidden": "true" });
+    const paint = () => {
+      swatch.style.background = `hsl(${selected.hue} ${selected.saturation}% 60%)`;
+      saturation.node.style.setProperty("--track", W.saturationTrack(selected.hue));
+    };
+    const hue = W.level({ label: t("Hue"), showLabel: false, thin: true, min: 0, max: 360, format: (v) => `${v}°`, gradient: W.hueTrack() },
+      (v) => { selected.hue = v; paint(); });
+    const saturation = W.level({ label: t("Saturation"), showLabel: false, thin: true, min: 0, max: 100, format: (v) => `${v} %`, gradient: W.saturationTrack(selected.hue) },
+      (v) => { selected.saturation = v; paint(); });
+    hue.set(selected.hue);
+    saturation.set(selected.saturation);
+    paint();
+    const node = el("span", { class: "scene-color", role: "group", "aria-label": t("Light color") }, swatch, el("span", { class: "scene-color-sliders" }, hue.node, saturation.node));
+    node.read = () => ({ ...selected });
+    return node;
   }
 
   /// An accessory and one of its characteristics, with a value input after them when `withValue`.
@@ -1401,8 +1410,15 @@
         current?.steps ? el("option", { value: "sequence", text: t("Timed sequence") }) : null,
         Object.entries(effectStyleNames).map(([value, label]) => el("option", { value, text: label })));
       style.value = current?.steps ? "sequence" : effect.style || "";
-      const speed = el("input", { type: "range", min: 0, max: 100, value: Math.round((effect.speed ?? 0.5) * 100) });
-      const brightness = el("input", { type: "range", min: 1, max: 100, value: effect.brightness ?? 80 });
+      // The wall's sliders: `.value` what they were set to, as the inputs they replace.
+      const slider = (label, min, max, start, fill) => {
+        const control = HomeswiftWidgets.level({ label, showLabel: false, thin: true, min, max, format: (v) => `${v} %`, fill }, (v) => { control.node.value = v; });
+        control.set(start);
+        control.node.value = start;
+        return control.node;
+      };
+      const speed = slider(t("Speed"), 0, 100, Math.round((effect.speed ?? 0.5) * 100));
+      const brightness = slider(t("Brightness"), 1, 100, effect.brightness ?? 80, HomeswiftWidgets.brightnessFill());
       const minutes = el("input", { type: "number", min: 1, max: 60, value: Math.round((effect.durationSeconds ?? 900) / 60) });
       const tint = el("input", { type: "checkbox", checked: !!effect.colors?.length });
       const first = colorInput(effect.colors?.[0] || { hue: 30, saturation: 100 }), second = colorInput(effect.colors?.[1] || { hue: 280, saturation: 80 });

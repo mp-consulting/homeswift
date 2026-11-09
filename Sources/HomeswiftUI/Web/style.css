@@ -5,6 +5,8 @@
    contrast. */
 :root {
   color-scheme: light dark;
+  /* Every floating round button (the Assistant's, the sections', the full-screen wall's), one size on every screen. */
+  --float-button: 54px;
   /* The backdrop: apricot at the top left to stone at the bottom right, the four stops of a 140° gradient. */
   --bg: #d8c8bf; --bg-warm: #eab08f; --bg-cool: #cfc9c6; --bg-mint: #bdbdbf;
   --backdrop: linear-gradient(140deg, var(--bg-warm) 0%, #dec4b5 30%, var(--bg-cool) 60%, var(--bg-mint) 100%);
@@ -240,12 +242,12 @@ header nav a svg { display: none; }
   header .chat-open {
     /* In the frame's bottom right corner: the frame's margin (half what the window has beyond its 1360 px), then 24. */
     --corner: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24));
-    position: fixed; right: var(--corner); bottom: calc(var(--space-24) + var(--space-24)); z-index: var(--layer-tabbar); width: 56px; height: 56px;
+    position: fixed; right: var(--corner); bottom: calc(var(--space-24) + var(--space-24)); z-index: var(--layer-tabbar); width: var(--float-button); height: var(--float-button); min-height: var(--float-button);
     background: var(--control); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
   }
   header .chat-open .sparkle { width: 36px; height: 36px; }
   html .chat { top: auto; bottom: 120px; right: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24)); height: min(740px, calc(100dvh - 160px)); transform-origin: bottom right; }
-  #app:has(.chat-open) .settings-bar { margin-right: 76px; }
+  #app:has(.chat-open) .settings-bar { margin-right: calc(var(--float-button) + var(--space-20)); }
 }
 .spacer { flex: 1; }
 /* The account button at the header's right end: the user's initial on the accent and their name, opening its menu. */
@@ -1439,6 +1441,21 @@ textarea.short { min-height: 220px; }
 .mono { font-family: var(--mono); font-size: var(--text-sm); letter-spacing: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-6); }
 .chip { padding: 3px var(--space-10); border-radius: var(--radius-pill); font-size: var(--text-sm); background: var(--material-thin); border: 1px solid var(--line); }
+/* A bridge's plugins as a cloud (app.js pluginCloud): a tag's size and weight grow with its share of the accessories
+   (--weight, 0 to 1), each tinted with a series colour. */
+.plugin-cloud { justify-content: center; align-items: center; gap: var(--space-6) var(--space-8); }
+.cloud-tag { --tag: var(--series-1); display: inline-flex; align-items: center; gap: 0.4em; font-size: calc(var(--text-xs) + var(--weight, 0) * 0.95rem); font-weight: calc(480 + var(--weight, 0) * 260);
+  padding: calc(2px + var(--weight, 0) * 5px) calc(var(--space-8) + var(--weight, 0) * 8px); line-height: 1.25;
+  color: color-mix(in srgb, var(--tag) 78%, var(--text)); background: color-mix(in srgb, var(--tag) 13%, transparent); border-color: color-mix(in srgb, var(--tag) 32%, transparent); }
+/* Its accessories, as a badge in the tag's colour. */
+.cloud-count { min-width: 1.5em; padding: 0.1em 0.45em; border-radius: var(--radius-pill); font-size: 0.72em; font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums; text-align: center; line-height: 1.3; color: #fff; background: var(--tag); }
+.cloud-tag.tone-2 { --tag: var(--series-2); }
+.cloud-tag.tone-3 { --tag: var(--series-3); }
+.cloud-tag.tone-4 { --tag: var(--series-4); }
+.cloud-tag.tone-5 { --tag: var(--series-5); }
+.cloud-tag.tone-6 { --tag: var(--series-6); }
+.cloud-tag.tone-7 { --tag: var(--series-7); }
 /* A chip with a remove button (the Matter card's ecosystems, for an administrator). */
 .chip.removable { display: inline-flex; align-items: center; gap: 2px; padding-right: 2px; }
 /* A chip's remove button stays a 22-point disc (no button minimum stretches it) with a 40-point tap around it. */
@@ -2802,7 +2819,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
   .hub-scene-actions > button::after { content: ""; position: absolute; inset: -7px -2px; }
 }
 .animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
-.animation-colours { display: flex; gap: var(--space-10); }
+.animation-colours { display: grid; gap: var(--space-12); }
 .animation-lights { display: grid; gap: var(--space-6); }
 @media (max-width: 640px) {
   .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
@@ -3894,25 +3911,13 @@ fieldset > button,
 .group-box .help + .actions { margin-top: var(--space-14); }
 fieldset > .help { margin-bottom: var(--space-10); }
 
-.scene-value-slider { display: flex; flex-direction: column; gap: var(--space-10); width: 100%; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--material-thin); }
-.scene-slider-value { align-self: flex-end; font-size: var(--text-base); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
-.scene-value-slider input[type=range] { width: 100%; min-height: 24px; padding: 0; }
-.scene-value-slider.temperature input[type=range] { background: linear-gradient(90deg, #b9d9ff, #fff5df, #ffb64c); border-radius: var(--radius-md); }
-.scene-value-slider.brightness input[type=range] { accent-color: var(--accent); }
-
-/* Color belongs to the slider track, not the surrounding input box. */
-.scene-value-slider { --scene-track: linear-gradient(90deg, #665c45, #f6d77e, #fff6d7); }
-.scene-value-slider.temperature { --scene-track: linear-gradient(90deg, #a8ceff, #e1edff, #fff4de, #ffd180, #ff9f36); }
-.scene-value-slider input[type=range],
-.scene-value-slider.temperature input[type=range] {
-  -webkit-appearance: none; appearance: none; background: transparent; border: 0; box-shadow: none;
-  height: 32px; cursor: pointer;
-}
-.scene-value-slider input[type=range]::-webkit-slider-runnable-track { height: 12px; border-radius: var(--radius-pill); background: var(--scene-track); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
-.scene-value-slider input[type=range]::-moz-range-track { height: 12px; border-radius: var(--radius-pill); background: var(--scene-track); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
-.scene-value-slider input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -6px; border-radius: 50%; border: 2px solid white; background: #fafafa; box-shadow: 0 1px 5px rgba(0,0,0,.3); }
-.scene-value-slider input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; background: #fafafa; box-shadow: 0 1px 5px rgba(0,0,0,.3); }
-.scene-value-slider input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--radius-sm); }
+/* A scene's values on the wall's sliders (home.js valueInput, colorInput): coloured as a light's, as wide as their row; a
+   colour is its swatch beside its hue and saturation. */
+.scene-value-slider { display: block; width: 100%; }
+.scene-value-slider > .level, .scene-color-sliders > .level, .animation-settings .level { width: 100%; }
+.scene-color { display: flex; align-items: center; gap: var(--space-10); width: 100%; }
+.scene-color-swatch { flex: none; width: 32px; height: 32px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--edge), var(--shadow-control); }
+.scene-color-sliders { display: grid; gap: var(--space-6); flex: 1; min-width: 0; }
 
 .dashboard-quick-actions { gap: var(--space-12) var(--space-20); flex-wrap: wrap; }
 .dashboard-quick-actions > .link { display: inline-flex; align-items: center; gap: var(--space-8); }
@@ -3942,16 +3947,16 @@ fieldset > .help { margin-bottom: var(--space-10); }
    moves it to this dock). Hidden while the app is (the sign-in screen). */
 .chat-dock { display: none; }
 @media (max-width: 640px) {
-  .chat-dock { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + 54px + var(--space-10)); display: block; }
+  .chat-dock { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--float-button) + var(--space-10)); display: block; }
   body:has(#app.hidden) .chat-dock { display: none; }
-  .chat-dock .chat-open { width: 54px; height: 54px; min-width: 54px; min-height: 54px; background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
+  .chat-dock .chat-open { width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
     -webkit-backdrop-filter: blur(20px) saturate(140%); backdrop-filter: blur(20px) saturate(140%); }
   .chat-dock .chat-open .sparkle { width: 26px; height: 26px; }
 }
 /* Compact mobile navigation, anchored within thumb reach. */
 @media (max-width: 640px) {
   .tabbar { left: auto; right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); display: block; padding: 0; border: 0; background: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .mobile-nav-toggle { display: grid; place-items: center; width: 54px; height: 54px; padding: 0; border-radius: 50%; color: var(--text); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
+  .mobile-nav-toggle { display: grid; place-items: center; width: var(--float-button); height: var(--float-button); min-height: var(--float-button); padding: 0; border-radius: 50%; color: var(--text); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
   .mobile-nav-toggle svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
   .mobile-nav-toggle[aria-expanded="true"] { color: var(--accent-ink); }
   .mobile-nav-panel { position: absolute; bottom: 66px; right: 0; width: min(240px, calc(100vw - 28px)); max-height: calc(100dvh - 150px); overflow-y: auto; padding: var(--space-8); border-radius: var(--radius); background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
@@ -4013,20 +4018,18 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { color: var(--text); background: var(--control); }
 .status-footer > .link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
 .status-footer > .link svg { width: 17px; height: 17px; }
-/* Icon only, a circle: its words stay its accessible name (its aria-label). */
-.status-footer > .link { justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; border-radius: 50%; }
+/* Icon only, a floating round button's circle: its words stay its accessible name (its aria-label). */
+.status-footer > .link { justify-content: center; width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); padding: 0; border-radius: 50%; }
 .status-footer > .link span { display: none; }
-.status-footer > .link svg { width: 19px; height: 19px; }
+.status-footer > .link svg { width: 22px; height: 22px; }
 /* On a phone, a round button stacked above the menu button (and above the Assistant's, when it is there), the same
    size, within thumb reach; its words stay its accessible name. */
 @media (max-width: 640px) {
-  .status-footer { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + 54px + var(--space-10)); margin: 0; }
-  body:has(.chat-dock) .status-footer { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 2 * (54px + var(--space-10))); }
-  .status-footer > .link { justify-content: center; width: 54px; height: 54px; min-width: 54px; min-height: 54px; padding: 0; border-radius: 50%; color: var(--text); box-shadow: var(--shadow-thick); }
-  .status-footer > .link span { display: none; }
-  .status-footer > .link svg { width: 23px; height: 23px; }
+  .status-footer { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--float-button) + var(--space-10)); margin: 0; }
+  body:has(.chat-dock) .status-footer { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 2 * (var(--float-button) + var(--space-10))); }
+  .status-footer > .link { color: var(--text); box-shadow: var(--shadow-thick); }
   /* Room at the page's end, so its last card scrolls clear of the button. */
-  #app > main:has(> .status-footer)::after { content: ""; display: block; height: calc(54px + var(--space-10)); }
+  #app > main:has(> .status-footer)::after { content: ""; display: block; height: calc(var(--float-button) + var(--space-10)); }
 }
 
 /* Homeswift: at the side menu's foot (a wide window), opening upward over it; in a phone's ☰ panel, under Account,
@@ -4097,10 +4100,11 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .mobile-nav-panel .side-about .side-about-action.accent { color: var(--accent-ink); }
 .mobile-nav-panel .side-about .side-about-action svg { width: 21px; height: 21px; }
 @media (min-width: 1180px) {
-  /* Customise floats at the window's bottom right while the page scrolls, its middle on the Assistant's button's, to its
-     left (that button sits 24 px into the frame's 28 px padding and is 56 px wide). */
-  .status-footer { bottom: calc(var(--space-24) + var(--space-24) + 10px); }
-  #app:has(.chat-open) .status-footer { padding-right: calc(56px - var(--space-4) + var(--space-16)); }
+  /* Edit floats in the window's bottom right corner as the Assistant's button does, from the same corner, stacked above
+     that button when it is there (as on a phone); the page keeps room for it at its end. */
+  .status-footer { position: fixed; right: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24)); bottom: calc(var(--space-24) + var(--space-24)); margin: 0; }
+  #app:has(.chat-open) .status-footer { bottom: calc(var(--space-24) + var(--space-24) + var(--float-button) + var(--space-10)); }
+  #app > main:has(> .status-footer)::after { content: ""; display: block; grid-column: 1 / -1; height: calc(var(--float-button) + var(--space-16)); }
 
   header .side-about { display: block; position: relative; margin-top: var(--space-16); }
   header .side-about::before { content: ""; position: absolute; top: calc(-1 * var(--space-8)); left: var(--space-8); right: var(--space-8); border-top: 1px solid var(--line); }
@@ -4923,7 +4927,6 @@ select option:disabled { color: var(--muted); }
 .appearance-card-title svg { width: 22px; height: 22px; color: var(--accent-ink); flex: none; }
 .appearance .group .menu-flag { margin-right: var(--space-6); }
 
-.scene-color-input { width: 100%; height: 64px; padding: var(--space-4); border-radius: var(--radius-md); cursor: pointer; }
 .value-slot input[role="switch"] { width: 44px; height: 28px; accent-color: var(--accent); }
 
 .template-stop-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; background: #fff; color: #222; border-radius: var(--radius-pill); display: grid; place-items: center; box-shadow: var(--shadow-control); pointer-events: none; }
@@ -5083,9 +5086,8 @@ html.wall-full #view {
   animation: wall-full-in 220ms var(--ease-out);
 }
 html.wall-full #view > :not(.accessory-walls):not(.wall-full-chrome) { display: none; }
-html.wall-full .accessory-section > .section-head { padding-right: 56px; }
-/* The graph full screen (/accessories/graph?full=1): the graph alone filling the window, its zoom at the foot and the
-   options button in the corner, both faded while nothing happens; the inspector a card over it (a sheet on a phone). */
+/* The graph full screen (/accessories/graph?full=1): the graph alone filling the window, its zoom and the full-screen
+   buttons stacked in the bottom right corner, faded while nothing happens; the inspector a card over it (a sheet on a phone). */
 html.wall-full.graph-full #view > .overview-card.graph-full-card { display: flex; }
 /* #view's entrance would make it, while it moves, the box the fixed card is laid out in: the card fades in itself. */
 html.graph-full #view { animation: none; }
@@ -5102,18 +5104,18 @@ html.graph-full #view { animation: none; }
 .graph-full-card .overview-frame { flex: 1; min-height: 0; }
 .graph-full-card .overview-graph { width: 100%; height: 100%; max-width: none; }
 .graph-full-card .overview-detail { max-height: calc(100dvh - var(--space-24) * 2); }
-/* Its zoom as a map's: round glyph buttons stacked in the bottom right corner, as the wall's corner button is drawn. */
+/* Its zoom as a map's: round glyph buttons, the wall's buttons' size, stacked in the bottom right corner above them. */
 .graph-full-card .overview-zoom {
-  position: fixed; right: max(var(--space-16), env(safe-area-inset-right)); bottom: max(var(--space-16), env(safe-area-inset-bottom)); z-index: var(--layer-tabbar);
-  flex-direction: column; flex-wrap: nowrap; gap: var(--space-8); margin: 0; transition: opacity 400ms ease;
+  position: fixed; right: var(--wall-edge); bottom: calc(var(--wall-stack) + 2 * (var(--float-button) + var(--space-10))); z-index: var(--layer-tabbar);
+  flex-direction: column; flex-wrap: nowrap; gap: var(--space-10); margin: 0; transition: opacity 400ms ease;
 }
 .graph-full-card .overview-zoom button {
-  display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 0; min-height: 0; padding: 0; gap: 0; font-size: 0; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); padding: 0; gap: 0; font-size: 0; border-radius: 50%;
   border: 1px solid var(--edge); background: var(--material-thick); box-shadow: var(--shadow-control); color: var(--text);
   -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
 }
 /* Its glyph (the button's ::before) alone in the middle: in a flex row the label's text, at no size, takes no room. */
-.graph-full-card .overview-zoom button::before { width: 20px; height: 20px; margin: 0; }
+.graph-full-card .overview-zoom button::before { width: 22px; height: 22px; margin: 0; }
 .graph-full-card .overview-zoom button:active { transform: scale(0.94); }
 html.graph-full:not(.wall-awake) .overview-zoom { opacity: 0.32; }
 @media (max-width: 640px) {
@@ -5139,19 +5141,30 @@ html.wall-full .accessory-walls.wall-pages {
 html.wall-full .accessory-walls.wall-pages::-webkit-scrollbar { display: none; }
 html.wall-full .wall-pages > .accessory-section {
   flex: 0 0 100%; min-width: 0; margin: 0; scroll-snap-align: start; scroll-snap-stop: always; overflow-y: auto; overscroll-behavior-y: contain;
-  padding: max(var(--space-24), env(safe-area-inset-top)) max(var(--space-24), env(safe-area-inset-right)) max(64px, env(safe-area-inset-bottom)) max(var(--space-24), env(safe-area-inset-left));
+  padding: max(var(--space-24), env(safe-area-inset-top)) max(var(--space-24), env(safe-area-inset-right)) calc(var(--wall-stack) + 2 * (var(--float-button) + var(--space-10))) max(var(--space-24), env(safe-area-inset-left));
 }
 .wall-full-chrome button { transition: opacity 400ms ease, transform 160ms var(--ease-out), background-color var(--fast) ease; }
 html.wall-full:not(.wall-awake) .wall-full-chrome button { opacity: 0.32; }
 .wall-full-button, .wall-step {
-  position: fixed; z-index: var(--layer-tabbar); display: grid; place-items: center; width: 44px; height: 44px; padding: 0;
+  position: fixed; z-index: var(--layer-tabbar); display: grid; place-items: center; width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); padding: 0;
   border-radius: 50%; border: 1px solid var(--edge); background: var(--material-thick); box-shadow: var(--shadow-control); color: var(--text);
   -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
 }
-.wall-full-options { top: max(var(--space-16), env(safe-area-inset-top)); right: max(var(--space-16), env(safe-area-inset-right)); }
-/* Leave full screen, to the options' left: one button's width and a gap further in. */
-.wall-full-exit { top: max(var(--space-16), env(safe-area-inset-top)); right: calc(max(var(--space-16), env(safe-area-inset-right)) + 44px + var(--space-8)); }
-.wall-full-button svg, .wall-step svg { width: 20px; height: 20px; }
+/* At the bottom right on every screen, in the thumb's reach and off the first widgets: Filters, then Leave full screen
+   above it; on a phone the Assistant's button at the bottom and these above it. The page dots sit centred on the
+   bottom button's line. */
+html.wall-full {
+  --wall-edge: max(var(--space-16), env(safe-area-inset-right)); --wall-base: max(var(--space-16), env(safe-area-inset-bottom));
+  --wall-stack: var(--wall-base);
+}
+@media (max-width: 640px) {
+  html.wall-full { --wall-edge: max(14px, env(safe-area-inset-right)); --wall-base: max(14px, env(safe-area-inset-bottom)); }
+  html.wall-full .chat-dock { right: var(--wall-edge); bottom: var(--wall-base); }
+  html.wall-full:has(.chat-dock) { --wall-stack: calc(var(--wall-base) + var(--float-button) + var(--space-10)); }
+}
+.wall-full-options { right: var(--wall-edge); bottom: var(--wall-stack); }
+.wall-full-exit { right: var(--wall-edge); bottom: calc(var(--wall-stack) + var(--float-button) + var(--space-10)); }
+.wall-full-button svg, .wall-step svg { width: 22px; height: 22px; }
 .wall-full-button:active, .wall-step:active { transform: scale(0.94); }
 /* The toolbar's panel: the search across, the grouping as a row of choices, the filters, then leaving. */
 .wall-full-panel { display: grid; gap: var(--space-16); }
@@ -5162,20 +5175,25 @@ html.wall-full:not(.wall-awake) .wall-full-chrome button { opacity: 0.32; }
 .wall-full-panel > button { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-8); }
 .wall-full-panel > button > svg { flex: none; width: 18px; height: 18px; }
 .wall-full-panel > .actions { justify-content: space-between; margin-top: var(--space-8); }
-.wall-step { top: 50%; margin-top: -22px; display: none; }
-.wall-step.previous { left: max(var(--space-12), env(safe-area-inset-left)); }
-.wall-step.next { right: max(var(--space-12), env(safe-area-inset-right)); }
+.wall-step { top: 50%; margin-top: calc(var(--float-button) / -2); display: none; }
+.wall-step.previous { left: max(var(--space-16), env(safe-area-inset-left)); }
+.wall-step.next { right: var(--wall-edge); }
 .wall-step:disabled { visibility: hidden; }
 @media (hover: hover) and (pointer: fine) { .wall-step { display: grid; } }
+/* The pages' dots: a small pill of them, iOS's page control; with many pages (a home of twenty rooms) each slot narrows
+   so the pill always fits the screen (--pages, app.js). */
 .wall-dots {
-  position: fixed; z-index: var(--layer-tabbar); left: 50%; bottom: max(var(--space-14), env(safe-area-inset-bottom)); transform: translateX(-50%);
-  display: flex; gap: 0; padding: var(--space-4) var(--space-6); border-radius: var(--radius-pill); border: 1px solid var(--edge); background: var(--material-thick);
+  /* Narrower than the window by the buttons on the right, on both sides so it stays centred. */
+  --dots-room: calc(100vw - 2 * (var(--float-button) + var(--wall-edge, 16px) + var(--space-8)));
+  --slot: min(16px, calc((var(--dots-room) - 32px) / var(--pages, 1)));
+  position: fixed; z-index: var(--layer-tabbar); left: 50%; bottom: calc(var(--wall-base, 16px) + var(--float-button) / 2 - 13px); transform: translateX(-50%);
+  display: flex; gap: 0; max-width: var(--dots-room); padding: 3px var(--space-6); border-radius: var(--radius-pill); border: 1px solid var(--edge); background: var(--material-thick);
   -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur)); box-shadow: var(--shadow-control);
 }
-.wall-dots button { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; background: none; box-shadow: none; color: var(--text); }
-.wall-dots button::before { content: ""; width: 7px; height: 7px; border-radius: var(--radius-pill); background: currentColor; opacity: 0.3; transition: width 200ms var(--ease-out), opacity 200ms ease; }
-.wall-dots button[aria-current="true"] { width: 30px; }
-.wall-dots button[aria-current="true"]::before { width: 20px; opacity: 1; }
+.wall-dots button { display: grid; place-items: center; width: var(--slot); height: 18px; min-height: 0; padding: 0; border: 0; background: none; box-shadow: none; color: var(--text); }
+.wall-dots button::before { content: ""; width: min(6px, calc(var(--slot) - 4px)); height: min(6px, calc(var(--slot) - 4px)); border-radius: var(--radius-pill); background: currentColor; opacity: 0.3; transition: width 200ms var(--ease-out), opacity 200ms ease; }
+.wall-dots button[aria-current="true"] { width: calc(var(--slot) + 8px); }
+.wall-dots button[aria-current="true"]::before { width: calc(min(6px, calc(var(--slot) - 4px)) + 8px); opacity: 1; }
 html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 .wall-dots { transition: opacity 400ms ease; }
 @media (prefers-reduced-motion: reduce) {

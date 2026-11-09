@@ -22,6 +22,20 @@
   };
 
   const height = 168, pad = { top: 10, right: 14, bottom: 24, left: 52 };
+  /// The room the value axis needs: its longest label at the ticks' size ("12.5 kWh" is wider than the usual 52px).
+  const labelRoom = (labels) => Math.max(pad.left, Math.ceil(Math.max(0, ...labels.map((label) => label.length)) * 6.4) + 14);
+
+  /// Draws a chart again when its frame's width changes: from its first time on the page (a chart is often built before
+  /// it is put there, at the smallest width) until a page shown in its place takes it out.
+  function redrawOnResize(frame, draw, drawnWidth) {
+    let placed = false;
+    const resize = new ResizeObserver(() => {
+      if (!frame.isConnected) { if (placed) resize.disconnect(); return; }
+      placed = true;
+      if (frame.clientWidth && Math.abs(frame.clientWidth - drawnWidth()) > 1) draw();
+    });
+    resize.observe(frame);
+  }
 
   /// The highest tick at or above `max`, over four steps of 1, 2, 2.5 or 5 times a power of ten of `unit` (bytes
   /// step in whole megabytes).
@@ -117,7 +131,7 @@
     function draw() {
       const width = Math.max(frame.clientWidth, 240);
       const { points, from, to, step } = state;
-      const plotWidth = width - pad.left - pad.right, plotHeight = height - pad.top - pad.bottom;
+      const plotHeight = height - pad.top - pad.bottom;
       const values = points.flatMap((point) => series.map((one) => one.value(point))).filter((v) => v != null);
       const highest = Math.max(0, ...values), lowest = Math.min(0, ...values);
       // From zero to four round steps up; with values below zero, round steps from below the lowest to above the highest.
@@ -140,16 +154,17 @@
         for (let value = bottom; value <= top + step / 2; value += step) ticks.push(value);
       }
       const scale = Math.max(top, -bottom);
-      const x = (time) => pad.left + (time - from) / Math.max(to - from, 1) * plotWidth;
+      const tickText = axisLabels(ticks, format, scale);
+      const left = labelRoom(tickText), plotWidth = width - left - pad.right;
+      const x = (time) => left + (time - from) / Math.max(to - from, 1) * plotWidth;
       const y = (value) => pad.top + plotHeight - (value - bottom) / (top - bottom) * plotHeight;
 
       const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": points.length ? t("{title}, drawn over time", { title }) : t("{title}, nothing recorded", { title }) });
       root.setAttribute("tabindex", "0");
-      const tickText = axisLabels(ticks, format, scale);
       ticks.forEach((value, index) => {
         const at = y(value);
-        root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
-        const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
+        root.append(svg("line", { x1: left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
+        const label = svg("text", { x: left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
         label.textContent = tickText[index];
         root.append(label);
       });
@@ -188,7 +203,7 @@
         if (end) root.append(svg("circle", { cx: x(end.time), cy: y(one.value(end)), r: 4, class: `dot tone-${one.tone}` }));
       }
       if (!points.length) {
-        const empty = svg("text", { x: pad.left + plotWidth / 2, y: pad.top + plotHeight / 2, class: "tick", "text-anchor": "middle" });
+        const empty = svg("text", { x: left + plotWidth / 2, y: pad.top + plotHeight / 2, class: "tick", "text-anchor": "middle" });
         empty.textContent = t("Nothing recorded in this range");
         root.append(empty);
       }
@@ -246,12 +261,7 @@
       if (chosen != null && chosen < points.length && document.activeElement === root) show(chosen);
     }
 
-    // A page shown in its place takes the chart out of the document: it stops watching then.
-    const resize = new ResizeObserver(() => {
-      if (!frame.isConnected) { resize.disconnect(); return; }
-      if (frame.clientWidth && Math.abs(frame.clientWidth - (drawn ? Number(drawn.root.getAttribute("width")) : 0)) > 1) draw();
-    });
-    resize.observe(frame);
+    redrawOnResize(frame, draw, () => drawn ? Number(drawn.root.getAttribute("width")) : 0);
     draw();
     showLatest(points);
     return {
@@ -295,7 +305,7 @@
     function draw() {
       const width = Math.max(frame.clientWidth, 240);
       const bars = state;
-      const plotWidth = width - pad.left - pad.right, plotHeight = height - pad.top - pad.bottom;
+      const plotHeight = height - pad.top - pad.bottom;
       const known = bars.map((bar) => segments.map((one) => one.value(bar.values)));
       const sums = known.map((values) => values.map((value) => value ?? 0));
       const highest = Math.max(0, usual?.high ?? 0, ...sums.map((list) => list.filter((v) => v > 0).reduce((a, b) => a + b, 0)));
@@ -304,18 +314,20 @@
       const step = niceStep((highest - lowest) / 5 || 1, unit(size));
       const top = Math.max(lowest < 0 ? 0 : step, Math.ceil(highest / step) * step), bottom = Math.floor(lowest / step) * step;
       const y = (value) => pad.top + plotHeight - (value - bottom) / Math.max(top - bottom, 1e-9) * plotHeight;
-      const slot = plotWidth / Math.max(bars.length, 1), barWidth = Math.min(24, slot * 0.6);
-      const x = (index) => pad.left + slot * index + slot / 2;
-
-      const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": hourly ? t("{title}, a bar per hour", { title }) : t("{title}, a bar per day", { title }) });
-      root.setAttribute("tabindex", "0");
       const ticks = [];
       for (let value = bottom; value <= top + step / 2; value += step) ticks.push(value);
       const tickText = axisLabels(ticks, format, size);
+      const left = labelRoom(tickText), plotWidth = width - left - pad.right;
+      // Bars too narrow for a gap between them (months of days) touch, as one area, rather than read as hatching.
+      const slot = plotWidth / Math.max(bars.length, 1), barWidth = slot < 6 ? slot : Math.min(24, slot * 0.6);
+      const x = (index) => left + slot * index + slot / 2;
+
+      const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": hourly ? t("{title}, a bar per hour", { title }) : t("{title}, a bar per day", { title }) });
+      root.setAttribute("tabindex", "0");
       ticks.forEach((value, index) => {
         const at = y(value);
-        root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
-        const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
+        root.append(svg("line", { x1: left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
+        const label = svg("text", { x: left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
         label.textContent = tickText[index];
         root.append(label);
       });
@@ -323,7 +335,7 @@
       root.append(hover);
       // The usual range behind the bars, across the plot.
       if (usual && usual.high > usual.low) {
-        root.append(svg("rect", { x: pad.left, width: plotWidth, y: y(usual.high), height: Math.max(2, y(usual.low) - y(usual.high)), rx: 4, class: "chart-band" }));
+        root.append(svg("rect", { x: left, width: plotWidth, y: y(usual.high), height: Math.max(2, y(usual.low) - y(usual.high)), rx: 4, class: "chart-band" }));
       }
       // Segments stack out from the baseline with a 2px gap between them; the outermost on each side has 4px
       // rounded corners at its free end, square at the baseline.
@@ -355,9 +367,10 @@
             : `M${left},${top}V${bottom - r}Q${left},${bottom} ${left + r},${bottom}H${left + barWidth - r}Q${left + barWidth},${bottom} ${left + barWidth},${bottom - r}V${top}Z`;
           root.append(svg("path", { d, class: `bar tone-${part.one.tone}` }));
         }
-        // Bars too narrow for every label (a month's days on a phone) label one in `every`, the last always.
+        // Bars too narrow for every label (a month's days on a phone) label one in `every`, counted back from the last,
+        // which is always labelled, so no two labels crowd each other at the end.
         const every = slot < 24 ? Math.ceil(24 / slot) : 1;
-        if (index % every !== 0 && index !== bars.length - 1) return;
+        if ((bars.length - 1 - index) % every !== 0) return;
         const label = svg("text", { x: x(index), y: height - 6, class: bar.current ? "tick current" : "tick", "text-anchor": "middle" });
         // A bar given a narrow label ("" for one to leave bare) shows only that one under a narrow slot.
         label.textContent = slot < 64 && bar.narrow != null ? bar.narrow : bar.label;
@@ -383,7 +396,7 @@
         const px = x(index), left = px + slot / 2 + 8 + tooltip.offsetWidth > width ? px - slot / 2 - 8 - tooltip.offsetWidth : px + slot / 2 + 8;
         tooltip.style.left = `${Math.max(0, left)}px`;
       };
-      const nearest = (clientX) => bars.length ? Math.min(bars.length - 1, Math.max(0, Math.floor((clientX - root.getBoundingClientRect().left - pad.left) / slot))) : null;
+      const nearest = (clientX) => bars.length ? Math.min(bars.length - 1, Math.max(0, Math.floor((clientX - root.getBoundingClientRect().left - left) / slot))) : null;
       root.addEventListener("pointermove", (event) => show(nearest(event.clientX)));
       root.addEventListener("pointerleave", () => { if (document.activeElement !== root) show(null); });
       root.addEventListener("blur", () => show(null));
@@ -396,11 +409,7 @@
       });
     }
 
-    const resize = new ResizeObserver(() => {
-      if (!frame.isConnected) { resize.disconnect(); return; }
-      if (frame.clientWidth && Math.abs(frame.clientWidth - (drawn ? Number(drawn.root.getAttribute("width")) : 0)) > 1) draw();
-    });
-    resize.observe(frame);
+    redrawOnResize(frame, draw, () => drawn ? Number(drawn.root.getAttribute("width")) : 0);
     draw();
     return { update(bars, band) { state = bars; if (band !== undefined) usual = band; chosen = null; tooltip.classList.add("hidden"); draw(); } };
   }
@@ -490,11 +499,7 @@
         return item;
       }));
     }
-    const resize = new ResizeObserver(() => {
-      if (!frame.isConnected) { resize.disconnect(); return; }
-      if (frame.clientWidth && Math.abs(frame.clientWidth - drawn) > 1) draw();
-    });
-    resize.observe(frame);
+    redrawOnResize(frame, draw, () => drawn);
     draw();
     return { update(spans, from, to) { state = { spans, from, to }; chosen = null; tooltip.classList.add("hidden"); draw(); } };
   }
