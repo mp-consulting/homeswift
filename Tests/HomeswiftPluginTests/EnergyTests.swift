@@ -68,17 +68,22 @@ struct EnergyTests {
         metrics.tag("plugin:Test:solar", EnergyTag(role: .solar, device: "Roof"))
         metrics.tag("plugin:Test:grid", EnergyTag(role: .grid, device: "Meter"))
         metrics.tag("plugin:Test:level", EnergyTag(role: .batteryLevel, device: "Pack"))
-        record(metrics, clock, minutes: 30, ["plugin:Test:solar": 2000, "plugin:Test:grid": -1000, "plugin:Test:level": 50])
+        // A home battery (its power is the home's battery) and a portable power station (only its level).
+        metrics.tag("plugin:Test:battery", EnergyTag(role: .battery, device: "Pack"))
+        metrics.tag("plugin:Test:river", EnergyTag(role: .batteryLevel, device: "River"))
+        record(metrics, clock, minutes: 30, ["plugin:Test:solar": 2000, "plugin:Test:grid": -1000, "plugin:Test:level": 50, "plugin:Test:battery": 0,
+                                             "plugin:Test:river": 99])
         // A minute under way: charted, not yet counted in the day.
         metrics.record(4000, series: "plugin:Test:solar")
 
         let report = metrics.energy(from: start, to: start.addingTimeInterval(3600), points: 60, days: 3, timeZone: utc)
-        #expect(report.roles == [.solar, .grid, .batteryLevel])
+        #expect(report.roles == [.solar, .grid, .battery, .batteryLevel])
         #expect(report.step == 60)
         #expect(report.power.count == 31)
-        #expect(report.power.first?.watts == [.solar: 2000, .grid: -1000])
+        #expect(report.power.first?.watts == [.solar: 2000, .grid: -1000, .battery: 0])
         #expect(report.power.last?.watts[.solar] == 4000)
-        #expect(report.levels.map(\.device) == ["Pack"])
+        #expect(report.levels.map(\.device) == ["Pack", "River"])
+        #expect(report.levels.map(\.isHomeBattery) == [true, false])
         #expect(report.levels.first?.points.count == 30)
 
         #expect(report.days.map(\.start) == [start.addingTimeInterval(-8 * 3600), start.addingTimeInterval(-32 * 3600), start.addingTimeInterval(-56 * 3600)])

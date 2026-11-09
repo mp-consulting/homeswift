@@ -13138,9 +13138,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // Now is the live reading when there is one (the minute under way, asked every few seconds), else the report's last.
       const now = live?.power.length ? live : report;
       const last = now.power.findLast((point) => !point.imported);
-      const level = now.levels.length
-        ? now.levels.map((one) => one.points.at(-1)?.[1]).filter((value) => value != null).reduce((sum, value, _, all) => sum + value / all.length, 0)
-        : null;
+      // The home battery's charge: its units' latest levels averaged, a portable power station's left out (`home`, a device
+      // with the home's battery power too); every battery's when none says so.
+      const ofHome = now.levels.filter((one) => one.home);
+      const latest = (ofHome.length ? ofHome : now.levels).map((one) => one.points.at(-1)?.[1]).filter((value) => value != null);
+      const level = latest.length ? latest.reduce((sum, value) => sum + value, 0) / latest.length : null;
       const isLive = state.view === "house" || state.span === "now";
       spans.hidden = state.view === "house";
       frame.classList.toggle("diagram", state.view === "diagram");

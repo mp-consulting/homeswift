@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows
 - **Energy**: the battery gauge on the house picture showed more than the battery's charge: its top cell was lit
   whole, only dimmer, so 61 % looked like four cells of five, and on a small picture the cells' glow ran together. The top
   cell now fills only to its share, and the cells stay apart.
+- **Energy**: the house's battery charge averaged every battery the bridge records, a portable power station's too
+  (an EcoFlow River's 99 % with the STREAM system's 27 %). It is now the home battery's alone: the units whose power is the
+  home's battery. The Battery level chart still shows each device's.
 
 ## [0.27.0] - 2026-11-09
 
