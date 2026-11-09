@@ -324,8 +324,6 @@ struct EcoFlowHistoryTests {
         }
         defer { observation.cancel() }
         let plugin = try #require(environment.plugin)
-        let context = try #require(host.context(platform: EcoFlowPlugin.platform, name: EcoFlowPlugin.name))
-        let file = context.jsonFile(EcoFlowPlugin.historyFile, as: EcoFlowPlugin.HistoryState.self)
         let cloud = FakeCloud()
         #expect(await plugin.importHistory(EcoFlowHistory(email: "me@example.test", password: "secret", transport: cloud), serial: "BK11", now: local("2026-10-02 12:30:00")))
         #expect((await plugin.historyStatus).serial == "BK11")
@@ -464,8 +462,6 @@ struct EcoFlowHistoryTests {
         let host = try await environment.start()
         defer { Task { await host.stop() } }
         let plugin = try #require(environment.plugin)
-        let context = try #require(host.context(platform: EcoFlowPlugin.platform, name: EcoFlowPlugin.name))
-        let file = context.jsonFile(EcoFlowPlugin.historyFile, as: EcoFlowPlugin.HistoryState.self)
         var history = EcoFlowHistory(email: "me@example.test", password: "secret", transport: FakeCloud(twoWay: false))
         history.retryDelays = []
         for _ in 0..<EcoFlowPlugin.historyRefusals {

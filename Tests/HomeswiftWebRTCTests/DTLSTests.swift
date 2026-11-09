@@ -210,6 +210,34 @@ import Glibc
         await server.close()
     }
 
+    /// A peer that lost this side's last flight sends its own again, in as many datagrams as it took: that flight is
+    /// answered once, not once per datagram. OpenSSL counts each repeated client Finished against its 12 timeouts, and
+    /// a flight answered per datagram ran a loaded handshake past them.
+    @Test func aRepeatedFlightIsAnsweredOnce() async throws {
+        let clientCertificate = try DTLSCertificate.generate(), serverCertificate = try DTLSCertificate.generate()
+        let (a, b) = MemoryPipe.pair(dropFromA: [], dropFromB: [])
+        // A small MTU cuts the client's last flight into several datagrams; no timer fires during the test.
+        let client = DTLSTransport(role: .client, certificate: clientCertificate, remoteFingerprint: serverCertificate.fingerprint, transport: a,
+                                   mtu: 150, retransmitTimeout: .seconds(600))
+        let server = DTLSTransport(role: .server, certificate: serverCertificate, remoteFingerprint: clientCertificate.fingerprint, transport: b,
+                                   mtu: 150, retransmitTimeout: .seconds(600))
+        async let serverKeys = server.handshake(timeout: .seconds(20))
+        let clientKeys = try await client.handshake(timeout: .seconds(20))
+        #expect(try await serverKeys.material == clientKeys.material)
+        // ClientHello, ClientHello with the cookie, then the last flight.
+        let lastFlight = Array(a.datagrams.dropFirst(2))
+        #expect(lastFlight.count > 2)
+        let answered = b.sent
+        for datagram in lastFlight { a.deliver(datagram) }
+        // Datagrams are read in order: once this one arrives, every repeated one has been answered.
+        try await client.send(application: Array("after".utf8))
+        var iterator = server.received.makeAsyncIterator()
+        #expect(await iterator.next() == Array("after".utf8))
+        #expect(b.sent == answered + 1)
+        await client.close()
+        await server.close()
+    }
+
     @Test func applicationDataIsAtMostOneTLSRecord() async throws {
         let (a, b) = MemoryPipe.pair(dropFromA: [], dropFromB: [])
         let (client, server) = try await Self.connect(a, b)
@@ -489,12 +517,18 @@ final class MemoryPipe: DatagramTransport, @unchecked Sendable {
     private var largestDatagram = 0
     private var holding: [CheckedContinuation<Void, Never>] = []
     private var released = false
+    private var sentDatagrams: [[UInt8]] = []
 
     var sent: Int { lock.withLock { count } }
     var dropped: Int { lock.withLock { droppedCount } }
     var largest: Int { lock.withLock { largestDatagram } }
     /// Sends suspended by `hold` until `release()`.
     var held: Int { lock.withLock { holding.count } }
+    /// Every datagram sent, lost ones too.
+    var datagrams: [[UInt8]] { lock.withLock { sentDatagrams } }
+
+    /// Hands the peer a datagram as if this side sent it again, outside the counts.
+    func deliver(_ datagram: [UInt8]) { peer?.continuation.yield(datagram) }
 
     private init(drop: Set<Int>, inject: [Int: [UInt8]] = [:], hold: Set<Int> = []) {
         self.drop = drop
@@ -523,6 +557,7 @@ final class MemoryPipe: DatagramTransport, @unchecked Sendable {
     func send(_ datagram: [UInt8]) async throws {
         let (deliver, injected, suspend) = lock.withLock {
             defer { count += 1 }
+            sentDatagrams.append(datagram)
             largestDatagram = max(largestDatagram, datagram.count)
             let suspend = hold.contains(count) && !released
             if drop.contains(count) { droppedCount += 1; return (false, inject[count], suspend) }
