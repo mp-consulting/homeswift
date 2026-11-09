@@ -16,7 +16,7 @@ All notable changes to this project are documented here. The format follows
   cell now fills only to its share, and the cells stay apart.
 - **Energy**: the house's battery charge averaged every battery the bridge records, a portable power station's too
   (an EcoFlow River's 99 % with the STREAM system's 27 %). It is now the home battery's alone: the units whose power is the
-  home's battery. The Battery level chart still shows each device's.
+  home's battery, on the house and on the Status page's battery tile. The Battery level chart still shows each device's.
 
 ## [0.27.0] - 2026-11-09
 

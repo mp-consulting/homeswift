@@ -200,10 +200,8 @@
       // Now is the live reading when there is one (the minute under way, asked every few seconds), else the report's last.
       const now = live?.power.length ? live : report;
       const last = now.power.findLast((point) => !point.imported);
-      // The home battery's charge: its units' latest levels averaged, a portable power station's left out (`home`, a device
-      // with the home's battery power too); every battery's when none says so.
-      const ofHome = now.levels.filter((one) => one.home);
-      const latest = (ofHome.length ? ofHome : now.levels).map((one) => one.points.at(-1)?.[1]).filter((value) => value != null);
+      // The home battery's charge: its units' latest levels averaged.
+      const latest = homeLevels(now.levels).map((one) => one.level);
       const level = latest.length ? latest.reduce((sum, value) => sum + value, 0) / latest.length : null;
       const isLive = state.view === "house" || state.span === "now";
       spans.hidden = state.view === "house";
@@ -455,11 +453,12 @@
         style: `--cell-round: ${round.toFixed(2)}px` },
         quads.flatMap((quad, index) => {
           const share = lit(index);
+          const dark = () => svg("polygon", { class: "cell", points: points(quad) });
+          if (share <= 0) return [dark()];
           const on = svg("polygon", { class: `cell on${index === top ? " top" : ""}`,
             points: points(share >= 1 ? quad : [quad[0], quad[1], along(quad[1], quad[2], share), along(quad[0], quad[3], share)]) });
           // The top cell in part: dark, its lit share from its bottom edge over it.
-          const dark = share < 1 ? svg("polygon", { class: "cell", points: points(quad) }) : null;
-          return share <= 0 ? [dark] : [dark, on];
+          return share < 1 ? [dark(), on] : [on];
         }))];
     }
 
@@ -746,5 +745,12 @@
     };
   }
 
-  window.HomeswiftEnergyFlow = { card, split, solarPanels };
+  /// The home battery's units with their latest level: those whose device has the home's battery power too (`home`), a
+  /// portable power station left out; every battery when none says so. The house's charge and the Status page's tile.
+  function homeLevels(levels = []) {
+    const ofHome = levels.filter((one) => one.home);
+    return (ofHome.length ? ofHome : levels).map((one) => ({ device: one.device, level: one.points.at(-1)?.[1] })).filter((one) => one.level != null);
+  }
+
+  window.HomeswiftEnergyFlow = { card, split, solarPanels, homeLevels };
 })();
