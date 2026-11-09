@@ -32,6 +32,10 @@ final class TestEnvironment: Sendable {
     let node: MatterNode
     let bridge: MatterBridge
     let commands = NIOLockedValueBox<[DeviceCommand]>([])
+    /// The Thread prefix the host has no route to, as `HostRoutes` would find it; nil for none.
+    let missingRoute = NIOLockedValueBox<String?>(nil)
+    /// The node's address no longer reached (its host has no route to it).
+    let unreachable = NIOLockedValueBox(false)
     private let plugins = NIOLockedValueBox<[MatterDevicesPlugin]>([])
     var plugin: MatterDevicesPlugin? { plugins.withLockedValue { $0.last } }
     static let pairingCode = "34970112332"
@@ -49,7 +53,7 @@ final class TestEnvironment: Sendable {
 
     func start(settings: [String: Any] = [:]) async throws -> PluginHost {
         var registry = PluginRegistry()
-        let network = network, discovery = discovery, trustStore = trustStore
+        let network = network, discovery = discovery, trustStore = trustStore, missingRoute = missingRoute, unreachable = unreachable
         registry.register(platform: MatterDevicesPlugin.platform, name: MatterDevicesPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(MatterDevicesPlugin.Configuration.self, from: json)
             var timing = MatterNodeLink.Timing()
@@ -60,8 +64,12 @@ final class TestEnvironment: Sendable {
             timing.maxInterval = 2
             let dependencies = MatterDevicesPlugin.Dependencies(
                 transport: { await network.transport(named: "homeswift-\(UUID().uuidString)") }, discovery: discovery,
-                peer: { .memory($0.host) }, timing: timing,
-                windowSearch: .milliseconds(100), reliability: ReliabilityParameters(timeScale: 0.2), trustStore: trustStore)
+                peer: { address in
+                    if unreachable.withLockedValue({ $0 }) { throw MatterLinkError("no route to host") }
+                    return .memory(address.host)
+                }, timing: timing,
+                windowSearch: .milliseconds(100), reliability: ReliabilityParameters(timeScale: 0.2), trustStore: trustStore,
+                missingRoute: { _ in missingRoute.withLockedValue { $0 } })
             let plugin = MatterDevicesPlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
@@ -290,6 +298,22 @@ struct MatterDevicesTests {
             try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["trust": "cancel"], state: state))
         }
         #expect(await environment.node.fabrics.count == 0)
+        await host.stop()
+    }
+
+    /// A device it has that stops answering, on a host with no route to its Thread network: the host's routes to blame.
+    @Test func aDeviceOutOfRouteSaysSo() async throws {
+        let environment = try await TestEnvironment()
+        _ = try await environment.bridge.add(BridgedDeviceInfo(id: "lamp", name: "Desk lamp"), kind: .dimmableLight, handler: environment.recordCommands())
+        var host = try await environment.start()
+        let deviceID = try await environment.addNode(host)
+        await host.stop()
+        environment.missingRoute.withLockedValue { $0 = "fd12:3456:789a::/64" }
+        environment.unreachable.withLockedValue { $0 = true }
+        host = try await environment.start()
+        let said = await eventually { await environment.plugin?.nodes[deviceID]?.link.snapshot.error?.contains("no route to its Thread network (fd12:3456:789a::/64)") == true }
+        let snapshot = await environment.plugin?.nodes[deviceID]?.link.snapshot
+        #expect(said, "\(String(describing: snapshot))")
         await host.stop()
     }
 
