@@ -143,12 +143,27 @@ struct EcoFlowHistory: Sendable {
                 await schemas.record(schema, problems: schema.problems(in: data))
                 for way in chart2.ways { add(Self.points(data, format: format, extra: way.extra), to: way.field) }
             }
-            let batch = hours.keys.sorted().map { EnergyHourImport(start: $0, flows: hours[$0]!) }
+            let batch = hours.keys.sorted().map { EnergyHourImport(start: $0, flows: Self.balanced(hours[$0]!)) }
             all += batch
             await report(Month(hours: batch, serial: serial, start: start, next: months.indices.contains(index + 1) ? months[index + 1] : nil,
                                done: index + 1, total: months.count, twoWay: twoWay))
         }
         return all
+    }
+
+    /// An hour's flows with the home's use from their balance, where the system's grid and battery charts have the hour:
+    /// solar + grid import - grid export + battery discharge - battery charge, as the live readings balance
+    /// (`powGetSysLoad` = `powGetPvSum` + `powGetSysGrid` - `powGetBpCms`). The Space dashboard's home chart is not the
+    /// home's use on a system with a smart meter: on the author's STREAM system with a Shelly Pro 3EM it is the grid
+    /// import (192.5 kWh against 192.6 kWh in a week that also had 71 kWh of solar), the meter's figure. Without the
+    /// grid and the battery, the chart's figure stays: it is all there is.
+    static func balanced(_ flows: EnergyFlows) -> EnergyFlows {
+        guard let solar = flows.solar, flows.gridImport != nil || flows.gridExport != nil,
+              flows.batteryCharge != nil || flows.batteryDischarge != nil else { return flows }
+        var balanced = flows
+        let home = solar + (flows.gridImport ?? 0) - (flows.gridExport ?? 0) + (flows.batteryDischarge ?? 0) - (flows.batteryCharge ?? 0)
+        balanced.home = max(home, 0)
+        return balanced
     }
 
     /// "2026-10-26 13:00:00", local to the space.

@@ -46,7 +46,7 @@ left: the sections under **Home**; under **You** the account menu's entries (**A
 administrators, **Language**, **Sign out**), each with its icon, in place of the account button; and at its foot
 **Homeswift** and its version, folded, which opens upward over the menu (a click outside closes it) into its health, the machine, the update button, **Send feedback**
 and **Restart homeswift…** (administrators). Narrower, the account menu has them; on a phone, the ☰ panel, under
-Account. The Status page keeps only **Customise this page…**, floating at the window's bottom right. Every view is an address ([Addresses](#addresses)), so Back and Forward work and a view can be kept or
+Account. The Status page keeps only **Edit**, floating at the window's bottom right. Every view is an address ([Addresses](#addresses)), so Back and Forward work and a view can be kept or
 shared.
 
 ### Status
@@ -78,7 +78,11 @@ The start page: a summary (accessories, plugins, Home app controllers, uptime), 
   config.json still holds, then what needs attention, most pressing first (a reference to an entry that is gone, one
   that cannot read its entry, an entry expired or expiring within 30 days), and **Open the vault**.
 - **Energy**, once a plugin records readings with an energy role (`EnergyTag`, docs/plugins.md) or some Meter has a
-  history. See [Energy](#energy) below.
+  history, in units the edit mode moves, removes and adds back one by one: Energy flow, The big picture, Energy by day,
+  Where it goes, Worth knowing, Energy log, Consumption by device, Gas and water, Power and battery levels. On a wide
+  screen Energy by day and Where it goes, then Worth knowing and the Energy log, sit two to a row. A layout saved before
+  keeps them where its Energy section was. See [Energy](#energy) below. **Activity** is in units too: its title with the
+  range and the server, then Memory, CPU, Home app requests and Plugin device calls, two to a row on a wide screen.
 - **System**: the version, uptime, machine and configuration file, and, for administrators, **Restart homeswift…**,
   Settings and Notifications.
 
@@ -91,13 +95,42 @@ side menu's, or the footer's) follows it (**Install update**, **Installing…**,
 or a `brew upgrade` run by hand). A Synology package, a container and a checkout cannot upgrade themselves: their card
 says how. Settings › Updates has the same card.
 
-**Customise this page**, at the bottom, opens a menu with a switch per section (overview, digest, activity, energy,
-bridges, system) and drag handles to reorder them. Changes apply at once; the layout is each user's own, on every
-browser. The Quick Controls ([below](#quick-controls)) sit at the top of the page.
+**Edit**, at the bottom right, or a long press on a section away from its controls, turns the page into its edit mode,
+as iOS's Control Center: the sections sway gently (with reduced motion, a dashed outline instead), each with a **−**
+badge at its top left that removes it, its name beside it, and a handle at its top right. A section is dragged anywhere on it into place
+(the others slide out of the way, the page scrolls at the window's edges), or moved with the arrow keys on its handle.
+A floating bar has **Add a section**, the sheet **Sections and widgets**, by group (Home, Energy, Energy widgets,
+Activity, Bridge and system), each folded under its title until opened (the choice kept in the browser) and saying how
+many of its items are on the page: those not shown first, each
+with a green **+**, then those on the page, ticked, each with a red **−**, every row with a thumbnail of what it draws and a line saying what it shows (the **Energy widgets** are Power now, Today
+against usual, Self-powered today, Solar today, Batteries, Energy cost this month, Best hours today); **Back to the
+usual layout**; and **Done** (or Escape). The widgets go to **At a glance**, a tile each with its figure, a line and a
+thin meter, refreshed every minute. In the edit mode each widget has its own **−**, a button at its corner that makes it
+wide or small (`<id>--wide` in `widgets`), and moves by dragging it among the others (or with the arrow keys on it); a
+tile opens the Energy page. **Best hours today** draws the day as 24 hours: yellow where the panels usually cover the
+home (the last week's hours, on average), blue and orange for the electricity Tariff's cheapest and dearest hours when
+it has more than one price, and the best window of the best kind.
+Changes apply at once; the layout (`dashboard`: `order`, `hidden` and `widgets` in `/api/preferences`) is each user's
+own, on every browser. The Quick Controls ([below](#quick-controls)) sit at the top of the page.
 
 #### Energy
 
-![The Energy section: power and battery charts over a day, and each day's energy](images/status/energy.png)
+The **Energy** page (`/energy`, in the side menu and the phone's sections once some plugin records energy or a Meter
+has figures) has the whole story, where Status keeps a glance (its Energy title leads there):
+
+- **Overview**: the Energy section's units below, in the user's order; **Edit**, at the bottom right, edits them as the
+  Status page's edit mode does (the layout is `energyPage` in `/api/preferences`, apart from Status's).
+- **By accessory** (`/energy/devices?period=day|week|month|year&sort=used|cost|name&device=…`): the home split between the
+  devices measured on their own and Unmetered, then a row per device (its days as small bars, a bar of its share of the
+  most, its kWh, share and cost), Unmetered and the Meters with no readings last, and the sources apart under the list. A
+  row opens its panel: its figures, when it used energy this week hour by hour (a cell per hour, a row per day), where
+  most of its use falls, and **Full history**.
+- **Energy log** (`/energy/log?days=2|7|14&q=…`): what stands out over the span, then what happened by day, searchable
+  and by kind.
+
+On Status, Energy flow and The big picture show by default; the other units are added from the edit mode.
+
+![The Energy page's Overview: the house with its details, the big picture's tiles, each day with a usual day shaded, where the energy goes, consumption by device, and gas and water](images/status/energy.png)
 
 - **Energy flow**: where the power goes, followed live (the last minutes asked every ten seconds while the page is
   visible; the bridge counts the minute under way). On top, the **House**: a cutaway picture in the viewer's House
@@ -109,26 +142,50 @@ browser. The Quick Controls ([below](#quick-controls)) sit at the top of the pag
   them, **Now** (watts) or **Today** (the day's energy so far, split as the bridge splits it), framed to the parts the
   home has. Under it, a panel with the title and the House/Diagram switch, each part's reading (from or to the grid,
   charging or discharging and the battery's level) and **Powering the home**, each source's share. A home metered at
-  the grid alone uses what the grid brings in. **More details** unfolds today's biggest users (the devices measured
+  the grid alone uses what the grid brings in. On the house, the battery shows its charge: five small pills on its front lit up to the level, glowing green (amber
+  under 20 %, red under 10 %, the top one breathing while it charges), drawn in the battery's perspective (each picture's
+  layout says where, `gauge`). **Values**, in the picture's corner, shows the figures on it: solar on the roof, the grid at
+  the pole, the home in its rooms and the battery's charge beside it; the choice is kept in the browser. The card comes in two versions, each a section of its own: **Energy
+  flow**, the house alone, and **Energy flow with details**, which adds today's biggest users (the devices measured
   on their own, up to six, each with its kWh and share of the home's) and **What powered the home today**, a band of
-  the day coloured by the source that covered most of the home's use. The choices are kept in the browser; with
-  reduced motion nothing moves.
+  the day coloured by the source that covered most of the home's use. Status shows the first and the Energy page the
+  second until changed in the edit mode. The view and period are kept in the browser; with reduced motion nothing
+  moves.
 
   ![The Energy flow card's house](images/status/energy-flow.png)
 
   ![The Energy flow card on a phone](images/status/energy-flow-phone.png)
-- **Power**: solar, the home, the grid (importing above zero, exporting below) and the batteries (charging above
+- **The big picture**: the period (**Week**, **Month** or **Year**, with the periods before and after) for everything
+  under it, then a tile each: **Home used** (about how much a day), **Self-powered** (the share the roof and batteries
+  covered, with each source's share), **Energy cost** and **Sent to the grid**.
+- **Where it goes**: a bar of the home split between the devices measured on their own and **Unmetered** (striped),
+  each with its share and kWh; then the measured devices as blocks, each as large as its share of what they used
+  together (the most first, the strongest blue), or a row when one device is measured. When most of the home is not
+  measured, a line says what would show where it goes. A device opens its History; the Meters with no readings in the
+  period are named under it.
+- **Worth knowing** and **Energy log**, from the last two days of each Meter's hours, the power, the batteries' charge
+  and the Logbook, worked out in the page: the night floor (the least the home drew in a night hour, and what it costs
+  in a year at the grid's price), a device that never switches off, Meters that say nothing, two units reporting the
+  same figures (counted twice wherever both are added up), and a charging state or an outlet flipping six times or
+  more in a quarter of an hour. The log lists, by day, the busiest hour from the grid, sunrise on the panels and the
+  best solar hour, a battery full or nearly empty, the grid taking over from the batteries, each run of a device
+  measured on its own (its hours, kWh and cost), and the flapping; **All**, **Devices**, **Sun**, **Battery and grid**,
+  **Unusual** and **Bridge** filter it. The bridge works the same out (`EnergyStory`) for
+  `/api/metrics/energy/story`, the MCP tool `get_energy_story` and the notifications: a new flapping or a new night
+  floor goes out as the **Something stands out in the energy use** event, looked for every 15 minutes, once a day at
+  most each.
+- **Power and battery levels**, folded at the bottom: solar, the home, the grid (importing above zero, exporting below) and the batteries (charging above
   zero), each added up across devices, and each device's battery level. Its own range: 24 hours (the default), today,
   yesterday or 7 days (`?energy=7d`). Where the bridge recorded nothing (before it ran, while it was stopped), the power
   lines show what a plugin imported for those hours, each hour at its average, and the line under the chart says so.
-- **History**: the energy in kWh as stacked bars, a **Week**, **Month** (a bar per day) or **Year** (a bar per month)
-  at a time, with the periods before and after (`?energy-view=month&energy-date=2026-05-01`). Above the line is where
-  the home's energy came from (solar as it was produced, the batteries, the grid), below it where the rest went (into
-  the batteries, out to the grid). Over the bars, the period's home use with a strip of the share each source covered
-  (its percentage written beside each colour), then the flows: solar produced, battery charged and discharged, grid
-  import and export. The axis writes its unit once, on the top tick. With an energy Tariff ([Settings](#settings),
-  Bridge), **Energy cost**: what the grid's import cost hour by hour at its price, less what the export was paid,
-  without fixed charges. Without a Meter of the home's use, the grid's import is drawn above the line.
+- **Energy by day**: the energy in kWh as stacked bars for the big picture's period, a bar per day (per month over a
+  year; `?energy-view=month&energy-date=2026-05-01`). Above the line is where the home's energy came from (solar as it
+  was produced, the batteries, the grid), below it where the rest went (into the batteries, out to the grid). Behind the
+  bars, a usual day shaded: the middle of the period's whole days, 10 % either side, so a day out of the ordinary stands
+  out. Over the bars, the flows: solar produced, battery charged and discharged, grid import. The axis writes its unit
+  once, on the top tick. With an energy Tariff ([Settings](#settings), Bridge), the big picture's **Energy cost** is
+  what the grid's import cost hour by hour at its price, less what the export was paid, without fixed charges. Without
+  a Meter of the home's use, the grid's import is drawn above the line.
 - **Consumption by device**: what each Meter measured in the same period (GLOSSARY.md, "Energy"), the most first, a
   bar as long as its share and its kWh, with what it returned. The whole home (a Meter with the home's Energy Role,
   else the grid's when no Meter measures solar or a battery) heads the list, with the devices measured on their own
@@ -157,8 +214,17 @@ home used, grid import and export, battery charged and discharged, the share sol
 minute's average power, midnight to midnight in the browser's time zone. `/api/metrics/energy?from=…&to=…&timeZone=…`
 answers the power in one request, `/api/metrics/energy/history?period=week|month|year&date=…&timeZone=…` the
 history (with each bar's `cost` and the `currency` once there is a Tariff), and
-`/api/metrics/consumption?period=…&date=…` (or `hours=…`, and `accessory=…` for one accessory's Meters) each Meter's
+`/api/metrics/consumption?period=…&date=…` (or `hours=…`, by the hour up to two days and with `step=hour` up to two weeks, and `accessory=…` for one accessory's Meters) each Meter's
 Consumption, the same answer as the MCP tool `get_consumption` (docs/mcp.md), for any signed-in user.
+`/api/metrics/energy/story?from=…&to=…&timeZone=…` (the start of yesterday to now without them, 31 days at most) answers
+Worth knowing and the Energy log as codes and values for the page to word: `events`, each with `at` (ISO 8601), `kind`
+(`device`, `sun`, `power`, `odd`, `bridge`), `code`, `values` and the `accessory` it is about, and `worth`, each with
+`code`, `values`, `severity` (`info`, `warning`) and its `accessory`. The codes and their values: `busiestGridHour`
+(`value` kWh, `cost`, `currency`), `sunUp` (`value`), `bestSolarHour` (`value`, `total`), `batteryFull` and
+`batteryLow` (`name`), `gridTookOver` (`watts`), `deviceRan` (`name`, `n` hours, `value`, `cost`, `currency`),
+`flapping` (`name`, `n` changes, `minutes`), `nightFloor` (`watts`, and `cost` a year with `currency`), `alwaysOn`
+(`name`, `watts`, `cost` a year, `currency`), `silentMeters` (`names`, `n`) and `countedTwice` (`first`, `second`);
+`cost` and `currency` only with a Tariff.
 
 Each Meter's Consumption is the bridge's own record (`metrics/meters/`, by the hour, kept for years,
 docs/adr/0004-meters-and-consumption-history.md): every accessory's Total Consumption and Current Consumption, whatever

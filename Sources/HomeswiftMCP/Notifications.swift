@@ -32,6 +32,9 @@ public enum NotificationEvent: String, CaseIterable, Sendable, Codable {
     case dailyDigest
     /// An Automation's Notify Step.
     case automationMessage
+    /// Something new stands out in the energy (`EnergyStory`): a charging state or an outlet switching on and off, the
+    /// night floor; at most once a day each.
+    case energyInsight
     case test
 
     /// What the settings page calls it.
@@ -46,6 +49,7 @@ public enum NotificationEvent: String, CaseIterable, Sendable, Codable {
         case .backupSucceeded: "The scheduled backup was saved"
         case .dailyDigest: "Daily digest from the Assistant"
         case .automationMessage: "A message from an automation"
+        case .energyInsight: "Something stands out in the energy use"
         case .test: "Test"
         }
     }
@@ -630,6 +634,8 @@ extension HomeswiftCatalog {
                          message: NotificationText("{name} has answered No Response for 5 minutes.", ["name": "\(located.accessory.name)\(located.platform.map { " (\($0.name))" } ?? "")"]),
                          path: "/accessories", subject: located.accessory.id, now: now)
         }
+        // Something new standing out in the energy, every 15 minutes at most.
+        await checkEnergyStory(now: now, timeZone: calendar.timeZone)
         // The daily digest, once a day at its time.
         let parts = calendar.dateComponents([.hour, .minute], from: now)
         let time = String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)

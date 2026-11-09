@@ -3,6 +3,7 @@ import Homeswift
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
+import NIOConcurrencyHelpers
 
 /// The EcoFlow devices on your account (STREAM, RIVER, DELTA, RAPID, PowerOcean…; EcoFlowModel lists them): each one is
 /// a Battery on its own accessory, with its state of charge and whether it is charging. The power the devices report is
@@ -72,11 +73,16 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         /// the device's readings catch up.
         var writeTimeout: Duration = .seconds(8)
         var holdFor: Duration = .seconds(2)
+        /// How long a new charging state must be reported before HomeKit is told: a full battery's top-up, or its
+        /// input and output crossing by a few watts, would otherwise flip it every few minutes.
+        var chargingSettle: Duration = .seconds(60)
         /// The time holds are measured by; tests move it on rather than wait a hold out.
         var now: @Sendable () -> ContinuousClock.Instant = { .now }
     }
 
-    /// How far the energy history was imported, in the plugin's storage.
+    /// The former file of the history's import (`energy-history.json`), read once into the runtime's import
+    /// (`EnergyHistoryImport`), which keeps it since; and the same shape as a view of the runtime's state
+    /// (`historyStatus`), for the tests.
     struct HistoryState: Codable, Equatable {
         /// When the last whole import ended: the next one starts `historyOverlap` before it. Nil while a full import
         /// (the first, or one made again) has not finished.
@@ -84,13 +90,12 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         /// The history's first hour (absent from files of the first version).
         var from: Date?
         /// `historyVersion` once the history goes in through the STREAM's Meters. A file without it (the first version)
-        /// had the home's flows in the archive under the plugin's own key, which the first import of this version
-        /// drops, once: the two would be added to one another.
+        /// had the home's flows in the archive under the plugin's own key, which is dropped, once: the two would be added
+        /// to one another.
         var version: Int?
-        /// The STREAM whose Meters hold the history, as it was resolved: kept, so a later run that would choose
-        /// another (the devices reported in another order) does not put the same hours on two systems' Meters.
+        /// The STREAM whose Meters hold the history.
         var serial: String?
-        /// A full import under way: the month it goes on from, saved as each month is done.
+        /// A full import under way: the month it goes on from.
         var resumeFrom: Date?
         /// Whether the system's battery and grid charts answer: true once they did, false once they were refused and
         /// the import went on without them; nil while not known.
@@ -99,25 +104,15 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         var refusals: Int?
     }
 
-    /// The import under way: what its months found, as they arrive.
-    struct HistoryPass {
-        var state: HistoryState
-        let full: Bool
-        /// The first month whose battery and grid charts were refused while they might answer: progress is saved up to
-        /// it, so the next import reads it again.
-        var stoppedAt: Date?
-        var answered = false
-        var refused = false
-    }
-
     /// Between two imports of the history's last days; and the days each one takes again (the cloud fills hours in late).
     static let historyInterval: Duration = .seconds(6 * 3600)
     /// After a failed import, the next attempt: the cloud's failures pass.
     static let historyRetry: Duration = .seconds(600)
     static let historyOverlap: TimeInterval = 2 * 86_400
+    /// The former file of the import, before the runtime's (`EnergyHistoryImport`, `energy-history-ecoflow-cloud.json`).
     static let historyFile = "energy-history.json"
-    /// The energy history's version: 2 on the STREAM's Meters.
-    static let historyVersion = 2
+    /// The energy history's version: 2 on the STREAM's Meters; 3 with the home's use from the balance of the flows.
+    static let historyVersion = 3
     /// The imports in a row that may find the battery and grid charts refused before the history goes on without them
     /// (a system without those pages is refused every time).
     static let historyRefusals = 3
@@ -172,6 +167,8 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     /// a reading in that window that still shows the old state does not flip it back. By `holdKey`: `<serial>:<output>`,
     /// `<serial>:light`.
     private var holds: [String: (write: EcoFlowWrite, until: ContinuousClock.Instant)] = [:]
+    /// The charging state HomeKit shows for each device, and the other one it reports and since when; by serial number.
+    private var charging: [String: (shown: Int, pending: Int?, since: ContinuousClock.Instant)] = [:]
     /// Each light's last Dim or Bright, which On turns it back to; by serial number.
     private var lastLightMode: [String: EcoFlowLight] = [:]
     /// Each light's HomeKit writes, gathered: the Home app sends On and Brightness of one change together.
@@ -183,8 +180,16 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     private var limitsSent: [String: Limits]?
     /// Each device's `recorded` series, with the name and route they were made for.
     private var recordedSeries: [String: (name: String, route: EcoFlowModel.Route, keys: [String: Recorded])] = [:]
-    /// The energy history's import under way.
-    private var historyPass: HistoryPass?
+    /// The energy history's import, run by the runtime: the cloud's months onto the STREAM's Meters.
+    private var energyHistory: EnergyHistoryImport {
+        if let made = energyHistoryMade { return made }
+        let context = context, logger = logger
+        let made = context.energyHistory("ecoflow-cloud", version: Self.historyVersion, overlap: Self.historyOverlap, interval: Self.historyInterval,
+                                         retry: Self.historyRetry) { Self.migrate(context: context, logger: logger) }
+        energyHistoryMade = made
+        return made
+    }
+    private var energyHistoryMade: EnergyHistoryImport?
     var logger: Logger { context.logger }
 
     public init(configuration: Configuration, context: PluginContext) {
@@ -311,153 +316,157 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             return
         }
         let interval = pollingInterval
+        let history = dependencies.history
+        // What earlier runs imported, on the Status page from the start.
+        if history != nil { energyHistory.reportKept() }
         tasks.add { [weak self] in
+            var importing = false
             while !Task.isCancelled {
                 await self?.refresh()
+                // The history after the first read: its STREAM is the unit whose readings carry the system's flows.
+                if !importing, let history {
+                    importing = true
+                    await self?.startHistoryImport(history)
+                }
                 try? await Task.sleep(for: interval)
             }
         }
-        if let history = dependencies.history {
-            // What earlier runs imported, on the Status page from the start.
-            if let state = context.jsonFile(Self.historyFile, as: HistoryState.self).load() {
-                context.reportEnergyImport(EnergyImportProgress(state: .done, from: state.from, through: state.importedThrough))
-            }
-            tasks.add { [weak self] in await self?.importHistoryLoop(history) }
-        }
     }
 
-    /// The EcoFlow cloud's energy history into the bridge's long-term archive (the history is a STREAM's home's):
-    /// everything since the system was set up on the first run, then the last days again every `historyInterval`.
+    private func startHistoryImport(_ history: EcoFlowHistory) {
+        tasks.add { [weak self] in await self?.importHistoryLoop(history) }
+    }
+
+    /// The EcoFlow cloud's energy history into the bridge's long-term archive (the history is a STREAM's home's), by
+    /// the runtime's import: everything since the system was set up on the first run, then the last days again every
+    /// `historyInterval`, `historyRetry` after a failure.
     private func importHistoryLoop(_ history: EcoFlowHistory) async {
-        while !Task.isCancelled {
-            let imported = await importHistory(history, serial: historySerial(remembered: context.jsonFile(Self.historyFile, as: HistoryState.self).load()?.serial))
-            // The answers whose shape changed, and a chart the cloud stopped answering: each logged once.
-            for change in await history.schemas.drain() { logger.warning("\(change)") }
-            try? await Task.sleep(for: imported ? Self.historyInterval : Self.historyRetry)
+        await energyHistory.run { [weak self] pass in
+            guard let self else { return }
+            // The answers whose shape changed, and a chart the cloud stopped answering: each logged once, after each pass.
+            do {
+                try await self.read(history, serial: await self.historySerial(remembered: pass.state.identity), pass: pass)
+            } catch {
+                await self.logSchemaChanges(history)
+                throw error
+            }
+            await self.logSchemaChanges(history)
         }
     }
 
-    /// The STREAM whose home's history is imported, the same from one run to the next: one the configuration's
-    /// `devices` names, else the one an earlier import used (`remembered`), else the first by serial number of those
-    /// that reported, then of those with Accessory Settings; an Excluded one never. Nil leaves the choice to the app's
-    /// device list, so no device has to report, nor be listed, for the import to run.
+    private func logSchemaChanges(_ history: EcoFlowHistory) async {
+        for change in await history.schemas.drain() { logger.warning("\(change)") }
+    }
+
+    /// The STREAM whose home's history is imported, the same from one run to the next: the unit whose live readings
+    /// carry the system's flows (`EcoFlowDevice.carriesSystemFlows`; the one an earlier import used, `remembered`, when
+    /// it still does), else the one an earlier import used, else one the configuration's `devices` names, else the first
+    /// by serial number of those that reported, then of those with Accessory Settings; an Excluded one never. Nil leaves
+    /// the choice to the app's device list, so no device has to report, nor be listed, for the import to run.
+    ///
+    /// The history is the system's, and the unit that carries its flows records them live on its own Meters: on another
+    /// unit's, each hour would be counted twice, once imported and once recorded. On its Meters, an hour the bridge
+    /// recorded keeps its own figures, and the imported ones fill the hours it did not.
     func historySerial(remembered: String?) -> String? {
         let context = context
         let stream = { (id: String) in EcoFlowModel.model(serial: id)?.kind == .stream && !context.isExcluded(id) }
-        if let named = (configuration.devices ?? []).map(\.id).first(where: stream) { return named }
+        let carrying = latest.filter { $0.carriesSystemFlows && stream($0.id) }.map(\.id)
+        if let remembered, carrying.contains(remembered) { return remembered }
+        if let first = carrying.sorted().first { return first }
         if let remembered, stream(remembered) { return remembered }
+        if let named = (configuration.devices ?? []).map(\.id).first(where: stream) { return named }
         return latest.map(\.id).filter(stream).sorted().first
             ?? Self.configuredSerials(configuration, context).map(\.id).filter(stream).sorted().first
     }
 
-    /// One import: from where the last one stopped (`historyOverlap` before it), or from the start. Each month goes onto
-    /// the STREAM's Meters as it arrives, with its progress; the Status page shows both. `serial` is the STREAM asked
-    /// for (`historySerial(remembered:)`), nil for the app's device list's. Returns whether it succeeded.
+    /// The former file, the first time the runtime's import runs: one of the first version had the home's flows in the
+    /// archive under the plugin's key, dropped once; the others go on where they were (a second version's is read again
+    /// from the start, the runtime dropping its Meters' hours).
+    static func migrate(context: PluginContext, logger: Logger) -> EnergyHistoryState? {
+        let file = context.jsonFile(historyFile, as: HistoryState.self)
+        let old = file.load()
+        file.remove()
+        // A file that is gone may have been of either version: dropping what is not there costs nothing.
+        guard let old, let version = old.version, version >= 2 else {
+            context.forgetImportedEnergy()
+            if old != nil { logger.info("The energy history is imported through the STREAM's meters now: reading it again from the EcoFlow cloud, from the start") }
+            return nil
+        }
+        var notes: [String: JSONValue] = [:]
+        if let twoWay = old.twoWay { notes["twoWay"] = .bool(twoWay) }
+        if let refusals = old.refusals { notes["refusals"] = .number(Double(refusals)) }
+        return EnergyHistoryState(version: version, identity: old.serial, from: old.from, through: old.importedThrough, resume: old.resumeFrom,
+                                  meters: old.serial.map { serial in historyRoles.map { MeterID(accessory: "\(platform):\(serial)", meter: $0.rawValue) } } ?? [],
+                                  notes: notes)
+    }
+
+    /// Where the history's import stands, in the former file's shape.
+    var historyStatus: HistoryState {
+        let state = energyHistory.state
+        return HistoryState(importedThrough: state.through, from: state.from, version: state.version, serial: state.identity, resumeFrom: state.resume,
+                            twoWay: state.notes["twoWay"]?.boolValue, refusals: state.notes["refusals"]?.doubleValue.map(Int.init))
+    }
+
+    /// One pass of the import, run by the runtime's: from where the last one stopped (`historyOverlap` before it), or
+    /// from the start. `serial` is the STREAM asked for (`historySerial(remembered:)`), nil for the app's device list's.
+    /// Returns whether it went through.
     @discardableResult
     func importHistory(_ history: EcoFlowHistory, serial: String?, now: Date = Date()) async -> Bool {
-        let file = context.jsonFile(Self.historyFile, as: HistoryState.self)
-        let previous = file.load()
-        var state = previous ?? HistoryState()
-        let context = context
-        // A history of the first version went in as the home's flows: dropped, once (the Meters' hours would be added
-        // to it), and read again from the start, since it went back further than a top-up reaches. A file that is gone
-        // may have been of either version: dropping what is not there costs nothing.
-        if state.version != Self.historyVersion {
-            context.forgetImportedEnergy()
-            if previous != nil {
-                logger.info("The energy history is imported through the STREAM's meters now: reading it again from the EcoFlow cloud, from the start")
-            }
-            state = HistoryState(version: Self.historyVersion)
-            try? file.save(state)
-        }
-        do {
-            let serial = try await history.serial(serial, excluding: { context.isExcluded($0) })
-            if let old = state.serial, old != serial {
-                // Another STREAM's Meters from now on: what the old one's hold would be counted beside the same hours.
-                for role in Self.historyRoles { context.forgetImportedHours(ofMeter: role.rawValue, deviceID: old) }
-                logger.info("The energy history is now imported onto STREAM \(serial)'s meters, not \(old)'s: reading it again from the start")
-                state = HistoryState(version: Self.historyVersion)
-            }
-            if state.serial != serial {
-                state.serial = serial
-                try? file.save(state)
-            }
-            let full = state.importedThrough == nil
-            let since = state.importedThrough.map { $0.addingTimeInterval(-Self.historyOverlap) } ?? state.resumeFrom
-            historyPass = HistoryPass(state: state, full: full)
-            defer { historyPass = nil }
-            let hours = try await history.hours(serial: serial, since: since, now: now) { [weak self] month in
-                await self?.importHistoryMonth(month, file: file)
-            }
-            guard let pass = historyPass else { return false }
-            state = pass.state
-            if pass.answered { state.twoWay = true }
-            if let stopped = pass.stoppedAt {
-                // Months without the battery and the grid: not done. A full import goes on from that month; a top-up
-                // keeps where the last whole one ended, and reads the same days again.
-                state.refusals = (state.refusals ?? 0) + 1
-                if full { state.resumeFrom = stopped }
-                try? file.save(state)
-                let message = "the EcoFlow cloud refused the battery and grid history charts from \(Timestamp.iso8601(stopped).prefix(7)) on: reading them again later"
-                context.reportEnergyImport(EnergyImportProgress(state: .failed, from: state.from, through: state.importedThrough, message: message))
-                logger.warning("Could not import the whole energy history, trying again in 10 minutes: \(message)")
-                return false
-            }
-            // Refused, and no longer asked again: the system has no such pages, or they are gone. Answered since, it
-            // is asked again.
-            if pass.refused { state.twoWay = false }
-            state.refusals = nil
-            state.resumeFrom = nil
-            state.importedThrough = now
-            if state.from == nil { state.from = hours.first?.start }
-            try? file.save(state)
-            context.reportEnergyImport(EnergyImportProgress(state: .done, from: state.from, through: now))
-            if full, let first = hours.first?.start {
-                logger.info("Imported \(hours.count) hours of energy history (solar, home use, and the battery and grid where the cloud has them) from the EcoFlow cloud, since \(Timestamp.iso8601(first).prefix(10))")
-            } else {
-                logger.debug("Imported \(hours.count) hours of energy history from the EcoFlow cloud")
-            }
-            return true
-        } catch EcoFlowHistory.Failure.noStream {
-            // No STREAM on the account: nothing to import, and nothing failed. Looked at again at the usual interval;
-            // what the first version imported was dropped once, above, and is not again.
-            logger.debug("No energy history to import: the EcoFlow account has no STREAM")
-            return true
-        } catch {
-            context.reportEnergyImport(EnergyImportProgress(state: .failed, from: state.from, through: state.importedThrough, message: "\(error)"))
-            logger.warning("Could not import the energy history from the EcoFlow cloud, trying again in 10 minutes: \(error)")
-            return false
+        await energyHistory.pass(now: now) { [weak self] pass in
+            try await self?.read(history, serial: serial, pass: pass)
         }
     }
 
-    /// A month of the history: each Energy Role's figures onto the STREAM's Meter of that role (`EnergyRole.meterHour`),
-    /// so the Consumption by device card has the cloud's past too. The runtime puts a Meter's hours in the Home Energy
-    /// itself, so the home's flows are not imported beside them. A full import saves where it is after each month, so
-    /// one that fails goes on from there.
-    private func importHistoryMonth(_ month: EcoFlowHistory.Month, file: JSONFile<HistoryState>) {
-        guard var pass = historyPass else { return }
-        defer { historyPass = pass }
-        if month.done > 0 {
-            for role in Self.historyRoles {
-                let rows = month.hours.compactMap(role.meterHour(of:))
-                guard !rows.isEmpty else { continue }
-                // Named by its serial number: the name only counts for the power a device reports, which declares the
-                // Meter with its own.
-                context.meter(role.rawValue, deviceID: month.serial, device: month.serial, suggestedRole: role).importHours(rows)
-            }
-            if month.twoWay { pass.answered = true } else { pass.refused = true }
-            // Charts that answered (before, or earlier in this import) and are refused now may answer again: a few
-            // imports try them, then the history goes on without them.
-            let mayAnswer = (pass.state.twoWay != false || pass.answered) && (pass.state.refusals ?? 0) < Self.historyRefusals
-            if !month.twoWay, mayAnswer, pass.stoppedAt == nil { pass.stoppedAt = month.start }
-            if pass.state.from == nil, let first = month.hours.first?.start { pass.state.from = first }
-            if pass.full, pass.stoppedAt == nil, let next = month.next {
-                pass.state.resumeFrom = next
-                try? file.save(pass.state)
-            }
+    /// A pass: the STREAM's months onto its Meters, each Energy Role's figures onto the Meter of that role
+    /// (`EnergyRole.meterHour`), so the Consumption by device card has the cloud's past too; the runtime puts a Meter's
+    /// hours in the Home Energy itself. A first import goes on from the last month done after a failure. The battery and
+    /// grid charts of a system that answered them before and refuses them now leave the pass unfinished, read again
+    /// later, a few times (`historyRefusals`); then the history goes on without them.
+    private func read(_ history: EcoFlowHistory, serial: String?, pass: EnergyHistoryPass) async throws {
+        let context = context
+        let stream: String
+        do {
+            stream = try await history.serial(serial, excluding: { context.isExcluded($0) })
+        } catch EcoFlowHistory.Failure.noStream {
+            // No STREAM on the account: nothing to import, and nothing failed.
+            logger.debug("No energy history to import: the EcoFlow account has no STREAM")
+            return
         }
-        context.reportEnergyImport(EnergyImportProgress(state: .running, done: month.done, total: month.total, from: pass.state.from ?? month.hours.first?.start,
-                                                        through: month.hours.last?.start ?? pass.state.importedThrough))
+        try pass.identify(stream)
+        let twoWayBefore = pass.state.notes["twoWay"]?.boolValue, refusals = pass.state.notes["refusals"]?.doubleValue.map(Int.init) ?? 0
+        let found = NIOLockedValueBox((stoppedAt: Date?.none, answered: false, refused: false))
+        let hours = try await history.hours(serial: stream, since: pass.since, now: pass.now) { month in
+            if month.done > 0 {
+                for role in Self.historyRoles {
+                    let rows = month.hours.compactMap(role.meterHour(of:))
+                    // Named by its serial number: the name only counts for the power a device reports, which declares the
+                    // Meter with its own.
+                    pass.add(context.meter(role.rawValue, deviceID: month.serial, device: month.serial, suggestedRole: role), rows)
+                }
+                let stopped = found.withLockedValue { found -> Date? in
+                    if month.twoWay { found.answered = true } else { found.refused = true }
+                    // Charts that answered (before, or earlier in this pass) and are refused now may answer again.
+                    let mayAnswer = (twoWayBefore != false || found.answered) && refusals < Self.historyRefusals
+                    if !month.twoWay, mayAnswer, found.stoppedAt == nil { found.stoppedAt = month.start }
+                    return found.stoppedAt
+                }
+                if stopped == nil, let next = month.next { pass.checkpoint(next) }
+            }
+            pass.progress(done: month.done, total: month.total)
+        }
+        let result = found.withLockedValue { $0 }
+        if result.answered { pass.note("twoWay", true) }
+        if let stopped = result.stoppedAt {
+            // Months without the battery and the grid: not done. A first import goes on from that month; a top-up keeps
+            // where the last whole one ended, and reads the same days again.
+            pass.note("refusals", .number(Double(refusals + 1)))
+            pass.checkpoint(stopped)
+            throw EnergyHistoryFailure("the EcoFlow cloud refused the battery and grid history charts from \(Timestamp.iso8601(stopped).prefix(7)) on: reading them again later")
+        }
+        // Refused, and no longer asked again: the system has no such pages, or they are gone. Answered since, it is asked again.
+        if result.refused { pass.note("twoWay", false) }
+        pass.note("refusals", nil)
+        logger.debug("Read \(hours.count) hours of energy history from the EcoFlow cloud")
     }
 
     public func stop() async {
@@ -679,8 +688,10 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     /// The battery, and each Outlet's On from the device's readings: an output switched in the last `holdFor` keeps
     /// the state it was switched to, and one whose state the device does not report keeps its own.
     private func show(_ device: EcoFlowDevice, on services: DeviceServices) {
-        Self.show(device.state, on: services)
         let now = dependencies.now()
+        var state = device.state
+        state.battery.chargingState = settledChargingState(device.id, state.battery.chargingState, now: now)
+        Self.show(state, on: services)
         for (output, outlet) in services.outlets {
             let key = Self.holdKey(device.id, output)
             if let hold = holds[key] {
@@ -696,6 +707,25 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             holds[key] = nil
         }
         if let mode = device.state.lightMode { Self.showLight(mode, on: services) }
+    }
+
+    /// The charging state to show: the one reported, once it has been for `chargingSettle`; the one shown until then.
+    /// The first state a device reports is shown at once.
+    func settledChargingState(_ serial: String, _ reported: Int, now: ContinuousClock.Instant) -> Int {
+        guard var known = charging[serial] else {
+            charging[serial] = (reported, nil, now)
+            return reported
+        }
+        defer { charging[serial] = known }
+        if reported == known.shown {
+            known.pending = nil
+        } else if known.pending != reported {
+            known.pending = reported
+            known.since = now
+        } else if now - known.since >= dependencies.chargingSettle {
+            known = (reported, nil, now)
+        }
+        return known.shown
     }
 
     /// The light's mode on its services: the Lightbulb on at 50 % for Dim and 100 % for Bright, off for Off and SOS

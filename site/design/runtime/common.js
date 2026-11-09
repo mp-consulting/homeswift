@@ -128,6 +128,8 @@
     restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4.5V9H8"/><path d="M12 7.5V12l3 2"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    // A pulse in a circle: the live figures (the Energy flow card's Values).
+    pulse: '<circle cx="12" cy="12" r="9"/><path d="M6.5 12.2h2l2-3.9 3.1 7 2.1-3.1h1.8"/>',
     calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
     hash: '<path d="M9 4 7 20M17 4l-2 16M4.5 9h16M3.5 15h16"/>',
     workflow: '<rect x="3" y="3.5" width="6" height="5" rx="1.5"/><rect x="15" y="9.5" width="6" height="5" rx="1.5"/><rect x="3" y="15.5" width="6" height="5" rx="1.5"/><path d="M9 6h3a1.5 1.5 0 0 1 1.5 1.5V12M9 18h3a1.5 1.5 0 0 0 1.5-1.5V12M13.5 12H15"/>',
@@ -1365,7 +1367,7 @@
 
   // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
 
-  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/automations", t("Automations"), "workflow"], ["/logbook", t("Logbook"), "history"], ["/plugins", t("Plugins"), "plugin"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
+  const sections = [["/status", t("Status"), "bridge"], ["/energy", t("Energy"), "bolt"], ["/accessories", t("Accessories"), "bulb"], ["/automations", t("Automations"), "workflow"], ["/logbook", t("Logbook"), "history"], ["/plugins", t("Plugins"), "plugin"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
 
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has

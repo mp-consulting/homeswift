@@ -214,6 +214,30 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   solar.record(counter: producedWh, direction: .returned)
   solar.importHours(cloudHours.map { MeterHourImport(start: $0.start, returned: $0.wattHours) })
   ```
+- **Energy history** (docs/adr/0009-one-energy-history-import.md). A device's or a cloud's past goes onto Meters through
+  the runtime's import: `context.energyHistory("cloud", version: 1)` gives an `EnergyHistoryImport`, and the plugin only
+  says how to read a pass. The runtime keeps where it stands (`energy-history-<name>.json`), starts each pass `overlap`
+  (two days) before the last one ended, passes again every `interval` (six hours) and `retry` (ten minutes) after a
+  failure, and says on the Status page that it runs, is done or failed. In the pass: `since` (nil for the history's
+  start), `add(meter, hours)` for each Meter's `MeterHourImport`s, `progress(done:total:)`, `checkpoint(_:)` where a
+  first pass goes on from after a restart, `note(_:_:)` for what else the plugin must remember, and `identify(_:)` for
+  the device the history is read from (another one drops the old one's hours and reads again). Throw to fail the pass:
+  its message is the Status page's. Raise `version` when the way of reading changes: its old hours are dropped and the
+  history is read again from the start. `migrate` turns a plugin's former file into the state, once. Add `run` to the
+  plugin's tasks, or call `pass` from its own poll when the hours come with it (Daikin Cloud). EcoFlow (the cloud's
+  months), Shelly (the device's records, then Shelly Cloud's days) and Daikin Cloud are examples.
+  ```swift
+  let history = context.energyHistory("cloud", version: 1)
+  tasks.add {
+      await history.run { pass in
+          for month in try await cloud.months(since: pass.since) {
+              pass.add(context.meter("consumption", deviceID: id, device: name), month.hours)
+              pass.progress(done: month.index, total: month.count)
+              pass.checkpoint(month.next)
+          }
+      }
+  }
+  ```
 - **Gas and water Meters.** HAP has no gas or water characteristics, so a gas or water meter's reader (a pulse
   counter, a smart meter's cloud) declares its Meter with a kind: `context.meter("gas", deviceID: id, device: name,
   kind: .gas)` (or `.water`). It reads in m³: `record(cubicMetres:)` for the meter's index, a counter as for

@@ -85,6 +85,27 @@ enum NotificationTexts {
             "es": "Las notificaciones de Homeswift funcionan.",
             "pt": "As notificações do Homeswift estão a funcionar.",
         ],
+        "{name} kept switching on and off": [
+            "fr": "{name} n'a cessé de s'allumer et de s'éteindre",
+            "es": "{name} no paró de encenderse y apagarse",
+            "pt": "{name} não parou de ligar e desligar",
+        ],
+        "{name} switched on and off {n} times in {minutes} min.": [
+            "fr": "{name} s'est allumé et éteint {n} fois en {minutes} min.",
+            "es": "{name} se encendió y apagó {n} veces en {minutes} min.",
+            "pt": "{name} ligou e desligou {n} vezes em {minutes} min.",
+        ],
+        "Night floor": ["fr": "Plancher de nuit", "es": "Mínimo nocturno", "pt": "Mínimo noturno"],
+        "The home never drew less than {watts} at night.": [
+            "fr": "La maison n'a jamais consommé moins de {watts} la nuit.",
+            "es": "La casa nunca consumió menos de {watts} por la noche.",
+            "pt": "A casa nunca consumiu menos de {watts} à noite.",
+        ],
+        "The home never drew less than {watts} at night: about {cost} a year.": [
+            "fr": "La maison n'a jamais consommé moins de {watts} la nuit\u{00A0}: environ {cost} par an.",
+            "es": "La casa nunca consumió menos de {watts} por la noche: unos {cost} al año.",
+            "pt": "A casa nunca consumiu menos de {watts} à noite: cerca de {cost} por ano.",
+        ],
         "Open in Homeswift": ["fr": "Ouvrir dans Homeswift", "es": "Abrir en Homeswift", "pt": "Abrir no Homeswift"],
         "Choose in Homeswift": ["fr": "Choisir dans Homeswift", "es": "Elegir en Homeswift", "pt": "Escolher no Homeswift"],
     ]

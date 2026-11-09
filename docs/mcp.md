@@ -200,7 +200,7 @@ sends you back.
 
 | Scope | Tools |
 |---|---|
-| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `get_logbook`, `list_plugins`, `get_config`, `list_config_backups`, `list_vault`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_matter_status`, `list_backups`, `get_settings`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `list_automations`, `list_remotes`, `list_hub_automations`, `get_assistant_usage`, `get_daily_digest`, `get_consumption`, `get_tariffs`, `get_diagnostics` |
+| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `get_logbook`, `list_plugins`, `get_config`, `list_config_backups`, `list_vault`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_matter_status`, `list_backups`, `get_settings`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `list_automations`, `list_remotes`, `list_hub_automations`, `get_assistant_usage`, `get_daily_digest`, `get_consumption`, `get_energy_story`, `get_tariffs`, `get_diagnostics` |
 | `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` (a saved scene, a hub's, or a `plan`), `stop_scene`, `run_automation` |
 | `admin` | Plus `update_config`, `patch_config`, `restore_config`, `migrate_to_vault` (with `dryRun`), `update_settings` (with `dryRun`), `forget_device` (with `dryRun`), `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `open_matter_commissioning_window`, `remove_matter_fabric`, `set_matter_device`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `save_automation` (with `dryRun`; asks first when it names a lock, garage door or alarm), `delete_automation`, `set_remote_controls` (with `dryRun`), `update_hub_scene` (with `dryRun`), `delete_hub_scene`, `update_hub_automation` (with `dryRun`), `delete_hub_automation`, `send_test_notification`, `truncate_logs`, `test_assistant_connection`, `update_tariffs` (with `dryRun`) |
 
@@ -392,6 +392,19 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   Meters plugins declare; gas is never turned into kWh). A gas or water Meter has no Energy Role and is priced by the
   Tariffs of its kind only, its `cost` in its own `currency`; `kind` keeps one kind's Meters, and the Meters are listed
   by kind (kWh and m³ do not compare), the most first within each.
+- **Energy story.** `get_energy_story` gives what the web UI's Energy log and Worth knowing show, worked out on the
+  bridge (`EnergyStory`) from each electricity Meter's hours, the power and batteries' charge and the Logbook: `events`
+  (each `at`, `kind` `device`, `sun`, `power` or `odd`, a `code`, its `values` and the `accessory` it is about) and
+  `worth` (each `code`, `values`, `severity` and `accessory`), each with an English `text`. The codes: the busiest hour
+  from the grid each day (`busiestGridHour`), the sun coming up and the best solar hour (`sunUp`, `bestSolarHour`), a
+  battery full or nearly empty (`batteryFull`, `batteryLow`), the grid taking over from the batteries (`gridTookOver`),
+  each run of a device measured on its own (`deviceRan`), a charging state or an outlet switching on and off six times
+  or more in a quarter of an hour (`flapping`); the night floor and what it costs a year (`nightFloor`), a device that
+  never switches off (`alwaysOn`), Meters that say nothing (`silentMeters`), two units reporting the same figures
+  (`countedTwice`). Energy is in kWh (`value`, `total`), power in W (`watts`), money as `cost` with its `currency` (with
+  a Tariff only). The span is yesterday and today by default, `from` and `to` (ISO times or durations such as `2d`) 31
+  days apart at most, days and nights in `timeZone`. Its names came from devices: the answer is wrapped in
+  `<untrusted-data>`. The web UI reads the same at `/api/metrics/energy/story` (docs/ui.md).
 - **Tariffs.** `get_tariffs` gives config.json's `bridge.tariffs`, oldest first, `current`, the first day of the
   electricity Tariff in force now, `currentByKind`, each kind's, and `meterKinds`, the kinds of the Meters the bridge keeps
   (with those of the Tariffs). A Tariff with `kind` `gas` or `water` prices by the

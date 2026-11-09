@@ -303,7 +303,7 @@ struct ShellyNGTests {
     }
 
     /// A first import from Shelly Cloud that a restart stopped goes on from where it reached, after the days since, and
-    /// forgets where it stopped once it ends.
+    /// forgets where it stopped once it ends. Its former file (`shelly-cloud-history.json`) is taken by the runtime's import.
     @Test func aStoppedCloudImportGoesOnFromWhereItReached() async throws {
         environment.add(plus1PM())
         let host = try await environment.start(settings: ["devices": [["id": "shellyplus1pm-aabbccddeeff", "hostname": "10.0.0.9"]]])
@@ -333,8 +333,10 @@ struct ShellyNGTests {
         let resumed = now.addingTimeInterval(-101 * day)
         #expect(asked.contains { calendar.isDate($0, inSameDayAs: resumed) })
         #expect(!asked.contains { $0 > now.addingTimeInterval(-90 * day) && $0 < now.addingTimeInterval(-5 * day) })
-        let kept = file.load() ?? [:]
-        #expect(kept["\(key)#resume"] == nil && kept[key] != nil)
+        // The runtime's import keeps it now, as notes by meter; the former file's entries were taken.
+        let notes = await device.cloudHistory().state.notes
+        #expect(notes["switch:0#resume"] == nil && notes["switch:0"] != nil)
+        #expect(file.load() == nil)
     }
 
     @Test func aWholeHomeMeterCountsAsTheGrid() async throws {

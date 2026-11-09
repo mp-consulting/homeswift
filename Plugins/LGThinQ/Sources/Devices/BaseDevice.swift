@@ -208,9 +208,6 @@ extension Service {
 }
 
 extension CharacteristicType {
-    /// Eve's Total Consumption (kWh), which Eve shows for energy meters, with the Homebridge plugin's maximum.
-    nonisolated static let totalConsumption = EveCharacteristic.totalConsumption.props(max: 1_000_000)
-
     /// HAP-NodeJS's `setProps` with explicit valid values (keeps min and max).
     func valid(_ values: [Int]) -> CharacteristicType {
         var copy = self

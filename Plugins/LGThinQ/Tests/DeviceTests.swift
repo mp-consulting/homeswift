@@ -42,7 +42,9 @@ struct AirConditionerTests {
         #expect(heater.number(.currentTemperature) == 26.5)
         #expect(heater[.currentHeaterCoolerState]?.value == .int(3) && heater[.targetHeaterCoolerState]?.value == .int(2))
         #expect(heater.number(.coolingThresholdTemperature) == 26)
-        #expect(heater.number(.totalConsumption) == 5.64)
+        // onCurrent is the unit's power in watts, as Current Consumption; never a kWh counter.
+        #expect(heater.number(EveCharacteristic.currentConsumption) == 564)
+        #expect(heater[EveCharacteristic.totalConsumption] == nil)
         #expect(heater.number(.rotationSpeed) == 50 && heater[.swingMode]?.value == .int(1))
         #expect(heater[.targetHeaterCoolerState]?.type.validValues == [0, 1, 2])
         // RAC_056905: jet mode, energy save and air purify; the options add sensors, a light, a fan and a button.
@@ -119,6 +121,32 @@ struct AirConditionerTests {
         // Other messages are ignored.
         await environment.mqtt.push(["deviceId": .string(acID), "type": "monitoring"])
         await environment.mqtt.push(["deviceId": "unknown", "data": ["state": ["reported": ["x": 1]]]])
+    }
+
+    /// The unit's Meter (its Heater Cooler's) counts its power as energy: what it draws while running fills the hour,
+    /// where the power read as a kWh counter (onCurrent / 100 in Total Consumption) never moved while it stood still,
+    /// and rose and fell with the power while it ran.
+    @Test func itsPowerFillsItsMeter() async throws {
+        let (environment, host, accessory) = try await start()
+        defer { Task { await host.stop() } }
+        let heater = try #require(accessory.service(.heaterCooler))
+        let metrics = Metrics(directory: nil, interval: .seconds(60))
+        metrics.start(following: host)
+        defer { metrics.stop() }
+        let meterID = MeterID(accessory: accessory.id, meter: "\(heater.type.uuid)/MyAC")
+        #expect(await eventually(timeout: .seconds(15)) { environment.mqtt.connection.subscriptions.count == 1 })
+        let start = Date()
+        await environment.mqtt.push(["deviceId": .string(acID), "data": ["state": ["reported": ["airState.energy.onCurrent": 1200]]]])
+        #expect(await eventually(timeout: .seconds(15)) { heater.number(EveCharacteristic.currentConsumption) == 1200 })
+        let hour = Date(timeIntervalSince1970: (start.timeIntervalSince1970 / 3600).rounded(.down) * 3600)
+        #expect(await eventually(timeout: .seconds(15)) {
+            metrics.meters.advance()
+            return metrics.meters.hours(of: meterID, from: hour, to: Date().addingTimeInterval(3600)).contains { ($0.consumption ?? 0) > 0 }
+        })
+        #expect(metrics.meters.meters == [meterID])
+        // Stopped, it draws nothing: a power of zero, not a counter's reset.
+        await environment.mqtt.push(["deviceId": .string(acID), "data": ["state": ["reported": ["airState.energy.onCurrent": 0, "airState.operation": 0]]]])
+        #expect(await eventually(timeout: .seconds(15)) { heater.number(EveCharacteristic.currentConsumption) == 0 })
     }
 }
 
@@ -432,6 +460,8 @@ struct PlatformTests {
         #expect(control["value"] == ["TempCfg": "22"] && control["deviceId"] == .string(acID))
         try await heater.characteristic(.active).write(.int(0))
         #expect(environment.lg.thinq1Controls.last?["lgedmRoot"]?["value"] == ["Operation": "0"])
+        // ThinQ1 monitoring has no power reading: no Meter that would stay empty.
+        #expect(heater[EveCharacteristic.currentConsumption] == nil && heater[EveCharacteristic.totalConsumption] == nil)
     }
 
     @Test func skipsThinQ1DevicesUnlessEnabled() async throws {

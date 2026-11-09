@@ -274,7 +274,8 @@
   /// Returns `update(bars)`.
   /// `legend` (`{ label, tone }`) names the colours when segments share one (an entity above and below the line).
   /// `hourly` says to a screen reader that a bar is an hour, not a day.
-  function stackedBars(container, { title, segments, bars, format, unit = () => 1, legend: keys = segments, hourly = false }) {
+  /// `band` ({ low, high } or null) shades the range a usual bar falls in, behind the bars; `update(bars, band)` moves it.
+  function stackedBars(container, { title, segments, bars, format, unit = () => 1, legend: keys = segments, hourly = false, band = null }) {
     const frame = html("div", "chart-frame");
     const tooltip = html("div", "chart-tooltip hidden");
     tooltip.setAttribute("role", "status");
@@ -287,7 +288,7 @@
       legend.append(item);
     }
     container.append(legend);
-    let state = bars;
+    let state = bars, usual = band;
     let chosen = null;
     let drawn = null;
 
@@ -297,7 +298,7 @@
       const plotWidth = width - pad.left - pad.right, plotHeight = height - pad.top - pad.bottom;
       const known = bars.map((bar) => segments.map((one) => one.value(bar.values)));
       const sums = known.map((values) => values.map((value) => value ?? 0));
-      const highest = Math.max(0, ...sums.map((list) => list.filter((v) => v > 0).reduce((a, b) => a + b, 0)));
+      const highest = Math.max(0, usual?.high ?? 0, ...sums.map((list) => list.filter((v) => v > 0).reduce((a, b) => a + b, 0)));
       const lowest = Math.min(0, ...sums.map((list) => list.filter((v) => v < 0).reduce((a, b) => a + b, 0)));
       const size = Math.max(highest, -lowest);
       const step = niceStep((highest - lowest) / 5 || 1, unit(size));
@@ -320,6 +321,10 @@
       });
       const hover = svg("rect", { y: pad.top, height: plotHeight, width: slot, class: "bar-hover hidden", rx: 6 });
       root.append(hover);
+      // The usual range behind the bars, across the plot.
+      if (usual && usual.high > usual.low) {
+        root.append(svg("rect", { x: pad.left, width: plotWidth, y: y(usual.high), height: Math.max(2, y(usual.low) - y(usual.high)), rx: 4, class: "chart-band" }));
+      }
       // Segments stack out from the baseline with a 2px gap between them; the outermost on each side has 4px
       // rounded corners at its free end, square at the baseline.
       const gap = 2, radius = 4;
@@ -397,7 +402,7 @@
     });
     resize.observe(frame);
     draw();
-    return { update(bars) { state = bars; chosen = null; tooltip.classList.add("hidden"); draw(); } };
+    return { update(bars, band) { state = bars; if (band !== undefined) usual = band; chosen = null; tooltip.classList.add("hidden"); draw(); } };
   }
 
   /// A state over time in `container` (an accessory's On, a door's state, a mode): a band split where the value

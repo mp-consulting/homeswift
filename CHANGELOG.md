@@ -53,6 +53,59 @@ All notable changes to this project are documented here. The format follows
   applied, so HomeKit never sees it a moment with the services' defaults (a lock unsecured, a plug off) or No Response.
 - A light restored from the accessory cache, before its plugin found it again, was not a Lightbulb to what looked for
   one (a remote's Controls, their choices): a service type is now its UUID.
+- The Energy flow card's house shows the battery's charge on the battery itself: small glowing pills lit to the level,
+  amber and then red as it runs low, in the battery's perspective. **Values** puts the live figures on the picture:
+  solar, the grid, the home and the battery's charge, each where its conduit lands.
+- On a phone, an accessory's details on Energy › By accessory slide in over the list as iOS pushes a screen; Back, or the
+  phone's back gesture, slides them out again.
+- The **Energy page** (`/energy`, in the side menu once there is energy): Overview (the Energy section's units, editable
+  as Status, its layout each user's own), **By accessory** (a row per device with its days, share and cost, and a panel
+  of when it used energy this week, hour by hour) and the **Energy log** over 2, 7 or 14 days, searchable. Status keeps
+  Energy flow and The big picture by default.
+- **Best hours today**, an energy widget: the day's hours by the sun's usual share and the Tariff's prices, and the best
+  window. At a glance's widgets are made wide or small and moved in the edit mode.
+- `/api/metrics/consumption` gives a bar per hour up to two weeks with `step=hour`.
+- The Status page's **edit mode**, as iOS's Control Center: **Edit** (or a long press on a section) makes the sections
+  sway, each with a remove badge and a handle; a section is dragged anywhere on it into place (or moved with the arrow
+  keys); **Add a section** brings back a hidden one or adds an energy widget. It replaces Customise this page.
+- **At a glance**: small energy widgets added from the edit mode (Power now, Today against usual, Self-powered today,
+  Solar today, Batteries, Energy cost this month), kept in each user's `dashboard.widgets`.
+- The Energy section's **big picture**: one Week / Month / Year for everything under it, tiles for the home's use, the
+  self-powered share, the cost and what went to the grid, a usual day shaded behind each day's bars, and **Where it
+  goes**, the home's use as blocks by device. **Worth knowing** and the **Energy log** tell the last two days in
+  sentences: the night floor, a device always on, Meters that say nothing, two units reporting the same figures, a
+  charging state flipping, the busiest hour, the sun, the batteries and each run of a device. The power charts fold
+  under the rest. Each of these is a section of its own, moved, removed and added back one by one in the edit mode, the
+  half ones two to a row on a wide screen; Activity's four charts too. The edit mode names each section and lists them
+  all, those shown ticked with Remove.
+- **Worth knowing** and the **Energy log** are worked out on the bridge (`EnergyStory`): `/api/metrics/energy/story`
+  answers them as codes and values for the page to word, the MCP tool `get_energy_story` with an English sentence each,
+  and a new flapping or night floor goes out as the notification event **Something stands out in the energy use**,
+  once a day at most each.
+
+### Changed
+
+- The Simple house style is rendered again: framed 3:2 with the model centred (no empty sky, no zoom on the page), a night
+  that reads as night (the garden in shade, the rooms lit), and the battery's cells dark so the live charge gauge is the
+  only one; the script writes the gauge's place and the solar array's corners into the layout.
+- Plugins' energy history imports run the same way for all of them, in the runtime (`context.energyHistory`,
+  docs/adr/0009-one-energy-history-import.md): where each stands, a restart going on from there, the last days read
+  again every six hours, a failure tried again in ten minutes and said on the Status page, a new way of reading
+  dropping its old hours. EcoFlow, Shelly and Daikin Cloud use it; their former files are taken over once, so nothing
+  is read again.
+- Daikin Cloud: each unit's energy use goes on a Meter of its own, its last two weeks from the cloud included and its
+  24 months before them (each month spread over its days), so the units
+  are devices on the Energy page (By accessory, Where it goes, the Energy log) rather than the home's use. The
+  `energyHistory` setting goes: what it imported as the home's use is dropped once, so nothing is counted twice.
+
+
+- **EcoFlow**: a STREAM system's cloud history goes onto the unit whose live readings carry the system's flows, so each
+  hour is counted once (it went onto the lowest serial while another unit recorded the same hours); the history's home
+  use is the balance of its flows, since the cloud's home chart is the grid import on a system with a smart meter. A
+  device's charging state reaches HomeKit once it has held a minute: a RIVER's pass-through flipped it every few minutes.
+- **LG ThinQ**: an air conditioner's power goes into its Meter as Current Consumption (watts); it went into Total
+  Consumption, a kWh counter, so the Meter recorded nothing or the wrong energy. ThinQ1 units, which report no power,
+  declare no Meter.
 
 ## [0.26.0] - 2026-11-08
 

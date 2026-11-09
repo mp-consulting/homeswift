@@ -52,7 +52,8 @@ final class PreferencesStore: Sendable {
     func preferences(for user: String) -> JSONValue {
         var object: [String: JSONValue] = ["theme": "auto", "wallpaper": "none", "temperatureUnit": "c", "language": "auto",
                                               "timeFormat": "auto", "dateFormat": "auto", "numberFormat": "auto", "firstWeekday": "auto", "timeZone": "home",
-                                              "energyHouseStyle": "realistic", "dashboard": ["order": [], "hidden": []]]
+                                              "energyHouseStyle": "realistic", "dashboard": ["order": [], "hidden": [], "widgets": []],
+                                              "energyPage": ["order": [], "hidden": [], "widgets": []]]
         for (key, value) in state.withLockedValue({ $0[user]?.objectValue ?? [:] }) { object[key] = value }
         // Not a choice: the zone "home" means, which the pages format times in.
         object["homeTimeZone"] = .string(HomeTime.zone.identifier)
@@ -82,7 +83,8 @@ final class PreferencesStore: Sendable {
                 if value == "custom", preferences(for: user)["customHouse"] == nil { throw PreferencesError("upload your house photo first") }
                 accepted[key] = try Self.choice(value, in: Self.energyHouseStyles, key)
             case _ where Self.choices[key] != nil: accepted[key] = try Self.choice(value, in: Self.choices[key] ?? [], key)
-            case "dashboard": accepted[key] = try Self.dashboard(value)
+            // The Status page's layout, and the Energy page's (its units' order and those hidden), checked alike.
+            case "dashboard", "energyPage": accepted[key] = try Self.dashboard(value)
             // The Assistant chat's model, one of the provider's; null goes back to the block's.
             case "assistantModel":
                 if value.isNull { accepted[key] = .null; break }
@@ -286,7 +288,7 @@ final class PreferencesStore: Sendable {
         return .string(text)
     }
 
-    /// `order` and `hidden`: widget ids, short words.
+    /// `order` and `hidden`: the sections' ids; `widgets`: the small widgets added to At a glance, in order. Short words.
     private static func dashboard(_ value: JSONValue) throws -> JSONValue {
         func ids(_ list: JSONValue?) throws -> JSONValue {
             let items = list?.arrayValue ?? []
@@ -298,7 +300,7 @@ final class PreferencesStore: Sendable {
                 return .string(id)
             })
         }
-        return ["order": try ids(value["order"]), "hidden": try ids(value["hidden"])]
+        return ["order": try ids(value["order"]), "hidden": try ids(value["hidden"]), "widgets": try ids(value["widgets"])]
     }
 }
 

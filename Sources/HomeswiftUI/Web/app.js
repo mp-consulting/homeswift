@@ -457,6 +457,7 @@
       if (glyph && !link.querySelector("svg")) link.prepend(HomeswiftCommon.icon(glyph));
     }
     showSections();
+    showEnergyEntry();
     HomeswiftChat.mount();
     openEvents();
     // The user's theme, wallpaper and units; a page showing temperatures draws again when the unit changed.
@@ -465,6 +466,21 @@
       if (preferences.temperatureUnit !== shownUnit && ["/", "/status", "/accessories"].includes(location.pathname)) route();
     });
     route();
+  }
+
+  /// The Energy entry, in the side menu and the phone's sections, once a plugin records the home's energy or some Meter
+  /// has figures (as the Energy section shows itself); hidden on a bridge without energy.
+  async function showEnergyEntry() {
+    const links = () => document.querySelectorAll('a[href="/energy"]');
+    for (const link of links()) link.hidden = true;
+    const now = new Date(), from = new Date(now.getTime() - 3600000);
+    let found = false;
+    try {
+      const report = await api(`/api/metrics/energy?${new URLSearchParams({ from: from.toISOString(), to: now.toISOString() })}`);
+      found = report.roles.length > 0;
+      if (!found) found = (await api("/api/metrics/consumption?period=week")).meters.length > 0;
+    } catch {}
+    for (const link of links()) link.hidden = !found;
   }
 
   // ---- Roles -----------------------------------------------------------------
@@ -495,6 +511,11 @@
   /// starts (`onReturn`), cleared by each new view. Without one, nothing.
   let returnHook = null;
   const onReturn = (hook) => { returnHook = hook; };
+  /// A step back or forward the view shown answers itself (Energy's By accessory, whose details on a phone are a step of
+  /// their own): given the new address, true when it did, so the view is not drawn again. Set by the view
+  /// (`onHistory`), cleared by each new view.
+  let historyHook = null;
+  const onHistory = (hook) => { historyHook = hook; };
   /// The place a #hash names on the view drawn (/status#matter-<device>): opened when it unfolds, and brought into view.
   const reveal = (hash) => {
     let id = "";
@@ -548,6 +569,7 @@
     $("#view").replaceWith(main);
     leaveGuard = null;
     returnHook = null;
+    historyHook = null;
     shownPath = location.pathname + location.search;
     return view(main, args).catch((e) => { if (e.status !== 401) main.replaceChildren(el("p", { class: "error", text: e.message })); });
   }
@@ -564,6 +586,7 @@
   window.addEventListener("popstate", async () => {
     if (!(auth && auth.authenticated)) return;
     if (leaveGuard && !(await leaveGuard())) { history.pushState(null, "", shownPath); return; }
+    if (historyHook?.(location)) { shownPath = location.pathname + location.search; return; }
     route();
   });
   // A link within the UI changes the view in place. A plugin's own page (/plugins/<slug>) is a page of its own,
@@ -1000,8 +1023,19 @@
       digest: () => status.assistant ? digestWidget() : null,
       // Nothing in the vault and nothing to move into it: no section until there is.
       vault: () => isAdmin() && status.vault && (status.vault.entries || status.vault.inConfig || status.vault.problems?.length) ? vaultCard(status.vault) : null,
-      activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
-      energy: () => energy(),
+      ...Object.fromEntries(["activity", "activity-memory", "activity-cpu", "activity-requests", "activity-calls"].map((id) =>
+        [id, () => (activityParts ??= activity(accessories, withSlugs(status.bridges, "bridge")))[id]])),
+      "energy-flow": () => energyPart("energy-flow"),
+      "energy-flow-details": () => energyPart("energy-flow-details"),
+      "energy-summary": () => energyPart("energy-summary"),
+      "energy-days": () => energyPart("energy-days"),
+      "energy-where": () => energyPart("energy-where"),
+      "energy-insights": () => energyPart("energy-insights"),
+      "energy-log": () => energyPart("energy-log"),
+      "energy-devices": () => energyPart("energy-devices"),
+      "energy-utilities": () => energyPart("energy-utilities"),
+      "energy-power": () => energyPart("energy-power"),
+      glance: () => glanceSection(glanceIds),
       bridges: (chosen) => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
       el("div", { class: "servers" }, ...bridges, matter?.enabled && matter.bridge !== false ? matterNode(matter, false) : null, devicesCard(chosen))],
       system: () => [el("h2", { text: t("System") }),
@@ -1025,20 +1059,31 @@
           el("a", { class: "link", href: "/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
     };
     const sections = new Map();
+    let glanceIds = [];
+    // The Energy section's units share one controller (its period, its loads), made with the first one shown.
+    let energyParts = null, activityParts = null;
+    const energyPart = (id) => (energyParts ??= energy())[id];
     // Homeswift's health, version, update and feedback are the side menu's (the account menu's, narrower); the page
     // keeps Customise, floating at its bottom right.
     drawSideAbout(status);
+    // Edit, at the bottom right (or a long press on a section), turns the page into its edit mode, as iOS's Control
+    // Center: sections to drag into place or remove, and the ones not shown to add back.
     const footer = el("footer", { class: "page-foot status-footer" },
-      el("button", { type: "button", class: "link", "aria-label": t("Customise the Status page"), "aria-haspopup": "menu", "aria-expanded": "false",
-        onclick: (event) => customiseDashboard(event.currentTarget, renderDashboard, event.detail === 0) }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Customise this page…") })));
+      el("button", { type: "button", class: "link", "aria-label": t("Edit the Status page"), onclick: () => editDashboard.enter() },
+        HomeswiftCommon.icon("edit"), el("span", { text: t("Edit") })));
     function renderDashboard(layout) {
       const position = { left: scrollX, top: scrollY };
+      // At a glance is drawn again when its widgets change; with none, it has no section.
+      glanceIds = layout.widgets ?? [];
+      const glance = sections.get("glance");
+      if (glance && glance.querySelector(".glance")?.dataset.ids !== glanceIds.join(" ")) { glance.remove(); sections.delete("glance"); }
       for (const id of layout.order) {
         let section = sections.get(id);
         if (!section && !layout.hidden.includes(id)) {
           const nodes = [widgets[id]?.()].flat().filter(Boolean);
           if (nodes.length) {
-            section = el("section", { class: "dash-widget", "data-widget": id }, nodes);
+            const half = dashboardWidgets.find(([known]) => known === id)?.[3] === "half";
+            section = el("section", { class: half ? "dash-widget half" : "dash-widget", "data-widget": id }, nodes);
             sections.set(id, section);
           }
         }
@@ -1048,7 +1093,9 @@
         }
       }
       scrollTo({ ...position, behavior: "instant" });
+      editDashboard?.decorate();
     }
+    const editDashboard = dashboardEditor(main, sections, renderDashboard);
     // The bridge said a Matter node changed, or an administrator changed one: the Bridges section is drawn again, its
     // rows as the viewer left them, its search as typed and the page where it was.
     redrawMatter = async () => {
@@ -1064,6 +1111,7 @@
       if (search && query) { search.value = query; search.dispatchEvent(new Event("input")); }
       scrollTo({ ...position, behavior: "instant" });
     };
+    main.classList.add("dash-grid");
     show(main, footer);
     renderDashboard(dashboardLayout());
     // Reached from an accessory's menu (/status#matter-<device>): that row, opened and in view.
@@ -1073,49 +1121,557 @@
   // ---- The Status page's widgets: which show, in which order ----------------------------------------------
   // Each user's own, kept on the server with their other preferences (/api/preferences, `dashboard`).
 
-  const dashboardWidgets = [["presence", t("You are home"), t("Whether you are home, from your phone on the network")], ["overview", t("Overview"), t("Health, accessories, plugins, uptime")], ["quick", t("Quick controls"), t("Favourite accessories and scenes")], ["digest", t("Daily digest"), t("The Assistant's summary of the day")],
+  const dashboardWidgets = [["presence", t("You are home"), t("Whether you are home, from your phone on the network")], ["glance", t("At a glance"), t("The small widgets you add")], ["overview", t("Overview"), t("Health, accessories, plugins, uptime")], ["quick", t("Quick controls"), t("Favourite accessories and scenes")], ["digest", t("Daily digest"), t("The Assistant's summary of the day")],
     ["vault", t("Vault"), t("Passwords, keys and tokens, and what needs attention")],
-    ["activity", t("Activity"), t("Memory, CPU and response times")], ["energy", t("Energy"), t("Solar, home, grid and batteries")], ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
+    ["activity", t("Activity"), t("The range and the server for the charts under it")],
+    ["activity-memory", t("Memory"), t("The homeswift process's memory"), "half"],
+    ["activity-cpu", t("CPU"), t("The homeswift process's CPU"), "half"],
+    ["activity-requests", t("Home app requests"), t("How long the bridge takes to answer"), "half"],
+    ["activity-calls", t("Plugin device calls"), t("How long plugins take to reach their devices"), "half"],
+    
+    ["energy-flow", t("Energy flow"), t("The house and where the power goes now")],
+    ["energy-flow-details", t("Energy flow with details"), t("The house, today's biggest users and what powered the home"), null, "optional"],
+    ["energy-summary", t("The big picture"), t("The period's use, self-powered share, cost and export")],
+    ["energy-days", t("Energy by day"), t("Each day's energy, a usual day shaded"), "half", "optional"],
+    ["energy-where", t("Where it goes"), t("The home's use as blocks by device"), "half", "optional"],
+    ["energy-insights", t("Worth knowing"), t("What stands out in the last two days"), "half", "optional"],
+    ["energy-log", t("Energy log"), t("The last two days in sentences"), "half", "optional"],
+    ["energy-devices", t("Consumption by device"), t("What each meter measured"), null, "optional"],
+    ["energy-utilities", t("Gas and water"), t("What the gas and water meters measured"), null, "optional"],
+    ["energy-power", t("Power and battery levels"), t("The power and the batteries' charge, minute by minute"), null, "optional"],
+    ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
 
-  /// The widgets in the user's order (new ones last), and those hidden.
+  /// The small widgets the edit mode adds to At a glance (`dashboard.widgets`), each answered from the Energy
+  /// section's own figures.
+  const glanceWidgets = [["energy-now", t("Power now"), t("What the home uses now, and where it comes from")],
+    ["energy-today", t("Today against usual"), t("Today's use beside a usual day")],
+    ["energy-self", t("Self-powered today"), t("The share your roof and batteries covered")],
+    ["energy-solar", t("Solar today"), t("What the panels produced today")],
+    ["energy-batteries", t("Batteries"), t("Each battery's charge")],
+    ["energy-cost", t("Energy cost this month"), t("The grid's energy this month, at its tariff")],
+    ["energy-best", t("Best hours today"), t("When energy is cheapest or comes from the sun"), "wide"]];
+  /// A widget's entry in `dashboard.widgets` is its id, with `--wide` when it spans two places.
+  const widgetBase = (entry) => entry.split("--")[0];
+  const widgetWide = (entry) => entry.endsWith("--wide");
+
+  /// The widgets in the user's order (new ones last), those hidden, and the small widgets at a glance.
   function dashboardLayout() {
-    const saved = HomeswiftCommon.preferences().dashboard || {};
+    const stored = HomeswiftCommon.preferences().dashboard || {};
     const known = dashboardWidgets.map(([id]) => id);
-    // New widgets go last, but "you are home", which reads first.
+    // A layout from before the Energy section came in units: its units where it was, hidden if it was.
+    const units = known.filter((id) => id.startsWith("energy-"));
+    const charts = known.filter((id) => id.startsWith("activity-"));
+    // Activity's charts come with it where they are new: a hidden Activity hides them too.
+    const expand = (list) => (list || []).flatMap((id) => id === "energy" ? units
+      : id === "activity" && !(stored.order || []).some((one) => one.startsWith("activity-")) ? ["activity", ...charts] : [id]);
+    const saved = { ...stored, order: expand(stored.order), hidden: expand(stored.hidden) };
+    // New to this user and optional on Status (the Energy page has them all): hidden until added.
+    const optional = dashboardWidgets.filter((one) => one[4] === "optional").map(([id]) => id);
+    saved.hidden = [...saved.hidden, ...optional.filter((id) => !saved.order.includes(id) && !saved.hidden.includes(id))];
+    // New widgets go last, but "you are home", which reads first, and At a glance under it.
     const fresh = known.filter((id) => !(saved.order || []).includes(id));
-    const order = [...fresh.filter((id) => id === "presence"), ...(saved.order || []).filter((id) => known.includes(id)), ...fresh.filter((id) => id !== "presence")];
-    return { order, hidden: (saved.hidden || []).filter((id) => known.includes(id)) };
+    const first = ["presence", "glance"];
+    const order = [...fresh.filter((id) => first.includes(id)), ...(saved.order || []).filter((id) => known.includes(id)), ...fresh.filter((id) => !first.includes(id))];
+    return { order, hidden: (saved.hidden || []).filter((id) => known.includes(id)),
+      widgets: (saved.widgets || []).filter((entry) => glanceWidgets.some(([one]) => one === widgetBase(entry))) };
   }
 
-  /// The same pop-up as accessory actions: visibility choices, ordering, and reset.
-  function customiseDashboard(trigger, renderDashboard, keyboard = false) {
-    let layout = dashboardLayout();
-    const nameOf = (id) => dashboardWidgets.find(([known]) => known === id)[1];
-    const save = async (next) => {
+  /// The day's hours by what they cost: `sun` where the panels usually cover the home (the last week's hours, on
+  /// average), `cheap` and `dear` where the electricity Tariff in force has its lowest and highest prices (only when it
+  /// has more than one), `normal` otherwise; and the best window, the longest run of the best kind, with a line saying why.
+  let bestHoursCache = null;
+  function bestHours(tariffs, week, now) {
+    const today = isoDay(now), weekday = zoned(now).weekday ?? now.getDay();
+    const current = tariffs.filter((one) => !one.kind && (one.start ?? "") <= today).sort((a, b) => (a.start ?? "").localeCompare(b.start ?? "")).at(-1);
+    const minutes = (text) => { const [h, m] = String(text).split(":").map(Number); return h * 60 + (m || 0); };
+    const priceAt = (hour) => {
+      const at = hour * 60 + 30;
+      const period = (current?.periods ?? []).find((one) => (!one.days || one.days.includes(weekday)) && minutes(one.from) <= at && at < minutes(one.to ?? "24:00"));
+      return period?.price ?? null;
+    };
+    const prices = Array.from({ length: 24 }, (_, hour) => priceAt(hour));
+    const known = prices.filter((price) => price != null);
+    const varies = known.length && Math.max(...known) > Math.min(...known);
+    const average = (role, field) => {
+      const meter = week.meters.find((one) => one.role === role && one.bars?.some((bar) => bar[field] != null));
+      const sums = Array(24).fill(0), counts = Array(24).fill(0);
+      for (const bar of meter?.bars ?? []) {
+        const hour = Number(bar.date.slice(11, 13));
+        if (bar[field] != null && !Number.isNaN(hour)) { sums[hour] += bar[field]; counts[hour]++; }
+      }
+      return sums.map((sum, hour) => counts[hour] ? sum / counts[hour] : 0);
+    };
+    const sun = average("solar", "returned"), home = week.meters.some((one) => one.role === "home") ? average("home", "consumption") : average("grid", "consumption");
+    const hours = Array.from({ length: 24 }, (_, hour) => sun[hour] >= 0.1 && sun[hour] >= 0.6 * Math.max(home[hour], 0.05) ? "sun"
+      : varies && prices[hour] === Math.min(...known) ? "cheap" : varies && prices[hour] === Math.max(...known) ? "dear" : "normal");
+    const goal = hours.includes("sun") ? "sun" : hours.includes("cheap") ? "cheap" : null;
+    let window = null;
+    if (goal) {
+      let start = null, bestRun = [0, -1];
+      hours.concat("end").forEach((kind, hour) => {
+        if (kind === goal && start == null) start = hour;
+        if (kind !== goal && start != null) { if (hour - start > bestRun[1] - bestRun[0]) bestRun = [start, hour]; start = null; }
+      });
+      if (bestRun[1] > bestRun[0]) window = bestRun.map((hour) => `${String(hour).padStart(2, "0")}:00`);
+    }
+    const note = goal === "sun" ? (varies ? t("The panels usually cover the home then") : t("Flat tariff: the panels usually cover the home then"))
+      : goal === "cheap" ? t("The tariff's cheapest hours") : known.length ? t("Flat tariff, and not enough sun this week") : t("No tariff set");
+    return { hours, window, note };
+  }
+
+  /// At a glance: a tile per widget added, its figure and a line, refreshed each minute while shown; a tile opens
+  /// the Energy section.
+  function glanceSection(entries) {
+    if (!entries.length) return null;
+    const ids = entries.map(widgetBase);
+    const tiles = new Map(entries.map((entry) => {
+      const id = widgetBase(entry);
+      const [, name] = glanceWidgets.find(([one]) => one === id);
+      // The meter shows once the figures say how full it is.
+      const value = el("b", { text: "–" }), note = el("small", {}), meter = el("span", { class: "glance-meter", "aria-hidden": "true", hidden: true }, el("i"));
+      const strip = id === "energy-best" ? el("span", { class: "glance-hours", "aria-hidden": "true" }) : null;
+      const node = el("a", { class: `card glance-tile${widgetWide(entry) ? " wide" : ""}`, href: "/energy", "data-tile": id, "data-entry": entry },
+        el("span", { class: "glance-label", text: name }), value, note, strip, meter);
+      return [id, { node, value, note, meter: meter.firstChild, strip }];
+    }));
+    // The Accessories wall's grid (widgets.js fits its columns): a tile is a Medium widget's size, a wide one two columns.
+    const grid = el("div", { class: "glance wall", "data-ids": entries.join(" ") }, [...tiles.values()].map((one) => one.node));
+    const set = (id, value, note, share = null, tone = 1) => {
+      const tile = tiles.get(id);
+      if (!tile) return;
+      tile.value.textContent = value;
+      tile.note.textContent = note ?? "";
+      tile.meter.parentNode.hidden = share == null;
+      tile.meter.className = `tone-${tone}`;
+      tile.meter.style.width = `${Math.max(0, Math.min(100, share ?? 0))}%`;
+    };
+    const timeZone = HomeswiftI18n.timeZone;
+    async function load() {
+      const now = new Date(), from = HomeswiftI18n.startOfDay(now);
+      let report;
+      try {
+        report = await api(`/api/metrics/energy?${new URLSearchParams({ from: from.toISOString(), to: now.toISOString(), timeZone })}`);
+      } catch {
+        return;
+      }
+      const days = report.days ?? [], today = days.at(-1);
+      const last = (report.power ?? []).findLast((point) => !point.imported);
+      if (last) {
+        // Whole sentences, so each language words its own preposition.
+        const sources = [["solar", t("Mostly from the sun"), Math.max(0, last.solar ?? 0)], ["battery", t("Mostly from the batteries"), Math.max(0, -(last.battery ?? 0))], ["grid", t("Mostly from the grid"), Math.max(0, last.grid ?? 0)]];
+        const main = sources.reduce((best, one) => one[2] > best[2] ? one : best);
+        const home = last.home ?? sources.reduce((sum, one) => sum + one[2], 0);
+        set("energy-now", formatWatts(home), main[2] > 0 ? main[1] : null,
+          home > 0 ? main[2] / home * 100 : null, { solar: 4, battery: 3, grid: 7 }[main[0]]);
+      } else set("energy-now", "–", t("Nothing recorded yet"));
+      // A usual day: the middle of the week's whole days before today.
+      // The home's use, or the grid's import where no meter measures the home.
+      const used = (day) => day?.home || day?.gridImport || null;
+      const usual = usualDay(days.slice(0, -1).filter((day) => day.minutes >= 1380).map(used));
+      if (used(today) != null) set("energy-today", formatKWh(used(today)), usual ? t("A usual day is about {value}", { value: formatKWh(usual) }) : null, usual ? used(today) / usual * 100 : null, 1);
+      if (today?.home > 0) {
+        const own = Math.max(0, Math.min(1, ((today.homeFromSolar ?? 0) + (today.batteryDischarge ?? 0)) / today.home)) * 100;
+        set("energy-self", formatPercent(own), t("From your roof and batteries"), own, 4);
+      }
+      if (today?.solar != null) {
+        const best = Math.max(0, ...days.map((day) => day.solar ?? 0));
+        set("energy-solar", formatKWh(today.solar), best > today.solar ? t("Best day this week: {value}", { value: formatKWh(best) }) : t("The best day this week"), best ? today.solar / best * 100 : null, 4);
+      }
+      const levels = (report.levels ?? []).map((one) => ({ device: one.device, level: one.points.at(-1)?.[1] })).filter((one) => one.level != null);
+      if (!levels.length) set("energy-batteries", "–", t("No battery is measured"));
+      if (levels.length) set("energy-batteries", levels.map((one) => formatPercent(one.level)).join(" · "), levels.map((one) => one.device).join(" · "),
+        levels.reduce((sum, one) => sum + one.level, 0) / levels.length, 3);
+      // Best hours and the month's cost are independent: asked at once. Best hours change by the hour, so a
+      // refresh within the same hour reuses them rather than a week of hourly bars again.
+      await Promise.all([tiles.has("energy-best") && (async () => {
+        try {
+          const hour = Math.floor(now.getTime() / 3600000);
+          if (bestHoursCache?.hour !== hour) {
+            const [tariffs, week] = await Promise.all([api("/api/settings/tariffs").catch(() => ({ tariffs: [] })),
+              api(`/api/metrics/consumption?${new URLSearchParams({ hours: "168", step: "hour", kind: "electricity", timeZone })}`)]);
+            bestHoursCache = { hour, best: bestHours(tariffs.tariffs ?? [], week, now) };
+          }
+          const best = bestHoursCache.best;
+          const tile = tiles.get("energy-best");
+          tile.strip.replaceChildren(...best.hours.map((kind) => el("i", { class: `hour-${kind}` })));
+          set("energy-best", best.window ? `${best.window[0]}–${best.window[1]}` : "–", best.note);
+          tile.meter.parentNode.hidden = true;
+        } catch {}
+      })(), tiles.has("energy-cost") && (async () => {
+        try {
+          const month = await api(`/api/metrics/energy/history?${new URLSearchParams({ period: "month", date: HomeswiftCommon.isoDay(now), timeZone })}`);
+          const cost = month.bars.reduce((sum, bar) => bar.cost == null ? sum : (sum ?? 0) + bar.cost, null);
+          set("energy-cost", cost != null && month.currency ? formatMoney(cost, month.currency) : "–", cost != null ? t("This month so far") : t("No tariff set"));
+        } catch {}
+      })()]);
+    }
+    load();
+    const timer = setInterval(() => { if (!grid.isConnected) clearInterval(timer); else if (!document.hidden) load(); }, 60000);
+    return [el("h2", { text: t("At a glance") }), grid];
+  }
+
+  /// A section's or widget's thumbnail for Sections and widgets: a miniature of what it draws, 64 by 44, in the page's
+  /// colours (classes `th-*`, so light and dark both suit it). Decorative: the row's name and line say what it is.
+  function dashboardThumb(id) {
+    const ns = "http://www.w3.org/2000/svg";
+    const make = (tag, attrs) => { const node = document.createElementNS(ns, tag); for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value); return node; };
+    const parts = [];
+    const r = (x, y, w, h, c, rx = 1.5) => parts.push(make("rect", { x, y, width: w, height: h, rx, class: c }));
+    const line = (points, c) => parts.push(make("polyline", { points, class: `th-stroke ${c}`, fill: "none" }));
+    const dot = (cx, cy, rr, c) => parts.push(make("circle", { cx, cy, r: rr, class: c }));
+    const text = (y, w) => r(8, y, w, 3, "th-muted", 1.5);
+    const bars = (values, colours, base = 36) => values.forEach((value, i) => {
+      let top = base;
+      value.forEach((h, j) => { top -= h; r(9 + i * 7, top, 5, h, colours[j], 1); });
+    });
+    const chart = (c) => { r(8, 36, 48, 1, "th-muted", 0); line("8,30 16,27 24,29 32,20 40,23 48,14 56,17", c); };
+    const meter = (c, share) => { r(8, 33, 48, 3, "th-muted"); r(8, 33, 48 * share, 3, c); };
+    const big = (w = 26) => r(8, 14, w, 9, "th-text", 2);
+    switch (id) {
+      case "presence": dot(20, 17, 5, "th-1"); r(13, 25, 14, 7, "th-1", 3.5); text(15, 22); text(22, 16); parts.forEach((n) => n.getAttribute("x") === "8" && n.setAttribute("x", "32")); break;
+      case "overview": [8, 21, 34, 47].forEach((x, i) => { r(x, 12, 10, 20, "th-tile", 2); r(x + 2.5, 15, 5, 5, ["th-4", "th-1", "th-3", "th-7"][i], 1.5); r(x + 2, 24, 6, 3, "th-text", 1); }); break;
+      case "quick": [0, 1, 2].forEach((col) => [0, 1].forEach((row) => r(8 + col * 17, 10 + row * 13, 14, 10, row + col === 1 ? "th-1" : "th-tile", 3))); break;
+      case "digest": dot(13, 13, 3, "th-ai"); text(20, 44); text(26, 40); text(32, 30); break;
+      case "vault": r(9, 15, 12, 13, "th-tile", 2); dot(15, 21, 2.2, "th-1"); text(15, 26); text(22, 20); parts.slice(-2).forEach((n) => n.setAttribute("x", "26")); break;
+      case "activity": r(8, 12, 30, 7, "th-tile", 3.5); r(9, 13, 9, 5, "th-text", 2.5); r(41, 12, 15, 7, "th-tile", 3.5); text(26, 22); break;
+      case "activity-memory": case "activity-cpu": chart("th-accent"); break;
+      case "activity-requests": case "activity-calls": r(8, 36, 48, 1, "th-muted", 0); line("8,30 16,29 24,30 32,27 40,28 48,26 56,27", "th-1"); line("8,24 16,20 24,25 32,14 40,21 48,16 56,19", "th-2"); break;
+      case "energy-flow": case "energy-flow-details":
+        parts.push(make("polygon", { points: "14,20 32,8 50,20", class: "th-text" }));
+        r(17, 20, 30, 16, "th-tile", 1); r(22, 24, 20, 9, "th-none", 1); parts.at(-1).setAttribute("class", "th-stroke th-4"); parts.at(-1).setAttribute("fill", "none");
+        line("26,11 20,15 20,28 22,28", "th-4"); r(52, 18, 2, 18, "th-muted", 1); line("47,26 52,26", "th-7");
+        // With details: the day's band under the house.
+        if (id === "energy-flow-details") { r(8, 38, 26, 3, "th-7", 1.5); r(34, 38, 22, 3, "th-4", 1.5); }
+        break;
+      case "energy-summary": [8, 29, 50].forEach((x, i) => { r(x, 11, i === 2 ? 6 : 18, 22, "th-tile", 2); if (i < 2) { r(x + 2, 15, 10, 5, "th-text", 1.5); r(x + 2, 25, 14, 2.5, i ? "th-4" : "th-muted", 1); } }); break;
+      case "energy-days": bars([[10, 4, 6], [12, 3, 7], [6, 4, 9], [11, 4, 5], [9, 5, 8], [13, 3, 6], [5, 2, 3]], ["th-4", "th-3", "th-7"]); r(8, 17, 48, 6, "th-band", 1); parts.unshift(parts.pop()); break;
+      case "energy-where": r(8, 9, 48, 4, "th-muted", 2); r(8, 9, 30, 4, "th-1", 2); r(8, 16, 26, 20, "th-1", 2); r(36, 16, 20, 12, "th-1b", 2); r(36, 30, 11, 6, "th-1c", 1.5); r(49, 30, 7, 6, "th-1c", 1.5); break;
+      case "energy-insights": [10, 20, 30].forEach((y, i) => { r(8, y, 48, 7, "th-tile", 2); r(10, y + 1.5, 1.5, 4, ["th-2", "th-7", "th-3"][i], 0.75); r(14, y + 2, [30, 36, 24][i], 3, "th-muted", 1.5); }); break;
+      case "energy-log": [10, 19, 28].forEach((y, i) => { r(8, y, 7, 3, "th-muted", 1.5); dot(20, y + 1.5, 1.8, ["th-4", "th-7", "th-1"][i]); r(25, y, [28, 22, 30][i], 3, "th-text", 1.5); }); break;
+      case "energy-devices": [10, 18, 26, 34].forEach((y, i) => { r(8, y, 14, 3, "th-text", 1.5); r(26, y, 30, 3, "th-muted", 1.5); r(26, y, [30, 18, 10, 6][i], 3, "th-1", 1.5); }); break;
+      case "energy-utilities": bars([[8], [12], [7], [10], [14], [6], [9]], ["th-2"]); parts.forEach((n, i) => i % 2 && n.setAttribute("class", "th-1")); break;
+      case "energy-power": r(8, 36, 48, 1, "th-muted", 0); line("8,34 16,30 24,18 32,12 40,18 48,30 56,34", "th-4"); line("8,24 16,26 24,25 32,27 40,22 48,16 56,20", "th-1"); line("8,22 16,26 24,30 32,32 40,30 48,24 56,22", "th-7"); break;
+      case "bridges": r(9, 10, 18, 18, "th-tile", 2); [[12, 13], [20, 13], [12, 21], [17, 17]].forEach(([x, y]) => r(x, y, 4, 4, "th-text", 0.5)); text(14, 22); text(21, 16); parts.slice(-2).forEach((n) => n.setAttribute("x", "32")); break;
+      case "system": r(10, 10, 44, 9, "th-tile", 2); r(10, 22, 44, 9, "th-tile", 2); dot(15, 14.5, 1.6, "th-3"); dot(15, 26.5, 1.6, "th-3"); r(20, 13, 18, 3, "th-muted", 1.5); r(20, 25, 22, 3, "th-muted", 1.5); break;
+      case "energy-now": big(20); meter("th-7", 0.85); break;
+      case "energy-today": big(); meter("th-1", 0.55); r(34, 31, 1.5, 7, "th-text", 0.75); break;
+      case "energy-self": dot(22, 22, 10, "th-muted"); parts.push(make("path", { d: "M22 12 A10 10 0 0 1 31 26", class: "th-stroke th-4", fill: "none" })); dot(22, 22, 6.5, "th-bg"); r(38, 17, 14, 7, "th-text", 2); break;
+      case "energy-solar": big(); meter("th-4", 0.3); break;
+      case "energy-batteries": big(30); meter("th-3", 0.25); break;
+      case "energy-cost": big(24); text(28, 20); break;
+      default: text(14, 40); text(22, 30);
+    }
+    const thumb = make("svg", { viewBox: "0 0 64 44", class: "dash-thumb", "aria-hidden": "true", focusable: "false" });
+    thumb.append(make("rect", { x: 0, y: 0, width: 64, height: 44, rx: 7, class: "th-frame" }), ...parts);
+    return thumb;
+  }
+
+  /// The Status page's edit mode, as iOS's Control Center: Edit (or a long press on a section) makes the sections
+  /// sway, each with a remove badge and a handle; a section is dragged anywhere on it into place (or moved with the
+  /// arrow keys on its handle); Add a section lists the ones not shown; Done leaves. Each change is saved at once.
+  /// `config` says which page it edits: its sections (`catalog`), its layout (`layout()`), the preference it is saved
+  /// under (`key`), how Sections and widgets groups them (`groups`) and the bar's name (`label`); Status's by default.
+  function dashboardEditor(main, sections, renderDashboard, config = null) {
+    config ??= { catalog: dashboardWidgets, layout: dashboardLayout, key: "dashboard", label: t("Edit the Status page"),
+      groups: ({ sectionsAll, isShown, isAdded, sectionRow, widgetRow }) => {
+        // By what they are about, each group saying how many of its items are on the page.
+        const groupOf = (id) => id.startsWith("energy-") ? "energy" : id.startsWith("activity") ? "activity" : ["vault", "bridges", "system"].includes(id) ? "system" : "home";
+        return [
+          ["home", t("Home"), sectionsAll.filter(([id]) => groupOf(id) === "home"), isShown, sectionRow],
+          ["energy", t("Energy"), sectionsAll.filter(([id]) => groupOf(id) === "energy"), isShown, sectionRow],
+          ["widgets", t("Energy widgets"), glanceWidgets, isAdded, widgetRow],
+          ["activity", t("Activity"), sectionsAll.filter(([id]) => groupOf(id) === "activity"), isShown, sectionRow],
+          ["system", t("Bridge and system"), sectionsAll.filter(([id]) => groupOf(id) === "system"), isShown, sectionRow]];
+      } };
+    let editing = false, bar = null, layout = config.layout();
+    const nameOf = (id) => config.catalog.find(([known]) => known === id)?.[1] ?? id;
+    const status = el("div", { class: "visually-hidden", role: "status", "aria-live": "polite" });
+    const reduce = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+    async function save(next) {
       const before = layout;
       layout = next;
       renderDashboard(layout);
       try {
-        HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: { dashboard: next } }));
+        HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: { [config.key]: next } }));
       } catch (e) {
         layout = before;
         renderDashboard(layout);
         HomeswiftCommon.showAlert(e.message);
       }
+    }
+    const shownSections = () => [...main.querySelectorAll(":scope > .dash-widget:not([hidden])")];
+    /// The order as the page shows it, the hidden ones kept where they were among the rest.
+    const orderOnPage = () => {
+      const shown = shownSections().map((node) => node.dataset.widget);
+      const queue = [...shown];
+      return layout.order.map((id) => shown.includes(id) ? queue.shift() : id);
     };
-    HomeswiftCommon.menu(trigger, [
-      ...layout.order.map((id) => ({ key: id, label: t("Show {name}", { name: nameOf(id) }),
-        checked: !layout.hidden.includes(id), checkbox: true, toggle: true, keepOpen: true,
-        onSelect: async () => {
-          await save({ ...layout, hidden: layout.hidden.includes(id) ? layout.hidden.filter((one) => one !== id) : [...layout.hidden, id] });
-          return !layout.hidden.includes(id);
-        } })),
-      { separator: true },
-      { label: t("Back to the usual layout"), onSelect: () => save({ order: dashboardWidgets.map(([id]) => id), hidden: [] }) },
-    ], { keyboard, onReorder: async (order) => {
-      await save({ ...layout, order });
-      return layout.order;
-    } });
+    /// The others slide to their new places (FLIP) when one moves.
+    function slide(change) {
+      const nodes = shownSections();
+      const before = new Map(nodes.map((node) => [node, node.getBoundingClientRect().top]));
+      change();
+      if (reduce()) return;
+      for (const node of nodes) {
+        if (node.classList.contains("dragging")) continue;
+        const delta = before.get(node) - node.getBoundingClientRect().top;
+        if (Math.abs(delta) > 1) node.animate([{ transform: `translateY(${delta}px)` }, { transform: "none" }], { duration: 260, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
+      }
+    }
+    function move(node, by) {
+      const nodes = shownSections(), at = nodes.indexOf(node), to = at + by;
+      if (to < 0 || to >= nodes.length) return;
+      slide(() => main.insertBefore(node, by < 0 ? nodes[to] : nodes[to].nextSibling));
+      status.textContent = by < 0 ? t("{name} moved up", { name: nameOf(node.dataset.widget) }) : t("{name} moved down", { name: nameOf(node.dataset.widget) });
+      save({ ...layout, order: orderOnPage() });
+    }
+    /// A section follows the pointer from where it was taken; the others make room as it passes their middle.
+    function drag(event, node) {
+      if (event.button !== 0) return;
+      const startY = event.clientY, origin = node.getBoundingClientRect().top + scrollY;
+      let dragging = false, lastY = startY, scroller = null;
+      const natural = () => { const shift = node.style.transform; node.style.transform = ""; const top = node.getBoundingClientRect().top + scrollY; node.style.transform = shift; return top; };
+      const startScroll = scrollY;
+      // Where it was taken, plus the pointer's way and the page's scroll since, less where the page now puts it.
+      const place = () => { node.style.transform = `translateY(${lastY - startY + (scrollY - startScroll) - (natural() - origin)}px) scale(1.015)`; };
+      const target = event.currentTarget;
+      target.setPointerCapture(event.pointerId);
+      const moved = (e) => {
+        lastY = e.clientY;
+        if (!dragging && Math.abs(lastY - startY) < 6) return;
+        if (!dragging) { dragging = true; node.classList.add("dragging"); }
+        place();
+        // Past a neighbour's middle: in front of it, or after it.
+        const others = shownSections().filter((one) => one !== node);
+        const box = node.getBoundingClientRect(), middle = box.top + box.height / 2;
+        const after = others.find((one) => { const r = one.getBoundingClientRect(); return middle < r.top + r.height / 2; });
+        const next = after ?? main.querySelector(":scope > footer");
+        if (next !== node.nextElementSibling) { slide(() => main.insertBefore(node, next)); place(); }
+        // Near the window's edges, the page scrolls on.
+        clearInterval(scroller);
+        const edge = lastY < 80 ? -12 : lastY > innerHeight - 80 ? 12 : 0;
+        if (edge) scroller = setInterval(() => { scrollBy(0, edge); place(); }, 16);
+      };
+      const ended = () => {
+        clearInterval(scroller);
+        target.removeEventListener("pointermove", moved);
+        target.removeEventListener("pointerup", ended);
+        target.removeEventListener("pointercancel", ended);
+        if (!dragging) return;
+        const from = node.style.transform;
+        node.style.transform = "";
+        node.classList.remove("dragging");
+        if (!reduce()) node.animate([{ transform: from }, { transform: "none" }], { duration: 240, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
+        const order = orderOnPage();
+        if (order.join() !== layout.order.join()) save({ ...layout, order });
+      };
+      target.addEventListener("pointermove", moved);
+      target.addEventListener("pointerup", ended);
+      target.addEventListener("pointercancel", ended);
+    }
+    function dragTile(event, tile, entry) {
+      if (event.button !== 0) return;
+      const grid = tile.parentNode, start = { x: event.clientX, y: event.clientY };
+      const target = event.currentTarget;
+      target.setPointerCapture(event.pointerId);
+      let dragging = false;
+      const origin = () => { const shift = tile.style.transform; tile.style.transform = ""; const box = tile.getBoundingClientRect(); tile.style.transform = shift; return box; };
+      let base = origin();
+      const moved = (e) => {
+        if (!dragging && Math.hypot(e.clientX - start.x, e.clientY - start.y) < 6) return;
+        if (!dragging) { dragging = true; tile.classList.add("dragging"); grid.closest(".dash-widget")?.classList.add("tiles-moving"); }
+        const over = [...grid.children].find((one) => one !== tile && (() => { const r = one.getBoundingClientRect(); return e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom; })());
+        if (over) {
+          const after = [...grid.children].indexOf(over) > [...grid.children].indexOf(tile);
+          grid.insertBefore(tile, after ? over.nextSibling : over);
+        }
+        const now = origin();
+        tile.style.transform = `translate(${e.clientX - start.x - (now.left - base.left)}px, ${e.clientY - start.y - (now.top - base.top)}px) scale(1.04)`;
+      };
+      const ended = () => {
+        target.removeEventListener("pointermove", moved);
+        target.removeEventListener("pointerup", ended);
+        target.removeEventListener("pointercancel", ended);
+        tile.style.transform = "";
+        tile.classList.remove("dragging");
+        grid.closest(".dash-widget")?.classList.remove("tiles-moving");
+        if (!dragging) return;
+        const order = [...grid.children].map((one) => one.dataset.entry);
+        if (order.join() !== layout.widgets.join()) save({ ...layout, widgets: order });
+      };
+      target.addEventListener("pointermove", moved);
+      target.addEventListener("pointerup", ended);
+      target.addEventListener("pointercancel", ended);
+    }
+    let tilesWatcher = null;
+    /// The remove badge, the handle and the shield that keeps the section's own controls still while editing.
+    function decorate() {
+      tilesWatcher?.disconnect();
+      tilesWatcher = null;
+      for (const node of main.querySelectorAll(":scope > .dash-widget")) {
+        node.querySelector(":scope > .dash-edit")?.remove();
+        // A section with nothing to show yet (Quick controls before any favourite) takes no place while editing either.
+        // Measured only while editing: outside the mode a refresh forces no layout.
+        const empty = editing && [...node.children].every((child) => !child.getBoundingClientRect().height);
+        node.classList.toggle("dash-empty", empty);
+        if (!editing || node.hidden || empty) continue;
+        const id = node.dataset.widget, name = nameOf(id);
+        const shield = el("div", { class: "dash-edit-shield", "aria-hidden": "true" });
+        shield.addEventListener("pointerdown", (event) => drag(event, node));
+        const handle = el("button", { type: "button", class: "dash-edit-handle", "aria-label": t("Move {name}: arrow keys", { name }) }, HomeswiftCommon.icon("selector"));
+        handle.addEventListener("pointerdown", (event) => drag(event, node));
+        handle.addEventListener("keydown", (event) => {
+          const by = { ArrowUp: -1, ArrowDown: 1 }[event.key];
+          if (!by) return;
+          event.preventDefault();
+          move(node, by);
+          handle.focus();
+        });
+        const remove = el("button", { type: "button", class: "dash-edit-remove", "aria-label": t("Remove {name}", { name }), onclick: () => {
+          const done = () => save({ ...layout, hidden: [...layout.hidden, id] });
+          status.textContent = t("{name} removed", { name });
+          if (reduce()) done(); else node.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(0.94)" }], { duration: 180, easing: "ease-in" }).finished.then(done, done);
+        } }, HomeswiftCommon.icon("minus"));
+        // Its name beside the badge, as Control Center labels each control: some sections have no title of their own.
+        node.append(el("div", { class: "dash-edit" }, shield, remove, el("span", { class: "dash-edit-name", "aria-hidden": "true", text: name }), handle));
+        // At a glance: each widget on its own, above the section's shield: removed by its badge, made wide or small by
+        // the button at its corner, moved by dragging it (or the arrow keys on it) among the others.
+        const edit = node.querySelector(":scope > .dash-edit");
+        const placed = [];
+        for (const tile of node.querySelectorAll(".glance-tile")) {
+          const entry = tile.dataset.entry, widget = widgetBase(entry), label = glanceWidgets.find(([one]) => one === widget)?.[1] ?? widget;
+          const mover = el("button", { type: "button", class: "dash-tile-move", "aria-label": t("Move {name}: arrow keys", { name: label }) });
+          mover.addEventListener("keydown", (event) => {
+            const by = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key];
+            if (!by) return;
+            event.preventDefault();
+            const list = [...layout.widgets], at = list.indexOf(entry), to = at + by;
+            if (to < 0 || to >= list.length) return;
+            [list[at], list[to]] = [list[to], list[at]];
+            status.textContent = by < 0 ? t("{name} moved up", { name: label }) : t("{name} moved down", { name: label });
+            save({ ...layout, widgets: list }).then(() => node.querySelector(`.dash-tile-move[aria-label="${CSS.escape(mover.getAttribute("aria-label"))}"]`)?.focus());
+          });
+          mover.addEventListener("pointerdown", (event) => dragTile(event, tile, entry));
+          const removeTile = el("button", { type: "button", class: "dash-edit-remove tile", "aria-label": t("Remove {name}", { name: label }), onclick: () => {
+                status.textContent = t("{name} removed", { name: label });
+                save({ ...layout, widgets: layout.widgets.filter((one) => one !== entry) });
+              } }, HomeswiftCommon.icon("minus"));
+          const size = el("button", { type: "button", class: "dash-tile-size", "aria-label": widgetWide(entry) ? t("Make {name} small", { name: label }) : t("Make {name} wide", { name: label }),
+              onclick: () => {
+                save({ ...layout, widgets: layout.widgets.map((one) => one === entry ? (widgetWide(one) ? widget : `${widget}--wide`) : one) });
+              } }, HomeswiftCommon.icon(widgetWide(entry) ? "collapse" : "expand"));
+          edit.append(mover, removeTile, size);
+          placed.push({ tile, mover, removeTile, size });
+        }
+        // Over each tile, by its place now: the wall fits its columns after the section is drawn (widgets.js), and a
+        // tile made wide or small moves the others, so the badges follow every change of the tiles' size.
+        const place = () => {
+          for (const { tile, mover, removeTile, size } of placed) {
+            const { offsetLeft: x, offsetTop: y, offsetWidth: w, offsetHeight: h } = tile;
+            mover.style.cssText = `left: ${x}px; top: ${y}px; width: ${w}px; height: ${h}px`;
+            removeTile.style.cssText = `left: ${x - 10}px; top: ${y - 10}px`;
+            size.style.cssText = `left: ${x + w - 22}px; top: ${y + h - 22}px`;
+          }
+        };
+        place();
+        if (placed.length) {
+          tilesWatcher = new ResizeObserver(place);
+          for (const { tile } of placed) tilesWatcher.observe(tile);
+        }
+      }
+    }
+    /// The sections not shown, each with Add: back on the page, last, in view once the sheet closes.
+    function gallery() {
+      let added = null;
+      openSheet((dismiss) => {
+        const list = el("div", { class: "dash-gallery-groups" });
+        let openGroups = {};
+        try { openGroups = JSON.parse(localStorage.getItem("homeswift.dashboard-groups") || "{}") || {}; } catch {}
+        // Every section and widget: those to add first, then those on the page, ticked, each with Remove.
+        const row = (id, name, about, shown, change) => el("div", { class: `dash-gallery-row${shown ? " shown" : ""}` },
+          dashboardThumb(id),
+          el("div", { class: "who" }, el("strong", {}, shown ? HomeswiftCommon.icon("check") : null, el("span", { text: name })),
+            // What it is, always: the tick and the red − already say it is on the page.
+            el("span", { class: "muted", text: about })),
+          // Round, the icon alone, as Control Center's: + to add, − to remove; its name for whoever cannot see it.
+          el("button", { type: "button", class: `dash-gallery-toggle ${shown ? "remove" : "add"}`, "aria-label": shown ? t("Remove {name}", { name }) : t("Add {name}", { name }),
+            title: shown ? t("Remove") : t("Add"), onclick: async () => { await change(); fill(); } }, HomeswiftCommon.icon(shown ? "minus" : "plus")));
+        const fill = () => {
+          // At a glance comes and goes with its widgets, below.
+          const sectionsAll = config.catalog.filter(([id]) => id !== "glance");
+          const order = (list, shown) => [...list.filter((one) => !shown(one[0])), ...list.filter((one) => shown(one[0]))];
+          const isShown = (id) => !layout.hidden.includes(id);
+          const isAdded = (id) => layout.widgets.some((entry) => widgetBase(entry) === id);
+          const sectionRow = ([id, name, about]) => row(id, name, about, isShown(id), async () => {
+            if (isShown(id)) { await save({ ...layout, hidden: [...layout.hidden, id] }); return; }
+            added = id;
+            await save({ ...layout, order: [...layout.order.filter((one) => one !== id), id], hidden: layout.hidden.filter((one) => one !== id) });
+          });
+          const widgetRow = ([id, name, about]) => row(id, name, about, isAdded(id), async () => {
+            if (isAdded(id)) { await save({ ...layout, widgets: layout.widgets.filter((entry) => widgetBase(entry) !== id) }); return; }
+            added = "glance";
+            const wide = glanceWidgets.find(([one]) => one === id)?.[3] === "wide";
+            await save({ ...layout, hidden: layout.hidden.filter((one) => one !== "glance"), widgets: [...layout.widgets, wide ? `${id}--wide` : id] });
+          });
+          const groups = config.groups({ sectionsAll, isShown, isAdded, sectionRow, widgetRow });
+          // Each group folds: closed at first, a short list of the groups and their counts; the choice kept in this browser.
+          list.replaceChildren(...groups.filter(([, , items]) => items.length).map(([key, title, items, shown, make]) => {
+            // A sheet of a single group (the Energy page's) opens it.
+            const group = el("details", { class: "dash-gallery-group", open: Boolean(openGroups[key] ?? groups.length === 1) },
+              el("summary", { class: "dash-gallery-title" }, HomeswiftCommon.icon("forward"), el("span", { text: title }),
+                el("small", { text: t("{shown} of {total} on the page", { shown: items.filter(([id]) => shown(id)).length, total: items.length }) })),
+              el("div", { class: "dash-gallery" }, order(items, shown).map(make)));
+            group.addEventListener("toggle", () => {
+              openGroups[key] = group.open;
+              try { localStorage.setItem("homeswift.dashboard-groups", JSON.stringify(openGroups)); } catch {}
+            });
+            return group;
+          }));
+        };
+        fill();
+        return el("div", { class: "account-form" }, el("h2", { id: "dash-gallery-title", text: t("Sections and widgets") }), list,
+          el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "check", text: t("Done"), onclick: () => dismiss() })));
+      }, "dash-gallery-title", { onClose: () => { const node = added && main.querySelector(`:scope > [data-widget="${added}"]`); node?.scrollIntoView({ block: "center", behavior: reduce() ? "instant" : "smooth" }); } });
+    }
+    function enter() {
+      if (editing) return;
+      editing = true;
+      layout = config.layout();
+      main.classList.add("dash-editing");
+      bar = el("div", { class: "dash-edit-bar card", role: "toolbar", "aria-label": config.label },
+        el("button", { type: "button", actionIcon: "plus", text: t("Add a section"), onclick: gallery }),
+        el("button", { type: "button", class: "link", actionIcon: "restore", text: t("Back to the usual layout"), onclick: () => save({ order: config.catalog.map(([id]) => id), hidden: [], widgets: layout.widgets }) }),
+        el("button", { type: "button", class: "primary", actionIcon: "check", text: t("Done"), onclick: leave }), status);
+      document.body.append(bar);
+      decorate();
+      bar.querySelector(".primary").focus({ preventScroll: true });
+      document.addEventListener("keydown", escape);
+    }
+    function leave() {
+      if (!editing) return;
+      editing = false;
+      main.classList.remove("dash-editing");
+      decorate();
+      bar?.remove();
+      bar = null;
+      document.removeEventListener("keydown", escape);
+    }
+    const escape = (event) => { if (event.key === "Escape" && !document.querySelector("dialog[open]")) leave(); };
+    // A long press on a section, away from its controls, as on iOS.
+    let press = null;
+    main.addEventListener("pointerdown", (event) => {
+      if (editing || event.button !== 0 || !event.target.closest(":scope > .dash-widget, .dash-widget")) return;
+      if (event.target.closest("button, a, input, select, textarea, summary, label, [role=slider], .chart-frame, .energy-house, .wall")) return;
+      const at = { x: event.clientX, y: event.clientY };
+      // A touch's long press buzzes once as the mode starts, as on iOS (a browser allows it after a touch).
+      press = { at, timer: setTimeout(() => { press = null; if (event.pointerType === "touch") navigator.vibrate?.(10); enter(); }, 550) };
+    });
+    const cancel = (event) => { if (press && (event.type !== "pointermove" || Math.hypot(event.clientX - press.at.x, event.clientY - press.at.y) > 8)) { clearTimeout(press.timer); press = null; } };
+    for (const type of ["pointermove", "pointerup", "pointercancel", "scroll"]) main.addEventListener(type, cancel, { passive: true });
+    // Leaving the page leaves the mode.
+    const watcher = new MutationObserver(() => { if (!main.isConnected) { watcher.disconnect(); leave(); } });
+    watcher.observe(document.body, { childList: true });
+    return { enter, leave, decorate };
   }
 
   // ---- The daily digest (Glass UI's assistant digest widget) ------------------------------------------------
@@ -1398,11 +1954,11 @@
       { label: t("Longest"), tone: 2, value: (point) => point[key]?.longest ?? null },
     ];
     const charts = [
-      { id: "memory", title: t("Memory"), note: t("The homeswift process, at its highest in each point"), series: [{ label: t("Memory"), tone: "accent", value: (point) => point.memory }], format: formatBytes,
+      { id: "memory", part: "activity-memory", title: t("Memory"), note: t("The homeswift process, at its highest in each point"), series: [{ label: t("Memory"), tone: "accent", value: (point) => point.memory }], format: formatBytes,
         unit: (max) => 1024 ** (max >= 1024 ** 3 ? 3 : 2) },
-      { id: "cpu", title: t("CPU"), note: t("The homeswift process; 100% is one core busy"), series: [{ label: t("CPU"), tone: "accent", value: (point) => point.cpu }], format: formatPercent },
-      { title: t("Home app requests"), note: t("How long the bridge takes to answer reads and writes"), series: durations("requests"), format: formatMilliseconds, key: "requests" },
-      { title: t("Plugin device calls"), note: t("How long plugins take to reach their devices or clouds"), series: durations("handlers"), format: formatMilliseconds, key: "handlers" },
+      { id: "cpu", part: "activity-cpu", title: t("CPU"), note: t("The homeswift process; 100% is one core busy"), series: [{ label: t("CPU"), tone: "accent", value: (point) => point.cpu }], format: formatPercent },
+      { part: "activity-requests", title: t("Home app requests"), note: t("How long the bridge takes to answer reads and writes"), series: durations("requests"), format: formatMilliseconds, key: "requests" },
+      { part: "activity-calls", title: t("Plugin device calls"), note: t("How long plugins take to reach their devices or clouds"), series: durations("handlers"), format: formatMilliseconds, key: "handlers" },
     ].map((chart) => {
       const figure = el("b", { class: "chart-figure" });
       const detail = el("div", { class: "muted chart-detail" });
@@ -1414,12 +1970,20 @@
     });
     const table = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
     table.addEventListener("toggle", () => { if (table.open) fillTable(); });
-    const section = el("section", { class: "activity" },
-      el("h2", { text: t("Activity") }),
-      el("div", { class: "filter-bar" }, range.control, sources.picker,
-        HomeswiftCommon.clearFilters([[sources.picker, ""]], { active: () => range.chosen(), reset: () => range.reset(), events: [[range.control, "change"]] })),
-      el("div", { class: "chart-grid" }, charts.map((chart) => chart.card)),
-      table);
+    // In units, as the Energy section: its title with the range and the source (and the table) first, then each chart a
+    // section of its own the edit mode moves, removes and adds back; they share the range.
+    const parts = {
+      activity: el("div", { class: "activity activity-part", "data-part": "activity" },
+        el("h2", { text: t("Activity") }),
+        el("div", { class: "filter-bar" }, range.control, sources.picker,
+          HomeswiftCommon.clearFilters([[sources.picker, ""]], { active: () => range.chosen(), reset: () => range.reset(), events: [[range.control, "change"]] })),
+        table),
+      ...Object.fromEntries(charts.map((chart) => [chart.part, el("div", { class: "activity activity-part", "data-part": chart.part }, chart.card)])),
+    };
+    const allParts = Object.values(parts);
+    const section = { get isConnected() { return allParts.some((one) => one.isConnected); },
+      classList: { add: (name) => allParts.forEach((one) => one.classList.add(name)), remove: (name) => allParts.forEach((one) => one.classList.remove(name)) },
+      remove: () => allParts.forEach((one) => one.remove()) };
     let shown = null;   // the last history loaded, for the table
     let refresh = null;
 
@@ -1507,14 +2071,14 @@
     }
 
     load();
-    return section;
+    return parts;
   }
 
   /// The Status page's Energy section, from the readings plugins record with a role (`EnergyTag`): the power of solar,
   /// the home, the grid (importing above zero) and the batteries (charging above zero), added up across devices; each
   /// battery's level; and each day's energy in kWh. Hidden until some plugin records such readings. Its own range
   /// (`energy` in the address, the last 24 hours by default); a range that ends now refreshes every minute.
-  function energy() {
+  function energy({ page = false } = {}) {
     const params = new URLSearchParams(location.search);
     const range = HomeswiftCommon.rangeControl(params, { presets: [["24h", t("24 hours")], ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]],
       fallback: "24h", names: { since: "energy", from: "energy-from", to: "energy-to" }, changed: () => load() });
@@ -1573,6 +2137,17 @@
       el("div", { class: "energy-period-nav" }, previous, periodLabel, next));
     days.node.insertBefore(importsNode, days.body);
     days.node.insertBefore(summary, days.body);
+    // The period's answers first, a tile each: what the home used, how much of it the roof and batteries covered, what
+    // it cost and what went back to the grid.
+    const tiles = el("div", { class: "energy-tiles" });
+    // Where the home's energy went: a block per device measured on its own and one for the rest, sized by its share.
+    const where = card(t("Where it goes"), t("What the devices measured on their own used, and the rest"), "outlet", "blue");
+    const whereSplit = el("div", { class: "where-split" });
+    const whereCaption = el("div", { class: "where-caption" });
+    const whereMap = el("div", { class: "where-map" });
+    const whereNote = el("div", { class: "where-note" });
+    where.body.append(whereSplit, whereCaption, whereMap, whereNote);
+    where.node.hidden = true;
     let earliest = null, historyAsked = 0;
     // What each Meter measured in the period (the bridge's own record of every plug, relay and meter), the most first.
     const consumers = card(t("Consumption by device"), t("What each meter measured in this period, the most first"), "outlet", "orange");
@@ -1590,31 +2165,75 @@
     consumersMore.addEventListener("click", () => { consumersAll = !consumersAll; if (lastConsumption) fillConsumers(lastConsumption); });
     // Where the power flows now, or flowed today: the house or the diagram.
     // One figure at a time: each in its own unit, not scaled to a series' top.
-    const flow = HomeswiftEnergyFlow.card({ watts: (value) => formatWatts(value), kWh: (value) => formatKWh(value), percent: formatPercent });
+    // Two versions of the card, each a section of its own: the house alone, and the house with today's biggest users
+    // and the day's band under it.
+    const flowFormat = { watts: (value) => formatWatts(value), kWh: (value) => formatKWh(value), percent: formatPercent };
+    const flow = HomeswiftEnergyFlow.card(flowFormat);
+    const flowDetails = HomeswiftEnergyFlow.card(flowFormat, { details: true });
     // The charts' points as a table, folded until asked for (the colours alone are not enough to read them by).
     const pointTable = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
     pointTable.addEventListener("toggle", () => { if (pointTable.open) fillPoints(); });
     const rangeBar = el("div", { class: "filter-bar" }, range.control);
-    const section = el("section", { class: "activity energy", hidden: true },
-      el("h2", { text: t("Energy") }),
-      flow.node,
-      rangeBar,
-      el("div", { class: "chart-grid" }, power.node, levels.node),
-      pointTable,
-      historyBar,
-      el("div", { class: "chart-grid energy-days" }, days.node, consumers.node),
-      el("div", { class: "chart-grid energy-utilities" }, utilities.map((one) => one.node)));
+    // The power and the batteries' charge minute by minute: folded under the rest, for whoever wants the curves.
+    const powerDetails = el("details", { class: "more energy-power" }, el("summary", { text: t("Power and battery levels") }),
+      rangeBar, el("div", { class: "chart-grid" }, power.node, levels.node), pointTable);
+    // What happened, in sentences: the things worth knowing first, then the log of the last two days.
+    const insights = card(t("Worth knowing"), t("What stands out in the last two days"), "star", "yellow");
+    const insightList = el("ul", { class: "insights" });
+    insights.body.append(insightList);
+    const log = card(t("Energy log"), t("What happened, from your meters, batteries and the grid"), "history", "violet");
+    const logKinds = energyLogKinds();
+    let logKind = "all", lastEvents = [];
+    const kindControl = segmented(t("Kind of event"), logKinds, logKind, (id) => { logKind = id; fillLog(lastEvents); });
+    kindControl.node.classList.add("energy-log-kinds");
+    const logList = el("div", { class: "energy-log" });
+    log.body.append(kindControl.node, logList);
+    insights.node.hidden = log.node.hidden = true;
+    let storyAt = 0;
+    // The section in units of its own, each a section of the Status page the edit mode moves, removes and adds back
+    // (`energyParts`); the period of the big picture is theirs to share.
+    const part = (id, ...nodes) => el("div", { class: "activity energy energy-part", "data-part": id, hidden: true }, nodes);
+    const energyLink = () => el("h2", {}, el("a", { class: "section-link", href: "/energy" }, el("span", { text: t("Energy") }), HomeswiftCommon.icon("forward")));
+    const parts = {
+      // On Status its title leads to the Energy page; the page has its own.
+      "energy-flow": page ? part("energy-flow", flow.node) : part("energy-flow", energyLink(), flow.node),
+      "energy-flow-details": page ? part("energy-flow-details", flowDetails.node) : part("energy-flow-details", energyLink(), flowDetails.node),
+      "energy-summary": part("energy-summary", el("div", { class: "energy-big" }, el("h2", { text: t("The big picture") }), historyBar), tiles),
+      "energy-days": part("energy-days", days.node),
+      "energy-where": part("energy-where", where.node),
+      "energy-insights": part("energy-insights", insights.node),
+      "energy-log": part("energy-log", log.node),
+      "energy-devices": part("energy-devices", consumers.node),
+      "energy-utilities": part("energy-utilities", el("div", { class: "chart-grid energy-utilities" }, utilities.map((one) => one.node))),
+      "energy-power": part("energy-power", powerDetails),
+    };
+    // Where a glance tile leads.
+    parts["energy-flow"].id = "energy";
+    const allParts = Object.values(parts);
+    const section = { get isConnected() { return allParts.some((one) => one.isConnected); },
+      classList: { add: (name) => allParts.forEach((one) => one.classList.add(name)), remove: (name) => allParts.forEach((one) => one.classList.remove(name)) },
+      remove: () => allParts.forEach((one) => one.remove()) };
     let lastReport = null;   // for the table
     let refresh = null;
 
     /// Shown when a plugin records the home's energy or some meter has a history; the home's charts only for the first.
     function showSection() {
-      section.hidden = !hasRoles && !hasMeters;
-      for (const node of [rangeBar, pointTable, days.node]) node.hidden = !hasRoles;
-      if (!hasRoles) flow.node.hidden = true;   // with roles, the card decides from the report
+      for (const node of [powerDetails, days.node, tiles]) node.hidden = !hasRoles;
+      if (!hasRoles) flow.node.hidden = flowDetails.node.hidden = true;   // with roles, the card decides from the report
       if (!hasRoles) { power.node.hidden = true; levels.node.hidden = true; }
       // Without the home's energy there is no first day to stop at: the meters' periods go back as far as asked.
       if (!hasRoles) previous.disabled = false;
+      // Each unit when it has something to show: the period's as soon as a Meter or the home's energy has figures.
+      parts["energy-flow"].hidden = !hasRoles || flow.node.hidden;
+      parts["energy-flow-details"].hidden = !hasRoles || flowDetails.node.hidden;
+      parts["energy-summary"].hidden = !hasRoles && !hasMeters;
+      parts["energy-days"].hidden = !hasRoles;
+      parts["energy-where"].hidden = where.node.hidden;
+      parts["energy-insights"].hidden = insights.node.hidden;
+      parts["energy-log"].hidden = log.node.hidden;
+      parts["energy-devices"].hidden = consumers.node.hidden;
+      parts["energy-utilities"].hidden = utilities.every((one) => one.node.hidden);
+      parts["energy-power"].hidden = !hasRoles;
     }
     function keepAddress() {
       const query = new URLSearchParams([...new URLSearchParams(location.search)].filter(([key]) => !key.startsWith("energy")));
@@ -1686,9 +2305,38 @@
       lastReport = report;
       if (pointTable.open) fillPoints();
       flow.update(report);
+      flowDetails.update(report);
+      showSection();
       // The history moves on with today; a period in the past stays as it is.
       if (!anchor || !historyAsked) loadHistory();
       if (!end) refresh = setTimeout(() => { if (section.isConnected && !document.hidden) load(); }, 60000);
+      // The story is read again every five minutes at most: two days of hours and the logbook.
+      if (Date.now() - storyAt > 300000) { storyAt = Date.now(); loadStory(); }
+    }
+
+    /// The last two days' events and what stands out, as the bridge works them out (`/api/metrics/energy/story`).
+    async function loadStory() {
+      const now = new Date(), from = HomeswiftI18n.startOfDay(new Date(now.getTime() - 86400000));
+      let events, worth;
+      try {
+        ({ events, worth } = await fetchEnergyStory(from, now));
+      } catch {
+        return;
+      }
+      lastEvents = events;
+      fillLog(events);
+      insightList.replaceChildren(...insightItems(worth));
+      insights.node.hidden = !worth.length;
+      log.node.hidden = !events.length;
+      showSection();
+    }
+
+    /// The log by day, newest first, each day with its events; the chosen kind only.
+    function fillLog(events) {
+      // A kind with nothing in the two days offers nothing to filter by: its button goes, and the choice falls back to All.
+      for (const [kind] of logKinds) kindControl.show(kind, kind === "all" || events.some((one) => one.kind === kind));
+      if (logKind !== "all" && !events.some((one) => one.kind === logKind)) { logKind = "all"; kindControl.set(logKind); }
+      logList.replaceChildren(...energyLogDays(events.filter((one) => logKind === "all" || one.kind === logKind), t("Nothing of this kind in the last two days.")));
     }
 
     /// One period earlier (-1) or later (1): 7 days, a month or a year. The period of today is the latest.
@@ -1756,14 +2404,10 @@
       const unmeasured = meters.filter((one) => !measured(one));
       // The whole home (meters of the home's use, else the grid's), the devices measured on their own inside it (meters
       // of no role), and the sources apart (solar, batteries). Without a whole, the devices alone.
-      const homes = withFigures.filter((one) => one.role === "home");
-      // A grid meter is the whole home only without solar or batteries: with them, it measures what came from the grid.
-      const sourced = withFigures.some((one) => one.role === "solar" || one.role === "battery");
-      const wholes = homes.length ? homes : sourced ? [] : withFigures.filter((one) => one.role === "grid");
+      const { wholes, whole } = wholeHome(withFigures);
       const devices = withFigures.filter((one) => !one.role);
       const sources = withFigures.filter((one) => one.role && !wholes.includes(one));
       const sum = (list, field = "consumption") => list.reduce((total, one) => total + (one[field] ?? 0), 0);
-      const whole = wholes.length ? sum(wholes) : null;
       // What no device measures: the home less its devices, never below zero.
       const unmetered = whole != null && devices.length ? Math.max(0, whole - sum(devices)) : null;
       const scale = whole ?? Math.max(0, ...devices.map((one) => one.consumption ?? 0));
@@ -1828,6 +2472,55 @@
       const costs = counted.filter((one) => one.cost != null);
       consumers.detail.textContent = !withFigures.length ? t("Nothing measured in this period")
         : found.currency && costs.length ? t("{cost} at the grid's price, hour by hour", { cost: formatMoney(sum(costs, "cost"), found.currency) }) : "";
+      fillWhere(devices, unmetered, unmeasured.filter((one) => !one.role));
+    }
+
+    /// Where the home's energy went, honest about what is measured: first a bar of the home split between the devices
+    /// measured on their own and the rest no meter measures; then the measured devices as blocks, each as large as its
+    /// share of what they used together (a small one is never a sliver of the home), or a row when there is one; a hint
+    /// when most of the home is not measured, and the Meters with nothing in the period. A device opens its history.
+    function fillWhere(devices, unmetered, silent) {
+      const measured = devices.filter((one) => one.consumption > 0).map((one) => ({ one, value: one.consumption })).sort((a, b) => b.value - a.value);
+      where.node.hidden = !measured.length;
+      if (!measured.length) return;
+      const nameOf = meterName;
+      const inDevices = measured.reduce((sum, item) => sum + item.value, 0), rest = Math.max(0, unmetered ?? 0);
+      const open = (one) => () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true });
+      whereSplit.replaceChildren(...splitBar(inDevices, rest));
+      whereCaption.textContent = rest > 0 && measured.length > 1 ? t("Among the devices measured on their own") : "";
+      whereMap.classList.toggle("single", measured.length === 1);
+      if (measured.length === 1) {
+        const [{ one, value }] = measured;
+        whereMap.replaceChildren(el("button", { type: "button", class: "where-single", actionIcon: "chart", onclick: open(one) },
+          el("span", { class: "where-single-name" }, el("strong", { text: nameOf(one) }),
+            el("small", { text: rest > 0 ? t("The only device measured on its own") : t("All of the home's use") })),
+          el("b", { text: formatKWh(value) })));
+      } else {
+        // Split in two near the half, across the longer side, until one block is left (the frame is twice as wide as high).
+        const split = (list, x, y, w, h) => {
+          if (list.length === 1) return [{ ...list[0], x, y, w, h }];
+          const all = list.reduce((sum, item) => sum + item.value, 0);
+          let at = 1, part = list[0].value;
+          while (at < list.length - 1 && part + list[at].value <= all / 2) part += list[at++].value;
+          const share = part / all;
+          return w * 2 >= h ? [...split(list.slice(0, at), x, y, w * share, h), ...split(list.slice(at), x + w * share, y, w * (1 - share), h)]
+            : [...split(list.slice(0, at), x, y, w, h * share), ...split(list.slice(at), x, y + h * share, w, h * (1 - share))];
+        };
+        let rank = 0;
+        whereMap.replaceChildren(...split(measured, 0, 0, 100, 100).map((block) => {
+          const share = block.value / inDevices * 100, name = nameOf(block.one);
+          const label = t("{name}: {value}", { name, value: `${formatPercent(share)}, ${formatKWh(block.value)}` });
+          const roomy = block.w * block.h > 450, place = `left: ${block.x}%; top: ${block.y}%; width: ${block.w}%; height: ${block.h}%`;
+          return el("button", { type: "button", class: `where-block shade-${Math.min(rank++, 4)}`, actionIcon: "chart", style: place, "aria-label": label, title: label, onclick: open(block.one) },
+            roomy ? [el("b", { text: formatKWh(block.value) }), el("span", { text: name })] : []);
+        }));
+      }
+      // Most of the home with no meter of its own: what would tell where it goes.
+      const notes = [
+        rest > 0 && inDevices < rest ? el("p", { class: "where-hint" }, HomeswiftCommon.icon("outlet"),
+          el("span", { text: t("Most of the home is not measured on its own. A smart plug or a meter on a big user (heating, a water heater, the oven) shows where it goes.") })) : null,
+        silent.length ? el("p", { class: "muted", text: t("No readings in this period: {names}", { names: silent.map((one) => one.name).join(", ") }) }) : null].filter(Boolean);
+      whereNote.replaceChildren(...notes);
     }
 
     /// A bar of the period's chart, by its date (YYYY-MM-DD, or YYYY-MM over a year): its labels, Today and Yesterday by
@@ -1934,11 +2627,16 @@
       const chartBars = bars.map((bar) => ({ ...periodBar(bar.date), values: known(bar) ? bar : null }));
       const key = view + "\n" + segments.map((one) => one.label).join("\n");
       days.titleNode.textContent = monthly ? t("Energy by month") : t("Energy by day");
-      if (days.view && days.key === key) days.view.update(chartBars);
+      // A usual day: the middle of the period's whole days (the one under way and those half known left out), shaded
+      // 10 % either side, so a day out of the ordinary stands out without reading the axis.
+      const usedOf = (bar) => bar.home ?? bar.gridImport;
+      const usual = monthly ? null : usualDay(bars.filter((bar) => !periodBar(bar.date).current && bar.recordedHours + bar.importedHours >= 23).map(usedOf));
+      const band = usual ? { low: usual * 0.9, high: usual * 1.1 } : null;
+      if (days.view && days.key === key) days.view.update(chartBars, band);
       else {
         days.body.replaceChildren();
         days.key = key;
-        days.view = HomeswiftChart.stackedBars(days.body, { title: days.titleNode.textContent, legend, bars: chartBars, format: formatKWh, unit: (max) => max < 1 ? 0.001 : 1,
+        days.view = HomeswiftChart.stackedBars(days.body, { title: days.titleNode.textContent, legend, bars: chartBars, format: formatKWh, unit: (max) => max < 1 ? 0.001 : 1, band,
           segments: segments.map((one) => ({ ...one, value: (values) => values?.[one.field] == null ? null : (one.below ? -1 : 1) * values[one.field] })) });
         days.body.append(dayTable);
       }
@@ -1965,26 +2663,39 @@
       const shares = home > 0 ? [[4, t("Solar"), sum("homeFromSolar")], [3, t("Batteries"), sum("homeFromBattery")],
         [7, t("Grid"), sum("homeFromGrid")], [8, t("Not split"), sum("homeNotSplit")]]
         .filter(([, , value]) => value > 0).map(([tone, label, value]) => ({ tone, label, share: value / home * 100 })) : [];
-      const homeNode = home == null ? null : el("div", { class: "energy-home" },
-        total(null, t("Home used"), formatKWh(home)),
-        shares.length ? el("div", { class: "energy-share", role: "img", "aria-label": `${t("Home used")}: ${shares.map((one) => `${one.label} ${formatPercent(one.share)}`).join(", ")}` },
-          el("div", { class: "energy-share-bar", "aria-hidden": "true" }, shares.map((one) => el("i", { class: `tone-${one.tone}`, style: `flex-grow: ${one.share}` }))),
-          el("div", { class: "energy-share-keys", "aria-hidden": "true" }, shares.map((one) =>
-            el("span", {}, el("i", { class: `key bar tone-${one.tone}` }), one.label, el("b", { text: formatPercent(one.share) }))))) : null);
+      // The tiles over the cards: the home's use (the grid's import without a meter of the home's use), the share the
+      // roof and batteries covered with a strip of each source's share (identity never by colour alone), the cost, and
+      // what went back to the grid.
+      const knownDays = bars.filter(known).length;
+      const used = home ?? imported;
+      const own = home > 0 ? ((sum("homeFromSolar") ?? 0) + (sum("homeFromBattery") ?? 0)) / home * 100 : null;
+      const tile = (label, value, note, extra = null) => el("div", { class: "card energy-tile" },
+        el("span", { class: "energy-tile-label", text: label }), el("b", { text: value }), extra, note ? el("small", { text: note }) : null);
+      tiles.replaceChildren(...[
+        used != null ? tile(home != null ? t("Home used") : t("Grid import"), formatKWh(used),
+          knownDays > 1 ? t("About {value} a day", { value: formatKWh(used / knownDays) }) : null) : null,
+        own != null && (solar != null || charged != null) ? tile(t("Self-powered"), formatPercent(own), t("From your roof and batteries"),
+          shares.length ? el("div", { class: "energy-share", role: "img", "aria-label": `${t("Home used")}: ${shares.map((one) => `${one.label} ${formatPercent(one.share)}`).join(", ")}` },
+            el("div", { class: "energy-share-bar", "aria-hidden": "true" }, shares.map((one) => el("i", { class: `tone-${one.tone}`, style: `flex-grow: ${one.share}` }))),
+            el("div", { class: "energy-share-keys", "aria-hidden": "true" }, shares.map((one) =>
+              el("span", {}, el("i", { class: `key bar tone-${one.tone}` }), one.label, el("b", { text: formatPercent(one.share) }))))) : null) : null,
+        // The energy part of the bill: the grid's import at its price, less what the export was paid.
+        history.currency && sum("cost") != null ? tile(t("Energy cost"), formatMoney(sum("cost"), history.currency), t("Import less export, without fixed charges")) : null,
+        exported != null ? tile(t("Sent to the grid"), formatKWh(exported), partly ? t("Recorded days only") : null) : null,
+      ].filter(Boolean));
       // Then where the energy flowed: produced, through the batteries, across the grid.
       const flows = [
         solar != null ? total(4, t("Solar produced"), formatKWh(solar)) : null,
         charged != null ? total(3, t("Battery charged"), formatKWh(charged)) : null,
         discharged != null ? total(3, t("Battery discharged"), formatKWh(discharged)) : null,
         imported != null ? total(7, t("Grid import"), formatKWh(imported), partly ? t("Recorded days only") : null) : null,
-        exported != null ? total(7, t("Grid export"), formatKWh(exported), partly ? t("Recorded days only") : null) : null,
-        // The energy part of the bill: the grid's import at its price, less what the export was paid.
-        history.currency && sum("cost") != null ? total(null, t("Energy cost"), formatMoney(sum("cost"), history.currency), t("Import less export, without fixed charges")) : null,
       ].filter(Boolean);
-      summary.replaceChildren(...(homeNode || flows.length ? [homeNode, flows.length ? el("div", { class: "energy-flows" }, flows) : null].filter(Boolean)
+      summary.replaceChildren(...(flows.length ? [el("div", { class: "energy-flows" }, flows)]
         : [el("span", { class: "muted", text: t("Nothing recorded in this period") })]));
-      days.detail.replaceChildren(...[bars.some((bar) => bar.homeNotSplit > 0)
-        ? el("div", { text: t("Imported hours have no grid or battery figures: the rest of their home use is not split by source.") }) : null].filter(Boolean));
+      days.detail.replaceChildren(...[
+        usual ? el("div", { class: "energy-usual" }, el("i", { class: "key band", "aria-hidden": "true" }), el("span", { text: t("Shaded: a usual day, about {value}", { value: formatKWh(usual) }) })) : null,
+        bars.some((bar) => bar.homeNotSplit > 0)
+          ? el("div", { text: t("Imported hours have no grid or battery figures: the rest of their home use is not split by source.") }) : null].filter(Boolean));
 
       const columns = [
         has("solar") ? [t("Solar produced"), "solar", formatKWh] : null,
@@ -2023,7 +2734,7 @@
     }
 
     load();
-    return section;
+    return parts;
   }
   const dayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric", month: "short" });
   const shortMonth = HomeswiftI18n.dateTimeFormat({ month: "short" });
@@ -2046,6 +2757,350 @@
   const formatMoney = (amount, currency) => HomeswiftCommon.money(amount, currency);
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
   const formatBytes = (bytes, top = bytes) => HomeswiftCommon.byteSize(bytes, top);
+  /// A Meter's name as the pages show it: its device, and which of its Meters when it has several.
+  const meterName = (one) => one.label ? `${one.name} · ${one.label}` : one.name;
+
+  /// The whole home among Meters with figures, as the consumption card and By accessory count it: the Meters of the
+  /// home's use, else the grid's when no Meter measures solar or a battery (with them, the grid is only what came in).
+  function wholeHome(withFigures) {
+    const homes = withFigures.filter((one) => one.role === "home");
+    const sourced = withFigures.some((one) => one.role === "solar" || one.role === "battery");
+    const wholes = homes.length ? homes : sourced ? [] : withFigures.filter((one) => one.role === "grid");
+    return { wholes, whole: wholes.length ? wholes.reduce((total, one) => total + (one.consumption ?? 0), 0) : null };
+  }
+
+  /// The home split between the devices measured on their own and the rest no meter measures: a bar and its keys, each
+  /// with its share and kWh; nothing when no rest is known.
+  function splitBar(inDevices, rest) {
+    if (!(rest > 0)) return [];
+    const coverage = inDevices + rest > 0 ? inDevices / (inDevices + rest) * 100 : 100;
+    return [
+      el("div", { class: "where-split-bar", role: "img", "aria-label": t("Measured on their own: {measured}, unmetered: {rest}", { measured: formatPercent(coverage), rest: formatPercent(100 - coverage) }) },
+        el("i", { class: "measured", style: `flex-grow: ${inDevices}` }), el("i", { class: "rest", style: `flex-grow: ${rest}` })),
+      el("div", { class: "where-split-keys", "aria-hidden": "true" },
+        el("span", {}, el("i", { class: "key measured" }), t("Measured on their own"), el("b", { text: `${formatPercent(coverage)} · ${formatKWh(inDevices)}` })),
+        el("span", {}, el("i", { class: "key rest" }), t("Unmetered"), el("b", { text: `${formatPercent(100 - coverage)} · ${formatKWh(rest)}` })))];
+  }
+
+  /// A usual day: the middle of `values` (whole days' energy), once there are three; null before.
+  const usualDay = (values) => {
+    const sorted = values.filter((value) => value != null).sort((a, b) => a - b);
+    return sorted.length >= 3 ? sorted[Math.floor(sorted.length / 2)] : null;
+  };
+
+  /// The Energy log's kinds of event, for its filters.
+  const energyLogKinds = () => [["all", t("All [kinds]")], ["device", t("Devices")], ["sun", t("Sun")], ["power", t("Battery and grid")], ["odd", t("Unusual")], ["bridge", t("Bridge")]];
+
+  /// A segmented control (`.group` of radio buttons): `options` [value, text], the current `value`, `changed(value)` on
+  /// a choice; the arrow keys move along it. `set(value)` marks another; `show(value, visible)` hides one.
+  function segmented(label, options, value, changed) {
+    const buttons = options.map(([id, text]) => el("button", { type: "button", role: "radio", text, onclick: () => { if (id === value) return; set(id); changed(id); } }));
+    const set = (next) => { value = next; buttons.forEach((button, index) => { const on = options[index][0] === value; button.classList.toggle("on", on); button.setAttribute("aria-checked", String(on)); button.tabIndex = on ? 0 : -1; }); };
+    const node = el("div", { class: "group", role: "radiogroup", "aria-label": label }, buttons);
+    node.addEventListener("keydown", (event) => {
+      const by = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key];
+      if (!by) return;
+      event.preventDefault();
+      const shown = buttons.filter((button) => !button.hidden), at = shown.indexOf(document.activeElement);
+      const next = shown[(Math.max(0, at) + by + shown.length) % shown.length];
+      next?.focus();
+      next?.click();
+    });
+    set(value);
+    return { node, set, show: (id, visible) => { const button = buttons[options.findIndex(([one]) => one === id)]; if (button) button.hidden = !visible; } };
+  }
+
+  /// The Energy log's events by day, newest first, each day with its events; `empty` when there are none.
+  function energyLogDays(events, empty) {
+    const time = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", hour12: false });
+    const dayName = HomeswiftI18n.dateTimeFormat({ weekday: "long", day: "numeric", month: "long" });
+    const days = new Map();
+    for (const one of [...events].sort((a, b) => b.at - a.at)) {
+      const key = isoDay(new Date(one.at));
+      if (!days.has(key)) days.set(key, []);
+      days.get(key).push(one);
+    }
+    if (!days.size) return [el("p", { class: "muted", text: empty })];
+    return [...days].map(([key, list]) => el("div", { class: "energy-log-day" },
+      el("strong", { text: key === isoDay(new Date()) ? t("Today") : dayName.format(parseDay(key)) }),
+      el("ol", {}, list.map((one) => el("li", { class: `energy-log-row tone-${one.tone}` },
+        el("span", { class: "energy-log-time", text: one.exact === false ? "—" : time.format(new Date(one.at)) }),
+        el("i", { "aria-hidden": "true" }),
+        el("span", { class: "energy-log-text" }, el("span", { text: one.text }), one.meta ? el("small", { text: one.meta }) : null))))));
+  }
+
+  /// The Energy page's By accessory: the home split between the devices measured on their own and the rest, then a row
+  /// per device (its days as small bars, its kWh, share and cost), sortable, for today, the week, the month or the year
+  /// (`?period=`, `?sort=`, `?device=` in the address); a row opens its panel: when it ran this week, hour by hour, and
+  /// its full history. The sources (solar, the grid, the batteries) are said apart, under the list.
+  async function energyDevicesPage(main, head, nav) {
+    const params = new URLSearchParams(location.search);
+    const periods = [["day", t("Today")], ["week", t("Week")], ["month", t("Month")], ["year", t("Year")]];
+    let period = periods.some(([id]) => id === params.get("period")) ? params.get("period") : "week";
+    let sort = ["used", "cost", "name"].includes(params.get("sort")) ? params.get("sort") : "used";
+    let chosen = params.get("device");
+    const periodControl = segmented(t("Period"), periods, period, (id) => { period = id; load(); });
+    const sortSelect = el("select", { class: "popup", "aria-label": t("Sort accessories") },
+      [["used", t("Most used")], ["cost", t("Most expensive")], ["name", t("Name A–Z")]].map(([value, text]) => el("option", { value, text })));
+    sortSelect.value = sort;
+    sortSelect.addEventListener("change", () => { sort = sortSelect.value; keep(); draw(); });
+    const split = el("div", { class: "where-split devices-split" });
+    const list = el("div", { class: "card devices-table", role: "list" });
+    const detail = el("aside", { class: "card device-detail", hidden: true, "aria-live": "polite" });
+    const sources = el("p", { class: "muted devices-sources" });
+    // On a phone the detail is a page of its own: it slides in over the list, as iOS pushes a screen, and Back slides
+    // it out again (style.css, `.devices-layout`).
+    const layout = el("div", { class: "devices-layout" }, el("div", { class: "devices-main" }, list, sources), detail);
+    main.classList.add("energy-page");
+    show(main, head, nav, el("div", { class: "devices-bar" }, periodControl.node, sortSelect),
+      split, layout);
+    let found = null;
+    const weeks = new Map();
+    function devicesPath() {
+      const query = new URLSearchParams();
+      if (period !== "week") query.set("period", period);
+      if (sort !== "used") query.set("sort", sort);
+      if (chosen) query.set("device", chosen);
+      return `/energy/devices${query.size ? `?${query}` : ""}`;
+    }
+    function keep() {
+      const path = devicesPath();
+      if (path !== location.pathname + location.search) history.replaceState(null, "", path);
+    }
+    // Back from the details (or forward to them again): the device the address names, drawn in place, so they slide.
+    onHistory((place) => {
+      if (place.pathname !== "/energy/devices" || !found) return false;
+      const query = new URLSearchParams(place.search);
+      if ((query.get("period") ?? "week") !== period || (query.get("sort") ?? "used") !== sort) return false;
+      chosen = query.get("device");
+      pushedDetail = Boolean(chosen);
+      draw();
+      return true;
+    });
+    let asked = 0;
+    async function load() {
+      keep();
+      const now = new Date();
+      const query = period === "day" ? { hours: String(Math.max(1, Math.ceil((now - HomeswiftI18n.startOfDay(now)) / 3600000))) } : { period, date: isoDay(now) };
+      list.classList.add("loading");
+      const ask = ++asked;
+      let report;
+      try {
+        report = await api(`/api/metrics/consumption?${new URLSearchParams({ ...query, kind: "electricity", timeZone: HomeswiftI18n.timeZone })}`);
+      } catch (e) {
+        if (ask === asked) list.replaceChildren(el("p", { class: "error", text: e.message }));
+        return;
+      } finally { if (ask === asked) list.classList.remove("loading"); }
+      // A later choice of period answers instead.
+      if (ask !== asked) return;
+      found = report;
+      draw();
+    }
+    function draw() {
+      const meters = found.meters;
+      const nameOf = meterName;
+      const devices = meters.filter((one) => !one.role && one.consumption != null);
+      const silent = meters.filter((one) => !one.role && one.consumption == null);
+      // The whole home as the consumption card counts it, so both say the same Unmetered.
+      const { whole } = wholeHome(meters.filter((one) => one.consumption != null || one.returned != null));
+      const inDevices = devices.reduce((sum, one) => sum + one.consumption, 0);
+      const rest = whole != null ? Math.max(0, whole - inDevices) : null;
+      const base = whole ?? inDevices;
+      split.replaceChildren(...splitBar(inDevices, rest));
+      const ordered = [...devices].sort(sort === "name" ? (a, b) => nameOf(a).localeCompare(nameOf(b)) : sort === "cost" ? (a, b) => (b.cost ?? 0) - (a.cost ?? 0) : (a, b) => b.consumption - a.consumption);
+      const most = Math.max(0, ...devices.map((one) => one.consumption));
+      const row = (one) => {
+        const days = (one.bars ?? []).map((bar) => bar.consumption ?? 0), top = Math.max(...days, 0);
+        const share = base > 0 ? one.consumption / base * 100 : null;
+        const id = `${one.accessory}\n${one.meter}`;
+        return el("button", { type: "button", role: "listitem", class: `energy-device-row${id === chosen ? " on" : ""}`, actionIcon: "forward", "aria-label": t("{name}: {value}", { name: nameOf(one), value: formatKWh(one.consumption) }),
+          onclick: () => choose(id) },
+          el("span", { class: "device-name" }, el("strong", { text: nameOf(one) }), el("small", { text: one.room ?? (one.accessory.split(":")[0]) })),
+          el("span", { class: "device-days", "aria-hidden": "true" }, days.slice(-14).map((value) => el("i", { style: `height: ${top > 0 ? Math.max(8, value / top * 100) : 8}%` }))),
+          el("span", { class: "device-track", "aria-hidden": "true" }, el("i", { style: `width: ${most > 0 ? one.consumption / most * 100 : 0}%` })),
+          el("b", { class: "device-kwh", text: formatKWh(one.consumption) }),
+          el("span", { class: "device-share", text: share == null ? "" : formatPercent(share) }),
+          el("span", { class: "device-cost", text: one.cost != null && found.currency ? formatMoney(one.cost, found.currency) : "" }));
+      };
+      list.replaceChildren(...(devices.length ? [
+        el("div", { class: "energy-device-row head", "aria-hidden": "true" }, el("span", { text: t("Accessory") }), el("span", { text: t("Each day") }), el("span"), el("span", { text: t("Energy") }),
+          el("span", { text: t("Share") }), el("span", { text: t("Cost") }), el("span")),
+        ...ordered.map(row),
+        rest != null && rest > 0 ? el("div", { class: "energy-device-row rest", role: "listitem" }, el("span", { class: "device-name" }, el("strong", { text: t("Unmetered") }), el("small", { text: t("What no meter measures on its own") })),
+          el("span"), el("span"), el("b", { class: "device-kwh", text: formatKWh(rest) }), el("span", { class: "device-share", text: base > 0 ? formatPercent(rest / base * 100) : "" }), el("span"), el("span")) : null,
+        ...silent.map((one) => el("div", { class: "energy-device-row silent", role: "listitem" }, el("span", { class: "device-name" }, el("strong", { text: nameOf(one) }), el("small", { text: t("No readings in this period") })),
+          el("span"), el("span"), el("b", { class: "device-kwh", text: "—" }), el("span"), el("span"), el("span")))].filter(Boolean)
+        : [el("p", { class: "muted", text: t("No device is measured on its own yet. A smart plug or a meter shows what a device uses.") })]));
+      // The sources apart: what solar produced, what the grid brought and took, what the batteries cycled.
+      const sum = (role, field) => meters.filter((one) => one.role === role).slice(0, 1).reduce((total, one) => total + (one[field] ?? 0), 0);
+      const solar = sum("solar", "returned"), imported = sum("grid", "consumption"), exported = sum("grid", "returned"), charged = sum("battery", "consumption"), given = sum("battery", "returned");
+      const label = (text, value) => value ? t("{name}: {value}", { name: text, value: formatKWh(value) }) : null;
+      sources.textContent = [label(t("Solar produced"), solar), label(t("Grid import"), imported), label(t("Grid export"), exported),
+        label(t("Battery charged"), charged), label(t("Battery discharged"), given)].filter(Boolean).join(" · ");
+      const picked = devices.find((one) => `${one.accessory}\n${one.meter}` === chosen) ?? null;
+      if (!picked) { detail.hidden = true; layout.classList.remove("pushed"); return; }
+      fillDetail(picked, base);
+    }
+    /// Opens or closes the detail; on a phone, where it covers the list, the page goes back to the top of it, and the
+    /// details are a step of the history of their own: the back gesture (or Back) slides them out again.
+    let pushedDetail = false;
+    function choose(id) {
+      const phone = matchMedia("(max-width: 900px)").matches;
+      if (!id && pushedDetail) { history.back(); return; }
+      if (id && !chosen && phone) {
+        chosen = id;
+        history.pushState(null, "", devicesPath());
+        pushedDetail = true;
+      } else {
+        chosen = id;
+        keep();
+      }
+      draw();
+      if (matchMedia("(max-width: 900px)").matches && layout.getBoundingClientRect().top < 0) layout.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    }
+    async function fillDetail(one, base) {
+      detail.hidden = false;
+      layout.classList.add("pushed");
+      const name = meterName(one);
+      const grid = el("div", { class: "device-heat", role: "img", "aria-label": t("When it used energy this week, hour by hour") });
+      const note = el("p", { class: "muted" });
+      detail.replaceChildren(
+        // Back on a phone, where the detail took the list's place; Close beside the list.
+        el("button", { type: "button", class: "device-detail-back", actionIcon: "back", text: t("Back"), onclick: () => choose(null) }),
+        el("div", { class: "device-detail-head" }, el("h2", { text: name }),
+          el("button", { type: "button", class: "menu-button", "aria-label": t("Close"), onclick: () => choose(null) }, HomeswiftCommon.icon("close"))),
+        el("div", { class: "device-facts" },
+          el("div", {}, el("small", { text: t("Energy") }), el("b", { text: formatKWh(one.consumption) })),
+          el("div", {}, el("small", { text: t("Share") }), el("b", { text: base > 0 ? formatPercent(one.consumption / base * 100) : "—" })),
+          el("div", {}, el("small", { text: t("Cost") }), el("b", { text: one.cost != null && found.currency ? formatMoney(one.cost, found.currency) : "—" }))),
+        el("strong", { class: "device-heat-title", text: t("When it used energy this week, hour by hour") }), grid,
+        el("div", { class: "device-heat-axis", "aria-hidden": "true" }, ["00", "06", "12", "18", "24"].map((text) => el("span", { text }))), note,
+        el("button", { type: "button", actionIcon: "chart", text: t("Full history"), onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) }));
+      // The week's hours, asked once per accessory while the page is open (a sort or a period redraws the detail).
+      const key = `${one.accessory}\n${one.meter}`;
+      if (!weeks.has(key)) weeks.set(key, api(`/api/metrics/consumption?${new URLSearchParams({ hours: "168", step: "hour", accessory: one.accessory, kind: "electricity", timeZone: HomeswiftI18n.timeZone })}`));
+      let week;
+      try {
+        week = await weeks.get(key);
+      } catch { weeks.delete(key); return; }
+      const meter = week.meters.find((m) => m.meter === one.meter) ?? week.meters.find((m) => !m.role);
+      const hours = (meter?.bars ?? []).map((bar) => bar.consumption);
+      const known = hours.filter((value) => value != null).sort((a, b) => a - b);
+      const level = (value) => value == null ? "none" : !known.length || known.at(-1) <= 0 ? 0 : Math.min(4, Math.floor(value / known.at(-1) * 4.999));
+      // A row per day, oldest first, 24 cells each from midnight: the bars come hour by hour from this hour 7 days back,
+      // so the first row starts with the hours before them, empty.
+      const lead = Number(meter?.bars?.[0]?.date.slice(11, 13)) || 0;
+      grid.replaceChildren(...Array.from({ length: lead }, () => el("i", { class: "heat-none" })), ...hours.map((value) => el("i", { class: `heat-${level(value)}` })));
+      const byHour = Array.from({ length: 24 }, () => 0);
+      (meter?.bars ?? []).forEach((bar) => { const hour = Number(bar.date.slice(11, 13)); if (bar.consumption != null && !Number.isNaN(hour)) byHour[hour] += bar.consumption; });
+      const busiest = byHour.indexOf(Math.max(...byHour));
+      note.textContent = known.length ? t("Most of its use falls around {hour}:00; its quietest hours use {value}", { hour: String(busiest).padStart(2, "0"), value: formatKWh(known[0]) }) : t("No readings this week");
+    }
+    load();
+  }
+
+  /// The Energy page's log: what happened over 2, 7 or 14 days (`?days=`), searchable (`?q=`), by kind, with what stands
+  /// out over the span first.
+  async function energyLogPage(main, head, nav) {
+    const params = new URLSearchParams(location.search);
+    const spans = [["2", t("2 days")], ["7", t("7 days")], ["14", t("14 days")]];
+    let span = spans.some(([days]) => days === params.get("days")) ? params.get("days") : "7";
+    const kinds = energyLogKinds();
+    let kind = "all", events = [];
+    const spanControl = segmented(t("Period"), spans, span, (days) => { span = days; load(); });
+    const kindControl = segmented(t("Kind of event"), kinds, kind, (id) => { kind = id; draw(); });
+    kindControl.node.classList.add("energy-log-kinds");
+    const search = el("input", { type: "search", class: "search", placeholder: t("Search the log"), "aria-label": t("Search the log"), value: params.get("q") ?? "" });
+    search.addEventListener("input", () => { keep(); draw(); });
+    const worth = el("ul", { class: "insights" });
+    const worthCard = el("div", { class: "card chart-card", hidden: true },
+      el("div", { class: "chart-head" }, tile("star", "yellow"), el("div", { class: "who" }, el("strong", { text: t("Worth knowing") }), el("div", { class: "muted", text: t("What stands out over these days") }))), worth);
+    const list = el("div", { class: "energy-log" });
+    main.classList.add("energy-page");
+    show(main, head, nav, el("div", { class: "devices-bar" }, spanControl.node, search),
+      worthCard, el("div", { class: "card chart-card energy-log-card" }, kindControl.node, list));
+    function keep() {
+      const query = new URLSearchParams();
+      if (span !== "7") query.set("days", span);
+      if (search.value) query.set("q", search.value);
+      const path = `/energy/log${query.size ? `?${query}` : ""}`;
+      if (path !== location.pathname + location.search) history.replaceState(null, "", path);
+    }
+    let asked = 0;
+    async function load() {
+      keep();
+      // The span's first day by the calendar (a day of a clock change is 23 or 25 hours), as the bridge counts days.
+      const now = new Date(), from = HomeswiftI18n.startOfDay(new Date(now.getTime() - (Number(span) - 1) * 86400000));
+      list.replaceChildren(el("p", { class: "muted", text: t("Loading") }));
+      const ask = ++asked;
+      let story;
+      try {
+        story = await fetchEnergyStory(from, now);
+      } catch (e) {
+        if (ask === asked) list.replaceChildren(el("p", { class: "error", text: e.message }));
+        return;
+      }
+      // A later choice of span answers instead.
+      if (ask !== asked) return;
+      events = story.events;
+      worth.replaceChildren(...insightItems(story.worth));
+      worthCard.hidden = !story.worth.length;
+      draw();
+    }
+    function draw() {
+      const needle = HomeswiftCommon.fold(search.value.trim());
+      for (const [id] of kinds) kindControl.show(id, id === "all" || events.some((one) => one.kind === id));
+      if (kind !== "all" && !events.some((one) => one.kind === kind)) { kind = "all"; kindControl.set(kind); }
+      const shown = events.filter((one) => (kind === "all" || one.kind === kind) && (!needle || HomeswiftCommon.fold(`${one.text} ${one.meta ?? ""}`).includes(needle)));
+      list.replaceChildren(...energyLogDays(shown, needle ? t("Nothing matches “{text}”.", { text: search.value.trim() }) : t("Nothing of this kind over these days.")));
+    }
+    load();
+  }
+
+  /// The Energy log's events and what stands out, as the bridge works them out (`EnergyStory`: codes and values), worded
+  /// here in the reader's language. Each event: `at` (ms), `kind`, `tone`, `text`, `meta`; each thing worth knowing:
+  /// `kind` (its label), `tone`, `text`, and the accessory to open when it is one.
+  async function fetchEnergyStory(from, now) {
+    const story = await api(`/api/metrics/energy/story?${new URLSearchParams({ from: from.toISOString(), to: now.toISOString(), timeZone: HomeswiftI18n.timeZone })}`);
+    const money = (values) => values.cost != null && values.currency ? formatMoney(values.cost, values.currency) : null;
+    // Each entry worded only for its own code: another's values (watts, a name) are not there.
+    const event = ({ at, kind, code, values: v = {}, accessory }) => {
+      const words = {
+        busiestGridHour: () => [7, t("Busiest hour from the grid: {value}", { value: formatKWh(v.value) }), money(v)],
+        sunUp: () => [4, t("Sun up: first {value}", { value: formatKWh(v.value) })],
+        bestSolarHour: () => [4, t("Best solar hour of the day: {value}", { value: formatKWh(v.value) }), v.total != null ? t("{value} in all", { value: formatKWh(v.total) }) : null],
+        batteryFull: () => [3, t("{name} full", { name: v.name })],
+        batteryLow: () => [3, t("{name} nearly empty", { name: v.name })],
+        gridTookOver: () => [7, t("The batteries stopped, the grid took over"), v.watts != null ? formatWatts(v.watts) : null],
+        deviceRan: () => [1, tn("{name} ran {n} hour", "{name} ran {n} hours", v.n, { name: v.name }), [formatKWh(v.value), money(v)].filter(Boolean).join(" · ")],
+        flapping: () => [2, t("{name} kept switching on and off", { name: v.name }), t("{n} times in {minutes} min", { n: v.n, minutes: v.minutes })],
+      }[code]?.();
+      return words ? { at: Date.parse(at), kind, tone: words[0], text: words[1], meta: words[2] ?? null, accessory } : null;
+    };
+    const insight = ({ code, values: v = {}, accessory }) => {
+      const cost = money(v);
+      const words = {
+        flapping: () => [t("Unusual"), 2, t("{name} switched on and off {n} times in {minutes} min", { name: v.name, n: v.n, minutes: v.minutes })],
+        nightFloor: () => [t("Night floor"), 7, cost ? t("The home never drew less than {watts} at night: about {cost} a year", { watts: formatWatts(v.watts), cost })
+          : t("The home never drew less than {watts} at night", { watts: formatWatts(v.watts) })],
+        alwaysOn: () => [t("Always on"), 7, cost ? t("{name} never switches off: about {watts}, {cost} a year", { name: v.name, watts: formatWatts(v.watts), cost })
+          : t("{name} never switches off: about {watts}", { name: v.name, watts: formatWatts(v.watts) })],
+        silentMeters: () => [t("Not measured"), 7, t("No readings in this period: {names}", { names: (v.names ?? []).join(", ") })],
+        countedTwice: () => [t("Counted twice?"), 7, t("{first} and {second} report the same figures", { first: v.first, second: v.second })],
+      }[code]?.();
+      return words ? { kind: words[0], tone: words[1], text: words[2], accessory, name: v.name } : null;
+    };
+    return { events: (story.events ?? []).map(event).filter(Boolean), worth: (story.worth ?? []).map(insight).filter(Boolean) };
+  }
+
+  /// Worth knowing's rows: a coloured edge, the kind, the sentence, and Open for an accessory's.
+  function insightItems(worth) {
+    return worth.map((one) => el("li", { class: `insight tone-${one.tone}` },
+      el("span", { class: "insight-bar", "aria-hidden": "true" }),
+      el("div", {}, el("small", { text: one.kind }), el("span", { text: one.text })),
+      one.accessory ? el("button", { type: "button", class: "link", actionIcon: "chart", text: t("Open"), onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) }) : null));
+  }
+
   function formatPercent(value) { return `${value > 0 && value < 10 ? value.toFixed(1) : Math.round(value)}%`; }
   /// Milliseconds: one decimal under 10, two when the value has them (an axis's 0.25 and 0.75 ticks, not 0.3 and 0.8).
   function formatMilliseconds(ms) {
@@ -4757,6 +5812,57 @@
   const accessoryCard = (accessory) => HomeswiftWidgets.card(accessory, { size: HomeswiftWidgets.kindOf(accessory).size, actions: accessoryActions });
   // The Homebridge import (import.js): its page at /import and the welcome page at /welcome.
   views.logbook = (main) => window.HomeswiftHistory.logbookView(main);
+
+  /// The Energy page (`/energy`): the whole story, where Status keeps a glance. Overview: the Energy section's units, in
+  /// their order, the half ones two to a row; By accessory (`/energy/devices`); the Energy log (`/energy/log`).
+  views.energy = async (main, [tab = ""] = []) => {
+    const pages = [["", t("Overview"), "chart"], ["devices", t("By accessory"), "outlet"], ["log", t("Energy log"), "history"]];
+    const current = pages.some(([path]) => path === tab) ? tab : "";
+    const head = pageHead(t("Energy"), t("Where the home's energy comes from, where it goes, and what happened"));
+    const nav = HomeswiftCommon.subnav(t("Energy"), "/energy", pages, current);
+    if (current === "devices") return energyDevicesPage(main, head, nav);
+    if (current === "log") return energyLogPage(main, head, nav);
+    const parts = energy({ page: true });
+    const units = dashboardWidgets.filter(([id]) => id.startsWith("energy-"));
+    const half = new Set(units.filter((one) => one[3] === "half").map(([id]) => id));
+    main.classList.add("dash-grid", "energy-page");
+    // Edit, as on Status: the units moved, removed and added back, saved for this user (`energyPage`).
+    const footer = el("footer", { class: "page-foot status-footer" },
+      el("button", { type: "button", class: "link", "aria-label": t("Edit the Energy page"), onclick: () => editor.enter() },
+        HomeswiftCommon.icon("edit"), el("span", { text: t("Edit") })));
+    show(main, head, nav, footer);
+    const sections = new Map();
+    function render(layout) {
+      const position = { left: scrollX, top: scrollY };
+      for (const id of layout.order) {
+        let section = sections.get(id);
+        if (!section && parts[id]) {
+          section = el("section", { class: half.has(id) ? "dash-widget half" : "dash-widget", "data-widget": id }, parts[id]);
+          sections.set(id, section);
+        }
+        if (section) {
+          section.hidden = layout.hidden.includes(id);
+          main.insertBefore(section, footer);
+        }
+      }
+      scrollTo({ ...position, behavior: "instant" });
+      editor?.decorate();
+    }
+    const editor = dashboardEditor(main, sections, render, { catalog: units, layout: energyPageLayout, key: "energyPage", label: t("Edit the Energy page"),
+      groups: ({ sectionsAll, isShown, sectionRow }) => [["energy-page", t("Energy"), sectionsAll, isShown, sectionRow]] });
+    render(energyPageLayout());
+  };
+
+  /// The Energy page's units in the user's order (new ones last) and those hidden: all shown until changed.
+  function energyPageLayout() {
+    const saved = HomeswiftCommon.preferences().energyPage || {};
+    const known = dashboardWidgets.filter(([id]) => id.startsWith("energy-")).map(([id]) => id);
+    const order = [...(saved.order || []).filter((id) => known.includes(id)), ...known.filter((id) => !(saved.order || []).includes(id))];
+    // One version of Energy flow until the user shows both: the one with details, or the one this page already had.
+    const savedOrder = saved.order || [], alternative = savedOrder.includes("energy-flow") ? "energy-flow-details" : "energy-flow";
+    const fresh = savedOrder.includes(alternative) ? [] : [alternative];
+    return { order, hidden: [...(saved.hidden || []).filter((id) => known.includes(id)), ...fresh.filter((id) => !(saved.hidden || []).includes(id))], widgets: [] };
+  }
   views.automations = (main, args) => window.HomeswiftAutomations.view(main, args);
   views.remotes = (main, args) => window.HomeswiftRemotes.view(main, args);
   views.notify = (main, [id] = []) => window.HomeswiftAutomations.confirmView(main, id);
