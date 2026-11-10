@@ -1343,8 +1343,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const hourly = found.step === "hour";
     const hourFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", hour12: false });
     const dayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric" });
-    const longFormat = HomeswiftI18n.dateTimeFormat(hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long" });
+    const longFormat = HomeswiftI18n.dateTimeFormat(hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    const monthFormat = HomeswiftI18n.dateTimeFormat({ month: "short" });
     const dateOf = (text) => HomeswiftCommon.parseDay(text);
+    // A Meter with an Energy Role measures the Home Energy, not its own device's use (a STREAM's meters are the whole
+    // home's): it is named by its role, the grid's and the home's use said to be the whole home's.
+    const roleNames = { home: t("Home use"), grid: t("Grid"), solar: t("Solar"), battery: t("Battery") };
     return found.meters.map((meter) => {
       // Gas and water in m³ at their own Tariff; electricity in kWh at the grid's price.
       const utility = meter.kind === "gas" || meter.kind === "water";
@@ -1353,21 +1357,29 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const returns = meter.bars.some((bar) => bar.returned > 0);
       const body = el("div", { class: "chart-body" });
       const kindName = meter.kind === "gas" ? t("Gas") : meter.kind === "water" ? t("Water") : t("Consumption");
-      const title = !meter.label ? kindName : utility ? `${kindName} · ${meter.label}` : t("Consumption · {meter}", { meter: meter.label });
+      const roleName = roleNames[meter.role];
+      // A Meter's own name only when it says more than its role's (a STREAM's are its roles' keys).
+      const label = meter.label && meter.label.toLowerCase() !== meter.role ? meter.label : null;
+      const title = roleName ? (label ? `${roleName} · ${label}` : roleName)
+        : !label ? kindName : utility ? `${kindName} · ${label}` : t("Consumption · {meter}", { meter: label });
+      const span = hourly ? t("By hour") : t("By day");
       const card = el("div", { class: "card chart-card consumption-card" },
         el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: title }),
-          el("div", { class: "muted", text: hourly ? t("By hour") : t("By day") })),
+          el("div", { class: "muted", text: meter.role === "home" || meter.role === "grid" ? `${span} · ${t("Whole home")}` : span })),
         el("b", { class: "chart-figure", text: format(meter.consumption ?? 0), title: t("Used in this range") })),
         body,
         el("div", { class: "muted chart-detail", text: [
           // Its cost in its Tariff's currency: gas and water at their own, electricity at the grid's.
           currency && meter.cost != null ? t(utility ? "{cost} at its tariff, hour by hour" : "{cost} at the grid's price, hour by hour", { cost: HomeswiftCommon.money(meter.cost, currency) }) : null,
           returns ? t("{value} returned", { value: format(meter.returned ?? 0) }) : null].filter(Boolean).join(" · ") }));
+      // Beyond two months of days, the months are labelled (a January by its year), not the days.
+      const byMonth = !hourly && meter.bars.length > 62;
       const bars = meter.bars.map((bar, index) => {
-        const date = dateOf(bar.date);
+        const date = dateOf(bar.date), zoned = HomeswiftI18n.zoned(date);
         // Every third hour labelled, every day.
         const label = hourly ? (index % 3 ? "" : hourFormat.format(date)) : dayFormat.format(date);
-        return { label, narrow: String(hourly ? (index % 6 ? "" : HomeswiftI18n.zoned(date).hours) : HomeswiftI18n.zoned(date).day), title: longFormat.format(date), values: bar.hours ? bar : null };
+        const mark = byMonth && zoned.day === 1 ? (zoned.month === 0 ? String(zoned.year) : monthFormat.format(date)) : null;
+        return { label, mark, narrow: String(hourly ? (index % 6 ? "" : zoned.hours) : zoned.day), title: longFormat.format(date), values: bar.hours ? bar : null };
       });
       HomeswiftChart.stackedBars(body, { title, format, unit: (max) => max < 1 ? (utility ? 0.01 : 0.001) : 1, bars, hourly,
         // Gas in orange, as on its card; water and electricity in blue.

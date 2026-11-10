@@ -1352,8 +1352,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const hourly = found.step === "hour";
     const hourFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", hour12: false });
     const dayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric" });
-    const longFormat = HomeswiftI18n.dateTimeFormat(hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long" });
+    const longFormat = HomeswiftI18n.dateTimeFormat(hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    const monthFormat = HomeswiftI18n.dateTimeFormat({ month: "short" });
     const dateOf = (text) => HomeswiftCommon.parseDay(text);
+    // A Meter with an Energy Role measures the Home Energy, not its own device's use (a STREAM's meters are the whole
+    // home's): it is named by its role, the grid's and the home's use said to be the whole home's.
+    const roleNames = { home: t("Home use"), grid: t("Grid"), solar: t("Solar"), battery: t("Battery") };
     return found.meters.map((meter) => {
       // Gas and water in m³ at their own Tariff; electricity in kWh at the grid's price.
       const utility = meter.kind === "gas" || meter.kind === "water";
@@ -1362,21 +1366,29 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const returns = meter.bars.some((bar) => bar.returned > 0);
       const body = el("div", { class: "chart-body" });
       const kindName = meter.kind === "gas" ? t("Gas") : meter.kind === "water" ? t("Water") : t("Consumption");
-      const title = !meter.label ? kindName : utility ? `${kindName} · ${meter.label}` : t("Consumption · {meter}", { meter: meter.label });
+      const roleName = roleNames[meter.role];
+      // A Meter's own name only when it says more than its role's (a STREAM's are its roles' keys).
+      const label = meter.label && meter.label.toLowerCase() !== meter.role ? meter.label : null;
+      const title = roleName ? (label ? `${roleName} · ${label}` : roleName)
+        : !label ? kindName : utility ? `${kindName} · ${label}` : t("Consumption · {meter}", { meter: label });
+      const span = hourly ? t("By hour") : t("By day");
       const card = el("div", { class: "card chart-card consumption-card" },
         el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: title }),
-          el("div", { class: "muted", text: hourly ? t("By hour") : t("By day") })),
+          el("div", { class: "muted", text: meter.role === "home" || meter.role === "grid" ? `${span} · ${t("Whole home")}` : span })),
         el("b", { class: "chart-figure", text: format(meter.consumption ?? 0), title: t("Used in this range") })),
         body,
         el("div", { class: "muted chart-detail", text: [
           // Its cost in its Tariff's currency: gas and water at their own, electricity at the grid's.
           currency && meter.cost != null ? t(utility ? "{cost} at its tariff, hour by hour" : "{cost} at the grid's price, hour by hour", { cost: HomeswiftCommon.money(meter.cost, currency) }) : null,
           returns ? t("{value} returned", { value: format(meter.returned ?? 0) }) : null].filter(Boolean).join(" · ") }));
+      // Beyond two months of days, the months are labelled (a January by its year), not the days.
+      const byMonth = !hourly && meter.bars.length > 62;
       const bars = meter.bars.map((bar, index) => {
-        const date = dateOf(bar.date);
+        const date = dateOf(bar.date), zoned = HomeswiftI18n.zoned(date);
         // Every third hour labelled, every day.
         const label = hourly ? (index % 3 ? "" : hourFormat.format(date)) : dayFormat.format(date);
-        return { label, narrow: String(hourly ? (index % 6 ? "" : HomeswiftI18n.zoned(date).hours) : HomeswiftI18n.zoned(date).day), title: longFormat.format(date), values: bar.hours ? bar : null };
+        const mark = byMonth && zoned.day === 1 ? (zoned.month === 0 ? String(zoned.year) : monthFormat.format(date)) : null;
+        return { label, mark, narrow: String(hourly ? (index % 6 ? "" : zoned.hours) : zoned.day), title: longFormat.format(date), values: bar.hours ? bar : null };
       });
       HomeswiftChart.stackedBars(body, { title, format, unit: (max) => max < 1 ? (utility ? 0.01 : 0.001) : 1, bars, hourly,
         // Gas in orange, as on its card; water and electricity in blue.
@@ -9797,8 +9809,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
   }
 
-  /// Stacked bars in `container`, one per item of `bars` (`{ label, narrow, title, values, current }`, oldest first;
-  /// `narrow` under a bar too narrow for its label, `current` the period of today, its label emphasised): `segments` are
+  /// Stacked bars in `container`, one per item of `bars` (`{ label, narrow, mark, title, values, current }`, oldest first;
+  /// `narrow` under a bar too narrow for its label, `current` the period of today, its label emphasised; when some bars
+  /// have a `mark`, a month's first day, only those are labelled, with it, as far apart as they fit): `segments` are
   /// `{ label, tone, value(values) }`, stacked up from zero for a positive value and down for a negative one, so a bar
   /// can show what came in above the line and what went out below it. A value of null is not known: it draws nothing
   /// and the tooltip shows a dash, not a zero. `format` writes a value with its unit and
@@ -9862,6 +9875,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // Segments stack out from the baseline with a 2px gap between them; the outermost on each side has 4px
       // rounded corners at its free end, square at the baseline.
       const gap = 2, radius = 4;
+      const marked = bars.some((bar) => bar.mark);
+      let lastMark = null;
       bars.forEach((bar, index) => {
         let up = 0, down = 0;
         const placed = [];
@@ -9888,6 +9903,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             ? `M${left},${bottom}V${top + r}Q${left},${top} ${left + r},${top}H${left + barWidth - r}Q${left + barWidth},${top} ${left + barWidth},${top + r}V${bottom}Z`
             : `M${left},${top}V${bottom - r}Q${left},${bottom} ${left + r},${bottom}H${left + barWidth - r}Q${left + barWidth},${bottom} ${left + barWidth},${bottom - r}V${top}Z`;
           root.append(svg("path", { d, class: `bar tone-${part.one.tone}` }));
+        }
+        // Marked bars (a year's months) label only their marks, one at least 32px past the one before.
+        if (marked) {
+          if (!bar.mark || (lastMark != null && x(index) - lastMark < 32)) return;
+          lastMark = x(index);
+          const tick = svg("text", { x: x(index), y: height - 6, class: "tick", "text-anchor": "start" });
+          tick.textContent = bar.mark;
+          root.append(tick);
+          return;
         }
         // Bars too narrow for every label (a month's days on a phone) label one in `every`, counted back from the last,
         // which is always labelled, so no two labels crowd each other at the end.

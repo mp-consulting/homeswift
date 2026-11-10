@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- An accessory's History named a Meter with an Energy Role by its key: a STREAM's showed "Consumption · home" and
+  "Consumption · grid", which read as the STREAM's own use when they are the whole home's. Such a Meter is now named by
+  its role (Home use, Grid, Solar, Battery), the home's use and the grid's said to be the whole home's.
+- A year of days on an accessory's History was labelled by day numbers alone (25, 30, 3, 10…), with nothing to say which
+  month they were in; it is now labelled by month, a January by its year.
+
 ## [0.28.0] - 2026-11-09
 
 ### Added
