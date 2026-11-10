@@ -404,3 +404,9 @@ Lights grouped look like a single light: its brightness, colours and whites.
 ![Accessory group picker with available and selected devices](images/widgets/group-picker.png)
 
 When grouped by room, Edit shows **Rooms**. Drag the handles in its menu to arrange rooms, just like the Status page’s customisation menu, or choose a room to rename it; each room's heading is also a field to rename it in place. Dragging a widget into another room's wall moves the accessory to that room (or to No room); empty rooms show in Edit to take a drop. **Reset room order** restores alphabetical order. The order and names are saved in Homeswift; HomeKit rooms are unchanged unless Apple Home is synced through Wingman. **Sync rooms with the hubs**, off by default, renames the rooms of the same name on Philips Hue, IKEA DIRIGERA, eWeLink and Apple Home as well, and with Apple Home keeps rooms and the accessories in them in step both ways ([ui.md](ui.md)).
+
+M-size colour lights place three circular shortcuts below brightness. They begin with common presets and rank previously selected presets by use in this browser (shared across lights). The icon and name share a compact header; the tile retains its hold colour wheel. Brightness-only lights keep their icon and slider.
+
+When supported, Adaptive Lighting always occupies the first shortcut, followed by the two most-used colour presets. The shortcut row and its container allow shadows and focus rings to paint outside their bounds.
+
+![Full brightness with a visible handle and readable percentage in dark mode](images/widgets/light-medium-full-dark.png)

@@ -244,7 +244,7 @@ await send("Page.addScriptToEvaluateOnNewDocument", { source: pageScript });
 
 /// Opens `path` at the size given, waits for `ready` (a selector), runs `prepare`, and saves the page down to `tall`
 /// at most (the viewport's height when left out), or only `element` (a selector, its section, with a margin).
-async function shot(name, path, { width = 1280, height = 900, mobile = false, ready = "main h1", prepare = "", tall, element } = {}) {
+async function shot(name, path, { width = 1280, height = 900, mobile = false, ready = "main h1", prepare = "", tall, element, viewportOnly = false } = {}) {
   if (process.env.UI_SHOTS_ONLY && !process.env.UI_SHOTS_ONLY.split(",").includes(name)) return;
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile });
   await send("Page.navigate", { url: base + path });
@@ -262,7 +262,7 @@ async function shot(name, path, { width = 1280, height = 900, mobile = false, re
     clip = { x: Math.max(0, box.x - margin), y: Math.max(0, box.y - margin), width: box.width + margin * 2, height: box.height + margin * 2, scale: 1 };
   } else {
     const full = await evaluate("Math.ceil(document.documentElement.scrollHeight)");
-    clip = { x: 0, y: 0, width, height: Math.min(full, tall ?? height), scale: 1 };
+    clip = { x: 0, y: viewportOnly ? await evaluate("scrollY") : 0, width, height: Math.min(full, tall ?? height), scale: 1 };
   }
   const { data } = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip });
   writeFileSync(join(out, `${name}.png`), Buffer.from(data, "base64"));
@@ -341,6 +341,21 @@ try {
       if (details.querySelectorAll(".history-state-row").length !== 4) throw Error("Metadata must remain available");
       details.open = false;
       window.fetch = original;` });
+  for (const width of [375, 522]) await shot(`accessories-clearance-${width}`, "/accessories", {
+    width, height: 867, mobile: true, viewportOnly: true, ready: ".widget", prepare: `
+      document.querySelector(".accessories-search-toggle").click();
+      document.querySelector(".accessories-bar .search").value = "Room";
+      document.activeElement.blur();
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      for (const corner of document.querySelectorAll(".widget > .w-corner")) {
+        const card = corner.parentElement.getBoundingClientRect(), box = corner.getBoundingClientRect();
+        if (Math.abs(card.right - box.right - 11) > 1 || Math.abs(card.bottom - box.bottom - 11) > 1) throw Error("Widget menu insets must match");
+      }
+      const bar = document.querySelector(".accessories-bar").getBoundingClientRect();
+      const cards = [...document.querySelectorAll(".wall .widget")];
+      const bottom = Math.max(...cards.map(card => card.getBoundingClientRect().bottom));
+      if (bottom > bar.top - 12) throw Error("The last card must clear the expanded toolbar");` });
   // The remote's Controls: its press toggles the lamp and the blind, held it dims the lamp.
   const remotes = await (await fetch(`${base}/api/remotes`)).json();
   const remote = remotes.remotes?.find((one) => one.id === "HomebridgeDummy:remote");

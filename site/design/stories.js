@@ -40,6 +40,10 @@
   const widgets = specs.map(([id, name, description, category, definitions]) => ({ id: `widget/${id}`, kind: "widget", name, description, category,
     build() {
       const accessory = { id: `Design:${id}`, name: `Demo ${name}`, category, manufacturer: "Homeswift", model: "Design preview", platformName: "Demo", services: definitions.map(([key, ids], index) => service(key, ids, index === 0, { subtype: `${key}-${index}` })) };
+      if (id === "light") {
+        accessory.services[0].adaptiveLighting = { active: false, resumable: true };
+        accessory.services[0].characteristics.push(characteristic("characteristicValueActiveTransitionCount", 0));
+      }
       if (id === "camera") accessory.camera = true;
       if (id === "switch-group") accessory.services.forEach((one, index) => { one.name = `Switch ${index + 1}`; one.characteristics[0].value = index === 0; });
       if (id === "television") for (let index = 1; index <= 2; index++) accessory.services.push(service("inputSource", ["identifier", "configuredName", "currentVisibilityState"], false, { name: `HDMI ${index}`, subtype: `input-${index}`, characteristics: [characteristic("identifier", index), characteristic("configuredName", `HDMI ${index}`), characteristic("currentVisibilityState", 0)] }));

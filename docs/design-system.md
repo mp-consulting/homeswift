@@ -193,3 +193,17 @@ At phone width, Status edit mode collapses each section into a 56px header row, 
 Use compact divided rows for states with no recorded changes in the selected range: name and change count on the left, value on the right. Reserve timeline charts for states that changed. Names and identifiers belong in a collapsed Details disclosure, with their history retained inside it. Use the shared spacing, text and border tokens; avoid stacking elevated cards for static metadata.
 
 ![Compact scene history on a phone](images/ui/history-scenes-phone.png)
+
+### Accessory tile controls
+
+The mobile Accessories toolbar reserves its measured height below the wall, including an expanded search field or wrapped buttons. Keep at least 16px between the final tile and floating controls, and account for the Assistant and navigation buttons.
+
+Accessory tile menus use a shared card-relative bottom-right anchor, inset 10px from the inner border for every size. Summary text reserves space for the menu instead of positioning it relative to the text baseline.
+
+M-size colour lights place three circular shortcuts below brightness. They begin with common presets and rank previously selected presets by use in this browser (shared across lights). The icon and name share a compact header; the tile retains its hold colour wheel. Brightness-only lights keep their icon and slider.
+
+When supported, Adaptive Lighting always occupies the first shortcut, followed by the two most-used colour presets. The shortcut row and its container allow shadows and focus rings to paint outside their bounds.
+
+Light sliders retain a subtle full-track outline above the fill, so the endpoint remains visible against a matching tile background. The outline does not affect slider geometry or pointer input.
+
+Brightness has a contrasting handle clamped inside both endpoints and a dark percentage badge fixed on the right in every tile size.

@@ -5740,6 +5740,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// search.
   const accessoriesBar = (toolbar, views) => {
     const bar = el("div", { class: "accessories-bar" }, toolbar, views);
+    // Reserve the bar's actual footprint, including its expanded search and wrapped buttons.
+    // The observer also runs when the bar is removed, so it does not retain departed views.
+    const clearance = new ResizeObserver(() => {
+      if (!bar.isConnected) { clearance.disconnect(); return; }
+      const height = bar.getBoundingClientRect().height;
+      bar.parentElement.style.setProperty("--accessories-bar-height", `${Math.ceil(height)}px`);
+    });
+    clearance.observe(bar);
     const search = toolbar.querySelector(".search");
     if (!search) return bar;
     const toggle = el("button", { type: "button", class: "icon-button accessories-search-toggle", "aria-label": t("Search accessories"), title: t("Search accessories"),
@@ -36438,9 +36446,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.size-small .tile { width: 40px; height: 40px; border-radius: 50%; }
 .widget.size-medium { justify-content: space-between; }
 .widget.size-medium .tile { width: 40px; height: 40px; border-radius: 50%; }
-/* The ⋯ button sits over the compact tile's corner: the name and status end before it. */
-.size-small .w-bottom .who { padding-right: 22px; }
-.size-small .w-bottom .menu-button { position: absolute; right: -6px; bottom: -6px; width: 26px; height: 26px; margin: 0; opacity: 1; color: var(--tile-on-text); background: var(--tile-on); border: 1px solid var(--line); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
+/* Summary tiles share the same card-relative menu anchor as larger widgets. */
+.widget-summary .w-bottom .who { padding-right: 32px; }
 /* Another controller's accessory (Apple Home's, through Wingman): a house badge on the tile's corner, ringed with the
    card's material so it reads as sitting on the tile. */
 .widget .tile { position: relative; }
@@ -36477,7 +36484,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .head-only { justify-content: center; }
 .powered-off .w-body, .powered-off .w-main { opacity: 0.55; transition: opacity var(--normal) var(--ease-out); }
 /* The menu at the bottom right of the box, over its content's corner. */
-.w-corner { position: absolute; right: 6px; bottom: 6px; z-index: 2; }
+.w-corner { position: absolute; right: 10px; bottom: 10px; z-index: 2; }
 /* An ellipsis in a circle, as iOS's ⋯ buttons: a chip tinted from the text, so it reads on a light, dark or lit tile
    alike, firmer under the pointer and while its menu is open. */
 .widget:not(.widget-full) .menu-button { width: 28px; height: 28px; background: color-mix(in srgb, currentColor 10%, transparent); border-color: transparent; box-shadow: none; color: inherit;
@@ -36553,7 +36560,6 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-middle { position: relative; z-index: 1; flex: none; min-width: 0; padding: 2px 0; overflow: hidden; pointer-events: none; }
 .w-top { align-items: flex-start; justify-content: space-between; }
 .w-bottom { align-items: flex-end; }
-.w-bottom .menu-button { pointer-events: auto; margin: 0 -6px -6px 0; flex: none; }
 .w-hero { font-size: var(--text-3xl); font-weight: var(--weight-semibold); letter-spacing: -0.02em; line-height: 1; text-align: right; font-variant-numeric: tabular-nums; }
 .w-hero small { display: block; margin-top: 3px; font-size: var(--text-2xs); font-weight: var(--weight-medium); letter-spacing: 0; color: var(--muted); }
 .w-hero svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -36690,6 +36696,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 
 /* Level: a pill the fill grows in, dragged one to one; a track variant (white temperature) has a mark. */
 .level { position: relative; height: 44px; border-radius: var(--radius-md); background: var(--track); overflow: hidden; touch-action: none; cursor: ew-resize; user-select: none; -webkit-user-select: none; }
+/* Keep the whole light-slider track visible when its unfilled portion matches the tile. */
+.widget-light .level::after { content: ""; position: absolute; inset: 0; border: 1px solid color-mix(in srgb, currentColor 35%, transparent); border-radius: inherit; pointer-events: none; }
 .level-fill { position: absolute; inset: 0; transform-origin: left center; background: var(--fill, linear-gradient(90deg, var(--accent-2), var(--accent))); }
 .level:not(.dragging) .level-fill { transition: transform var(--normal) var(--ease-out); }
 .level-label, .level-text { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; font-size: var(--text-sm); font-weight: var(--weight-semibold); pointer-events: none; }
@@ -39363,7 +39371,8 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
    the right): the views first, then round buttons (the search, Filters with its count, Edit, the options). Full screen and
    Add are in the options' menu on the wall. The search opens over the row, and the bar rises with the keyboard. */
 @media (max-width: 600px) {
-  main:has(> .accessories-bar) { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  main:has(> .accessories-bar) { padding-bottom: calc(max(96px, var(--accessories-bar-height, 54px) + 30px) + env(safe-area-inset-bottom)); }
+  body:has(.chat-dock) main:has(> .accessories-bar) { padding-bottom: calc(max(150px, var(--accessories-bar-height, 54px) + 30px) + env(safe-area-inset-bottom)); }
   .accessories-bar {
     position: fixed; z-index: var(--layer-header); left: max(14px, env(safe-area-inset-left)); right: calc(max(14px, env(safe-area-inset-right)) + 62px);
     bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--keyboard, 0px));
@@ -41704,6 +41713,28 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .widget-light.size-medium .w-middle { padding: 0; }
 .widget-light.size-medium:has(.w-middle) .who strong { display: block; white-space: nowrap; }
 
+/* M colour lights use a compact icon-and-name header above their controls. */
+.widget-light.size-medium:has(.light-shortcuts) .w-top { min-height: 36px; align-items: center; }
+.widget-light.size-medium:has(.light-shortcuts) .w-bottom { position: absolute; top: 10px; left: 44px; right: 10px; min-height: 36px; align-items: center; }
+.widget-light.size-medium:has(.light-shortcuts) .w-bottom .who { padding-right: 0; }
+.widget-light.size-medium .light-shortcuts { display: grid; gap: var(--space-4); pointer-events: auto; }
+.widget-light.size-medium .light-shortcuts > .level { height: 40px; min-height: 40px; }
+.widget-light.size-medium .light-shortcuts .swatches { flex-wrap: nowrap; gap: var(--space-6); padding-right: 34px; overflow: visible; }
+.widget-light.size-medium .light-shortcuts .swatch { flex: 0 1 28px; width: 28px; height: 28px; min-height: 28px; }
+
+.widget-light.size-medium:has(.light-shortcuts) .w-middle { overflow: visible; }
+
+/* The brightness thumb remains inside the track at both endpoints. */
+.level-thumb { position: absolute; top: 7px; bottom: 7px; width: 5px; transform: translateX(-50%); border-radius: var(--radius-pill); background: #fff; border: 1px solid rgb(0 0 0 / 35%); box-shadow: 0 1px 3px rgb(0 0 0 / 35%); pointer-events: none; }
+.level.vertical .level-thumb { left: 7px; right: 7px; bottom: auto; width: auto; height: 5px; transform: translateY(-50%); }
+
+/* Brightness uses a pale fill even in dark mode: keep its readout legible at full brightness. */
+.widget-light .level:has(.level-thumb) { color: #2a2620; }
+.widget-light .level:has(.level-thumb) .level-text,
+.widget-light .level:has(.level-thumb) .level-label { color: #2a2620; text-shadow: 0 1px 1px rgb(255 255 255 / 65%); }
+
+.widget-light .level:has(.level-thumb) .level-text { top: 50%; bottom: auto; transform: translateY(-50%); padding: 2px 6px; border-radius: var(--radius-pill); background: #2a2620; color: #fff; text-shadow: none; }
+
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI's service worker: it only shows the bridge's push notifications (Notifications page, "this browser")
@@ -42138,17 +42169,18 @@ self.addEventListener("notificationclick", (event) => {
   /// A level: a pill whose fill (or, with `gradient`, a mark on the gradient) follows the pointer one to one;
   /// `onCommit` runs when it is let go, and after a pause in the arrow keys. `vertical`: a tall one, filled from
   /// the bottom, as the Home app's brightness.
-  function level({ label, min, max, step = 1, format, gradient, fill, thin = false, showLabel = true, vertical = false }, onCommit) {
+  function level({ label, min, max, step = 1, format, gradient, fill, thin = false, showLabel = true, vertical = false, handle = false }, onCommit) {
     const node = el("div", { class: `level${gradient ? " track" : ""}${thin ? " thin" : ""}${vertical ? " vertical" : ""}`, role: "slider", tabIndex: 0,
       "aria-label": label, "aria-valuemin": min, "aria-valuemax": max, "aria-orientation": vertical ? "vertical" : null });
     if (gradient) node.style.setProperty("--track", gradient);
     if (fill) node.style.setProperty("--fill", fill);
     const bar = gradient ? el("span", { class: "level-mark" }) : el("span", { class: "level-fill" });
+    const thumb = handle ? el("span", { class: "level-thumb", "aria-hidden": "true" }) : null;
     // Several values at once (a group's lights): the span from the lowest to the highest.
     const band = el("span", { class: "level-range" });
     const text = el("span", { class: "level-text" });
     // append() writes a null as the text "null": "" when there is no label.
-    node.append(band, bar, showLabel ? el("span", { class: "level-label", text: label }) : "", text);
+    node.append(band, bar, thumb || "", showLabel ? el("span", { class: "level-label", text: label }) : "", text);
     let value = min, dragging = false, keyTimer = null;
     function show(next) {
       node.classList.remove("ranged");
@@ -42157,6 +42189,7 @@ self.addEventListener("notificationclick", (event) => {
       if (gradient && vertical) bar.style.top = `calc(100% - 10px - ${share} * (100% - 20px))`;
       else if (gradient) bar.style.left = `calc(10px + ${share} * (100% - 20px))`;
       else bar.style.transform = vertical ? `scaleY(${share})` : `scaleX(${share})`;
+      if (thumb) thumb.style[vertical ? "top" : "left"] = `clamp(6px, ${100 * (vertical ? 1 - share : share)}%, calc(100% - 6px))`;
       text.textContent = format(value);
       node.setAttribute("aria-valuenow", value);
       node.setAttribute("aria-valuetext", format(value));
@@ -42488,6 +42521,20 @@ self.addEventListener("notificationclick", (event) => {
     [t("Warm white"), 30, 55], [t("Amber"), 26, 85], [t("Red"), 2, 90], [t("Pink"), 330, 70], [t("Violet"), 275, 70], [t("Blue"), 220, 85], [t("Cyan"), 185, 75], [t("Green"), 125, 75],
   ];
 
+  const colourUsageKey = "homeswift.colour-shortcuts";
+  function colourUsage() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(colourUsageKey) || "{}");
+      return Object.fromEntries(presets.map(([, hue]) => [hue,
+        Number.isSafeInteger(saved?.[hue]) && saved[hue] > 0 ? saved[hue] : 0]));
+    } catch { return {}; }
+  }
+  function rememberColour(hue) {
+    const counts = colourUsage();
+    counts[hue] = Math.min((counts[hue] || 0) + 1, Number.MAX_SAFE_INTEGER);
+    try { localStorage.setItem(colourUsageKey, JSON.stringify(counts)); } catch {}
+  }
+
   /// A light's controls, each a function that builds it (null when the light has none): `brightness` (a level,
   /// tall with `vertical`), `swatches` (colours, in a grid with `grid`), `white` (the temperature in kelvin);
   /// `color()`, the colour it shows now, for the tile.
@@ -42544,7 +42591,7 @@ self.addEventListener("notificationclick", (event) => {
     return {
       pickColor, pickWhite, whiteRange,
       brightness: canWrite(brightness) ? ({ vertical = false, compact = false } = {}) => {
-        const control = level({ label: t("Brightness"), min: brightness.minValue ?? 0, max: brightness.maxValue ?? 100, step: brightness.minStep || 1, format: (v) => `${v} %`, vertical, showLabel: !compact },
+        const control = level({ label: t("Brightness"), min: brightness.minValue ?? 0, max: brightness.maxValue ?? 100, step: brightness.minStep || 1, format: (v) => `${v} %`, vertical, showLabel: !compact, handle: true },
           (v) => ctx.write(service, brightness, v));
         ctx.watch(() => {
           control.set(numberOf(brightness));
@@ -42553,9 +42600,14 @@ self.addEventListener("notificationclick", (event) => {
         });
         return control.node;
       } : null,
-      swatches: pickColor ? ({ grid = false } = {}) => {
-        const swatches = presets.map(([name, h, s]) => {
-          const swatch = el("button", { type: "button", class: "swatch", role: "radio", "aria-label": name, title: name, onclick: () => pickColor(h, s) });
+      swatches: pickColor ? ({ grid = false, compact = false } = {}) => {
+        const usage = colourUsage();
+        const choices = compact ? [...presets].sort((a, b) => (Number(usage[b[1]]) || 0) - (Number(usage[a[1]]) || 0)).slice(0, adaptive ? 2 : 3) : presets;
+        const swatches = choices.map(([name, h, s]) => {
+          const swatch = el("button", { type: "button", class: "swatch", role: "radio", "aria-label": name, title: name, onclick: () => {
+            pickColor(h, s);
+            rememberColour(h);
+          } });
           swatch.style.setProperty("--swatch", `hsl(${h} ${s}% 60%)`);
           return { swatch, h, s };
         });
@@ -43119,7 +43171,11 @@ self.addEventListener("notificationclick", (event) => {
       };
       // A white-only light's Adaptive control sits beside its white slider.
       const whiteRow = (options) => light.white ? (light.adaptive ? el("div", { class: "w-row" }, el("div", { class: "w-grow" }, light.white(options)), light.adaptive("round")) : light.white(options)) : null;
-      if (ctx.tall) built.middle = light.brightness?.({ compact: true });
+      if (ctx.tall) {
+        const brightness = light.brightness?.({ compact: true });
+        const colours = light.swatches?.({ compact: true });
+        built.middle = colours ? el("div", { class: "light-shortcuts" }, brightness, colours) : brightness;
+      }
       if (size === "medium") built.body = [light.brightness?.(), light.swatches?.() ?? whiteRow({ thin: true })].filter(Boolean);
       if (size === "large") {
         // A tall brightness beside the colours, or beside a tall white (and the Adaptive chip under it).
@@ -44058,7 +44114,7 @@ self.addEventListener("notificationclick", (event) => {
         hit.addEventListener("touchmove", (event) => { if (armed) event.preventDefault(); }, { passive: false });
       }
       const middle = built.middle;
-      node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), middle ? el("div", { class: "w-middle" }, middle) : "", el("div", { class: "w-bottom" }, who, menu));
+      node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), middle ? el("div", { class: "w-middle" }, middle) : "", el("div", { class: "w-bottom" }, who), el("span", { class: "w-corner" }, menu));
       ctx.watch(() => {
         const on = built.on ? built.on() : false;
         node.classList.toggle("on", on);

@@ -3362,6 +3362,14 @@
   /// search.
   const accessoriesBar = (toolbar, views) => {
     const bar = el("div", { class: "accessories-bar" }, toolbar, views);
+    // Reserve the bar's actual footprint, including its expanded search and wrapped buttons.
+    // The observer also runs when the bar is removed, so it does not retain departed views.
+    const clearance = new ResizeObserver(() => {
+      if (!bar.isConnected) { clearance.disconnect(); return; }
+      const height = bar.getBoundingClientRect().height;
+      bar.parentElement.style.setProperty("--accessories-bar-height", `${Math.ceil(height)}px`);
+    });
+    clearance.observe(bar);
     const search = toolbar.querySelector(".search");
     if (!search) return bar;
     const toggle = el("button", { type: "button", class: "icon-button accessories-search-toggle", "aria-label": t("Search accessories"), title: t("Search accessories"),
