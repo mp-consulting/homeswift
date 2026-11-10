@@ -201,3 +201,5 @@ public actor WeatherPlugin: HomeswiftPlugin {
             serialNumber: deviceID, firmwareRevision: PluginHost.version, category: .sensor, services: [temperature, humidity, raining])
     }
 }
+
+// Split-cache benchmark: independent follow-up project revision.
