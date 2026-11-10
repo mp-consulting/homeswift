@@ -46,7 +46,7 @@ jobs:
         with:
           path: .build
           key: ${{ steps.key.outputs.key }}
-          restore-keys: ${{ steps.key.outputs.prefix }}-
+          restore-keys: ${{ steps.key.outputs.prefix }}-${{ matrix.policy == 'after' && '6d17cc66e6df25d80fa72c301a9cdb02b26b2cea' || 'first-success' }}
       - name: Invalidate changed targets
         env:
           CACHE_KEY: ${{ steps.restore.outputs.cache-matched-key }}
@@ -124,7 +124,7 @@ jobs:
         with:
           path: .build
           key: ${{ steps.key.outputs.key }}
-          restore-keys: ${{ steps.key.outputs.prefix }}-
+          restore-keys: ${{ steps.key.outputs.prefix }}-${{ matrix.policy == 'after' && '6d17cc66e6df25d80fa72c301a9cdb02b26b2cea' || 'first-success' }}
       - name: Invalidate changed targets
         env:
           CACHE_KEY: ${{ steps.restore.outputs.cache-matched-key }}

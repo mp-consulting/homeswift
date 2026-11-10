@@ -18,11 +18,15 @@ fi
 LOG="$(mktemp -t swift-test.XXXXXX)"
 export TEST_LOG_DIR="$(mktemp -d -t swift-test-logs.XXXXXX)"
 
-"$(dirname "$0")/test.sh" "$@" > "$LOG" 2>&1 &
+# tee has a finite stream to drain. Killing a following tail after a fixed delay
+# could truncate a large failed bundle's output before its actual diagnostic.
+STREAM="$(mktemp -d -t swift-test-stream.XXXXXX)"
+mkfifo "$STREAM/output"
+tee "$LOG" < "$STREAM/output" &
+OUTPUT=$!
+trap 'kill "$OUTPUT" 2>/dev/null || true; rm -rf "$STREAM"' EXIT
+"$(dirname "$0")/test.sh" "$@" > "$STREAM/output" 2>&1 &
 TESTS=$!
-tail -n +1 -f "$LOG" &
-TAIL=$!
-trap 'kill "$TAIL" 2>/dev/null' EXIT
 
 last=-1
 idle=0
@@ -50,5 +54,7 @@ while kill -0 "$TESTS" 2>/dev/null; do
 done
 wait "$TESTS"
 status=$?
-sleep 1
+wait "$OUTPUT"
+output_status=$?
+if [ "$status" -eq 0 ]; then status=$output_status; fi
 exit $status

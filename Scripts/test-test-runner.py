@@ -21,6 +21,26 @@ class TestRunnerTests(unittest.TestCase):
         path.write_text("#!/bin/bash\n" + body)
         path.chmod(0o755)
 
+    def test_ci_runner_drains_large_logs_and_preserves_exit_status(self):
+        wrapper = self.root / "ci-test.sh"
+        shutil.copyfile(SCRIPTS / "ci-test.sh", wrapper)
+        self.script(self.root / "test.sh", """python3 - <<'PYTHON'
+import os, sys
+sys.stdout.write("bundle output\\n" * 200000)
+print("FINAL DIAGNOSTIC", file=sys.stderr)
+sys.exit(int(os.environ["MOCK_EXIT"]))
+PYTHON
+""")
+        for status in (0, 7):
+            result = subprocess.run(
+                ["bash", str(wrapper)], capture_output=True, text=True, timeout=30,
+                env=dict(os.environ, TMPDIR=str(self.root), MOCK_EXIT=str(status)),
+            )
+            self.assertEqual(result.returncode, status)
+            self.assertEqual(result.stdout.count("bundle output"), 200000)
+            self.assertIn("FINAL DIAGNOSTIC", result.stdout)
+            self.assertFalse(list(self.root.glob("swift-test-stream.*")))
+
     def test_build_defaults_preserve_selections_and_explicit_settings(self):
         tools = self.root / "tools"
         self.script(tools / "uname", 'echo "$MOCK_PLATFORM"\n')
