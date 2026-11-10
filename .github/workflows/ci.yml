@@ -47,6 +47,9 @@ jobs:
           node Scripts/test-reconnect.mjs
           node Scripts/test-accessory-groups.mjs
 
+      - name: Check build-cache partition integrity
+        run: python3 Scripts/test-split-build-cache.py
+
   macos:
     needs: changes
     if: needs.changes.outputs.swift == 'true'
@@ -133,7 +136,7 @@ jobs:
           filter: blob:none
 
       - name: Install Avahi's dns_sd
-        run: apt-get update && apt-get install -y --no-install-recommends libavahi-compat-libdnssd-dev
+        run: apt-get update && apt-get install -y --no-install-recommends libavahi-compat-libdnssd-dev python3
 
       - name: Date the files by their last commit
         # A checkout dates every file now, which would rebuild all of the package's own code over the cached build.
@@ -142,26 +145,52 @@ jobs:
           swift Scripts/restore-mtimes.swift
 
       - name: Key the build cache
-        # Builds reuse the last one's .build: the dependencies (two BoringSSLs, swift-nio) and what did not change.
-        # Keyed by the toolchain and Package.resolved; main saves one per commit, a pull request one for its first
-        # successful run (a failed one may lack what the next one needs).
+        # Cache the exact dependency generation separately from the changing project outputs.
+        # Compiler, manifest and partition-format changes invalidate both layers.
+        # Keep existing refresh policy: main per commit, PR first successful build.
         id: build-key
-        run: echo "key=build-${{ runner.os }}-$(swift --version 2>&1 | cksum | cut -d' ' -f1)-${{ hashFiles('Package.resolved') }}" >> "$GITHUB_OUTPUT"
+        run: |
+          toolchain=$({ swift --version; cat /etc/os-release; cc --version; } 2>&1 | cksum | cut -d' ' -f1)
+          echo "key=split-build-v1-${{ runner.os }}-${{ runner.arch }}-$toolchain-${{ hashFiles('Package.resolved', 'Package.swift', 'Scripts/build.sh', 'Scripts/test.sh', 'Scripts/ci-test.sh', 'Scripts/split-build-cache.py') }}" >> "$GITHUB_OUTPUT"
 
-      - name: Restore the build
-        id: restore-build
+      - name: Restore project build outputs
+        id: restore-project
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .build
-          key: ${{ steps.build-key.outputs.key }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || github.sha }}
-          restore-keys: ${{ steps.build-key.outputs.key }}-
+          path: .ci-build-cache/project
+          key: ${{ steps.build-key.outputs.key }}-project-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || github.sha }}
+          restore-keys: ${{ steps.build-key.outputs.key }}-project-
+
+      - name: Select the matching dependency generation
+        id: dependency-key
+        run: |
+          python3 - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          metadata = Path('.ci-build-cache/project/.homeswift-cache-metadata.json')
+          digest = json.loads(metadata.read_text())['dependency_digest'] if metadata.exists() else 'lookup'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print('digest=' + digest, file=output)
+          PYTHON
+
+      - name: Restore dependency build outputs
+        id: restore-dependencies
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ci-build-cache/dependencies
+          key: ${{ steps.build-key.outputs.key }}-deps-${{ steps.dependency-key.outputs.digest }}
+          # A project cache must get its exact generation. Only a project miss may use any compatible dependency cache.
+          restore-keys: ${{ steps.dependency-key.outputs.digest == 'lookup' && format('{0}-deps-', steps.build-key.outputs.key) || '' }}
+
+      - name: Reassemble the build cache
+        run: python3 Scripts/split-build-cache.py restore
 
       - name: Rebuild the targets changed since the cached build
         # Over a pull request's own cache too: once its branch merges main, main's changes are newer than that build.
         # The script compares the checkout with the commit the restored build was made from (.build/.built-from).
         run: Scripts/forget-changed-targets.sh
         env:
-          CACHE_KEY: ${{ steps.restore-build.outputs.cache-matched-key }}
+          CACHE_KEY: ${{ steps.restore-project.outputs.cache-matched-key }}
 
       - name: Test
         timeout-minutes: 25
@@ -175,14 +204,32 @@ jobs:
         run: swift build -c release
 
       - name: Record the commit the build is made from
-        # For Scripts/forget-changed-targets.sh in the runs that restore it: a pull request's head (its merge
-        # commit's second parent, which later heads descend from), else the commit itself.
-        if: ${{ success() && steps.restore-build.outputs.cache-hit != 'true' }}
+        # Keep the reachable PR head for comparisons; an older synthetic merge commit may not be fetched.
+        if: ${{ success() && steps.restore-project.outputs.cache-hit != 'true' }}
         run: git rev-parse --verify --quiet HEAD^2 > .build/.built-from || git rev-parse HEAD > .build/.built-from
 
-      - name: Save the build
-        if: ${{ success() && steps.restore-build.outputs.cache-hit != 'true' }}
+      - name: Partition the build cache
+        id: partition
+        if: ${{ success() && steps.restore-project.outputs.cache-hit != 'true' }}
+        run: |
+          python3 Scripts/split-build-cache.py split > "$RUNNER_TEMP/cache-partition.json"
+          cat "$RUNNER_TEMP/cache-partition.json"
+          python3 -c 'import json; print("digest=" + json.load(open(".ci-build-cache/project/.homeswift-cache-metadata.json"))["dependency_digest"])' >> "$GITHUB_OUTPUT"
+
+      - name: Save changed dependency outputs
+        if: ${{ success() && steps.partition.outcome == 'success' && steps.restore-dependencies.outputs.cache-matched-key != format('{0}-deps-{1}', steps.build-key.outputs.key, steps.partition.outputs.digest) }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .build
-          key: ${{ steps.restore-build.outputs.cache-primary-key }}
+          path: .ci-build-cache/dependencies
+          key: ${{ steps.build-key.outputs.key }}-deps-${{ steps.partition.outputs.digest }}
+
+      - name: Save project outputs
+        if: ${{ success() && steps.partition.outcome == 'success' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ci-build-cache/project
+          key: ${{ steps.restore-project.outputs.cache-primary-key }}
+
+      - name: Restore staged build outputs
+        if: ${{ always() && steps.partition.outcome == 'success' }}
+        run: python3 Scripts/split-build-cache.py restore
