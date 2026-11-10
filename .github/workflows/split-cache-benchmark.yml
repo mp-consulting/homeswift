@@ -6,6 +6,7 @@ permissions:
   contents: read
 jobs:
   linux:
+    if: false # Linux follow-up runs independently
     runs-on: ubuntu-latest
     container: swift:6.2
     timeout-minutes: 100
@@ -149,7 +150,6 @@ jobs:
           path: ${{ runner.temp }}/split-results
           retention-days: 7
   macos:
-    if: false # macOS runs separately after its first comparison completes
     runs-on: macos-26
     timeout-minutes: 100
     steps:
