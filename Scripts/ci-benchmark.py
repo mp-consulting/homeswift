@@ -4,7 +4,7 @@ import json, os, pathlib, platform, subprocess, sys, time
 out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'benchmark-results'
 out.mkdir(exist_ok=True)
 result = out / 'timings.json'
-data = json.loads(result.read_text()) if result.exists() else {'platform': platform.platform(), 'policy': os.environ['POLICY'], 'sha': os.environ['GITHUB_SHA'], 'measurements': []}
+data = json.loads(result.read_text()) if result.exists() else {'platform': platform.platform(), 'cpus': os.cpu_count(), 'swift': subprocess.check_output(['swift', '--version'], text=True).strip(), 'policy': os.environ['POLICY'], 'sha': os.environ['GITHUB_SHA'], 'measurements': []}
 def run(label, command):
     print(f'::group::{label}', flush=True)
     start = time.monotonic()

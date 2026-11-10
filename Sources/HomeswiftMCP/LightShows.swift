@@ -854,3 +854,5 @@ extension HomeswiftCatalog {
         return show
     }
 }
+
+// CI cache benchmark: first source revision.

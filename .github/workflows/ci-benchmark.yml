@@ -55,6 +55,12 @@ jobs:
         run: python3 Scripts/ci-benchmark.py full-debug Scripts/build.sh --all
       - name: Full test suite
         run: python3 Scripts/ci-benchmark.py full-tests Scripts/ci-test.sh
+      - name: Check embedded assets
+        if: runner.os == 'macOS'
+        run: |
+          swift Scripts/embed-assets.swift all
+          git diff --exit-code -- Sources Plugins
+          test -z "$(git ls-files --others --exclude-standard -- Sources Plugins)"
       - name: Restart checks
         run: swiftc -parse-as-library -o "$RUNNER_TEMP/test-restart" Sources/HomeswiftCLI/Restart.swift Scripts/test-restart.swift && "$RUNNER_TEMP/test-restart"
       - name: Full release build
@@ -127,6 +133,12 @@ jobs:
         run: python3 Scripts/ci-benchmark.py full-debug Scripts/build.sh --all
       - name: Full test suite
         run: python3 Scripts/ci-benchmark.py full-tests Scripts/ci-test.sh
+      - name: Check embedded assets
+        if: runner.os == 'macOS'
+        run: |
+          swift Scripts/embed-assets.swift all
+          git diff --exit-code -- Sources Plugins
+          test -z "$(git ls-files --others --exclude-standard -- Sources Plugins)"
       - name: Restart checks
         run: swiftc -parse-as-library -o "$RUNNER_TEMP/test-restart" Sources/HomeswiftCLI/Restart.swift Scripts/test-restart.swift && "$RUNNER_TEMP/test-restart"
       - name: Full release build
