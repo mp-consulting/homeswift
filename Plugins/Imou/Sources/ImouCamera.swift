@@ -342,16 +342,8 @@ actor ImouCamera {
         sirenHold = nil
         guard on else { return }
         let hold = timing.duration(Self.sirenHold)
-        sirenHold = Task { [weak self] in
-            guard (try? await Task.sleep(for: hold)) != nil else { return }
-            await self?.sirenOff()
-        }
-    }
-
-    /// Runs on the hold's task: a hold replaced meanwhile was cancelled and does nothing.
-    private func sirenOff() {
-        guard !Task.isCancelled else { return }
-        services.siren?.characteristic(.on).value = false
+        // Preserve a reset that finishes before the asynchronous write returns.
+        sirenHold = services.siren?.characteristic(.on).revert(to: false, after: hold)
     }
 
     // MARK: State from the cloud

@@ -66,12 +66,12 @@ struct RemoteDimmerTests {
 
     static func bulb(_ accessory: Accessory) -> Service { accessory.services.first { $0.type == .lightbulb }! }
 
-    static func channel(_ accessories: [Accessory], power: [String] = []) -> ControlRunner {
+    static func channel(_ accessories: [Accessory], power: [String] = [], trustLastSet: Duration = .seconds(3)) -> ControlRunner {
         let byID = Dictionary(uniqueKeysWithValues: accessories.map { ($0.id, $0) })
         let find: @Sendable (String) -> Accessory? = { byID[$0] }
         let lights = accessories.filter { [.lightbulb, .windowCovering].contains($0.category) }.map(\.id)
         return ControlRunner(targets: ControlTargets(lights: lights, power: power, powerDelay: .milliseconds(20)),
-                             writers: lights.map { DimmerWriter(lightID: $0, find: find) }, find: find)
+                             writers: lights.map { DimmerWriter(lightID: $0, trustLastSet: trustLastSet, find: find) }, find: find)
     }
 
     @Test func aChannelDimsItsLightsTogetherAndSwitchesThemTheSameWay() async throws {
@@ -139,7 +139,9 @@ struct RemoteDimmerTests {
     /// A held button dims a step at a time until it is let go: up or down as set, or each hold the other way.
     @Test func aHeldButtonDimsUntilLetGo() async throws {
         let lamp = Self.lamp("A", on: true, level: 30)
-        let channel = Self.channel([lamp])
+        // This fake applies every write immediately; expire the writer's cloud grace
+        // period immediately too. The late-report behavior has its own test above.
+        let channel = Self.channel([lamp], trustLastSet: .zero)
         let level: @Sendable () -> Int = { Self.bulb(lamp)[.brightness]?.value.intValue ?? 0 }
         await channel.hold(step: 5, direction: .up)
         #expect(await eventually { level() >= 40 })
@@ -156,7 +158,6 @@ struct RemoteDimmerTests {
         #expect(await eventually { level() > before })
         await channel.release()
         // Never against a limit: at full, the next hold dims although the last one brightened.
-        try await Task.sleep(for: .seconds(3.1))   // past the writer's trust in its own last level
         Self.bulb(lamp)[.brightness]?.value = .int(100)
         await channel.hold(step: 5, direction: .alternate)
         #expect(await eventually { level() < 100 })

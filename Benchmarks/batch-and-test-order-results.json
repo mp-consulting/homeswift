@@ -1,0 +1,897 @@
+{
+  "date": "2026-11-10",
+  "machine": {
+    "model": "Mac14,7",
+    "cpus": 8,
+    "memory_gib": 16,
+    "swift": "Apple Swift 6.4.2",
+    "os": "macOS 27.2"
+  },
+  "engine": "toolchain default (swiftbuild)",
+  "baseline": "Working tree after the prior default-engine optimization, captured before batching and ordering changes.",
+  "baseline_hashes": {
+    "embed-before.swift": "aa4b13dc642fd7e66f79cb662396f9336c5b800688baa7c4cfd89e3c976fcd0e",
+    "scenes-before.swift": "5022373101286a4bea9b2c1e14cb9d9b1833808e862103dbc4d122d7878c932b",
+    "before-scripts/test.sh": "1b32f7f60bf966f2e4fca8a72e7e5cb2a229ff58f1fc5fe0c65c9ca6517d71e2",
+    "before-scripts/build.sh": "c777f4d5b00d2cb119ba87ce411cbb774f055169204f2a16c48cc756a3ca426c"
+  },
+  "unchanged_build_script_sha256": "c777f4d5b00d2cb119ba87ce411cbb774f055169204f2a16c48cc756a3ca426c",
+  "generator_jobs": [
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Sources/HomeswiftUI/Web",
+      "Sources/HomeswiftUI/WebAssets.swift"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "prompts",
+      "Sources/HomeswiftAI/Prompts",
+      "Sources/HomeswiftAI/PromptFiles.swift"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/APsystemsECU",
+      "APsystemsECUPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/APsystemsECU/Web",
+      "Plugins/APsystemsECU/Sources/WebFiles.swift",
+      "APsystemsECUPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/DaikinCloud",
+      "DaikinCloudPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/DaikinCloud/Web",
+      "Plugins/DaikinCloud/Sources/WebFiles.swift",
+      "DaikinCloudPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Dirigera",
+      "DirigeraPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/Dirigera/Web",
+      "Plugins/Dirigera/Sources/WebFiles.swift",
+      "DirigeraPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/DolphinPoolCleaner",
+      "DolphinPoolCleanerPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/DolphinPoolCleaner/Web",
+      "Plugins/DolphinPoolCleaner/Sources/WebFiles.swift",
+      "DolphinPoolCleanerPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Dummy",
+      "DummyPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/DysonPureCool",
+      "DysonPureCoolPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/DysonPureCool/Web",
+      "Plugins/DysonPureCool/Sources/WebFiles.swift",
+      "DysonPureCoolPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/ESPHome",
+      "ESPHomePlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/EWeLink",
+      "EWeLinkPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/EWeLink/Web",
+      "Plugins/EWeLink/Sources/WebFiles.swift",
+      "EWeLinkPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/EcoFlow",
+      "EcoFlowPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/EcoFlow/Web",
+      "Plugins/EcoFlow/Sources/WebFiles.swift",
+      "EcoFlowPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/ElgatoKeyLights",
+      "ElgatoKeyLightsPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/ElgatoKeyLights/Web",
+      "Plugins/ElgatoKeyLights/Sources/WebFiles.swift",
+      "ElgatoKeyLightsPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/GoogleNestSDM",
+      "GoogleNestSDMPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Govee",
+      "GoveePlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/Govee/Web",
+      "Plugins/Govee/Sources/WebFiles.swift",
+      "GoveePlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/HTTPWebhooks",
+      "HTTPWebhooksPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Helpers",
+      "HelpersPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/HomeAssistant",
+      "HomeAssistantPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/HueSyncBox",
+      "HueSyncBoxPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/IPCameras",
+      "IPCamerasPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Imou",
+      "ImouPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/LGThinQ",
+      "LGThinQPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/LGThinQ/Web",
+      "Plugins/LGThinQ/Sources/WebFiles.swift",
+      "LGThinQPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/MQTTThing",
+      "MQTTThingPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/MagicHome",
+      "MagicHomePlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/MatterDevices",
+      "MatterDevicesPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/MatterDevices/Web",
+      "Plugins/MatterDevices/Sources/WebFiles.swift",
+      "MatterDevicesPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/PhilipsAmbilightTV",
+      "PhilipsAmbilightTVPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/PhilipsAmbilightTV/Web",
+      "Plugins/PhilipsAmbilightTV/Sources/WebFiles.swift",
+      "PhilipsAmbilightTVPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/PhilipsHue",
+      "PhilipsHuePlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/PhilipsHue/Web",
+      "Plugins/PhilipsHue/Sources/WebFiles.swift",
+      "PhilipsHuePlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Presence",
+      "PresencePlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Renault",
+      "RenaultPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Reolink",
+      "ReolinkPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Ring",
+      "RingPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Roborock",
+      "RoborockPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Shelly",
+      "ShellyNGPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/SmartThings",
+      "SmartThingsPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/SmartThings/Web",
+      "Plugins/SmartThings/Sources/WebFiles.swift",
+      "SmartThingsPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Sonos",
+      "SonosPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/SwitchBot",
+      "SwitchBotPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/TPLinkSmarthome",
+      "TPLinkSmarthomePlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Tado",
+      "TadoPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Tahoma",
+      "TahomaPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Tapo",
+      "TapoPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Tuya",
+      "TuyaPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/UniFiAccess",
+      "UniFiAccessPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/UniFiAccess/Web",
+      "Plugins/UniFiAccess/Sources/WebFiles.swift",
+      "UniFiAccessPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/UniFiProtect",
+      "UniFiProtectPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/UniFiProtect/Web",
+      "Plugins/UniFiProtect/Sources/WebFiles.swift",
+      "UniFiProtectPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/V2CTrydan",
+      "V2CTrydanPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Weather",
+      "WeatherPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Wingman",
+      "WingmanPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/Wingman/Web",
+      "Plugins/Wingman/Sources/WebFiles.swift",
+      "WingmanPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/XiaomiMiot",
+      "XiaomiMiotPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "web",
+      "Plugins/XiaomiMiot/Web",
+      "Plugins/XiaomiMiot/Sources/WebFiles.swift",
+      "XiaomiMiotPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/ZWaveJS",
+      "ZWaveJSPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Zigbee2MQTT",
+      "Zigbee2MQTTPlugin"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/embed-before.swift",
+      "plugin",
+      "Plugins/Shelly",
+      "ShellyPlugin",
+      "config.gen1.schema.json"
+    ],
+    [
+      "swift",
+      "/tmp/homeswift-batch-bench/scenes-before.swift"
+    ]
+  ],
+  "generated_output_check": {
+    "generated_files_checked": 70,
+    "bytes_mtimes_inodes_unchanged": true
+  },
+  "notes": [
+    "Generation compares the same 68 outputs: includes prompts and the second Shelly schema, omitted by the old 66-call driver. The baseline uses the correct ShellyNGPlugin type.",
+    "Suite timing summaries use only passing runs; every failed run remains in the data. Two of four suites passed on each side.",
+    "Ordering estimates initially came from three prior eight-test-per-bundle runs; successful full runs then updated the scratch-directory history.",
+    "Shared-runtime trials alternate captured and current build scripts, reversing order in pair two. Both scripts are byte-identical and use the same full-product scope.",
+    "Shared trials prepend varying comment line counts to Slug.swift to force debug-info changes and relinking, then restore the original bytes.",
+    "No concurrent benchmark builds; all application sources, tests and generated data remain unchanged."
+  ],
+  "runs": [
+    {
+      "phase": "before",
+      "kind": "embed",
+      "iteration": 1,
+      "seconds": 25.344,
+      "exit_code": 0,
+      "log": "before-embed-1.log",
+      "group": "before",
+      "warnings": 0
+    },
+    {
+      "phase": "before",
+      "kind": "embed",
+      "iteration": 2,
+      "seconds": 21.476,
+      "exit_code": 0,
+      "log": "before-embed-2.log",
+      "group": "before",
+      "warnings": 0
+    },
+    {
+      "phase": "before",
+      "kind": "embed",
+      "iteration": 3,
+      "seconds": 21.452,
+      "exit_code": 0,
+      "log": "before-embed-3.log",
+      "group": "before",
+      "warnings": 0
+    },
+    {
+      "phase": "before",
+      "kind": "tests",
+      "iteration": 1,
+      "seconds": 52.998,
+      "exit_code": 1,
+      "log": "before-tests-1.log",
+      "group": "before",
+      "warnings": 0,
+      "tests_reported": 3747,
+      "bundle_execution_seconds": 42,
+      "issues": [
+        "\u2718 Test gateLocationStatesAndRenames() recorded an issue at AccessHubTests.swift:519:9: Expectation failed: await eventually { value(host, gateID, .lockMechanism, \"Lock.Door.Side\", .lockCurrentState) == 0 }",
+        "\u2718 Test gateLocationStatesAndRenames() recorded an issue at AccessHubTests.swift:521:9: Expectation failed: value(host, gateID, .lockMechanism, nil, .lockCurrentState) == 0"
+      ]
+    },
+    {
+      "phase": "before",
+      "kind": "tests",
+      "iteration": 2,
+      "seconds": 26.136,
+      "exit_code": 0,
+      "log": "before-tests-2.log",
+      "group": "before",
+      "warnings": 0,
+      "tests_reported": 3747,
+      "bundle_execution_seconds": 19
+    },
+    {
+      "phase": "before",
+      "kind": "tests",
+      "iteration": 3,
+      "seconds": 24.565,
+      "exit_code": 1,
+      "log": "before-tests-3.log",
+      "group": "before",
+      "warnings": 0,
+      "tests_reported": 3747,
+      "bundle_execution_seconds": 17,
+      "issues": [
+        "\u2718 Test refusesASecondSaveOfTheSameBlock() recorded an issue at ConfigImportTests.swift:87:9: Expectation failed: try await admin.post(\"/api/import/save\", [\"source\": \"paste\", \"text\": .string(Self.homebridge)]).status == 200",
+        "\u2718 Test refusesASecondSaveOfTheSameBlock() recorded an issue at ConfigImportTests.swift:89:9: Expectation failed: again.status == 422",
+        "\u2718 Test refusesASecondSaveOfTheSameBlock() recorded an issue at ConfigImportTests.swift:90:9: Expectation failed: again.json?[\"problems\"]?.arrayValue?.contains { $0[\"code\"]?.stringValue == \"duplicatePlatform\" } == true",
+        "\u2718 Test zonesBecomeAccessoriesWithTheSpecsStates() recorded an issue at TadoTests.swift:358:9: Expectation failed: heaterCooler[.coolingThresholdTemperature]?.value.doubleValue == 22"
+      ]
+    },
+    {
+      "phase": "before",
+      "kind": "tests",
+      "iteration": 4,
+      "seconds": 29.227,
+      "exit_code": 0,
+      "command": [
+        "bash",
+        "/tmp/homeswift-batch-bench/before-scripts/test.sh",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-tests-4.log",
+      "group": "before",
+      "warnings": 0,
+      "tests_reported": 3747,
+      "bundle_execution_seconds": 21
+    },
+    {
+      "phase": "after",
+      "kind": "embed",
+      "iteration": 1,
+      "seconds": 1.127,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "Scripts/embed-assets.swift",
+        "all"
+      ],
+      "log": "after-embed-1.log",
+      "group": "after",
+      "warnings": 0
+    },
+    {
+      "phase": "after",
+      "kind": "embed",
+      "iteration": 2,
+      "seconds": 0.524,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "Scripts/embed-assets.swift",
+        "all"
+      ],
+      "log": "after-embed-2.log",
+      "group": "after",
+      "warnings": 0
+    },
+    {
+      "phase": "after",
+      "kind": "embed",
+      "iteration": 3,
+      "seconds": 0.536,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "Scripts/embed-assets.swift",
+        "all"
+      ],
+      "log": "after-embed-3.log",
+      "group": "after",
+      "warnings": 0
+    },
+    {
+      "phase": "after",
+      "kind": "tests",
+      "iteration": 1,
+      "seconds": 25.235,
+      "exit_code": 0,
+      "command": [
+        "Scripts/test.sh",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "after-tests-1.log",
+      "group": "after",
+      "warnings": 0,
+      "tests_reported": 3747,
+      "bundle_execution_seconds": 15
+    },
+    {
+      "phase": "after",
+      "kind": "tests",
+      "iteration": 2,
+      "seconds": 21.99,
+      "exit_code": 0,
+      "command": [
+        "Scripts/test.sh",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "after-tests-2.log",
+      "group": "after",
+      "warnings": 0,
+      "tests_reported": 3747,
+      "bundle_execution_seconds": 15
+    },
+    {
+      "phase": "after",
+      "kind": "tests",
+      "iteration": 3,
+      "seconds": 37.605,
+      "exit_code": 1,
+      "command": [
+        "Scripts/test.sh",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "after-tests-3.log",
+      "group": "after",
+      "warnings": 0,
+      "tests_reported": 3747,
+      "bundle_execution_seconds": 32,
+      "issues": [
+        "\u2718 Test aChimeSwitchPlaysTheTone() recorded an issue at ReolinkParityTests.swift:460:9: Expectation failed: await eventually { chime.value == false }"
+      ]
+    },
+    {
+      "phase": "after",
+      "kind": "tests",
+      "iteration": 4,
+      "seconds": 22.864,
+      "exit_code": 1,
+      "command": [
+        "Scripts/test.sh",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "after-tests-4.log",
+      "group": "after",
+      "warnings": 0,
+      "tests_reported": 3747,
+      "bundle_execution_seconds": 16,
+      "issues": [
+        "\u2718 Test aFullwidthFingerprintIsRefused() recorded an issue at DTLSTests.swift:55:9: Expectation failed: DTLSCertificate.fingerprintBytes(mixed) == nil"
+      ]
+    },
+    {
+      "phase": "prepare",
+      "iteration": 0,
+      "seconds": 7.36,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "shared-prepare-0.log",
+      "group": "shared",
+      "warnings": 0
+    },
+    {
+      "phase": "before",
+      "iteration": 1,
+      "seconds": 11.988,
+      "exit_code": 0,
+      "command": [
+        "bash",
+        "/tmp/homeswift-batch-bench/before-scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "shared-before-1.log",
+      "group": "shared",
+      "warnings": 0
+    },
+    {
+      "phase": "after",
+      "iteration": 1,
+      "seconds": 8.132,
+      "exit_code": 0,
+      "command": [
+        "bash",
+        "/Users/powermike/Documents/Dev.nosync/homeswift/Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "shared-after-1.log",
+      "group": "shared",
+      "warnings": 0
+    },
+    {
+      "phase": "after",
+      "iteration": 2,
+      "seconds": 7.683,
+      "exit_code": 0,
+      "command": [
+        "bash",
+        "/Users/powermike/Documents/Dev.nosync/homeswift/Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "shared-after-2.log",
+      "group": "shared",
+      "warnings": 0
+    },
+    {
+      "phase": "before",
+      "iteration": 2,
+      "seconds": 7.918,
+      "exit_code": 0,
+      "command": [
+        "bash",
+        "/tmp/homeswift-batch-bench/before-scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "shared-before-2.log",
+      "group": "shared",
+      "warnings": 0
+    },
+    {
+      "phase": "before",
+      "iteration": 3,
+      "seconds": 10.762,
+      "exit_code": 0,
+      "command": [
+        "bash",
+        "/tmp/homeswift-batch-bench/before-scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "shared-before-3.log",
+      "group": "shared",
+      "warnings": 0
+    },
+    {
+      "phase": "after",
+      "iteration": 3,
+      "seconds": 8.479,
+      "exit_code": 0,
+      "command": [
+        "bash",
+        "/Users/powermike/Documents/Dev.nosync/homeswift/Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "shared-after-3.log",
+      "group": "shared",
+      "warnings": 0
+    },
+    {
+      "phase": "restore",
+      "iteration": 0,
+      "seconds": 7.655,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "shared-restore-0.log",
+      "group": "shared",
+      "warnings": 0
+    },
+    {
+      "phase": "validation",
+      "kind": "direct-generator",
+      "iteration": 1,
+      "seconds": 3.47,
+      "exit_code": 0,
+      "command": [
+        "python3",
+        "/tmp/homeswift-check-embed.py"
+      ],
+      "log": "validation-direct-generator-1.log",
+      "group": "validation",
+      "warnings": 0
+    },
+    {
+      "phase": "validation",
+      "kind": "prepare-tests",
+      "iteration": 1,
+      "seconds": 17.384,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--build-tests",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "validation-prepare-tests-1.log",
+      "group": "validation",
+      "warnings": 0
+    }
+  ]
+}

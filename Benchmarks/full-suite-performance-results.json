@@ -1,0 +1,983 @@
+{
+  "baseline": [
+    {
+      "label": "before-0",
+      "bundles": 8,
+      "width": 8,
+      "skip_build": false,
+      "seconds": 32.73090975,
+      "exit": 0
+    },
+    {
+      "label": "before-1",
+      "bundles": 8,
+      "width": 8,
+      "skip_build": false,
+      "seconds": 26.21171375,
+      "exit": 0
+    },
+    {
+      "label": "before-2",
+      "bundles": 8,
+      "width": 8,
+      "skip_build": false,
+      "seconds": 74.47146875000001,
+      "exit": 1
+    },
+    {
+      "label": "pool-4-4",
+      "bundles": 4,
+      "width": 4,
+      "skip_build": true,
+      "seconds": 28.240296084000022,
+      "exit": 0
+    },
+    {
+      "label": "pool-4-8",
+      "bundles": 4,
+      "width": 8,
+      "skip_build": true,
+      "seconds": 25.183638333000005,
+      "exit": 0
+    },
+    {
+      "label": "pool-2-4",
+      "bundles": 2,
+      "width": 4,
+      "skip_build": true,
+      "seconds": 51.21195408300002,
+      "exit": 0
+    },
+    {
+      "label": "pool-8-2",
+      "bundles": 8,
+      "width": 2,
+      "skip_build": true,
+      "seconds": 20.47284449999998,
+      "exit": 0
+    }
+  ],
+  "test-experiments": [
+    {
+      "label": "parser-before-0",
+      "seconds": 0.71923625,
+      "exit": 0
+    },
+    {
+      "label": "parser-before-1",
+      "seconds": 0.42543916699999995,
+      "exit": 0
+    },
+    {
+      "label": "parser-before-2",
+      "seconds": 0.44449283400000006,
+      "exit": 0
+    },
+    {
+      "label": "camera-before-0",
+      "seconds": 3.444897083,
+      "exit": 0
+    },
+    {
+      "label": "camera-before-1",
+      "seconds": 3.49522125,
+      "exit": 0
+    },
+    {
+      "label": "camera-before-2",
+      "seconds": 3.4445736670000002,
+      "exit": 0
+    },
+    {
+      "label": "shared-before-0",
+      "seconds": 9.649181292,
+      "exit": 0
+    },
+    {
+      "label": "shared-before-1",
+      "seconds": 6.484194542000001,
+      "exit": 0
+    },
+    {
+      "label": "shared-before-2",
+      "seconds": 5.931796292000001,
+      "exit": 0
+    },
+    {
+      "label": "test-prepare",
+      "seconds": 9.466628291,
+      "exit": 0
+    },
+    {
+      "label": "parser-after-0",
+      "seconds": 0.603896749999997,
+      "exit": 0
+    },
+    {
+      "label": "parser-after-1",
+      "seconds": 0.35297941700000024,
+      "exit": 0
+    },
+    {
+      "label": "parser-after-2",
+      "seconds": 0.3545954159999951,
+      "exit": 0
+    },
+    {
+      "label": "camera-after-0",
+      "seconds": 0.3194506659999945,
+      "exit": 0
+    },
+    {
+      "label": "camera-after-1",
+      "seconds": 0.3175061250000013,
+      "exit": 0
+    },
+    {
+      "label": "camera-after-2",
+      "seconds": 0.323848500000004,
+      "exit": 0
+    },
+    {
+      "label": "full-after-0",
+      "seconds": 26.933201167,
+      "exit": 0
+    },
+    {
+      "label": "full-after-1",
+      "seconds": 24.360888333999995,
+      "exit": 0
+    },
+    {
+      "label": "full-after-2",
+      "seconds": 26.786532582999996,
+      "exit": 0
+    },
+    {
+      "label": "pool-after-8-4",
+      "seconds": 17.728853124999986,
+      "exit": 0
+    },
+    {
+      "label": "pool-after-12-4",
+      "seconds": 14.846591166999985,
+      "exit": 1
+    },
+    {
+      "label": "pool-after-8-2",
+      "seconds": 22.873328125,
+      "exit": 0
+    }
+  ],
+  "pool-final": [
+    {
+      "label": "pool-final-8-8-0",
+      "bundles": 8,
+      "width": 8,
+      "seconds": 26.139116916999996,
+      "exit": 0
+    },
+    {
+      "label": "pool-final-12-4-0",
+      "bundles": 12,
+      "width": 4,
+      "seconds": 24.878254290999998,
+      "exit": 0
+    },
+    {
+      "label": "pool-final-16-4-0",
+      "bundles": 16,
+      "width": 4,
+      "seconds": 24.028957749999996,
+      "exit": 0
+    },
+    {
+      "label": "pool-final-16-4-1",
+      "bundles": 16,
+      "width": 4,
+      "seconds": 23.560635041999987,
+      "exit": 0
+    },
+    {
+      "label": "pool-final-8-8-1",
+      "bundles": 8,
+      "width": 8,
+      "seconds": 49.46537391700001,
+      "exit": 1
+    },
+    {
+      "label": "pool-final-12-4-1",
+      "bundles": 12,
+      "width": 4,
+      "seconds": 27.886485125000007,
+      "exit": 0
+    },
+    {
+      "label": "pool-final-12-4-2",
+      "bundles": 12,
+      "width": 4,
+      "seconds": 27.047524834,
+      "exit": 0
+    },
+    {
+      "label": "pool-final-16-4-2",
+      "bundles": 16,
+      "width": 4,
+      "seconds": 22.572817125,
+      "exit": 1
+    },
+    {
+      "label": "pool-final-8-8-2",
+      "bundles": 8,
+      "width": 8,
+      "seconds": 25.958043084000025,
+      "exit": 0
+    }
+  ],
+  "final-validation": [
+    {
+      "label": "final-prepare",
+      "seconds": 16.114681292,
+      "exit": 0
+    },
+    {
+      "label": "final-suite-0",
+      "seconds": 21.775868375,
+      "exit": 0
+    },
+    {
+      "label": "final-suite-1",
+      "seconds": 21.754951333,
+      "exit": 0
+    },
+    {
+      "label": "final-suite-2",
+      "seconds": 22.711536624999994,
+      "exit": 0
+    },
+    {
+      "label": "final-suite-3",
+      "seconds": 22.242995417000003,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-0",
+      "seconds": 0.11305283400000121,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-1",
+      "seconds": 0.1107077500000031,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-2",
+      "seconds": 0.10985316699999714,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-3",
+      "seconds": 0.11023112499999854,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-4",
+      "seconds": 0.11199841699999524,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-5",
+      "seconds": 0.11254595900000197,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-6",
+      "seconds": 0.11134554100000571,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-7",
+      "seconds": 0.11153337499999338,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-8",
+      "seconds": 0.11275954199999205,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-9",
+      "seconds": 0.11081529200001228,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-10",
+      "seconds": 0.11410995800000023,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-11",
+      "seconds": 0.10970325000000969,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-12",
+      "seconds": 0.10938466700000049,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-13",
+      "seconds": 0.10957520799999543,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-14",
+      "seconds": 0.10825724999999409,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-15",
+      "seconds": 0.1120993330000033,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-16",
+      "seconds": 0.11195687500000417,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-17",
+      "seconds": 0.11141650000000425,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-18",
+      "seconds": 0.11023858299999745,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-19",
+      "seconds": 0.11090037499999994,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-20",
+      "seconds": 0.11149216699999442,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-21",
+      "seconds": 0.11076387500000351,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-22",
+      "seconds": 0.11181237499999952,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-23",
+      "seconds": 0.1150102919999938,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-24",
+      "seconds": 0.11290666700000429,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-25",
+      "seconds": 0.11241183299999591,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-26",
+      "seconds": 0.11513641599999858,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-27",
+      "seconds": 0.11074129099999652,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-28",
+      "seconds": 0.1134527090000006,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ImouTests-29",
+      "seconds": 0.1102790839999983,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-0",
+      "seconds": 0.06872329200000138,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-1",
+      "seconds": 0.06668058399999666,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-2",
+      "seconds": 0.06547262499999817,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-3",
+      "seconds": 0.06677124999998796,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-4",
+      "seconds": 0.06756425000000377,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-5",
+      "seconds": 0.06477958300000353,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-6",
+      "seconds": 0.06667799999999602,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-7",
+      "seconds": 0.06684241600000007,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-8",
+      "seconds": 0.06712024999998789,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-9",
+      "seconds": 0.066891499999997,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-10",
+      "seconds": 0.06792633300000261,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-11",
+      "seconds": 0.06697870899999714,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-12",
+      "seconds": 0.06558966699999758,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-13",
+      "seconds": 0.06635579199999597,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-14",
+      "seconds": 0.06576975000000118,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-15",
+      "seconds": 0.06551058299999113,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-16",
+      "seconds": 0.06483720800000015,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-17",
+      "seconds": 0.0651923750000094,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-18",
+      "seconds": 0.06496733299999846,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-19",
+      "seconds": 0.06640350000000694,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-20",
+      "seconds": 0.06542987499999242,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-21",
+      "seconds": 0.06476037500000587,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-22",
+      "seconds": 0.06621179199999006,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-23",
+      "seconds": 0.06587920900000199,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-24",
+      "seconds": 0.06679195899999968,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-25",
+      "seconds": 0.06594579200000794,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-26",
+      "seconds": 0.06658195900000408,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-27",
+      "seconds": 0.06669079200000283,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-28",
+      "seconds": 0.06589999999999918,
+      "exit": 0
+    },
+    {
+      "label": "repeat-HomeswiftTests-29",
+      "seconds": 0.06641766599999244,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-0",
+      "seconds": 0.23741275000000428,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-1",
+      "seconds": 0.2511389999999949,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-2",
+      "seconds": 0.24035266699999625,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-3",
+      "seconds": 0.2496579170000075,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-4",
+      "seconds": 0.2530781250000018,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-5",
+      "seconds": 0.23999449999999456,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-6",
+      "seconds": 0.25249000000000876,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-7",
+      "seconds": 0.251614208999996,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-8",
+      "seconds": 0.24869529199999363,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-9",
+      "seconds": 0.25086012499998844,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-10",
+      "seconds": 0.2412538330000018,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-11",
+      "seconds": 0.26199079199999176,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-12",
+      "seconds": 0.25375537500001144,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-13",
+      "seconds": 0.26054329200000836,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-14",
+      "seconds": 0.25226687500000367,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-15",
+      "seconds": 0.2620938749999908,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-16",
+      "seconds": 0.2628280410000059,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-17",
+      "seconds": 0.2370655419999963,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-18",
+      "seconds": 0.2433024159999917,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-19",
+      "seconds": 0.24847575000001143,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-20",
+      "seconds": 0.23893129199998953,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-21",
+      "seconds": 0.25205008400000395,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-22",
+      "seconds": 0.2523188329999897,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-23",
+      "seconds": 0.2502267079999996,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-24",
+      "seconds": 0.25004850000000545,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-25",
+      "seconds": 0.25038370900000473,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-26",
+      "seconds": 0.24976979199999505,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-27",
+      "seconds": 0.2507894590000035,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-28",
+      "seconds": 0.25181479100000104,
+      "exit": 0
+    },
+    {
+      "label": "repeat-TapoTests-29",
+      "seconds": 0.2503592080000061,
+      "exit": 0
+    },
+    {
+      "label": "shared-after-0",
+      "seconds": 6.6175881249999975,
+      "exit": 0
+    },
+    {
+      "label": "shared-after-1",
+      "seconds": 5.9456461669999925,
+      "exit": 0
+    },
+    {
+      "label": "shared-after-2",
+      "seconds": 5.930297875000008,
+      "exit": 0
+    },
+    {
+      "label": "shared-restored",
+      "seconds": 5.72411012500001,
+      "exit": 0
+    },
+    {
+      "label": "location-query-0",
+      "seconds": 0.6469009999999855,
+      "exit": 0
+    },
+    {
+      "label": "location-cache-0",
+      "seconds": 0.059226707999982864,
+      "exit": 0
+    },
+    {
+      "label": "location-query-1",
+      "seconds": 0.6637987080000016,
+      "exit": 0
+    },
+    {
+      "label": "location-cache-1",
+      "seconds": 0.0509888750000016,
+      "exit": 0
+    },
+    {
+      "label": "location-query-2",
+      "seconds": 0.6517680830000074,
+      "exit": 0
+    },
+    {
+      "label": "location-cache-2",
+      "seconds": 0.05043420799998444,
+      "exit": 0
+    }
+  ],
+  "asset-experiment": [
+    {
+      "label": "asset-before-0",
+      "seconds": 11.971218,
+      "exit": 0
+    },
+    {
+      "label": "asset-before-1",
+      "seconds": 5.937149332999999,
+      "exit": 0
+    },
+    {
+      "label": "asset-before-2",
+      "seconds": 5.8782806669999985,
+      "exit": 0
+    },
+    {
+      "label": "asset-candidate-0",
+      "seconds": 10.356832999999998,
+      "exit": 0
+    },
+    {
+      "label": "asset-candidate-1",
+      "seconds": 6.018676582999994,
+      "exit": 0
+    },
+    {
+      "label": "asset-candidate-2",
+      "seconds": 5.9731183749999985,
+      "exit": 0
+    },
+    {
+      "label": "asset-restored",
+      "seconds": 9.412652332999997,
+      "exit": 0
+    }
+  ],
+  "cold-before": {
+    "command": [
+      "Scripts/build.sh",
+      "--all",
+      "--scratch-path",
+      "/tmp/homeswift-full-bench/clean",
+      "--disable-automatic-resolution",
+      "-Xswiftc",
+      "-stats-output-dir",
+      "-Xswiftc",
+      "/tmp/homeswift-full-bench/compiler-stats-before"
+    ],
+    "seconds": 174.846898917,
+    "exit": 0
+  },
+  "cold-j12": {
+    "command": [
+      "Scripts/build.sh",
+      "--all",
+      "--scratch-path",
+      "/tmp/homeswift-full-bench/clean",
+      "--disable-automatic-resolution",
+      "--jobs",
+      "12",
+      "-Xswiftc",
+      "-stats-output-dir",
+      "-Xswiftc",
+      "/tmp/homeswift-full-bench/compiler-stats-j12"
+    ],
+    "seconds": 170.44339208399998,
+    "exit": 0
+  },
+  "compiler-hotspots": [
+    {
+      "profile": "compiler-stats-before",
+      "jobs": 757,
+      "slowest": [
+        {
+          "report": "stats-1794312500558789-swift-frontend-Matter-Cluster.swift-arm64_apple_macos14.0-o-Onone-118959058.json",
+          "wall_seconds": 13.602154
+        },
+        {
+          "report": "stats-1794312584769020-swift-frontend-HomeswiftUI-UIServer.swift-arm64_apple_macos14.0-o-Onone-3056721979.json",
+          "wall_seconds": 11.694724
+        },
+        {
+          "report": "stats-1794312495496545-swift-frontend-Matter-all-arm64_apple_macos14.0-swiftmodule-Onone-3573076270.json",
+          "wall_seconds": 11.125699
+        },
+        {
+          "report": "stats-1794312544457723-swift-frontend-HomeswiftMCP-all-arm64_apple_macos14.0-swiftmodule-Onone-1338937856.json",
+          "wall_seconds": 8.552716
+        },
+        {
+          "report": "stats-1794312553207020-swift-frontend-HomeswiftMCP-Scenes.swift-arm64_apple_macos14.0-o-Onone-4162409936.json",
+          "wall_seconds": 8.234903
+        },
+        {
+          "report": "stats-1794312492561721-swift-frontend-NIOPosix-MultiThreadedEventLoopGroup.swift-arm64_apple_macos12.0-o-Onone-3161266860.json",
+          "wall_seconds": 7.200607
+        },
+        {
+          "report": "stats-1794312495504380-swift-frontend-Matter-ClosureClusters.swift-arm64_apple_macos14.0-o-Onone-1044738400.json",
+          "wall_seconds": 7.165472
+        },
+        {
+          "report": "stats-1794312500713311-swift-frontend-Homeswift-CameraController.swift-arm64_apple_macos14.0-o-Onone-4272286263.json",
+          "wall_seconds": 6.695168
+        },
+        {
+          "report": "stats-1794312553232312-swift-frontend-HomeswiftMCP-HomeswiftCatalog.swift-arm64_apple_macos14.0-o-Onone-2880028273.json",
+          "wall_seconds": 6.501559
+        },
+        {
+          "report": "stats-1794312553334293-swift-frontend-HomeswiftMCP-InstanceBackups.swift-arm64_apple_macos14.0-o-Onone-739108765.json",
+          "wall_seconds": 6.410976
+        },
+        {
+          "report": "stats-1794312552379556-swift-frontend-HomeswiftMCP-AccessoryLayout.swift-arm64_apple_macos14.0-o-Onone-311149675.json",
+          "wall_seconds": 6.158425
+        },
+        {
+          "report": "stats-1794312552489392-swift-frontend-HomeswiftMCP-SceneArtwork.swift-arm64_apple_macos14.0-o-Onone-4232162571.json",
+          "wall_seconds": 6.052544
+        }
+      ]
+    },
+    {
+      "profile": "compiler-stats-j12",
+      "jobs": 729,
+      "slowest": [
+        {
+          "report": "stats-1794313057802223-swift-frontend-Matter-Cluster.swift-arm64_apple_macos14.0-o-Onone-206329818.json",
+          "wall_seconds": 22.266002
+        },
+        {
+          "report": "stats-1794313142104375-swift-frontend-HomeswiftUI-UIServer.swift-arm64_apple_macos14.0-o-Onone-3910307168.json",
+          "wall_seconds": 18.740798
+        },
+        {
+          "report": "stats-1794313057777103-swift-frontend-Matter-all-arm64_apple_macos14.0-swiftmodule-Onone-4223814594.json",
+          "wall_seconds": 15.206459
+        },
+        {
+          "report": "stats-1794313112436700-swift-frontend-HomeswiftMCP-Scenes.swift-arm64_apple_macos14.0-o-Onone-2982377781.json",
+          "wall_seconds": 12.763473
+        },
+        {
+          "report": "stats-1794313104820959-swift-frontend-HomeswiftMCP-all-arm64_apple_macos14.0-swiftmodule-Onone-4235424181.json",
+          "wall_seconds": 11.27323
+        },
+        {
+          "report": "stats-1794313112114441-swift-frontend-HomeswiftMCP-HomeswiftCatalog.swift-arm64_apple_macos14.0-o-Onone-1133015443.json",
+          "wall_seconds": 10.561294
+        },
+        {
+          "report": "stats-1794313112021540-swift-frontend-HomeswiftMCP-InstanceBackups.swift-arm64_apple_macos14.0-o-Onone-747231144.json",
+          "wall_seconds": 10.303941
+        },
+        {
+          "report": "stats-1794313112089080-swift-frontend-HomeswiftMCP-AccessoryLayout.swift-arm64_apple_macos14.0-o-Onone-2448890837.json",
+          "wall_seconds": 9.973643
+        },
+        {
+          "report": "stats-1794313057814484-swift-frontend-Matter-ClosureClusters.swift-arm64_apple_macos14.0-o-Onone-3914025122.json",
+          "wall_seconds": 9.515009
+        },
+        {
+          "report": "stats-1794313062744737-swift-frontend-Homeswift-CameraController.swift-arm64_apple_macos14.0-o-Onone-3659618177.json",
+          "wall_seconds": 9.400941
+        },
+        {
+          "report": "stats-1794313112747608-swift-frontend-HomeswiftMCP-Diagnostics.swift-arm64_apple_macos14.0-o-Onone-4004632979.json",
+          "wall_seconds": 8.710187
+        },
+        {
+          "report": "stats-1794313055326992-swift-frontend-NIOPosix-MultiThreadedEventLoopGroup.swift-arm64_apple_macos12.0-o-Onone-2861579227.json",
+          "wall_seconds": 8.667876
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "date": "2026-11-10",
+    "machine": "Mac14,7",
+    "cores": 8,
+    "memory_gib": 16,
+    "os": "macOS 27.2",
+    "swift": "6.4.2",
+    "engine": "default (swiftbuild)",
+    "baseline": "Working tree at start of this iteration, including earlier authorized optimizations; not git HEAD"
+  },
+  "validation": {
+    "full_suite_runs": 4,
+    "tests_per_run": 3748,
+    "bundles_per_run": 55,
+    "race_repetitions": 90,
+    "runner_regression_tests": 3,
+    "linux": "mocked argument forwarding; native suite not run"
+  },
+  "failed_trials": {
+    "before-2": "writesOfOneRequestRunTogether exceeded 60-second test limit",
+    "pool-after-12-4": "Adaptive Lighting automatic update raced a direct update",
+    "pool-final": "8x8 Imou siren reset race; 16x4 Tapo state-readiness race; retained raw exit codes"
+  },
+  "restored_files": {
+    "Sources/HomeswiftUI/WebAssets.swift": "5f46903b28a1e4012af16cb038dea4dd9e57b1889b76d21d5c8b2f7ffba4a1a2",
+    "Scripts/embed-assets.swift": "4026acb3e6b45c3c3e0b700f8257aa6120ccead702ea752bf54637220a3c596e",
+    "Scripts/build.sh": "c777f4d5b00d2cb119ba87ce411cbb774f055169204f2a16c48cc756a3ca426c"
+  },
+  "compiler_warnings": {
+    "cold-before.log": 0,
+    "cold-j12.log": 0,
+    "final-prepare.log": 0,
+    "final-suite-2.log": 0,
+    "final-suite-3.log": 0,
+    "final-suite-1.log": 0,
+    "final-suite-0.log": 0,
+    "shared-after-2.log": 0,
+    "shared-after-0.log": 0,
+    "shared-after-1.log": 0
+  }
+}

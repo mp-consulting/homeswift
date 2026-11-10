@@ -136,6 +136,11 @@ final class FakeSonos: HTTPSending, @unchecked Sendable {
 
     private let state = NIOLockedValueBox<(calls: [Call], subscribes: [SubscribeRequest], unreachable: Set<String>, topology: String, sid: Int)>(([], [], [], Fixtures.topologyEvent(), 0))
     let listener = NIOLockedValueBox<FakeListener?>(nil)
+    private let deliveredEvents = NIOLockedValueBox<Set<String>>([])
+
+    func hasDeliveredEvent(_ id: String, _ path: String) -> Bool {
+        deliveredEvents.withLockedValue { $0.contains(id + path) }
+    }
 
     let descriptions: [String: String] = [
         "192.168.1.10": Fixtures.description(id: Fixtures.livingRoom, model: "Sonos Beam", number: "S14", room: "Living Room", tvIn: true),
@@ -168,7 +173,9 @@ final class FakeSonos: HTTPSending, @unchecked Sendable {
     func notify(_ id: String, _ eventPath: String, _ body: String, from address: String? = nil) async -> Int {
         guard let listener = listener.withLockedValue({ $0 }) else { return 0 }
         let request = CallbackRequest(method: "NOTIFY", path: "/notify/\(id)\(eventPath)", remoteAddress: address ?? Self.addresses[id] ?? "", body: Data(body.utf8))
-        return await listener.handler(request).status
+        let status = await listener.handler(request).status
+        if status == 200 { deliveredEvents.withLockedValue { _ = $0.insert(id + eventPath) } }
+        return status
     }
 
     func send(_ request: HomeswiftNetwork.HTTPRequest) async throws -> HomeswiftNetwork.HTTPResponse {

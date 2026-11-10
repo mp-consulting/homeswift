@@ -1,0 +1,1038 @@
+{
+  "date": "2026-11-10",
+  "baseline_commit": "18fc6757a75330b54e9b519d4938796d3808477a",
+  "machine": {
+    "model": "Mac14,7",
+    "cpus": 8,
+    "memory_gib": 16,
+    "os": "macOS 27.2",
+    "swift": "Apple Swift 6.4.2"
+  },
+  "engine": "toolchain default (swiftbuild)",
+  "notes": [
+    "The retained changes leave Package.swift, Sources and Tests identical to baseline.",
+    "after-relink and independent are discarded asset-isolation experiments.",
+    "final full-tests iteration 1 includes build-plan preparation; warm test comparison uses iterations 2 and 3.",
+    "dev-parity alternates original bin/dev build and new bin/dev build --all, with reversed order in pair 2.",
+    "Shared-runtime edits prepend 1..6 comment lines to Slug.swift to force changed debug line information and relinking, then restore it.",
+    "Bridge-only builds omit standalone library product archives and the demo; full tests and CI retain full builds.",
+    "Full-product timings vary with planning cache and run order; the dev-parity comparison controls the shell entry point."
+  ],
+  "plain_swift_test_baseline": {
+    "kind": "plain-swift-test-baseline",
+    "seconds": 99.988,
+    "exit_code": 0,
+    "command": [
+      "swift",
+      "test",
+      "--scratch-path",
+      "/Users/powermike/Library/Caches/homeswift-build"
+    ],
+    "tests_reported": 3747,
+    "warnings": 0
+  },
+  "runs": [
+    {
+      "phase": "before",
+      "kind": "prepare",
+      "iteration": 0,
+      "seconds": 19.043,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build",
+        "--build-tests"
+      ],
+      "log": "before-prepare-0.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before",
+      "kind": "ui-edit",
+      "iteration": 1,
+      "seconds": 7.679,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-ui-edit-1.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before",
+      "kind": "ui-edit",
+      "iteration": 2,
+      "seconds": 5.824,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-ui-edit-2.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before",
+      "kind": "ui-edit",
+      "iteration": 3,
+      "seconds": 5.895,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-ui-edit-3.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before",
+      "kind": "restore-ui-edit",
+      "iteration": 0,
+      "seconds": 6.733,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-restore-ui-edit-0.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before",
+      "kind": "shared-edit",
+      "iteration": 1,
+      "seconds": 8.035,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-shared-edit-1.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before",
+      "kind": "shared-edit",
+      "iteration": 2,
+      "seconds": 5.927,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-shared-edit-2.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before",
+      "kind": "shared-edit",
+      "iteration": 3,
+      "seconds": 5.624,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-shared-edit-3.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before",
+      "kind": "restore-shared-edit",
+      "iteration": 0,
+      "seconds": 10.364,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-restore-shared-edit-0.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before",
+      "kind": "prepare-tests",
+      "iteration": 0,
+      "seconds": 15.328,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build",
+        "--build-tests"
+      ],
+      "log": "before-prepare-tests-0.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before",
+      "kind": "full-tests",
+      "iteration": 1,
+      "seconds": 28.078,
+      "exit_code": 1,
+      "command": [
+        "bash",
+        "/tmp/homeswift-test-before.sh",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-full-tests-1.log",
+      "warnings": 0,
+      "tests_reported": 3747,
+      "issues": [
+        "\u2718 Test skipsUnchangedWritesWhenAsked() recorded an issue at ServerTests.swift:78:6: Caught error: .step(2, nil)"
+      ],
+      "retained_configuration": true
+    },
+    {
+      "phase": "before-relink",
+      "kind": "ui-relink",
+      "iteration": 1,
+      "seconds": 11.154,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-relink-ui-relink-1.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before-relink",
+      "kind": "ui-relink",
+      "iteration": 2,
+      "seconds": 7.025,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-relink-ui-relink-2.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before-relink",
+      "kind": "ui-relink",
+      "iteration": 3,
+      "seconds": 6.717,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-relink-ui-relink-3.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before-relink",
+      "kind": "restore-ui-relink",
+      "iteration": 0,
+      "seconds": 6.564,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-relink-restore-ui-relink-0.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before-relink",
+      "kind": "shared-relink",
+      "iteration": 1,
+      "seconds": 9.053,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-relink-shared-relink-1.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before-relink",
+      "kind": "shared-relink",
+      "iteration": 2,
+      "seconds": 7.645,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-relink-shared-relink-2.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before-relink",
+      "kind": "shared-relink",
+      "iteration": 3,
+      "seconds": 7.302,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-relink-shared-relink-3.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "before-relink",
+      "kind": "restore-shared-relink",
+      "iteration": 0,
+      "seconds": 9.137,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "before-relink-restore-shared-relink-0.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "after-relink",
+      "kind": "ui-relink",
+      "iteration": 1,
+      "seconds": 11.493,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "after-relink-ui-relink-1.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "after-relink",
+      "kind": "ui-relink",
+      "iteration": 2,
+      "seconds": 6.032,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "after-relink-ui-relink-2.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "after-relink",
+      "kind": "ui-relink",
+      "iteration": 3,
+      "seconds": 6.051,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "after-relink-ui-relink-3.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "after-relink",
+      "kind": "restore-ui-relink",
+      "iteration": 0,
+      "seconds": 5.873,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "after-relink-restore-ui-relink-0.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "after-relink",
+      "kind": "shared-relink",
+      "iteration": 1,
+      "seconds": 9.879,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "after-relink-shared-relink-1.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "after-relink",
+      "kind": "shared-relink",
+      "iteration": 2,
+      "seconds": 9.209,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "after-relink-shared-relink-2.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "after-relink",
+      "kind": "shared-relink",
+      "iteration": 3,
+      "seconds": 8.247,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "after-relink-shared-relink-3.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "after-relink",
+      "kind": "restore-shared-relink",
+      "iteration": 0,
+      "seconds": 10.044,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "after-relink-restore-shared-relink-0.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "independent",
+      "kind": "ui-relink",
+      "iteration": 1,
+      "seconds": 12.065,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "independent-ui-relink-1.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "independent",
+      "kind": "ui-relink",
+      "iteration": 2,
+      "seconds": 6.24,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "independent-ui-relink-2.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "independent",
+      "kind": "ui-relink",
+      "iteration": 3,
+      "seconds": 6.388,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "independent-ui-relink-3.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "independent",
+      "kind": "restore-ui-relink",
+      "iteration": 0,
+      "seconds": 6.187,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "independent-restore-ui-relink-0.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "independent",
+      "kind": "shared-relink",
+      "iteration": 1,
+      "seconds": 8.831,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "independent-shared-relink-1.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "independent",
+      "kind": "shared-relink",
+      "iteration": 2,
+      "seconds": 9.819,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "independent-shared-relink-2.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "independent",
+      "kind": "shared-relink",
+      "iteration": 3,
+      "seconds": 10.305,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "independent-shared-relink-3.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "independent",
+      "kind": "restore-shared-relink",
+      "iteration": 0,
+      "seconds": 9.623,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "independent-restore-shared-relink-0.log",
+      "warnings": 0,
+      "retained_configuration": false
+    },
+    {
+      "phase": "final",
+      "kind": "full-tests",
+      "iteration": 1,
+      "seconds": 36.589,
+      "exit_code": 0,
+      "command": [
+        "/Users/powermike/Documents/Dev.nosync/homeswift/bin/dev",
+        "test"
+      ],
+      "log": "final-full-tests-1.log",
+      "warnings": 0,
+      "tests_reported": 3747,
+      "retained_configuration": true
+    },
+    {
+      "phase": "final",
+      "kind": "full-tests",
+      "iteration": 2,
+      "seconds": 25.659,
+      "exit_code": 0,
+      "command": [
+        "/Users/powermike/Documents/Dev.nosync/homeswift/bin/dev",
+        "test"
+      ],
+      "log": "final-full-tests-2.log",
+      "warnings": 0,
+      "tests_reported": 3747,
+      "retained_configuration": true
+    },
+    {
+      "phase": "final",
+      "kind": "full-tests",
+      "iteration": 3,
+      "seconds": 25.327,
+      "exit_code": 0,
+      "command": [
+        "/Users/powermike/Documents/Dev.nosync/homeswift/bin/dev",
+        "test"
+      ],
+      "log": "final-full-tests-3.log",
+      "warnings": 0,
+      "tests_reported": 3747,
+      "retained_configuration": true
+    },
+    {
+      "phase": "final",
+      "kind": "shared-all",
+      "iteration": 1,
+      "seconds": 19.865,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "final-shared-all-1.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "final",
+      "kind": "shared-all",
+      "iteration": 2,
+      "seconds": 11.774,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "final-shared-all-2.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "final",
+      "kind": "shared-all",
+      "iteration": 3,
+      "seconds": 10.537,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "final-shared-all-3.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "final",
+      "kind": "restore-shared-all",
+      "iteration": 0,
+      "seconds": 10.032,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "final-restore-shared-all-0.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "final",
+      "kind": "shared-bridge",
+      "iteration": 1,
+      "seconds": 11.026,
+      "exit_code": 0,
+      "command": [
+        "/Users/powermike/Documents/Dev.nosync/homeswift/Scripts/build.sh",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "final-shared-bridge-1.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "final",
+      "kind": "shared-bridge",
+      "iteration": 2,
+      "seconds": 5.611,
+      "exit_code": 0,
+      "command": [
+        "/Users/powermike/Documents/Dev.nosync/homeswift/Scripts/build.sh",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "final-shared-bridge-2.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "final",
+      "kind": "shared-bridge",
+      "iteration": 3,
+      "seconds": 5.622,
+      "exit_code": 0,
+      "command": [
+        "/Users/powermike/Documents/Dev.nosync/homeswift/Scripts/build.sh",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "final-shared-bridge-3.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "final",
+      "kind": "restore-shared-bridge",
+      "iteration": 0,
+      "seconds": 9.87,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "final-restore-shared-bridge-0.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "full-parity",
+      "kind": "prepare",
+      "iteration": 0,
+      "seconds": 8.549,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "full-parity-prepare-0.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "full-parity",
+      "kind": "before",
+      "iteration": 1,
+      "seconds": 8.423,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "full-parity-before-1.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "full-parity",
+      "kind": "after",
+      "iteration": 1,
+      "seconds": 10.783,
+      "exit_code": 0,
+      "command": [
+        "/Users/powermike/Documents/Dev.nosync/homeswift/Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "full-parity-after-1.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "full-parity",
+      "kind": "after",
+      "iteration": 2,
+      "seconds": 7.475,
+      "exit_code": 0,
+      "command": [
+        "/Users/powermike/Documents/Dev.nosync/homeswift/Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "full-parity-after-2.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "full-parity",
+      "kind": "before",
+      "iteration": 2,
+      "seconds": 7.578,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "full-parity-before-2.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "full-parity",
+      "kind": "before",
+      "iteration": 3,
+      "seconds": 7.759,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "full-parity-before-3.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "full-parity",
+      "kind": "after",
+      "iteration": 3,
+      "seconds": 9.049,
+      "exit_code": 0,
+      "command": [
+        "/Users/powermike/Documents/Dev.nosync/homeswift/Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "full-parity-after-3.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "full-parity",
+      "kind": "restore",
+      "iteration": 0,
+      "seconds": 7.516,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "full-parity-restore-0.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "dev-parity",
+      "kind": "prepare",
+      "iteration": 0,
+      "seconds": 7.396,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "dev-parity-prepare-0.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "dev-parity",
+      "kind": "before",
+      "iteration": 1,
+      "seconds": 9.912,
+      "exit_code": 0,
+      "command": [
+        "/Users/powermike/Documents/Dev.nosync/homeswift/bin/.dev-before-build-benchmark",
+        "build"
+      ],
+      "log": "dev-parity-before-1.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "dev-parity",
+      "kind": "after",
+      "iteration": 1,
+      "seconds": 7.609,
+      "exit_code": 0,
+      "command": [
+        "/Users/powermike/Documents/Dev.nosync/homeswift/bin/dev",
+        "build",
+        "--all"
+      ],
+      "log": "dev-parity-after-1.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "dev-parity",
+      "kind": "after",
+      "iteration": 2,
+      "seconds": 7.457,
+      "exit_code": 0,
+      "command": [
+        "/Users/powermike/Documents/Dev.nosync/homeswift/bin/dev",
+        "build",
+        "--all"
+      ],
+      "log": "dev-parity-after-2.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "dev-parity",
+      "kind": "before",
+      "iteration": 2,
+      "seconds": 7.797,
+      "exit_code": 0,
+      "command": [
+        "/Users/powermike/Documents/Dev.nosync/homeswift/bin/.dev-before-build-benchmark",
+        "build"
+      ],
+      "log": "dev-parity-before-2.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "dev-parity",
+      "kind": "before",
+      "iteration": 3,
+      "seconds": 7.915,
+      "exit_code": 0,
+      "command": [
+        "/Users/powermike/Documents/Dev.nosync/homeswift/bin/.dev-before-build-benchmark",
+        "build"
+      ],
+      "log": "dev-parity-before-3.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "dev-parity",
+      "kind": "after",
+      "iteration": 3,
+      "seconds": 7.761,
+      "exit_code": 0,
+      "command": [
+        "/Users/powermike/Documents/Dev.nosync/homeswift/bin/dev",
+        "build",
+        "--all"
+      ],
+      "log": "dev-parity-after-3.log",
+      "warnings": 0,
+      "retained_configuration": true
+    },
+    {
+      "phase": "dev-parity",
+      "kind": "restore",
+      "iteration": 0,
+      "seconds": 8.746,
+      "exit_code": 0,
+      "command": [
+        "swift",
+        "build",
+        "--scratch-path",
+        "/Users/powermike/Library/Caches/homeswift-build"
+      ],
+      "log": "dev-parity-restore-0.log",
+      "warnings": 0,
+      "retained_configuration": true
+    }
+  ],
+  "watchdog_stub_seconds": {
+    "before": 16.05,
+    "after": 2.06
+  },
+  "checks": {
+    "generator_idempotence": [
+      "plugin",
+      "web",
+      "prompts",
+      "Govee scene library"
+    ],
+    "build_argument_forwarding_cases": 6,
+    "filtered_test": {
+      "filter": "Govee",
+      "tests": 158,
+      "exit_code": 0,
+      "warnings": 0
+    }
+  }
+}

@@ -33,13 +33,20 @@ import Testing
         return HTTPRequest(method: String(requestLine[0]), target: String(requestLine[1]), headers: headers, body: body)
     }
 
-    static func outcome(_ parse: (inout Data) throws -> HTTPRequest?, _ input: Data) -> String {
+    enum Outcome: Equatable {
+        case more(Data)
+        case request(method: String, target: String, headers: [String: String], body: Data, remainder: Data)
+        case malformed
+    }
+
+    static func outcome(_ parse: (inout Data) throws -> HTTPRequest?, _ input: Data) -> Outcome {
         var buffer = input
         do {
-            guard let request = try parse(&buffer) else { return "more, \(buffer.count) left" }
-            return "\(request.method) \(request.target) \(request.headers.sorted { $0.key < $1.key }) \(request.body.base64EncodedString()) | \(buffer.base64EncodedString())"
+            guard let request = try parse(&buffer) else { return .more(buffer) }
+            return .request(method: request.method, target: request.target, headers: request.headers,
+                            body: request.body, remainder: buffer)
         } catch {
-            return "malformed"
+            return .malformed
         }
     }
 
@@ -48,7 +55,7 @@ import Testing
         let names = ["Content-Length", "content-type", "Host", "X-Test", "Ünïcode", "Empty", "", "Content-length", "a\u{600}", "e\u{301}"]
         let values = ["0", "5", "12", "-1", "abc", "2000000", "application/hap+json", "a b", "x:y", "é", "", ":\u{301}x", "\u{600}:y", "a:\u{301}b", "\r", "\u{0}"]
         let lines = ["GET /accessories HTTP/1.1", "PUT /characteristics HTTP/1.1", "POST /pair-setup HTTP/1.1", "GET", "", " GET /x", "GET  /a?b=c HTTP/1.1"]
-        var generator = SystemRandomNumberGenerator()
+        var generator = ParserRandom()
         for _ in 0..<5000 {
             var head = lines.randomElement(using: &generator)!
             for _ in 0..<Int.random(in: 0...4, using: &generator) {
@@ -70,5 +77,18 @@ import Testing
         #expect(try HTTPRequest.parse(&two)?.body == Data("hi".utf8))
         #expect(try HTTPRequest.parse(&two)?.target == "/b")
         #expect(two.isEmpty)
+    }
+}
+
+/// SplitMix64: reproducible fuzz cases without an OS entropy call for every byte.
+/// This is only test data; cryptographic tests keep their production generators.
+private struct ParserRandom: RandomNumberGenerator {
+    var state: UInt64 = 0x4854545050617273
+    mutating func next() -> UInt64 {
+        state &+= 0x9e3779b97f4a7c15
+        var value = state
+        value = (value ^ (value >> 30)) &* 0xbf58476d1ce4e5b9
+        value = (value ^ (value >> 27)) &* 0x94d049bb133111eb
+        return value ^ (value >> 31)
     }
 }

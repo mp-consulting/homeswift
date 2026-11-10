@@ -94,7 +94,9 @@ struct PluginTests {
     @Test func playWithASleepTimer() async throws {
         let host = try await started()
         let sonos = try sonos(host, living)
-        #expect(await eventually { sonos.characteristic(.on).value == .bool(true) })
+        // The event publishes On before applying its allowed transport actions. Wait for the whole event.
+        #expect(await eventually { environment.sonos.hasDeliveredEvent(Fixtures.livingRoom, "/MediaRenderer/AVTransport/Event") })
+        #expect(sonos.characteristic(.on).value == .bool(true))
         try await sonos.characteristic(.setDuration).write(.int(5400))
         try await sonos.characteristic(.on).write(.bool(false))
         #expect(await eventually { environment.sonos.calls("Pause").count == 1 })

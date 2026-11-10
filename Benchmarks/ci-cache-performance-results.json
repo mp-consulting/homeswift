@@ -1,0 +1,1695 @@
+{
+  "date": "2026-11-10",
+  "scope": "CI cache policy only: first-success PR cache versus per-revision cache; identical Swift sources and compiler/test settings between policies",
+  "branch": "codex/ci-cache-benchmark-20261110",
+  "cache_policy_retained": false,
+  "engine": "toolchain default; no build-system override",
+  "coverage": "complete existing test suite, no filters or exclusions; not a new instrumented line-coverage measurement",
+  "cold_sha": "c4aa375453c8a1b5ff7c3ba178693a383f1f76a6",
+  "refresh_sha": "6d17cc66e6df25d80fa72c301a9cdb02b26b2cea",
+  "comparison_sha": "ec335c39e4c241df40d0a920067682f8201f323c",
+  "methodology": "Scope: compare first-success PR caches (before) against per-revision caches (after).\nBoth policies build the same frozen working-tree snapshot with the same Swift toolchain defaults, macOS batching, test concurrency, complete test suite and all-product release builds.\nDedicated push workflow emulates the two PR cache lifecycles within its own branch/cache namespace; it does not benchmark PR merge-ref provenance or SDK cache-key invalidation.\nRound 1: no cache; full dependency/product debug build, test build and complete suite, release build.\nRound 2: comment-only source revision in HomeswiftMCP; restore round 1 in both policies. Before retains first successful cache, after saves the updated revision.\nRound 3: comment-only source revision in the independent ElgatoKeyLights plugin; before restores round 1, after restores round 2. Tests and products are otherwise identical.\nEvery job performs five comment-only PluginHost.swift edits and all-product debug rebuilds, restoring the exact source afterward. Cache is saved before this probe, so probe artifacts never affect later cache revisions.\nCold compilation timings are controls, not expected cache-policy improvements. Each policy gets an independent hosted runner, so compare cautiously; shared-runtime guard uses repeated samples and follow-up verification for apparent regressions.\n",
+  "limitations": [
+    "Independent hosted runners; cold identical-code differences demonstrate substantial machine noise.",
+    "Build/test/release/cache subtotals exclude runner queue, checkout, package installation, restart/asset checks and benchmark probes.",
+    "macOS normal PR CI skips release; its debug/test/cache subtotal is also reported.",
+    "The final repeat pins the same original and refreshed cache inputs after fixing truncated failure logs.",
+    "Cache identity and PR merge-ref provenance are not performance-tested by this push-based policy simulation."
+  ],
+  "failures": [
+    {
+      "run": 42834656696,
+      "detail": "Initial workflow setup rejected an unpinned artifact action; corrected before any builds ran."
+    },
+    {
+      "run": 42841686904,
+      "attempt": 1,
+      "job": "linux-before",
+      "detail": "Ring pushesDriveMotionAndTheDoorbell missed motion=true; unchanged full-job rerun passed."
+    },
+    {
+      "run": 42843286901,
+      "job": "macos-after",
+      "detail": "Ring pushesDriveMotionAndTheDoorbell missed motion=false; no test or assertion was removed."
+    },
+    {
+      "run": 42843286901,
+      "job": "macos-before",
+      "detail": "Full-suite exit 1; following tail was stopped before the large failure log drained, so the diagnostic is unavailable. Fixed the CI wrapper and repeated both policies."
+    }
+  ],
+  "wrapper_microbenchmark": {
+    "before": [
+      2.034628083,
+      2.0397138750000003,
+      2.04802675,
+      2.0552523750000002,
+      2.0479657499999995
+    ],
+    "after": [
+      1.047815333,
+      1.057208792,
+      1.0560258749999996,
+      1.061688083,
+      1.0564235419999992
+    ]
+  },
+  "samples": [
+    {
+      "platform": "Linux-7.0.0-1019-azure-x86_64-with-glibc2.39",
+      "policy": "after",
+      "sha": "c4aa375453c8a1b5ff7c3ba178693a383f1f76a6",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 239.65726519099996,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 299.97403512,
+          "exit_code": 0,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        },
+        {
+          "label": "full-release",
+          "seconds": 504.62930827000014,
+          "exit_code": 0,
+          "command": [
+            "swift",
+            "build",
+            "-c",
+            "release"
+          ]
+        },
+        {
+          "label": "shared-1",
+          "seconds": 7.294451210000034,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-2",
+          "seconds": 1.9448810009998851,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-3",
+          "seconds": 1.5837560980000944,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-4",
+          "seconds": 1.5930648460000612,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-5",
+          "seconds": 1.6354365390000112,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "restore-shared-source",
+          "seconds": 1.6330743230000735,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--build-tests"
+          ]
+        }
+      ],
+      "phase": "cold",
+      "job": "linux-after",
+      "run_id": 42834850436,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42834850436",
+      "tests_passed": 3746,
+      "tests_attempted_reported": 3746,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": 1.6354365390000112,
+      "complete_success": true,
+      "job_conclusion": "success",
+      "cache_stage_seconds": {
+        "Restore build cache": 0.0,
+        "Save build cache": 106.0
+      },
+      "build_test_release_seconds": 1044.260608581,
+      "build_test_release_cache_seconds": 1150.260608581,
+      "debug_test_cache_seconds": 645.6313003109999
+    },
+    {
+      "platform": "Linux-7.0.0-1019-azure-x86_64-with-glibc2.39",
+      "policy": "before",
+      "sha": "c4aa375453c8a1b5ff7c3ba178693a383f1f76a6",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 318.78660644800004,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 376.10400645600004,
+          "exit_code": 0,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        },
+        {
+          "label": "full-release",
+          "seconds": 676.170729793,
+          "exit_code": 0,
+          "command": [
+            "swift",
+            "build",
+            "-c",
+            "release"
+          ]
+        },
+        {
+          "label": "shared-1",
+          "seconds": 9.28067578199989,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-2",
+          "seconds": 2.025538858000118,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-3",
+          "seconds": 2.1072291049999876,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-4",
+          "seconds": 1.999743578999869,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-5",
+          "seconds": 2.109277122000094,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "restore-shared-source",
+          "seconds": 2.1388831579999987,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--build-tests"
+          ]
+        }
+      ],
+      "phase": "cold",
+      "job": "linux-before",
+      "run_id": 42834850436,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42834850436",
+      "tests_passed": 3746,
+      "tests_attempted_reported": 3746,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": 2.1072291049999876,
+      "complete_success": true,
+      "job_conclusion": "success",
+      "cache_stage_seconds": {
+        "Restore build cache": 1.0,
+        "Save build cache": 147.0
+      },
+      "build_test_release_seconds": 1371.061342697,
+      "build_test_release_cache_seconds": 1519.061342697,
+      "debug_test_cache_seconds": 842.8906129040001
+    },
+    {
+      "platform": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+      "policy": "after",
+      "sha": "c4aa375453c8a1b5ff7c3ba178693a383f1f76a6",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 413.74203825,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 467.233292667,
+          "exit_code": 0,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        },
+        {
+          "label": "full-release",
+          "seconds": 800.340766208,
+          "exit_code": 0,
+          "command": [
+            "swift",
+            "build",
+            "-c",
+            "release"
+          ]
+        },
+        {
+          "label": "shared-1",
+          "seconds": 22.094964040999912,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-2",
+          "seconds": 4.674166833000072,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-3",
+          "seconds": 3.748326666999901,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-4",
+          "seconds": 3.796267333999822,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-5",
+          "seconds": 3.9332655000000614,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "restore-shared-source",
+          "seconds": 4.6893154159999995,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--build-tests"
+          ]
+        }
+      ],
+      "phase": "cold",
+      "job": "macos-after",
+      "run_id": 42834850436,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42834850436",
+      "tests_passed": 3748,
+      "tests_attempted_reported": 3748,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": 3.9332655000000614,
+      "complete_success": true,
+      "job_conclusion": "success",
+      "cache_stage_seconds": {
+        "Restore build cache": 1.0,
+        "Save build cache": 47.0
+      },
+      "build_test_release_seconds": 1681.316097125,
+      "build_test_release_cache_seconds": 1729.316097125,
+      "debug_test_cache_seconds": 928.9753309170001
+    },
+    {
+      "platform": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+      "policy": "before",
+      "sha": "c4aa375453c8a1b5ff7c3ba178693a383f1f76a6",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 438.974697709,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 568.5903424170001,
+          "exit_code": 0,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        },
+        {
+          "label": "full-release",
+          "seconds": 953.1480421669999,
+          "exit_code": 0,
+          "command": [
+            "swift",
+            "build",
+            "-c",
+            "release"
+          ]
+        },
+        {
+          "label": "shared-1",
+          "seconds": 19.303369834000023,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-2",
+          "seconds": 7.679743125000186,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-3",
+          "seconds": 6.504153374999987,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-4",
+          "seconds": 4.293984333000026,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-5",
+          "seconds": 3.614848959000028,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "restore-shared-source",
+          "seconds": 4.236899625000206,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--build-tests"
+          ]
+        }
+      ],
+      "phase": "cold",
+      "job": "macos-before",
+      "run_id": 42834850436,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42834850436",
+      "tests_passed": 3748,
+      "tests_attempted_reported": 3748,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": 6.504153374999987,
+      "complete_success": true,
+      "job_conclusion": "success",
+      "cache_stage_seconds": {
+        "Restore build cache": 0.0,
+        "Save build cache": 44.0
+      },
+      "build_test_release_seconds": 1960.7130822929998,
+      "build_test_release_cache_seconds": 2004.7130822929998,
+      "debug_test_cache_seconds": 1051.565040126
+    },
+    {
+      "platform": "Linux-7.0.0-1019-azure-x86_64-with-glibc2.39",
+      "cpus": 4,
+      "swift": "Swift version 6.2.4 (swift-6.2.4-RELEASE)\nTarget: x86_64-unknown-linux-gnu",
+      "policy": "after",
+      "sha": "6d17cc66e6df25d80fa72c301a9cdb02b26b2cea",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 35.95463623900001,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 48.34221576499999,
+          "exit_code": 0,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        },
+        {
+          "label": "full-release",
+          "seconds": 169.84901126,
+          "exit_code": 0,
+          "command": [
+            "swift",
+            "build",
+            "-c",
+            "release"
+          ]
+        },
+        {
+          "label": "shared-1",
+          "seconds": 12.454601115000003,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-2",
+          "seconds": 2.5234390220000478,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-3",
+          "seconds": 2.5369623909999746,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-4",
+          "seconds": 2.5785488000000214,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-5",
+          "seconds": 2.564969834000067,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "restore-shared-source",
+          "seconds": 2.5766893589999427,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--build-tests"
+          ]
+        }
+      ],
+      "phase": "refresh",
+      "job": "linux-after",
+      "run_id": 42841686904,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42841686904",
+      "tests_passed": 3746,
+      "tests_attempted_reported": 3746,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": 2.564969834000067,
+      "complete_success": true,
+      "job_conclusion": "success",
+      "cache_stage_seconds": {
+        "Restore build cache": 31.0,
+        "Save build cache": 146.0
+      },
+      "build_test_release_seconds": 254.145863264,
+      "build_test_release_cache_seconds": 431.145863264,
+      "debug_test_cache_seconds": 261.296852004
+    },
+    {
+      "platform": "Linux-7.0.0-1019-azure-x86_64-with-glibc2.39",
+      "cpus": 4,
+      "swift": "Swift version 6.2.4 (swift-6.2.4-RELEASE)\nTarget: x86_64-unknown-linux-gnu",
+      "policy": "before",
+      "sha": "6d17cc66e6df25d80fa72c301a9cdb02b26b2cea",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 33.306078846999995,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 45.28279254,
+          "exit_code": 0,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        },
+        {
+          "label": "full-release",
+          "seconds": 153.127490054,
+          "exit_code": 0,
+          "command": [
+            "swift",
+            "build",
+            "-c",
+            "release"
+          ]
+        },
+        {
+          "label": "shared-1",
+          "seconds": 11.605433958999981,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-2",
+          "seconds": 2.192961991000004,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-3",
+          "seconds": 2.184729864000019,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-4",
+          "seconds": 2.2001322149999964,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-5",
+          "seconds": 2.2046449159999497,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "restore-shared-source",
+          "seconds": 2.1865118810000013,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--build-tests"
+          ]
+        }
+      ],
+      "phase": "refresh",
+      "job": "linux-before",
+      "run_id": 42841686904,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42841686904",
+      "tests_passed": 3746,
+      "tests_attempted_reported": 3746,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": 2.2001322149999964,
+      "complete_success": true,
+      "job_conclusion": "success",
+      "cache_stage_seconds": {
+        "Restore build cache": 32.0
+      },
+      "build_test_release_seconds": 231.716361441,
+      "build_test_release_cache_seconds": 263.716361441,
+      "debug_test_cache_seconds": 110.588871387
+    },
+    {
+      "platform": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+      "cpus": 3,
+      "swift": "Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)\nTarget: arm64-apple-macosx26.0",
+      "policy": "after",
+      "sha": "6d17cc66e6df25d80fa72c301a9cdb02b26b2cea",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 43.354073000000014,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 96.274474167,
+          "exit_code": 0,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        },
+        {
+          "label": "full-release",
+          "seconds": 158.34064304100002,
+          "exit_code": 0,
+          "command": [
+            "swift",
+            "build",
+            "-c",
+            "release"
+          ]
+        },
+        {
+          "label": "shared-1",
+          "seconds": 9.580847915999982,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-2",
+          "seconds": 3.143367000000012,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-3",
+          "seconds": 2.353645541999981,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-4",
+          "seconds": 1.992992834000006,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-5",
+          "seconds": 1.8669893750000028,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "restore-shared-source",
+          "seconds": 2.055960416000005,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--build-tests"
+          ]
+        }
+      ],
+      "phase": "refresh",
+      "job": "macos-after",
+      "run_id": 42841686904,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42841686904",
+      "tests_passed": 3748,
+      "tests_attempted_reported": 3748,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": 2.353645541999981,
+      "complete_success": true,
+      "job_conclusion": "success",
+      "cache_stage_seconds": {
+        "Restore build cache": 23.0,
+        "Save build cache": 23.0
+      },
+      "build_test_release_seconds": 297.96919020800004,
+      "build_test_release_cache_seconds": 343.96919020800004,
+      "debug_test_cache_seconds": 185.62854716700002
+    },
+    {
+      "platform": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+      "cpus": 3,
+      "swift": "Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)\nTarget: arm64-apple-macosx26.0",
+      "policy": "before",
+      "sha": "6d17cc66e6df25d80fa72c301a9cdb02b26b2cea",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 66.408859208,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 122.21452029099999,
+          "exit_code": 0,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        },
+        {
+          "label": "full-release",
+          "seconds": 259.49540533400005,
+          "exit_code": 0,
+          "command": [
+            "swift",
+            "build",
+            "-c",
+            "release"
+          ]
+        },
+        {
+          "label": "shared-1",
+          "seconds": 24.83240962499997,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-2",
+          "seconds": 4.76681587500002,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-3",
+          "seconds": 4.288210665999941,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-4",
+          "seconds": 3.5301518750000014,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-5",
+          "seconds": 3.367321541000024,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "restore-shared-source",
+          "seconds": 3.022947707999947,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--build-tests"
+          ]
+        }
+      ],
+      "phase": "refresh",
+      "job": "macos-before",
+      "run_id": 42841686904,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42841686904",
+      "tests_passed": 3748,
+      "tests_attempted_reported": 3748,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": 4.288210665999941,
+      "complete_success": true,
+      "job_conclusion": "success",
+      "cache_stage_seconds": {
+        "Restore build cache": 38.0
+      },
+      "build_test_release_seconds": 448.11878483300006,
+      "build_test_release_cache_seconds": 486.11878483300006,
+      "debug_test_cache_seconds": 226.62337949899998
+    },
+    {
+      "platform": "Linux-7.0.0-1019-azure-x86_64-with-glibc2.39",
+      "cpus": 4,
+      "swift": "Swift version 6.2.4 (swift-6.2.4-RELEASE)\nTarget: x86_64-unknown-linux-gnu",
+      "policy": "before",
+      "sha": "6d17cc66e6df25d80fa72c301a9cdb02b26b2cea",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 30.667547169999978,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 41.25436750199998,
+          "exit_code": 1,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        }
+      ],
+      "phase": "refresh-failed",
+      "job": "linux-before",
+      "run_id": 42841686904,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42841686904",
+      "tests_passed": 0,
+      "tests_attempted_reported": 3746,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": null,
+      "complete_success": false,
+      "cache_stage_seconds": {}
+    },
+    {
+      "platform": "Linux-7.0.0-1019-azure-x86_64-with-glibc2.39",
+      "cpus": 4,
+      "swift": "Swift version 6.2.4 (swift-6.2.4-RELEASE)\nTarget: x86_64-unknown-linux-gnu",
+      "policy": "after",
+      "sha": "ec335c39e4c241df40d0a920067682f8201f323c",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 18.247345342000003,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 42.27605543599999,
+          "exit_code": 0,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        },
+        {
+          "label": "full-release",
+          "seconds": 27.489042326000003,
+          "exit_code": 0,
+          "command": [
+            "swift",
+            "build",
+            "-c",
+            "release"
+          ]
+        },
+        {
+          "label": "shared-1",
+          "seconds": 9.575644681000028,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-2",
+          "seconds": 1.9724066429999993,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-3",
+          "seconds": 2.133016667999982,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-4",
+          "seconds": 1.9770270449999998,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-5",
+          "seconds": 2.145640052000033,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "restore-shared-source",
+          "seconds": 2.094471492000025,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--build-tests"
+          ]
+        }
+      ],
+      "phase": "reuse",
+      "job": "linux-after",
+      "run_id": 42844652018,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42844652018",
+      "tests_passed": 3746,
+      "tests_attempted_reported": 3746,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": 2.133016667999982,
+      "complete_success": true,
+      "job_conclusion": "success",
+      "cache_stage_seconds": {
+        "Restore build cache": 28.0,
+        "Save build cache": 129.0
+      },
+      "build_test_release_seconds": 88.012443104,
+      "build_test_release_cache_seconds": 245.012443104,
+      "debug_test_cache_seconds": 217.523400778
+    },
+    {
+      "platform": "Linux-7.0.0-1019-azure-x86_64-with-glibc2.39",
+      "cpus": 4,
+      "swift": "Swift version 6.2.4 (swift-6.2.4-RELEASE)\nTarget: x86_64-unknown-linux-gnu",
+      "policy": "before",
+      "sha": "ec335c39e4c241df40d0a920067682f8201f323c",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 34.17089156,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 41.31715077599998,
+          "exit_code": 0,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        },
+        {
+          "label": "full-release",
+          "seconds": 136.319682395,
+          "exit_code": 0,
+          "command": [
+            "swift",
+            "build",
+            "-c",
+            "release"
+          ]
+        },
+        {
+          "label": "shared-1",
+          "seconds": 11.710608756,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-2",
+          "seconds": 2.23555884000001,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-3",
+          "seconds": 2.152687972000024,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-4",
+          "seconds": 2.208920758999966,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-5",
+          "seconds": 2.129025243000001,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "restore-shared-source",
+          "seconds": 2.093033479999974,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--build-tests"
+          ]
+        }
+      ],
+      "phase": "reuse",
+      "job": "linux-before",
+      "run_id": 42844652018,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42844652018",
+      "tests_passed": 3746,
+      "tests_attempted_reported": 3746,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": 2.208920758999966,
+      "complete_success": true,
+      "job_conclusion": "success",
+      "cache_stage_seconds": {
+        "Restore build cache": 33.0
+      },
+      "build_test_release_seconds": 211.80772473099998,
+      "build_test_release_cache_seconds": 244.80772473099998,
+      "debug_test_cache_seconds": 108.48804233599998
+    },
+    {
+      "platform": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+      "cpus": 3,
+      "swift": "Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)\nTarget: arm64-apple-macosx26.0",
+      "policy": "after",
+      "sha": "ec335c39e4c241df40d0a920067682f8201f323c",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 56.13904670800002,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 119.00763029100003,
+          "exit_code": 0,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        },
+        {
+          "label": "full-release",
+          "seconds": 100.35092941600004,
+          "exit_code": 0,
+          "command": [
+            "swift",
+            "build",
+            "-c",
+            "release"
+          ]
+        },
+        {
+          "label": "shared-1",
+          "seconds": 15.598764083999981,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-2",
+          "seconds": 2.8151880000000347,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-3",
+          "seconds": 5.173095042,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-4",
+          "seconds": 6.016276084000026,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-5",
+          "seconds": 6.121665750000034,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "restore-shared-source",
+          "seconds": 5.2945097500000315,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--build-tests"
+          ]
+        }
+      ],
+      "phase": "reuse",
+      "job": "macos-after",
+      "run_id": 42844652018,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42844652018",
+      "tests_passed": 3748,
+      "tests_attempted_reported": 3748,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": 6.016276084000026,
+      "complete_success": true,
+      "job_conclusion": "success",
+      "cache_stage_seconds": {
+        "Restore build cache": 37.0,
+        "Save build cache": 50.0
+      },
+      "build_test_release_seconds": 275.49760641500006,
+      "build_test_release_cache_seconds": 362.49760641500006,
+      "debug_test_cache_seconds": 262.1466769990001
+    },
+    {
+      "platform": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+      "cpus": 3,
+      "swift": "Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)\nTarget: arm64-apple-macosx26.0",
+      "policy": "before",
+      "sha": "ec335c39e4c241df40d0a920067682f8201f323c",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 70.06691491699999,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 114.76585754100003,
+          "exit_code": 0,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        },
+        {
+          "label": "full-release",
+          "seconds": 262.1142056670001,
+          "exit_code": 0,
+          "command": [
+            "swift",
+            "build",
+            "-c",
+            "release"
+          ]
+        },
+        {
+          "label": "shared-1",
+          "seconds": 14.637509165999973,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-2",
+          "seconds": 3.268784332999985,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-3",
+          "seconds": 3.2349331249999977,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-4",
+          "seconds": 3.676535458000103,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-5",
+          "seconds": 5.041270125000096,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "restore-shared-source",
+          "seconds": 3.6086323330000596,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--build-tests"
+          ]
+        }
+      ],
+      "phase": "reuse",
+      "job": "macos-before",
+      "run_id": 42844652018,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42844652018",
+      "tests_passed": 3748,
+      "tests_attempted_reported": 3748,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": 3.676535458000103,
+      "complete_success": true,
+      "job_conclusion": "success",
+      "cache_stage_seconds": {
+        "Restore build cache": 26.0
+      },
+      "build_test_release_seconds": 446.9469781250001,
+      "build_test_release_cache_seconds": 472.9469781250001,
+      "debug_test_cache_seconds": 210.83277245800002
+    },
+    {
+      "platform": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+      "cpus": 3,
+      "swift": "Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)\nTarget: arm64-apple-macosx26.0",
+      "policy": "after",
+      "sha": "c6b5df6b9d0fd171148dd8630fe00c11f7dd3d88",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 54.198248167,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 172.08731929099997,
+          "exit_code": 1,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        }
+      ],
+      "phase": "reuse-failed",
+      "job": "macos-after",
+      "run_id": 42843286901,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42843286901",
+      "tests_passed": 0,
+      "tests_attempted_reported": 3748,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": null,
+      "complete_success": false,
+      "cache_stage_seconds": {}
+    },
+    {
+      "platform": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+      "cpus": 3,
+      "swift": "Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)\nTarget: arm64-apple-macosx26.0",
+      "policy": "before",
+      "sha": "c6b5df6b9d0fd171148dd8630fe00c11f7dd3d88",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 70.79330379200002,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 129.555066667,
+          "exit_code": 1,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        }
+      ],
+      "phase": "reuse-failed",
+      "job": "macos-before",
+      "run_id": 42843286901,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42843286901",
+      "tests_passed": 0,
+      "tests_attempted_reported": 0,
+      "test_summary_complete": false,
+      "compiler_warnings": 0,
+      "shared_median_seconds": null,
+      "complete_success": false,
+      "cache_stage_seconds": {}
+    },
+    {
+      "platform": "Linux-7.0.0-1019-azure-x86_64-with-glibc2.39",
+      "cpus": 4,
+      "swift": "Swift version 6.2.4 (swift-6.2.4-RELEASE)\nTarget: x86_64-unknown-linux-gnu",
+      "policy": "after",
+      "sha": "c6b5df6b9d0fd171148dd8630fe00c11f7dd3d88",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 15.776606494999996,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 40.238228358000015,
+          "exit_code": 0,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        },
+        {
+          "label": "full-release",
+          "seconds": 21.62232510200002,
+          "exit_code": 0,
+          "command": [
+            "swift",
+            "build",
+            "-c",
+            "release"
+          ]
+        },
+        {
+          "label": "shared-1",
+          "seconds": 9.420662224999944,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-2",
+          "seconds": 1.8999152509999817,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-3",
+          "seconds": 1.9140574120000338,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-4",
+          "seconds": 1.906541820999962,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-5",
+          "seconds": 1.9385986920000278,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "restore-shared-source",
+          "seconds": 1.9672487930000102,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--build-tests"
+          ]
+        }
+      ],
+      "phase": "reuse-first",
+      "job": "linux-after",
+      "run_id": 42843286901,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42843286901",
+      "tests_passed": 3746,
+      "tests_attempted_reported": 3746,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": 1.9140574120000338,
+      "complete_success": true,
+      "job_conclusion": "success",
+      "cache_stage_seconds": {
+        "Restore build cache": 24.0,
+        "Save build cache": 129.0
+      },
+      "build_test_release_seconds": 77.63715995500003,
+      "build_test_release_cache_seconds": 230.63715995500002,
+      "debug_test_cache_seconds": 209.01483485300002
+    },
+    {
+      "platform": "Linux-7.0.0-1019-azure-x86_64-with-glibc2.39",
+      "cpus": 4,
+      "swift": "Swift version 6.2.4 (swift-6.2.4-RELEASE)\nTarget: x86_64-unknown-linux-gnu",
+      "policy": "before",
+      "sha": "c6b5df6b9d0fd171148dd8630fe00c11f7dd3d88",
+      "measurements": [
+        {
+          "label": "full-debug",
+          "seconds": 42.70262150000002,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "full-tests",
+          "seconds": 51.350166414,
+          "exit_code": 0,
+          "command": [
+            "Scripts/ci-test.sh"
+          ]
+        },
+        {
+          "label": "full-release",
+          "seconds": 170.08231017499998,
+          "exit_code": 0,
+          "command": [
+            "swift",
+            "build",
+            "-c",
+            "release"
+          ]
+        },
+        {
+          "label": "shared-1",
+          "seconds": 12.13737808299993,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-2",
+          "seconds": 2.5733682860000044,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-3",
+          "seconds": 2.5684866450000072,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-4",
+          "seconds": 2.577599976999977,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "shared-5",
+          "seconds": 2.576432733000047,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--all"
+          ]
+        },
+        {
+          "label": "restore-shared-source",
+          "seconds": 2.6116378069999655,
+          "exit_code": 0,
+          "command": [
+            "Scripts/build.sh",
+            "--build-tests"
+          ]
+        }
+      ],
+      "phase": "reuse-first",
+      "job": "linux-before",
+      "run_id": 42843286901,
+      "run_url": "https://github.com/mp-consulting/homeswift/actions/runs/42843286901",
+      "tests_passed": 3746,
+      "tests_attempted_reported": 3746,
+      "test_summary_complete": true,
+      "compiler_warnings": 0,
+      "shared_median_seconds": 2.576432733000047,
+      "complete_success": true,
+      "job_conclusion": "success",
+      "cache_stage_seconds": {
+        "Restore build cache": 34.0
+      },
+      "build_test_release_seconds": 264.135098089,
+      "build_test_release_cache_seconds": 298.135098089,
+      "debug_test_cache_seconds": 128.05278791400002
+    }
+  ],
+  "retained_changes": [
+    "Complete CI log draining with exit-status preservation; no fixed final sleep",
+    "Architecture and toolchain/platform cache identities"
+  ],
+  "reverted_changes": [
+    "Per-revision PR cache uploads",
+    "Synthetic merge-commit-only provenance"
+  ],
+  "benchmark_cache_cleanup": {
+    "count": 9,
+    "bytes": 10193173644
+  }
+}

@@ -254,11 +254,9 @@ final class ReolinkCamera: @unchecked Sendable {
     /// Turns a momentary switch off again, `momentaryReset` after it went on.
     private func resetMomentary(_ service: Service, key: String) {
         let delay = timing.seconds(Self.momentaryReset)
-        let task = Task {
-            try? await Task.sleep(for: delay)
-            guard !Task.isCancelled else { return }
-            service.characteristic(.on).value = false
-        }
+        // A short reset can finish before the write handler returns. `revert` also
+        // prevents Characteristic.write from committing true over that reset.
+        let task = service.characteristic(.on).revert(to: false, after: delay)
         state.withLockedValue { $0.momentary.updateValue(task, forKey: key) }?.cancel()
     }
 
