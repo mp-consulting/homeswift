@@ -275,8 +275,9 @@
     };
   }
 
-  /// Stacked bars in `container`, one per item of `bars` (`{ label, narrow, title, values, current }`, oldest first;
-  /// `narrow` under a bar too narrow for its label, `current` the period of today, its label emphasised): `segments` are
+  /// Stacked bars in `container`, one per item of `bars` (`{ label, narrow, mark, title, values, current }`, oldest first;
+  /// `narrow` under a bar too narrow for its label, `current` the period of today, its label emphasised; when some bars
+  /// have a `mark`, a month's first day, only those are labelled, with it, as far apart as they fit): `segments` are
   /// `{ label, tone, value(values) }`, stacked up from zero for a positive value and down for a negative one, so a bar
   /// can show what came in above the line and what went out below it. A value of null is not known: it draws nothing
   /// and the tooltip shows a dash, not a zero. `format` writes a value with its unit and
@@ -340,6 +341,8 @@
       // Segments stack out from the baseline with a 2px gap between them; the outermost on each side has 4px
       // rounded corners at its free end, square at the baseline.
       const gap = 2, radius = 4;
+      const marked = bars.some((bar) => bar.mark);
+      let lastMark = null;
       bars.forEach((bar, index) => {
         let up = 0, down = 0;
         const placed = [];
@@ -366,6 +369,15 @@
             ? `M${left},${bottom}V${top + r}Q${left},${top} ${left + r},${top}H${left + barWidth - r}Q${left + barWidth},${top} ${left + barWidth},${top + r}V${bottom}Z`
             : `M${left},${top}V${bottom - r}Q${left},${bottom} ${left + r},${bottom}H${left + barWidth - r}Q${left + barWidth},${bottom} ${left + barWidth},${bottom - r}V${top}Z`;
           root.append(svg("path", { d, class: `bar tone-${part.one.tone}` }));
+        }
+        // Marked bars (a year's months) label only their marks, one at least 32px past the one before.
+        if (marked) {
+          if (!bar.mark || (lastMark != null && x(index) - lastMark < 32)) return;
+          lastMark = x(index);
+          const tick = svg("text", { x: x(index), y: height - 6, class: "tick", "text-anchor": "start" });
+          tick.textContent = bar.mark;
+          root.append(tick);
+          return;
         }
         // Bars too narrow for every label (a month's days on a phone) label one in `every`, counted back from the last,
         // which is always labelled, so no two labels crowd each other at the end.
