@@ -18,6 +18,7 @@ actor TadoHome {
         var dailyLimit = TadoBudget.defaultDailyLimit
         /// The 400 ms of the write buffer and the 500 ms of switches that turn themselves off; tests shorten them.
         var writeDelay: Duration = .milliseconds(400)
+        var writeSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
         var resetDelay: Duration = .milliseconds(500)
         /// Seconds, as a Duration: the delay switch's timer (tests shorten it).
         var delayUnit: Duration = .seconds(1)
@@ -696,9 +697,11 @@ actor TadoHome {
         if let temperature { entry.temperature = temperature }
         if let mode { entry.mode = mode }
         pending[zone] = entry
-        let writes = writes
+        let isLatest = writes.claim(zone)
+        let options = options
         tasks.add { [weak self] in
-            guard await writes(zone) else { return }
+            do { try await options.writeSleep(options.writeDelay) } catch { return }
+            guard !Task.isCancelled, isLatest() else { return }
             await self?.flush(zone)
         }
     }

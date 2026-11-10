@@ -51,7 +51,10 @@ import Glibc
     @Test func aFullwidthFingerprintIsRefused() throws {
         let fullwidth = String(repeating: "\u{FF10}\u{FF21}:", count: 32).dropLast()
         #expect(DTLSCertificate.fingerprintBytes(String(fullwidth)) == nil)
-        let mixed = try DTLSCertificate.generate().fingerprint.replacingOccurrences(of: "A", with: "\u{FF21}")
+        // A random fingerprint might contain no A and leave the input unchanged.
+        let ascii = Array(repeating: "AB", count: 32).joined(separator: ":")
+        #expect(DTLSCertificate.fingerprintBytes(ascii)?.count == 32)
+        let mixed = ascii.replacingOccurrences(of: "A", with: "\u{FF21}")
         #expect(DTLSCertificate.fingerprintBytes(mixed) == nil)
         #expect(DTLSCertificate.fingerprintBytes(String(repeating: "\u{0660}", count: 64)) == nil)  // Arabic-Indic zeros
     }

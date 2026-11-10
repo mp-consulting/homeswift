@@ -239,11 +239,11 @@ final class NIOLockedValueBoxWrapper<Value: Sendable>: Sendable {
 
 /// Builds a device's binding without a plugin, its commands recorded.
 enum TestBuild {
-    static func binding(_ device: SmartThingsDevice, status: DeviceStatus, settings: SmartThingsSettings = SmartThingsSettings(.object([:])), sent: SentCommands) -> DeviceBinding? {
+    static func binding(_ device: SmartThingsDevice, status: DeviceStatus, settings: SmartThingsSettings = SmartThingsSettings(.object([:])), sent: SentCommands, sliderDelay: Duration? = nil) -> DeviceBinding? {
         let box = StatusBox(status)
         let timing = SmartThingsTiming(scale: 0.001)
         let env = BindingEnvironment(deviceID: device.deviceID, timing: timing, logger: testLogger, now: Date.init,
-                                     send: { commands, _ in sent.append(commands) }, controllable: true, sliders: LatestCallGuard(delay: timing.seconds(0.3)))
+                                     send: { commands, _ in sent.append(commands) }, controllable: true, sliders: LatestCallGuard(delay: sliderDelay ?? timing.seconds(0.3)))
         var builder = AccessoryBuilder(device: device, status: status, settings: settings, options: DeviceOptions(), box: box, env: env, context: nil,
                                        accessoryID: "HomeBridgeSmartThings:\(device.deviceID)")
         builder.build()

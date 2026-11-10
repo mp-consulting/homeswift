@@ -1,0 +1,151 @@
+name: CI cache benchmark
+on:
+  push:
+    branches: [codex/ci-cache-benchmark-20261110]
+permissions:
+  contents: read
+jobs:
+  macos:
+    name: macos-${{ matrix.policy }}
+    runs-on: macos-26
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        policy: [before, after]
+    env:
+      POLICY: ${{ matrix.policy }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - name: Select Xcode
+        run: |
+          XCODE="$(ls -d /Applications/Xcode_*.app | grep -vi beta | sort -V | tail -n 1)"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+          swift --version
+      - name: Date source files
+        run: swift Scripts/restore-mtimes.swift
+      - name: Cache identity
+        id: key
+        shell: bash
+        run: |
+          toolchain=$(swift --version 2>&1 | cksum | cut -d' ' -f1)
+          prefix="ci-bench-20261110-${{ runner.os }}-${{ runner.arch }}-$toolchain-${{ hashFiles('Package.resolved') }}-${{ matrix.policy }}"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          if [ "$POLICY" = before ]; then
+            echo "key=$prefix-first-success" >> "$GITHUB_OUTPUT"
+          else
+            echo "key=$prefix-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Restore build cache
+        id: restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .build
+          key: ${{ steps.key.outputs.key }}
+          restore-keys: ${{ steps.key.outputs.prefix }}-
+      - name: Invalidate changed targets
+        env:
+          CACHE_KEY: ${{ steps.restore.outputs.cache-matched-key }}
+        run: Scripts/forget-changed-targets.sh
+      - name: Full debug build
+        run: python3 Scripts/ci-benchmark.py full-debug Scripts/build.sh --all
+      - name: Full test suite
+        run: python3 Scripts/ci-benchmark.py full-tests Scripts/ci-test.sh
+      - name: Restart checks
+        run: swiftc -parse-as-library -o "$RUNNER_TEMP/test-restart" Sources/HomeswiftCLI/Restart.swift Scripts/test-restart.swift && "$RUNNER_TEMP/test-restart"
+      - name: Full release build
+        run: python3 Scripts/ci-benchmark.py full-release swift build -c release
+      - name: Record built commit
+        if: steps.restore.outputs.cache-hit != 'true'
+        run: git rev-parse HEAD > .build/.built-from
+      - name: Save build cache
+        if: steps.restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .build
+          key: ${{ steps.key.outputs.key }}
+      - name: Shared-runtime rebuilds
+        run: python3 Scripts/ci-benchmark.py shared
+      - name: Upload measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: timings-${{ runner.os }}-${{ matrix.policy }}
+          path: ${{ runner.temp }}/benchmark-results
+          retention-days: 7
+  linux:
+    name: linux-${{ matrix.policy }}
+    runs-on: ubuntu-latest
+    container: swift:6.2
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        policy: [before, after]
+    env:
+      POLICY: ${{ matrix.policy }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libavahi-compat-libdnssd-dev python3
+          git config --global --add safe.directory "$PWD"
+      - name: Date source files
+        run: swift Scripts/restore-mtimes.swift
+      - name: Cache identity
+        id: key
+        shell: bash
+        run: |
+          toolchain=$(swift --version 2>&1 | cksum | cut -d' ' -f1)
+          prefix="ci-bench-20261110-${{ runner.os }}-${{ runner.arch }}-$toolchain-${{ hashFiles('Package.resolved') }}-${{ matrix.policy }}"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          if [ "$POLICY" = before ]; then
+            echo "key=$prefix-first-success" >> "$GITHUB_OUTPUT"
+          else
+            echo "key=$prefix-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Restore build cache
+        id: restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .build
+          key: ${{ steps.key.outputs.key }}
+          restore-keys: ${{ steps.key.outputs.prefix }}-
+      - name: Invalidate changed targets
+        env:
+          CACHE_KEY: ${{ steps.restore.outputs.cache-matched-key }}
+        run: Scripts/forget-changed-targets.sh
+      - name: Full debug build
+        run: python3 Scripts/ci-benchmark.py full-debug Scripts/build.sh --all
+      - name: Full test suite
+        run: python3 Scripts/ci-benchmark.py full-tests Scripts/ci-test.sh
+      - name: Restart checks
+        run: swiftc -parse-as-library -o "$RUNNER_TEMP/test-restart" Sources/HomeswiftCLI/Restart.swift Scripts/test-restart.swift && "$RUNNER_TEMP/test-restart"
+      - name: Full release build
+        run: python3 Scripts/ci-benchmark.py full-release swift build -c release
+      - name: Record built commit
+        if: steps.restore.outputs.cache-hit != 'true'
+        run: git rev-parse HEAD > .build/.built-from
+      - name: Save build cache
+        if: steps.restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .build
+          key: ${{ steps.key.outputs.key }}
+      - name: Shared-runtime rebuilds
+        run: python3 Scripts/ci-benchmark.py shared
+      - name: Upload measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: timings-${{ runner.os }}-${{ matrix.policy }}
+          path: ${{ runner.temp }}/benchmark-results
+          retention-days: 7

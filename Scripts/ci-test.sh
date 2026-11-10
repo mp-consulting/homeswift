@@ -1,16 +1,20 @@
 #!/bin/bash
-# Runs Scripts/test.sh for CI (on macOS every test bundle at once, elsewhere `swift test`) with a watchdog: when the tests
+# Runs Scripts/test.sh for CI with bounded parallelism and a watchdog: when the tests
 # write nothing for HANG_MINUTES (8 by default), to their output or the bundles' logs, it prints the stacks of the test
 # processes (macOS `sample`, Linux `gdb` when installed) and fails, instead of waiting for the job's timeout. A hang
 # then shows where it waits. It caps how many tests run at once (below). Arguments go to Scripts/test.sh.
 set -uo pipefail
 
 HANG_MINUTES="${HANG_MINUTES:-8}"
-# At most this many tests run at once. CI runs every test in one process (macOS's combined bundle, Linux's `swift test`),
-# and Swift Testing otherwise starts all of them together: on a 3-core runner, thousands of tests then share the CPU and
-# a test's `eventually` or timeout runs out before the code it waits for gets to run. 8 keeps the runner busy while tests
-# wait on I/O, and costs a few seconds.
-export SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH="${SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH:-8}"
+# The default macOS engine has separate bundles: bound both processes and tests
+# per process. Linux has one test executable. Both allow at most eight tests by
+# default, so small CI runners can service I/O before tests' deadlines expire.
+if [ "$(uname)" = Darwin ]; then
+    export HOMESWIFT_TEST_BUNDLES="${HOMESWIFT_TEST_BUNDLES:-2}"
+    export SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH="${SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH:-4}"
+else
+    export SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH="${SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH:-8}"
+fi
 LOG="$(mktemp -t swift-test.XXXXXX)"
 export TEST_LOG_DIR="$(mktemp -d -t swift-test-logs.XXXXXX)"
 
@@ -23,9 +27,11 @@ trap 'kill "$TAIL" 2>/dev/null' EXIT
 last=-1
 idle=0
 while kill -0 "$TESTS" 2>/dev/null; do
-    sleep 15
-    size=$(cat "$LOG" "$TEST_LOG_DIR"/* 2>/dev/null | wc -c)
-    if [ "$size" = "$last" ]; then idle=$((idle + 15)); else idle=0; last=$size; fi
+    # Notice completion promptly instead of adding up to 15 seconds to every run.
+    # wc can count regular files without copying their entire contents through cat.
+    sleep 1
+    size=$(wc -c "$LOG" "$TEST_LOG_DIR"/* 2>/dev/null | tail -n 1)
+    if [ "$size" = "$last" ]; then idle=$((idle + 1)); else idle=0; last=$size; fi
     if [ "$idle" -ge $((HANG_MINUTES * 60)) ]; then
         echo "::error::the tests printed nothing for $HANG_MINUTES minutes: their stacks follow"
         for pid in $(pgrep -f '[.]xctest'); do

@@ -226,7 +226,8 @@ struct TapoTests {
             $0.reachable = true
             $0.info["device_on"] = true
         }
-        #expect(await eventually { !plug.showsNoResponse })
+        // Availability and the reported value are applied in sequence by the poll.
+        #expect(await eventually { !plug.showsNoResponse && plug.service(.outlet)?[.on]?.value == .bool(true) })
         #expect(plug.service(.outlet)?[.on]?.value == .bool(true))
         #expect(await device.failures == 0)
         await host.stop()

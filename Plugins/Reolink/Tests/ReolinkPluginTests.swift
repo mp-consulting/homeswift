@@ -145,7 +145,10 @@ final class ReolinkEnvironment: Sendable {
         // Before push is active, motion is polled.
         #expect(await eventually { environment.http.count("GetEvents") >= 3 })
         camera.push(alarmXML(status: "MD", ai: "people"))
-        #expect(await eventually { motion.characteristic(.motionDetected).value == true })
+        // The push handler updates the two characteristics in sequence.
+        #expect(await eventually {
+            motion.characteristic(.motionDetected).value == true && person.characteristic(.motionDetected).value == true
+        })
         #expect(person.characteristic(.motionDetected).value == true)
         #expect(await eventually { await environment.plugin?.runtimes["192.168.1.20"]?.host.pushActive == true })
         try await Task.sleep(for: .milliseconds(30))

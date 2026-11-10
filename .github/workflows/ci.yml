@@ -47,6 +47,9 @@ jobs:
           node Scripts/test-reconnect.mjs
           node Scripts/test-accessory-groups.mjs
 
+      - name: Check test runner ordering and history
+        run: python3 Scripts/test-test-runner.py
+
   macos:
     needs: changes
     if: needs.changes.outputs.swift == 'true'
@@ -72,18 +75,22 @@ jobs:
 
       - name: Key the build cache
         # Builds reuse the last one's .build: the dependencies (two BoringSSLs, swift-nio) and what did not change.
-        # Keyed by the toolchain and Package.resolved; main saves one per commit, a pull request one for its first
-        # successful run (a failed one may lack what the next one needs).
+        # Each successful revision refreshes the cache; include architecture and toolchain/SDK identity.
+        # A failed run never replaces a complete build.
         id: build-key
-        run: echo "key=build-${{ runner.os }}-$(swift --version 2>&1 | cksum | cut -d' ' -f1)-${{ hashFiles('Package.resolved') }}" >> "$GITHUB_OUTPUT"
+        run: |
+          toolchain=$({ swift --version; xcodebuild -version; xcrun --show-sdk-version; } 2>&1 | cksum | cut -d' ' -f1)
+          echo "key=build-v2-${{ runner.os }}-${{ runner.arch }}-$toolchain-${{ hashFiles('Package.resolved') }}" >> "$GITHUB_OUTPUT"
 
       - name: Restore the build
         id: restore-build
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
-          key: ${{ steps.build-key.outputs.key }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || github.sha }}
-          restore-keys: ${{ steps.build-key.outputs.key }}-
+          key: ${{ steps.build-key.outputs.key }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || 'main' }}-${{ github.sha }}
+          restore-keys: |
+            ${{ steps.build-key.outputs.key }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || 'main' }}-
+            ${{ steps.build-key.outputs.key }}-main-
 
       - name: Rebuild the targets changed since the cached build
         # Over a pull request's own cache too: once its branch merges main, main's changes are newer than that build.
@@ -93,10 +100,16 @@ jobs:
           CACHE_KEY: ${{ steps.restore-build.outputs.cache-matched-key }}
 
       - name: Test
-        # Every test bundle at once (Scripts/test.sh); a watchdog prints the test processes' stacks and fails when the
+        # A bounded pool of test bundles (Scripts/test.sh); a watchdog prints the test processes' stacks and fails when the
         # tests stall, rather than waiting for the job.
         timeout-minutes: 25
         run: Scripts/ci-test.sh
+
+      - name: Check batch generation preserves committed assets
+        run: |
+          swift Scripts/embed-assets.swift all
+          git diff --exit-code -- Sources Plugins
+          test -z "$(git ls-files --others --exclude-standard -- Sources Plugins)"
 
       - name: Restart
         # Restart.swift on its own (the CLI's tests cannot exec): the deadline, and no descriptor kept across the exec.
@@ -108,10 +121,9 @@ jobs:
         run: swift build -c release
 
       - name: Record the commit the build is made from
-        # For Scripts/forget-changed-targets.sh in the runs that restore it: a pull request's head (its merge
-        # commit's second parent, which later heads descend from), else the commit itself.
+        # Record the actual tree built, including changes from the PR's base branch.
         if: ${{ success() && steps.restore-build.outputs.cache-hit != 'true' }}
-        run: git rev-parse --verify --quiet HEAD^2 > .build/.built-from || git rev-parse HEAD > .build/.built-from
+        run: git rev-parse HEAD > .build/.built-from
 
       - name: Save the build
         if: ${{ success() && steps.restore-build.outputs.cache-hit != 'true' }}
@@ -143,18 +155,22 @@ jobs:
 
       - name: Key the build cache
         # Builds reuse the last one's .build: the dependencies (two BoringSSLs, swift-nio) and what did not change.
-        # Keyed by the toolchain and Package.resolved; main saves one per commit, a pull request one for its first
-        # successful run (a failed one may lack what the next one needs).
+        # Each successful revision refreshes the cache; include architecture and toolchain/SDK identity.
+        # A failed run never replaces a complete build.
         id: build-key
-        run: echo "key=build-${{ runner.os }}-$(swift --version 2>&1 | cksum | cut -d' ' -f1)-${{ hashFiles('Package.resolved') }}" >> "$GITHUB_OUTPUT"
+        run: |
+          toolchain=$({ swift --version; cat /etc/os-release; cc --version; } 2>&1 | cksum | cut -d' ' -f1)
+          echo "key=build-v2-${{ runner.os }}-${{ runner.arch }}-$toolchain-${{ hashFiles('Package.resolved') }}" >> "$GITHUB_OUTPUT"
 
       - name: Restore the build
         id: restore-build
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
-          key: ${{ steps.build-key.outputs.key }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || github.sha }}
-          restore-keys: ${{ steps.build-key.outputs.key }}-
+          key: ${{ steps.build-key.outputs.key }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || 'main' }}-${{ github.sha }}
+          restore-keys: |
+            ${{ steps.build-key.outputs.key }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || 'main' }}-
+            ${{ steps.build-key.outputs.key }}-main-
 
       - name: Rebuild the targets changed since the cached build
         # Over a pull request's own cache too: once its branch merges main, main's changes are newer than that build.
@@ -175,10 +191,9 @@ jobs:
         run: swift build -c release
 
       - name: Record the commit the build is made from
-        # For Scripts/forget-changed-targets.sh in the runs that restore it: a pull request's head (its merge
-        # commit's second parent, which later heads descend from), else the commit itself.
+        # Record the actual tree built, including changes from the PR's base branch.
         if: ${{ success() && steps.restore-build.outputs.cache-hit != 'true' }}
-        run: git rev-parse --verify --quiet HEAD^2 > .build/.built-from || git rev-parse HEAD > .build/.built-from
+        run: git rev-parse HEAD > .build/.built-from
 
       - name: Save the build
         if: ${{ success() && steps.restore-build.outputs.cache-hit != 'true' }}

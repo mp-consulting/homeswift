@@ -4,13 +4,50 @@ Bug reports, fixes and new plugins are welcome. For anything larger than a fix, 
 agree on the approach before you spend time on it.
 
 ```bash
-swift build
-swift test
+Scripts/build.sh --scratch-path ~/Library/Caches/homeswift-build
+Scripts/test.sh --scratch-path ~/Library/Caches/homeswift-build
 ```
 
-`Scripts/test.sh` (arguments as `swift build`'s; after `--`, the tests', such as `--filter Govee`) builds the tests
-and runs every test target at once, where `swift test` on macOS runs them one after another: about 3 seconds rather
-than 20. Tests wait for what they check rather than for a fixed time, and take timings from their plugin's
+Both scripts use the toolchain's default build engine. `Scripts/build.sh` (also `bin/dev build`)
+builds the bridge and all its plugin dependencies; add `--all` to build every library product
+and the demo too. Explicit `--product`, `--target` and `--build-tests` selections pass through.
+macOS debug builds through these wrappers use two Swift compiler batches per target, reducing
+repeated frontend work without changing the engine, debug information or test selection.
+Set `HOMESWIFT_BUILD_BATCHES=0` for the toolchain's automatic batching, or a positive integer
+to tune it. Explicit compiler batching flags take precedence; release and Linux defaults are
+unchanged. Changing this setting recompiles an existing debug cache once. Direct `swift build`
+invocations retain SwiftPM's own defaults. See the [clean-build measurements](Benchmarks/clean-build-batching.md).
+The [source-level catalogue benchmark](Benchmarks/source-build-performance.md) records a separate reduction in module-emission work without changing compiler settings.
+`bin/dev test` uses the parallel runner, and `bin/dev check` embeds files and builds tests once.
+Unchanged generated files retain their timestamps. On macOS, the test runner bounds
+parallelism at both levels: sixteen bundles and four tests per bundle locally, two bundles
+and four tests per bundle in CI. Override `HOMESWIFT_TEST_BUNDLES` and
+`SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH` when tuning for your machine.
+`bin/dev embed` generates all assets in one Swift process, including prompts, both
+Shelly schemas and Govee scenes. The runner starts the slowest bundles first, using
+`Scripts/test-durations.tsv` initially and successful full-run timings saved in the
+build directory afterward. Filtered and failed runs do not update those timings.
+The runner caches SwiftPM's binary-directory answer for common build options, keyed by the
+package, toolchain, configuration and relevant environment. It still builds normally; missing,
+invalid or unsupported cache entries fall back to SwiftPM. Python is optional for this cache.
+See the [batch generation and scheduling measurements](Benchmarks/batch-and-test-order.md).
+`Scripts/test.sh` takes `swift build` arguments; arguments after `--` go to Swift Testing,
+such as `--filter SomeSuite.someTest`. On macOS, `bin/dev test Govee` (or `GoveeTests`)
+builds and runs only that target and its dependencies. For a test inside it, use
+`bin/dev test --target GoveeTests someTest`; the script equivalent is
+`Scripts/test.sh --target GoveeTests --scratch-path ~/Library/Caches/homeswift-build -- --filter someTest`.
+Other filters still search every bundle. The shorthand recognizes the checked-in target list;
+new targets can always use explicit `--target`.
+
+Add `--skip-build` to either entry point to use the existing binaries, for example
+`bin/dev test Govee --skip-build`. This intentionally does not check whether sources changed;
+run without it after editing code. Missing selected bundles fail with a build instruction.
+Focused runs do not replace full-suite scheduling history. Linux retains `swift test` and
+supports `--skip-build` and filters; explicit bundle selection requires macOS.
+See [the build and test benchmark](Benchmarks/build-test.md) and
+[focused test measurements](Benchmarks/focused-tests.md), and
+[full-suite and compiler profiling](Benchmarks/full-suite-performance.md).
+Tests wait for what they check rather than for a fixed time, and take timings from their plugin's
 dependencies (a `timeScale`, a shorter delay) instead of waiting out real ones.
 
 CI runs the tests on macOS and on Linux (`swift:6.2`); both must pass. On macOS, if `swift test` fails to code

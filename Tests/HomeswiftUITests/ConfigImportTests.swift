@@ -15,7 +15,12 @@ struct ConfigImportServerTests {
         let browser = Browser(base: base)
         browser.origin = "http://127.0.0.1:\(environment.server.port!)"
         let code = try #require(environment.server.setupCode)
-        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse battery", "setupCode": .string(code)]).status == 200)
+        let account: JSONValue = ["username": "rosaly", "password": "correct horse battery", "setupCode": .string(code)]
+        let setup = try await browser.send("POST", "/api/auth/setup", body: account.text(), headers: ["Accept-Language": "fr"])
+        try #require(setup.status == 200)
+        // The next save must not race a background write of the first account's language.
+        #expect(environment.host.configuration.homeLanguage == "fr")
+        #expect(try JSONValue(data: Data(contentsOf: environment.configURL))["bridge"]?["language"] == "fr")
         return browser
     }
 
@@ -61,7 +66,7 @@ struct ConfigImportServerTests {
         let admin = try await signedIn(environment)
 
         let saved = try await admin.post("/api/import/save", ["source": "paste", "text": .string(Self.homebridge)])
-        #expect(saved.status == 200)
+        try #require(saved.status == 200, "Import failed: \(saved.status) \(saved.body)")
         // The save applies at once: the imported block runs without a restart.
         #expect(environment.host.platforms.contains { $0.platform == "Lamps" && $0.name == "Garden" })
         #expect(saved.json?["backup"]?.stringValue?.hasPrefix("config-") == true)
@@ -84,7 +89,8 @@ struct ConfigImportServerTests {
         defer { Task { await environment.stop() } }
         let admin = try await signedIn(environment)
 
-        #expect(try await admin.post("/api/import/save", ["source": "paste", "text": .string(Self.homebridge)]).status == 200)
+        let saved = try await admin.post("/api/import/save", ["source": "paste", "text": .string(Self.homebridge)])
+        try #require(saved.status == 200, "Import failed: \(saved.status) \(saved.body)")
         let again = try await admin.post("/api/import/save", ["source": "paste", "text": .string(Self.homebridge)])
         #expect(again.status == 422)
         #expect(again.json?["problems"]?.arrayValue?.contains { $0["code"]?.stringValue == "duplicatePlatform" } == true)

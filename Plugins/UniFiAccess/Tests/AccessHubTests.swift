@@ -513,6 +513,12 @@ struct AccessHubTests {
     @Test func gateLocationStatesAndRenames() async throws {
         let host = try await environment.start(devices: [ugt()], doors: Self.gateDoors, options: ["Enable.Hub.Door.UseLock"])
         defer { Task { await host.stop() } }
+        // Polling and streamed events describe the same controller state.
+        var doors: [JSONValue] = [
+            ["unique_id": "door-1", "name": "Main Gate", "door_position_status": "close", "door_lock_relay_status": "unlock"],
+            ["unique_id": "door-2", "name": "Portillon", "door_position_status": "open", "door_lock_relay_status": "unlock"],
+        ]
+        environment.controller.setDevices([ugt()], doors: doors)
         environment.send(
             AccessEventType.deviceUpdateV2, "gate-1",
             data: ["location_states": [["location_id": "door-2", "lock": "unlocked", "dps": "open"], ["location_id": "door-1", "lock": "unlocked", "dps": "close"]]])
@@ -520,8 +526,12 @@ struct AccessHubTests {
         #expect(await eventually { value(host, gateID, .contactSensor, "ContactSensor.DPS.Side", .contactSensorState) == 1 })
         #expect(value(host, gateID, .lockMechanism, nil, .lockCurrentState) == 0)
 
+        doors[1] = ["unique_id": "door-2", "name": "Wicket", "door_position_status": "open", "door_lock_relay_status": "unlock"]
+        environment.controller.setDevices([ugt()], doors: doors)
         environment.send(AccessEventType.locationUpdate, "door-2", data: ["id": "door-2", "name": "Wicket", "state": ["dps": "open", "lock": "unlocked"]])
         #expect(await eventually { accessory(host, gateID)?.service(.lockMechanism, "Lock.Door.Side")?[.configuredName]?.value == .string("Wicket") })
+        doors[0] = ["unique_id": "door-1", "name": "Portail", "door_position_status": "close", "door_lock_relay_status": "unlock"]
+        environment.controller.setDevices([ugt()], doors: doors)
         environment.send(AccessEventType.locationUpdate, "door-1", data: ["id": "door-1", "name": "Portail", "state": ["dps": "close", "lock": "unlocked"]])
         #expect(await eventually { accessory(host, gateID)?.name == "Portail" })
     }
