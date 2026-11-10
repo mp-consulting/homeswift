@@ -16,6 +16,8 @@ final class FakeLANSocket: LANSocket, @unchecked Sendable {
     private let lock = NIOLock()
     private var _sent: [(data: Data, host: String, port: Int)] = []
     var failing = false
+    /// Holds a scan in flight until the test releases it.
+    var scanGate: Gate?
     /// Answers a scan, as devices on the network would.
     var scanReplies: [(device: String, sku: String, address: String)] = []
 
@@ -31,6 +33,7 @@ final class FakeLANSocket: LANSocket, @unchecked Sendable {
         if failing { throw GoveeAPIError.unreachable("unreachable") }
         lock.withLock { _sent.append((data, host, port)) }
         if port == LANClient.scanPort {
+            await scanGate?.wait()
             for reply in scanReplies { deliver(["msg": ["cmd": "scan", "data": ["device": .string(reply.device), "sku": .string(reply.sku), "ip": "1.2.3.4"]]], from: reply.address) }
         }
     }
