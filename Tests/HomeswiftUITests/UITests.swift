@@ -460,7 +460,11 @@ struct LogFilterTests {
         let kept: JSONValue = ["order": ["Lamps:lamp", "Lamps:lock"], "sizes": ["Lamps:lamp": "xlarge", "Lamps:lock": "large"], "defaults": ["light": "small", "climate": "xlarge"], "grouping": "plugin"]
         var answered = kept.objectValue ?? [:]
         answered["groups"] = []
-        #expect(try await browser.put("/api/layout", layout).json == .object(answered))
+        // A save also reports synchronization status; it is not part of the persisted layout or its GET response.
+        var savedAnswer = answered
+        savedAnswer["homeLink"] = ["state": "none", "linked": false, "pending": 0]
+        let response = try await browser.put("/api/layout", layout)
+        #expect(response.json == .object(savedAnswer))
         #expect(try await browser.get("/api/layout").json == .object(answered))
         let file = environment.directory.appendingPathComponent("ui-layout.json")
         #expect(try JSONValue(data: Data(contentsOf: file)) == kept)
