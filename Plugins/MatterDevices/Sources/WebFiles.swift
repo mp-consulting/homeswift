@@ -8,7 +8,15 @@ extension MatterDevicesPlugin {
     public static let webFiles: [String: WebFile] = [
         "app.css": WebFile(contentType: "text/css; charset=utf-8", body: #"""
 /* A card per Matter device on the UI's materials: how it is reached, its remote's channels and its last events. */
-.node { display: grid; gap: 14px; align-content: start; animation: materialize var(--normal) var(--ease-out); }
+/* Let the column shrink below the footer's unbroken address and the channels' names. */
+.node { align-self: start; animation: materialize var(--normal) var(--ease-out); }
+.node-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 14px; }
+.node > summary { padding: 0; color: inherit; list-style: none; }
+.node > summary::-webkit-details-marker { display: none; }
+.node > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--radius-sm); }
+.node-chevron { display: grid; flex: none; color: var(--muted); }
+.node-chevron svg { width: 16px; height: 16px; }
+.node[open] > summary .node-chevron { transform: rotate(90deg); }
 .node.redrawn { animation: none; }
 .node.is-unreachable { opacity: 0.8; }
 .section-head .actions { margin-top: 0; flex-wrap: wrap; }
@@ -197,11 +205,14 @@ extension MatterDevicesPlugin {
     const [label, kind] = (statuses[node.status] ?? statuses.connecting);
     const [glyph, tone] = glyphs[node.kind] ?? ["matter", "blue"];
     const reachable = node.status === "connected";
-    const card = el("div", { class: `card node${node.status === "unreachable" ? " is-unreachable" : ""}` },
-      el("div", { class: "server-head" },
+    const previous = [...list.children].find((card) => card.dataset.key === String(node.device));
+    const card = el("details", { class: `card node${node.status === "unreachable" ? " is-unreachable" : ""}`, open: previous?.open || null },
+      el("summary", { class: "server-head" },
         tile(glyph, reachable ? tone : "grey"),
         el("div", { class: "who" }, el("strong", { text: node.name }), el("div", { class: "muted", text: [node.vendor, node.product].filter(Boolean).join(" · ") })),
-        el("span", { class: `pill status ${kind}`, text: label() })),
+        el("span", { class: `pill status ${kind}`, text: label() }),
+        el("span", { class: "node-chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("forward"))),
+      el("div", { class: "node-body" },
       el("div", { class: "facts" },
         fact(t("In HomeKit"), node.accessories ? tn("{n} accessory", "{n} accessories", node.accessories.length) : "—"),
         fact(reachable ? t("Connected since") : t("Added"), reachable ? since(node.since) : since(node.added))),
@@ -223,7 +234,7 @@ extension MatterDevicesPlugin {
           { label: t("Settings"), icon: "gear", onSelect: (event) => openSettings(node, event?.currentTarget) },
           { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(node.accessory)}` },
           window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: HomeswiftCommon.sparkle(), onSelect: () => HomeswiftChat.ask(t("About my Matter device {name}: ", { name: node.name })) } : null,
-        ].filter(Boolean))));
+        ].filter(Boolean)))));
     return card;
   }
 
