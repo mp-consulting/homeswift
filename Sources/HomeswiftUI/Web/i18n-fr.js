@@ -3691,4 +3691,8 @@ HomeswiftI18n.add("fr", {
   "No battery is measured": "Aucune batterie n'est mesurée",
   "Edit the Energy page": "Modifier la page Énergie",
   "Something stands out in the energy use": "Quelque chose ressort dans la consommation d'énergie",
+  "Run selected rooms": "Lancer dans les pièces sélectionnées",
+  "Choose the rooms to include when you run this scene.": "Choisissez les pièces à inclure au lancement de cette scène.",
+  "Select all": "Tout sélectionner",
+  "Deselect all": "Tout désélectionner",
 });

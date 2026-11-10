@@ -406,17 +406,34 @@
     await redrawScenes();
   }
 
-  /// A group's copies in a sheet (from the right, from the bottom on a phone), each with its own tile (run, stop, its ⋯
-  /// menu) named by its room, and Run in every room. Its tiles follow runs and stops (`redrawScenes`); a rename or a
-  /// delete draws the page again (`app.route`), and the sheet, whose tiles are the old page's, goes with it.
+  /// Room toggles choose which copies run together; duplicate names without rooms keep their tiles.
   let sheetSequence = 0;
   function sceneGroupSheet(group) {
     const first = group[0], rooms = inEveryRoom(group), id = `scene-group-${++sheetSequence}`;
-    const tiles = group.map((scene, index) => hubSceneButton(scene, rooms
-      ? { label: scenePlace(scene), detail: "" }
-      : { label: scenePlace(scene) || scene.name, detail: t("{n} of {count}", { n: index + 1, count: group.length }) }));
-    const all = rooms && group.filter(canRecall).length > 1
-      ? el("button", { type: "button", class: "primary", actionIcon: "play", text: t("Run in every room"), onclick: () => HomeswiftCommon.busyButton(all, () => runSceneGroup(group)) }) : null;
+    const selected = new Set(group.filter(canRecall));
+    const toggles = new Map();
+    const runSelected = rooms ? el("button", { type: "button", class: "primary", actionIcon: "play", text: t("Run selected rooms"),
+      disabled: !selected.size, onclick: () => HomeswiftCommon.busyButton(runSelected, () => runSceneGroup([...selected])).finally(() => { runSelected.disabled = !selected.size; }) }) : null;
+    const choices = rooms ? el("div", { class: "scene-room-list" }, group.map((scene) => {
+      const toggle = el("input", { type: "checkbox", role: "switch", checked: selected.has(scene), disabled: !canRecall(scene),
+        onchange: () => { if (toggle.checked) selected.add(scene); else selected.delete(scene); runSelected.disabled = !selected.size; } });
+      toggles.set(scene, toggle);
+      return el("div", { class: "scene-room-row" },
+        el("label", { class: "scene-room-choice" }, el("span", { text: scenePlace(scene) }), el("span", { class: "switch" }, toggle, el("span"))),
+        menuButton(t("Actions for {name}", { name: scenePlace(scene) }), () => hubSceneMenu(scene)));
+    })) : el("div", { class: "quick-scenes" }, group.map((scene, index) => hubSceneButton(scene,
+      { label: scenePlace(scene) || scene.name, detail: t("{n} of {count}", { n: index + 1, count: group.length }) })));
+    const selectRooms = (checked) => {
+      for (const [scene, toggle] of toggles) {
+        if (toggle.disabled) continue;
+        toggle.checked = checked;
+        if (checked) selected.add(scene); else selected.delete(scene);
+      }
+      runSelected.disabled = !selected.size;
+    };
+    const selectionActions = rooms ? el("div", { class: "actions scene-room-selection" },
+      el("button", { type: "button", actionIcon: "check", text: t("Select all"), onclick: () => selectRooms(true) }),
+      el("button", { type: "button", actionIcon: "close", text: t("Deselect all"), onclick: () => selectRooms(false) })) : null;
     let close = () => {};
     const page = new MutationObserver(() => close());
     page.observe(document.getElementById("view"), { childList: true });
@@ -424,10 +441,10 @@
       close = done;
       return el("div", { class: "account-form scene-group-sheet" },
         el("h2", { id, text: first.name }),
-        el("p", { class: "muted", text: rooms ? tn("{source} has it in {n} room. Run it there, or change it from its ⋯ menu.", "{source} has it in {n} rooms. Run it in one, in every room, or change one from its ⋯ menu.", group.length, { source: first.source.name })
+        el("p", { class: "muted", text: rooms ? t("Choose the rooms to include when you run this scene.")
           : tn("{source} has {n} scene with this name.", "{source} has {n} scenes with this name: copies, perhaps. Run one, or rename or delete one from its ⋯ menu.", group.length, { source: first.source.name }) }),
-        el("div", { class: "quick-scenes" }, tiles),
-        el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => done() }), all));
+        selectionActions, choices,
+        el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => done() }), runSelected));
     }, id, { onClose: () => page.disconnect() });
   }
 

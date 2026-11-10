@@ -5951,3 +5951,18 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
 .glance-tile.dragging { position: relative; z-index: 25; box-shadow: 0 16px 34px rgba(0, 0, 0, 0.22); }
 .tiles-moving .dash-tile-move, .tiles-moving .dash-tile-size, .tiles-moving .dash-edit-remove.tile { opacity: 0; }
 @media (max-width: 640px) { .dash-tile-size { width: 30px; height: 30px; min-width: 30px; min-height: 30px; } }
+
+/* Scene copies share a compact room selector, with separate inclusion and menu targets. */
+.scene-room-list { display: grid; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+.scene-room-row { display: flex; align-items: center; gap: var(--space-12); padding: var(--space-10) var(--space-14); }
+.scene-room-row + .scene-room-row { border-top: 1px solid var(--line); }
+.scene-room-choice { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--space-16); cursor: pointer; }
+.scene-room-choice > span:first-child { overflow-wrap: anywhere; }
+.scene-room-row > .menu-button { flex: none; width: 36px; height: 36px; min-height: 36px; }
+@media (max-width: 640px) { .scene-room-row > .menu-button { width: 40px; height: 40px; min-height: 40px; } }
+
+.scene-room-selection { margin-bottom: var(--space-16); }
+.scene-room-list + .actions { margin-top: var(--space-16); }
+.admin-dialog.sheet .scene-group-sheet > .actions { margin-top: var(--space-16); padding-top: 0; }
+.admin-dialog.sheet .scene-group-sheet > .scene-room-selection { margin-top: 0; }
+.scene-room-list { flex-shrink: 0; }

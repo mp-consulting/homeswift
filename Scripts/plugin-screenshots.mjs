@@ -435,6 +435,11 @@ try {
   // Homeswift's Scenes page: the bridge's scenes, then the hubs' each once (Hue's Relax in three rooms is one tile), and
   // DIRIGERA's, in no room, under Around the house.
   await shot("scenes-from-hubs", "/scenes", { ready: ".hub-scene", tall: 1400 });
+  for (const [name, width] of [["scene-rooms", 1100], ["scene-rooms-phone", 375]]) {
+    await shot(name, "/scenes", { ready: ".scene-group", width, height: 900, mobile: width === 375,
+      element: "dialog.sheet[open]", viewport: false,
+      prepare: `document.querySelector('.scene-group[aria-haspopup="dialog"]').click(); await new Promise(done => setTimeout(done, 600));` });
+  }
   // The templates for a room's lights (docs/ui.md, docs/images/ui): the first kinds, one tried and playing, on a phone.
   const templates = join(root, "docs/images/ui");
   // Ideas is folded at the page's foot, its collection drawn when it opens: each opens it and waits for it first.
