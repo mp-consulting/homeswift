@@ -31,79 +31,116 @@ jobs:
         run: |
           toolchain=$(swift --version 2>&1 | cksum | cut -d' ' -f1)
           echo "prefix=split-bench-20261110-${{ runner.os }}-${{ runner.arch }}-$toolchain-${{ hashFiles('Package.resolved', 'Package.swift', 'Scripts/build.sh', 'Scripts/split-build-cache.py') }}" >> "$GITHUB_OUTPUT"
-      - name: Restore diagnostic compiled outputs
-        id: diagnostic
+      - name: before restore monolithic cache
+        id: baseline
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: .build
-          key: ${{ steps.key.outputs.prefix }}-diagnostic-${{ github.sha }}
-          restore-keys: ${{ steps.key.outputs.prefix }}-diagnostic-
-      - name: Invalidate diagnostic source changes
+          key: ${{ steps.key.outputs.prefix }}-monolithic-seed
+          fail-on-cache-miss: true
+      - name: before invalidate changed targets
         run: Scripts/forget-changed-targets.sh
-      - name: seed full-debug
+      - name: before full-debug
         env:
-          POLICY: seed
+          POLICY: before
         run: python3 Scripts/split-cache-benchmark.py full-debug Scripts/build.sh --all
-      - name: seed full-tests
-        id: seed-tests
+      - name: before full-tests
         env:
-          POLICY: seed
+          POLICY: before
         run: python3 Scripts/split-cache-benchmark.py full-tests Scripts/ci-test.sh
-      - name: seed full-release
+      - name: before full-release
         env:
-          POLICY: seed
+          POLICY: before
         run: python3 Scripts/split-cache-benchmark.py full-release swift build -c release
-      - name: seed restart and asset checks
+      - name: before restart and asset checks
         run: |
           swiftc -parse-as-library -o "$RUNNER_TEMP/test-restart" Sources/HomeswiftCLI/Restart.swift Scripts/test-restart.swift
           "$RUNNER_TEMP/test-restart"
           swift Scripts/embed-assets.swift all
           git diff --exit-code -- Sources Plugins
           test -z "$(git ls-files --others --exclude-standard -- Sources Plugins)"
-      - name: Warm debug plan and record provenance
-        run: |
-          Scripts/build.sh --all
-          git rev-parse HEAD > .build/.built-from
-      - name: Save monolithic baseline
+      - name: Record baseline provenance
+        run: git rev-parse HEAD > .build/.built-from
+      - name: before save monolithic cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: .build
-          key: ${{ steps.key.outputs.prefix }}-monolithic-seed
-      - name: seed partition build
+          key: ${{ steps.key.outputs.prefix }}-monolithic-${{ github.sha }}
+      - name: before shared-runtime rebuilds
+        env:
+          POLICY: before
+        run: python3 Scripts/split-cache-benchmark.py shared
+      - name: Reset benchmark build area
+        run: |
+          python3 Scripts/split-cache-benchmark.py clear
+          swift Scripts/restore-mtimes.swift
+      - name: after restore project cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .ci-build-cache/project
+          key: ${{ steps.key.outputs.prefix }}-project-seed
+          fail-on-cache-miss: true
+      - name: Read matching dependency generation
+        id: dep-key
+        run: python3 -c 'import json; print("digest=" + json.load(open(".ci-build-cache/project/.homeswift-cache-metadata.json"))["dependency_digest"])' >> "$GITHUB_OUTPUT"
+      - name: after restore dependency cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .ci-build-cache/dependencies
+          key: ${{ steps.key.outputs.prefix }}-deps-${{ steps.dep-key.outputs.digest }}
+          fail-on-cache-miss: true
+      - name: after combine cache partitions
+        env:
+          POLICY: after
+        run: python3 Scripts/split-cache-benchmark.py combine python3 Scripts/split-build-cache.py restore
+      - name: after invalidate changed targets
+        run: Scripts/forget-changed-targets.sh
+      - name: after full-debug
+        env:
+          POLICY: after
+        run: python3 Scripts/split-cache-benchmark.py full-debug Scripts/build.sh --all
+      - name: after full-tests
+        env:
+          POLICY: after
+        run: python3 Scripts/split-cache-benchmark.py full-tests Scripts/ci-test.sh
+      - name: after full-release
+        env:
+          POLICY: after
+        run: python3 Scripts/split-cache-benchmark.py full-release swift build -c release
+      - name: after restart and asset checks
+        run: |
+          swiftc -parse-as-library -o "$RUNNER_TEMP/test-restart" Sources/HomeswiftCLI/Restart.swift Scripts/test-restart.swift
+          "$RUNNER_TEMP/test-restart"
+          swift Scripts/embed-assets.swift all
+          git diff --exit-code -- Sources Plugins
+          test -z "$(git ls-files --others --exclude-standard -- Sources Plugins)"
+      - name: after partition build
         id: partition
         env:
-          POLICY: seed
+          POLICY: after
         run: |
           git rev-parse HEAD > .build/.built-from
           python3 Scripts/split-cache-benchmark.py partition python3 Scripts/split-build-cache.py split
           python3 -c 'import json; print("digest=" + json.load(open(".ci-build-cache/project/.homeswift-cache-metadata.json"))["dependency_digest"])' >> "$GITHUB_OUTPUT"
-      - name: seed save dependencies
+      - name: after save dependencies
+        if: steps.partition.outputs.digest != steps.dep-key.outputs.digest
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: .ci-build-cache/dependencies
           key: ${{ steps.key.outputs.prefix }}-deps-${{ steps.partition.outputs.digest }}
-      - name: seed save project
+      - name: after save project
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: .ci-build-cache/project
-          key: ${{ steps.key.outputs.prefix }}-project-seed
-      - name: seed restore staged build
+          key: ${{ steps.key.outputs.prefix }}-project-${{ github.sha }}
+      - name: after restore staged build
         env:
-          POLICY: seed
+          POLICY: after
         run: python3 Scripts/split-cache-benchmark.py unstage python3 Scripts/split-build-cache.py restore
-      - name: Round-trip no-op build
+      - name: after shared-runtime rebuilds
         env:
-          POLICY: seed
-        run: python3 Scripts/split-cache-benchmark.py roundtrip-noop Scripts/build.sh --all
-      - name: Record diagnostic provenance
-        if: ${{ failure() && steps.seed-tests.outcome == 'failure' }}
-        run: git rev-parse HEAD > .build/.built-from
-      - name: Preserve diagnostic compiled outputs
-        if: ${{ failure() && steps.seed-tests.outcome == 'failure' && steps.diagnostic.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: .build
-          key: ${{ steps.key.outputs.prefix }}-diagnostic-${{ github.sha }}
+          POLICY: after
+        run: python3 Scripts/split-cache-benchmark.py shared
       - name: Upload measurements
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -137,79 +174,116 @@ jobs:
         run: |
           toolchain=$(swift --version 2>&1 | cksum | cut -d' ' -f1)
           echo "prefix=split-bench-20261110-${{ runner.os }}-${{ runner.arch }}-$toolchain-${{ hashFiles('Package.resolved', 'Package.swift', 'Scripts/build.sh', 'Scripts/split-build-cache.py') }}" >> "$GITHUB_OUTPUT"
-      - name: Restore diagnostic compiled outputs
-        id: diagnostic
+      - name: before restore monolithic cache
+        id: baseline
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: .build
-          key: ${{ steps.key.outputs.prefix }}-diagnostic-${{ github.sha }}
-          restore-keys: ${{ steps.key.outputs.prefix }}-diagnostic-
-      - name: Invalidate diagnostic source changes
+          key: ${{ steps.key.outputs.prefix }}-monolithic-seed
+          fail-on-cache-miss: true
+      - name: before invalidate changed targets
         run: Scripts/forget-changed-targets.sh
-      - name: seed full-debug
+      - name: before full-debug
         env:
-          POLICY: seed
+          POLICY: before
         run: python3 Scripts/split-cache-benchmark.py full-debug Scripts/build.sh --all
-      - name: seed full-tests
-        id: seed-tests
+      - name: before full-tests
         env:
-          POLICY: seed
+          POLICY: before
         run: python3 Scripts/split-cache-benchmark.py full-tests Scripts/ci-test.sh
-      - name: seed full-release
+      - name: before full-release
         env:
-          POLICY: seed
+          POLICY: before
         run: python3 Scripts/split-cache-benchmark.py full-release swift build -c release
-      - name: seed restart and asset checks
+      - name: before restart and asset checks
         run: |
           swiftc -parse-as-library -o "$RUNNER_TEMP/test-restart" Sources/HomeswiftCLI/Restart.swift Scripts/test-restart.swift
           "$RUNNER_TEMP/test-restart"
           swift Scripts/embed-assets.swift all
           git diff --exit-code -- Sources Plugins
           test -z "$(git ls-files --others --exclude-standard -- Sources Plugins)"
-      - name: Warm debug plan and record provenance
-        run: |
-          Scripts/build.sh --all
-          git rev-parse HEAD > .build/.built-from
-      - name: Save monolithic baseline
+      - name: Record baseline provenance
+        run: git rev-parse HEAD > .build/.built-from
+      - name: before save monolithic cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: .build
-          key: ${{ steps.key.outputs.prefix }}-monolithic-seed
-      - name: seed partition build
+          key: ${{ steps.key.outputs.prefix }}-monolithic-${{ github.sha }}
+      - name: before shared-runtime rebuilds
+        env:
+          POLICY: before
+        run: python3 Scripts/split-cache-benchmark.py shared
+      - name: Reset benchmark build area
+        run: |
+          python3 Scripts/split-cache-benchmark.py clear
+          swift Scripts/restore-mtimes.swift
+      - name: after restore project cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .ci-build-cache/project
+          key: ${{ steps.key.outputs.prefix }}-project-seed
+          fail-on-cache-miss: true
+      - name: Read matching dependency generation
+        id: dep-key
+        run: python3 -c 'import json; print("digest=" + json.load(open(".ci-build-cache/project/.homeswift-cache-metadata.json"))["dependency_digest"])' >> "$GITHUB_OUTPUT"
+      - name: after restore dependency cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .ci-build-cache/dependencies
+          key: ${{ steps.key.outputs.prefix }}-deps-${{ steps.dep-key.outputs.digest }}
+          fail-on-cache-miss: true
+      - name: after combine cache partitions
+        env:
+          POLICY: after
+        run: python3 Scripts/split-cache-benchmark.py combine python3 Scripts/split-build-cache.py restore
+      - name: after invalidate changed targets
+        run: Scripts/forget-changed-targets.sh
+      - name: after full-debug
+        env:
+          POLICY: after
+        run: python3 Scripts/split-cache-benchmark.py full-debug Scripts/build.sh --all
+      - name: after full-tests
+        env:
+          POLICY: after
+        run: python3 Scripts/split-cache-benchmark.py full-tests Scripts/ci-test.sh
+      - name: after full-release
+        env:
+          POLICY: after
+        run: python3 Scripts/split-cache-benchmark.py full-release swift build -c release
+      - name: after restart and asset checks
+        run: |
+          swiftc -parse-as-library -o "$RUNNER_TEMP/test-restart" Sources/HomeswiftCLI/Restart.swift Scripts/test-restart.swift
+          "$RUNNER_TEMP/test-restart"
+          swift Scripts/embed-assets.swift all
+          git diff --exit-code -- Sources Plugins
+          test -z "$(git ls-files --others --exclude-standard -- Sources Plugins)"
+      - name: after partition build
         id: partition
         env:
-          POLICY: seed
+          POLICY: after
         run: |
           git rev-parse HEAD > .build/.built-from
           python3 Scripts/split-cache-benchmark.py partition python3 Scripts/split-build-cache.py split
           python3 -c 'import json; print("digest=" + json.load(open(".ci-build-cache/project/.homeswift-cache-metadata.json"))["dependency_digest"])' >> "$GITHUB_OUTPUT"
-      - name: seed save dependencies
+      - name: after save dependencies
+        if: steps.partition.outputs.digest != steps.dep-key.outputs.digest
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: .ci-build-cache/dependencies
           key: ${{ steps.key.outputs.prefix }}-deps-${{ steps.partition.outputs.digest }}
-      - name: seed save project
+      - name: after save project
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: .ci-build-cache/project
-          key: ${{ steps.key.outputs.prefix }}-project-seed
-      - name: seed restore staged build
+          key: ${{ steps.key.outputs.prefix }}-project-${{ github.sha }}
+      - name: after restore staged build
         env:
-          POLICY: seed
+          POLICY: after
         run: python3 Scripts/split-cache-benchmark.py unstage python3 Scripts/split-build-cache.py restore
-      - name: Round-trip no-op build
+      - name: after shared-runtime rebuilds
         env:
-          POLICY: seed
-        run: python3 Scripts/split-cache-benchmark.py roundtrip-noop Scripts/build.sh --all
-      - name: Record diagnostic provenance
-        if: ${{ failure() && steps.seed-tests.outcome == 'failure' }}
-        run: git rev-parse HEAD > .build/.built-from
-      - name: Preserve diagnostic compiled outputs
-        if: ${{ failure() && steps.seed-tests.outcome == 'failure' && steps.diagnostic.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: .build
-          key: ${{ steps.key.outputs.prefix }}-diagnostic-${{ github.sha }}
+          POLICY: after
+        run: python3 Scripts/split-cache-benchmark.py shared
       - name: Upload measurements
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
