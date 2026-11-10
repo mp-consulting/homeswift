@@ -121,8 +121,9 @@ has figures) has the whole story, where Status keeps a glance (its Energy title 
 - **Overview**: the Energy section's units below, in the user's order; **Edit**, at the bottom right, edits them as the
   Status page's edit mode does (the layout is `energyPage` in `/api/preferences`, apart from Status's).
 - **By accessory** (`/energy/devices?period=day|week|month|year&sort=used|cost|name&device=…`): the home split between the
-  devices measured on their own and Unmetered, then a row per device (its days as small bars, a bar of its share of the
-  most, its kWh, share and cost), Unmetered and the Meters with no readings last, and the sources apart under the list. A
+  devices measured on their own and Unmetered, then a row per device (a filled history sparkline, its kWh, share and
+  cost), Unmetered and the Meters with no readings last, and the sources apart under the list. Sparklines preserve gaps in readings
+  and remain visible on phones. A
   row opens its panel: its figures, when it used energy this week hour by hour (a cell per hour, a row per day), where
   most of its use falls, and **Full history**.
 - **Energy log** (`/energy/log?days=2|7|14&q=…`): what stands out over the span, then what happened by day, searchable
@@ -131,6 +132,10 @@ has figures) has the whole story, where Status keeps a glance (its Energy title 
 On Status, Energy flow and The big picture show by default; the other units are added from the edit mode.
 
 ![The Energy page's Overview: the house with its details, the big picture's tiles, each day with a usual day shaded, where the energy goes, consumption by device, and gas and water](images/status/energy.png)
+
+![By accessory: one history sparkline per device alongside energy, share and cost](images/status/energy-devices.png)
+
+<img src="images/status/energy-devices-phone.png" alt="By accessory on a phone, with history sparklines below each device" width="375">
 
 - **Energy flow**: where the power goes, followed live (the last minutes asked every ten seconds while the page is
   visible; the bridge counts the minute under way). On top, the **House**: a cutaway picture in the viewer's House

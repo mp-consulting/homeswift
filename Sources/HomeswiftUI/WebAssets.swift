@@ -4785,49 +4785,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       showSection();
     }
 
-    // Subtract matching dates only; incomplete input remains a gap rather than zero.
-    function consumerUnmeteredBars(wholes, devices) {
-    const unmeteredSeries = [...wholes, ...devices].map((one) => new Map((one.bars ?? []).map((bar) => [bar.date, bar.consumption])));
-    return (wholes[0]?.bars ?? []).map((bar) => {
-      const values = unmeteredSeries.map((series) => series.get(bar.date));
-      return { date: bar.date, consumption: values.every(Number.isFinite)
-        ? Math.max(0, values.slice(0, wholes.length).reduce((a, b) => a + b, 0) - values.slice(wholes.length).reduce((a, b) => a + b, 0)) : null };
-    });
-    }
-
-    // Each meter's history uses its own scale; gaps remain gaps, including in the filled area.
-    function consumerSparkline(one, field) {
-      const tone = roles.find((role) => role.id === one.role)?.tone ?? 1;
-      const box = el("span", { class: "consumer-sparkline", style: `--consumer-tone: var(--series-${tone})`, "aria-hidden": "true" });
-      const values = (one.bars ?? []).map((bar) => Number.isFinite(bar[field]) ? bar[field] : null);
-      const known = values.filter((value) => value != null);
-      if (!known.length) return box;
-      const make = (tag, attrs) => {
-        const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
-        for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
-        return node;
-      };
-      const svg = make("svg", { viewBox: "0 0 160 32", preserveAspectRatio: "none" });
-      const max = Math.max(...known, 0.001);
-      let path = "", area = "", connected = false, lastX = 0;
-      const closeArea = () => { if (connected) area += `L${lastX},29 Z `; connected = false; };
-      values.forEach((value, index) => {
-        if (value == null) { closeArea(); return; }
-        const x = values.length === 1 ? 80 : 3 + index / (values.length - 1) * 154;
-        const y = 29 - Math.max(0, value) / max * 26;
-        path += `${connected ? "L" : "M"}${x},${y} `;
-        area += connected ? `L${x},${y} ` : `M${x},29 L${x},${y} `;
-        lastX = x;
-        connected = true;
-        svg.append(make("circle", { cx: x, cy: y, r: 1.5 }));
-      });
-      closeArea();
-      svg.prepend(make("path", { class: "spark-area", d: area }),
-        make("path", { class: "spark-baseline", d: "M3,29 H157" }), make("path", { d: path }));
-      box.append(svg);
-      return box;
-    }
-
     // Measure folded rows too. The indent is shared across the phone and desktop layouts.
     function sizeConsumerColumns(rows) {
       const measure = document.createElement("canvas").getContext("2d");
@@ -5292,8 +5249,51 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("span", { class: "energy-log-text" }, el("span", { text: one.text }), one.meta ? el("small", { text: one.meta }) : null))))));
   }
 
+  // Subtract matching dates only; incomplete input remains a gap rather than zero.
+  function consumerUnmeteredBars(wholes, devices) {
+    const unmeteredSeries = [...wholes, ...devices].map((one) => new Map((one.bars ?? []).map((bar) => [bar.date, bar.consumption])));
+    return (wholes[0]?.bars ?? []).map((bar) => {
+      const values = unmeteredSeries.map((series) => series.get(bar.date));
+      return { date: bar.date, consumption: values.every(Number.isFinite)
+        ? Math.max(0, values.slice(0, wholes.length).reduce((a, b) => a + b, 0) - values.slice(wholes.length).reduce((a, b) => a + b, 0)) : null };
+    });
+  }
+
+  // Each meter's history uses its own scale; gaps remain gaps, including in the filled area.
+  function consumerSparkline(one, field) {
+    const tone = ({ home: 1, grid: 7, battery: 3, solar: 4 })[one.role] ?? 1;
+    const box = el("span", { class: "consumer-sparkline", style: `--consumer-tone: var(--series-${tone})`, "aria-hidden": "true" });
+    const values = (one.bars ?? []).map((bar) => Number.isFinite(bar[field]) ? bar[field] : null);
+    const known = values.filter((value) => value != null);
+    if (!known.length) return box;
+    const make = (tag, attrs) => {
+      const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+      return node;
+    };
+    const svg = make("svg", { viewBox: "0 0 160 32", preserveAspectRatio: "none" });
+    const max = Math.max(...known, 0.001);
+    let path = "", area = "", connected = false, lastX = 0;
+    const closeArea = () => { if (connected) area += `L${lastX},29 Z `; connected = false; };
+    values.forEach((value, index) => {
+      if (value == null) { closeArea(); return; }
+      const x = values.length === 1 ? 80 : 3 + index / (values.length - 1) * 154;
+      const y = 29 - Math.max(0, value) / max * 26;
+      path += `${connected ? "L" : "M"}${x},${y} `;
+      area += connected ? `L${x},${y} ` : `M${x},29 L${x},${y} `;
+      lastX = x;
+      connected = true;
+      svg.append(make("circle", { cx: x, cy: y, r: 1.5 }));
+    });
+    closeArea();
+    svg.prepend(make("path", { class: "spark-area", d: area }),
+      make("path", { class: "spark-baseline", d: "M3,29 H157" }), make("path", { d: path }));
+    box.append(svg);
+    return box;
+  }
+
   /// The Energy page's By accessory: the home split between the devices measured on their own and the rest, then a row
-  /// per device (its days as small bars, its kWh, share and cost), sortable, for today, the week, the month or the year
+  /// per device (its history sparkline, its kWh, share and cost), sortable, for today, the week, the month or the year
   /// (`?period=`, `?sort=`, `?device=` in the address); a row opens its panel: when it ran this week, hour by hour, and
   /// its full history. The sources (solar, the grid, the batteries) are said apart, under the list.
   async function energyDevicesPage(main, head, nav) {
@@ -5365,34 +5365,32 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const devices = meters.filter((one) => !one.role && one.consumption != null);
       const silent = meters.filter((one) => !one.role && one.consumption == null);
       // The whole home as the consumption card counts it, so both say the same Unmetered.
-      const { whole } = wholeHome(meters.filter((one) => one.consumption != null || one.returned != null));
+      const { wholes, whole } = wholeHome(meters.filter((one) => one.consumption != null || one.returned != null));
       const inDevices = devices.reduce((sum, one) => sum + one.consumption, 0);
       const rest = whole != null ? Math.max(0, whole - inDevices) : null;
       const base = whole ?? inDevices;
       split.replaceChildren(...splitBar(inDevices, rest));
       const ordered = [...devices].sort(sort === "name" ? (a, b) => nameOf(a).localeCompare(nameOf(b)) : sort === "cost" ? (a, b) => (b.cost ?? 0) - (a.cost ?? 0) : (a, b) => b.consumption - a.consumption);
-      const most = Math.max(0, ...devices.map((one) => one.consumption));
       const row = (one) => {
-        const days = (one.bars ?? []).map((bar) => bar.consumption ?? 0), top = Math.max(...days, 0);
         const share = base > 0 ? one.consumption / base * 100 : null;
         const id = `${one.accessory}\n${one.meter}`;
         return el("button", { type: "button", role: "listitem", class: `energy-device-row${id === chosen ? " on" : ""}`, actionIcon: "forward", "aria-label": t("{name}: {value}", { name: nameOf(one), value: formatKWh(one.consumption) }),
           onclick: () => choose(id) },
           el("span", { class: "device-name" }, el("strong", { text: nameOf(one) }), el("small", { text: one.room ?? (one.accessory.split(":")[0]) })),
-          el("span", { class: "device-days", "aria-hidden": "true" }, days.slice(-14).map((value) => el("i", { style: `height: ${top > 0 ? Math.max(8, value / top * 100) : 8}%` }))),
-          el("span", { class: "device-track", "aria-hidden": "true" }, el("i", { style: `width: ${most > 0 ? one.consumption / most * 100 : 0}%` })),
+          consumerSparkline(one, "consumption"),
           el("b", { class: "device-kwh", text: formatKWh(one.consumption) }),
           el("span", { class: "device-share", text: share == null ? "" : formatPercent(share) }),
           el("span", { class: "device-cost", text: one.cost != null && found.currency ? formatMoney(one.cost, found.currency) : "" }));
       };
       list.replaceChildren(...(devices.length ? [
-        el("div", { class: "energy-device-row head", "aria-hidden": "true" }, el("span", { text: t("Accessory") }), el("span", { text: t("Each day") }), el("span"), el("span", { text: t("Energy") }),
+        el("div", { class: "energy-device-row head", "aria-hidden": "true" }, el("span", { text: t("Accessory") }), el("span", { text: t("History") }), el("span", { text: t("Energy") }),
           el("span", { text: t("Share") }), el("span", { text: t("Cost") }), el("span")),
         ...ordered.map(row),
         rest != null && rest > 0 ? el("div", { class: "energy-device-row rest", role: "listitem" }, el("span", { class: "device-name" }, el("strong", { text: t("Unmetered") }), el("small", { text: t("What no meter measures on its own") })),
-          el("span"), el("span"), el("b", { class: "device-kwh", text: formatKWh(rest) }), el("span", { class: "device-share", text: base > 0 ? formatPercent(rest / base * 100) : "" }), el("span"), el("span")) : null,
+          consumerSparkline({ bars: consumerUnmeteredBars(wholes, devices) }, "consumption"), el("b", { class: "device-kwh", text: formatKWh(rest) }), el("span", { class: "device-share", text: base > 0 ? formatPercent(rest / base * 100) : "" }), el("span", { class: "device-cost" }), el("span", { class: "device-row-spacer" })) : null,
         ...silent.map((one) => el("div", { class: "energy-device-row silent", role: "listitem" }, el("span", { class: "device-name" }, el("strong", { text: nameOf(one) }), el("small", { text: t("No readings in this period") })),
-          el("span"), el("span"), el("b", { class: "device-kwh", text: "—" }), el("span"), el("span"), el("span")))].filter(Boolean)
+          el("span", { class: "consumer-sparkline consumer-no-data" }, el("span", { text: t("Not measured") })),
+          el("b", { class: "device-kwh", text: "—" }), el("span", { class: "device-share" }), el("span", { class: "device-cost" }), el("span", { class: "device-row-spacer" })))].filter(Boolean)
         : [el("p", { class: "muted", text: t("No device is measured on its own yet. A smart plug or a meter shows what a device uses.") })]));
       // The sources apart: what solar produced, what the grid brought and took, what the batteries cycled.
       const sum = (role, field) => meters.filter((one) => one.role === role).slice(0, 1).reduce((total, one) => total + (one[field] ?? 0), 0);
@@ -40841,13 +40839,14 @@ main.energy-page.dash-grid > .subnav, main.energy-page.dash-grid > .page-head { 
 .devices-split { margin-bottom: var(--space-14); }
 .devices-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); align-items: start; }
 .devices-layout:has(> .device-detail:not([hidden])) { grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); }
-.devices-table { padding: var(--space-6) 0; margin: 0; overflow-x: auto; }
-/* A row: its name and where it is, its days as small bars, a bar of its share of the most, its kWh, share and cost. */
-.energy-device-row { display: grid; grid-template-columns: minmax(150px, 2fr) 84px minmax(60px, 1fr) 88px 52px 64px 20px; align-items: center; gap: var(--space-12);
+.devices-table { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(120px, 1.4fr) max-content 52px 64px 20px; column-gap: var(--space-12); padding: var(--space-6) 0; margin: 0; overflow-x: auto; }
+.devices-table > p { grid-column: 1 / -1; margin-inline: var(--space-18); }
+/* Shared columns fit energy values without reserving blank space beside every sparkline. */
+.energy-device-row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; gap: var(--space-12);
   width: 100%; min-width: 600px; box-sizing: border-box; padding: var(--space-10) var(--space-18); border: 0; border-top: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
   border-radius: 0; background: none; box-shadow: none; color: inherit; font: inherit; text-align: left; min-height: 56px; }
 .energy-device-row.head { border-top: 0; min-height: 0; padding-block: var(--space-6); font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
-.energy-device-row.head > span:nth-child(n+4) { text-align: right; }
+.energy-device-row.head > span:nth-child(n+3) { text-align: right; }
 button.energy-device-row { cursor: pointer; }
 button.energy-device-row:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
 button.energy-device-row.on { background: color-mix(in srgb, var(--series-1) 12%, transparent); }
@@ -40856,11 +40855,9 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
 .device-name { display: grid; gap: 1px; min-width: 0; }
 .device-name strong { font-weight: var(--weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .device-name small { font-size: var(--text-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.device-days { display: flex; align-items: flex-end; gap: 2px; height: 22px; }
-.device-days i { flex: 1; min-width: 2px; border-radius: 1px; background: color-mix(in srgb, var(--series-1) 70%, transparent); }
-.device-track { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text) 9%, transparent); overflow: hidden; }
-.device-track i { display: block; height: 100%; border-radius: 3px; background: var(--series-1); }
-.device-kwh { text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--weight-semibold); }
+.energy-device-row.rest .consumer-sparkline { color: var(--muted); }
+.energy-device-row .consumer-no-data { position: relative; }
+.device-kwh { text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--weight-semibold); white-space: nowrap; }
 .device-share, .device-cost { text-align: right; font-size: var(--text-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
 .energy-device-row.rest .device-name strong, .energy-device-row.silent .device-name strong { color: var(--muted); }
 .devices-sources { margin: var(--space-10) var(--space-4) 0; font-size: var(--text-sm); }
@@ -40905,8 +40902,13 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
   .devices-layout > .device-detail[hidden], .devices-layout.pushed > .devices-main { transform: none; }
 }
 @media (max-width: 640px) {
+  .devices-table { display: block; }
   .energy-device-row { grid-template-columns: minmax(0, 1fr) auto 18px; min-width: 0; padding-inline: var(--space-14); }
-  .energy-device-row > .device-days, .energy-device-row > .device-track, .energy-device-row > .device-share, .energy-device-row > .device-cost { display: none; }
+  .energy-device-row > .device-share, .energy-device-row > .device-cost { display: none; }
+  .energy-device-row > .consumer-sparkline { grid-area: auto; grid-column: 1 / -1; grid-row: 2; }
+  .energy-device-row > .device-name { grid-column: 1; grid-row: 1; }
+  .energy-device-row > .device-kwh { grid-column: 2; grid-row: 1; }
+  .energy-device-row.action-with-icon::before, .energy-device-row > .device-row-spacer { grid-column: 3; grid-row: 1; }
   .energy-device-row.head { display: none; }
   .devices-bar .search { max-width: none; }
 }

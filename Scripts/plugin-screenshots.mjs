@@ -503,6 +503,10 @@ try {
   // The Energy page's Overview, on a day and a week of demonstration figures: its sections are there by default.
   await shot("energy", "/energy", { ready: '[data-widget="energy-days"] .chart-card svg', width: 1100, height: 900, element: "main", tall: 5200, before: energyDemo })
     .then(() => toStatus("energy"));
+  await shot("energy-devices", "/energy/devices", { ready: '.energy-device-row .consumer-sparkline svg', width: 1100, height: 1000, element: "main", before: energyDemo })
+    .then(() => toStatus("energy-devices"));
+  await shot("energy-devices-phone", "/energy/devices", { ready: '.energy-device-row .consumer-sparkline svg', width: 375, height: 1000, mobile: true, element: "main", before: energyDemo })
+    .then(() => toStatus("energy-devices-phone"));
   // The gas and water cards under it.
   await shot("energy-flow", "/status", { ready: '[data-widget="energy-flow"] .energy-house img', width: 1100, height: 1100, element: '[data-widget="energy-flow"] .energy-flow', before: energyDemo })
     .then(() => toStatus("energy-flow"));

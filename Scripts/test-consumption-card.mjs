@@ -11,7 +11,7 @@ const element = (tag, attrs = {}) => ({ tag, attrs, children: [],
 });
 const scope = vm.createContext({ el: element, document: { createElementNS: (_ns, tag) => element(tag) },
   roles: [{ id: 'solar', tone: 4 }, { id: 'home', tone: 1 }, { id: 'battery', tone: 3 }, { id: 'grid', tone: 7 }] });
-vm.runInContext(section('    function consumerUnmeteredBars(', '    // Measure folded rows too.'), scope);
+vm.runInContext(section('  function consumerUnmeteredBars(', "  /// The Energy page's By accessory"), scope);
 const result = scope.consumerUnmeteredBars([{ bars: [{ date: 'a', consumption: 10 }, { date: 'b', consumption: 5 }, { date: 'c', consumption: 1 }] }],
   [{ bars: [{ date: 'c', consumption: 2 }, { date: 'a', consumption: 3 }] }]);
 assert.deepEqual(Array.from(result, bar => bar.consumption), [7, null, 0], 'align dates, preserve gaps, clamp negative residuals');
@@ -29,7 +29,7 @@ const context = vm.createContext({ consumerIcons: new Map(), consumerIconsReques
   consumers: { detail: {} }, HomeswiftWidgets: { accessoryIcon: () => 'outlet' }, utilities: [],
   fillConsumers: report => applied.push(report), fillUtility() {}, showSection() {}, hasMeters: false,
 });
-vm.runInContext(section('    async function loadConsumers(', '    // Subtract matching dates only'), context);
+vm.runInContext(section('    async function loadConsumers(', '    // Measure folded rows too.'), context);
 const old = context.loadConsumers(1);
 context.historyAsked = 2;
 const current = context.loadConsumers(2);
