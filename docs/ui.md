@@ -619,21 +619,26 @@ needs the page added to the home screen.
 
 ### Plugins
 
-![The Plugins page: your blocks, then the plugins compiled in](images/ui/plugins.png)
+![The Plugins page: searchable instances and status filters](images/ui/plugins.png)
 
-Every platform block of config.json, with whether it runs, is paused, and on which bridge; then **Add a plugin**, the
-plugins compiled into this homeswift, with a search and a sort.
+The list shows each plugin's status and accessory count, with attention states first. Search by name or platform,
+then filter **All**, **Needs attention**, **Running**, or **Paused**. Built-in services are folded below the list.
+**Add a plugin** opens the searchable catalog of plugins compiled into this homeswift.
 
-A running plugin shows a quiet green dot only when its devices can work. One whose account Needs Authorization (never set
-up, or refused since: a password changed, a token revoked) says what it needs instead, **Needs sign-in**, **Needs
-pairing** or **Needs keys**, in orange, and its card leads with **Set up** (**Set up again** once it has been), which
-opens the Setup sheet over the list; an optional account left alone needs no one. One whose every accessory shows No
-Response says **Not responding**. Sorted by **Needs attention first**, they come first.
+A name or **Open** opens an opaque inspector over the list, without resizing it. On phones it slides up from the bottom.
+The grouped tabs show **Overview** (state and primary action), **Accessories** (live accessories and their settings),
+**Settings** (the existing validated editor and management actions), and **Events** (recent plugin log entries).
+Escape, the close button, or a swipe on the phone's grabber closes it and returns focus to the row.
 
-- **A card's ⋯** opens the plugin's page, its Settings or config.json, pauses or resumes it, downloads its
-  [Diagnostics](#diagnostics), and removes it; its name
-  opens its page (its Settings when it has none). Removing a plugin that kept sign-ins or tokens in the vault offers to delete them too (off by default: left
-  there, adding the plugin again finds them; they are the entries its namespace owns, not those a person made).
+![Plugin inspector on desktop](images/ui/plugins-inspector.png)
+![Plugin drawer on a phone](images/ui/plugins-drawer.png)
+
+A plugin whose account Needs Authorization says **Needs sign-in**, **Needs pairing** or **Needs keys**.
+Its Overview offers **Set up** or **Set up again**, using the existing Setup flow. One whose every accessory shows
+No Response says **Not responding** and its Events tab provides the log.
+
+- **Settings** also offers config.json, pause or resume, [Diagnostics](#diagnostics), and removal.
+  Removing a plugin that kept sign-ins or tokens in the vault offers to delete them too (off by default).
 - **Pause** (also at the top right of a plugin's page) stops the plugin's calls to its devices, for when an app sharing
   the account would be signed out by them. Its accessories stay in the Home app, showing No Response, and the page
   offers **Resume**.

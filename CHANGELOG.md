@@ -6,7 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **CI**: drain complete test output before exiting, preserving large failure diagnostics and removing the final fixed wait; distinguish build caches by architecture and toolchain/platform identity.
+- **Builds**: initialize the scene artwork and light-show catalogues through typed private factories, reducing repeated module type checking while preserving their contents and lazy initialization.
+
+- **Development commands**: `bin/dev build` builds the bridge and its dependencies (`--all` retains the full
+  product build), and `bin/dev test` and `check` build tests once and use a bounded parallel runner on macOS.
+  The toolchain's default build engine is retained. Embedding unchanged assets preserves generated files and
+  their timestamps, batches all assets into one Swift invocation, and includes both Shelly schemas and prompts.
+  Test bundles run longest first using measured durations, and CI notices completed tests sooner.
+  `bin/dev test Govee` builds/runs just that macOS test target; `--target` selects a bundle explicitly,
+  and `--skip-build` reruns existing binaries. Timing fixtures avoid random fingerprints and debounce races.
+  Full macOS runs use sixteen bundles with four tests each and reuse validated binary-directory lookups.
+  Parser comparisons avoid formatting overhead, and the camera claim stress test avoids repeated host
+  interface enumeration while retaining all rounds and separate routing tests.
+  macOS debug builds use two compiler batches per target to reduce clean-build time;
+  `HOMESWIFT_BUILD_BATCHES=0` restores automatic batching, and release/Linux defaults are unchanged.
+
 ### Fixed
+
+- **Imou**: the siren switch's reset remains off when its timer finishes before the write returns.
+
+- **Web UI setup**: saves the first account's Home Language before returning, so an immediate config import
+  does not race that save and fail with “config.json changed”.
+- **Reolink**: a momentary switch's reset remains off even when it finishes before its write returns.
 
 - **Matter Devices**: adding a Thread device on a host that has no route to its Thread network (a Linux kernel that
   does not learn the border routers' routes, as on a Synology NAS) now says so and names the network's prefix, instead

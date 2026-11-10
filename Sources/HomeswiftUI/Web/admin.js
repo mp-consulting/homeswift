@@ -838,7 +838,7 @@
       el("div", { class: "backup-actions-grid" }, instance, restoreCard(backups)),
       sectionHead(t("Kept backups"), backups.backups.length ? t("{n}, newest first", { n: backups.backups.length }) : ""),
       backups.backups.length ? el("div", { class: "card rows" }, backups.backups.map(backupRow))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("archive")), el("p", { class: "muted", text: t("None yet: the daily backup and Back up now keep them here.") })),
+        : el("div", { class: "card empty compact backup-empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("archive")), el("p", { class: "muted", text: t("None yet: the daily backup and Back up now keep them here.") })),
       sectionHead(t("config.json backups"), tn("The file before its last save", "The file before each of its last {n} saves", configBackups.kept)),
       configBackups.backups.length ? el("div", { class: "card rows" }, configBackups.backups.map(configBackupRow))
         : el("div", { class: "card empty" }, el("p", { class: "muted", text: t("None yet: each save of config.json keeps the file it replaces.") })));
@@ -1238,8 +1238,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   async function auditPage(main) {
     const params = new URLSearchParams(location.search);
-    const tool = el("input", { type: "search", class: "search", placeholder: t("Tool or route"), value: params.get("tool") ?? "", "aria-label": t("Filter by tool") });
-    const client = el("input", { type: "search", class: "search", placeholder: t("Client or user"), value: params.get("client") ?? "", "aria-label": t("Filter by client") });
+    const scope = el("select", { "aria-label": t("Search scope") },
+      el("option", { value: "tool", text: t("Tool or route") }),
+      el("option", { value: "client", text: t("Client or user") }));
+    scope.value = params.has("client") ? "client" : "tool";
+    const search = el("input", { type: "search", class: "search", placeholder: t("Search"),
+      value: params.get(scope.value) ?? "", "aria-label": t("Search") });
     const select = (choices, value, label) => {
       const control = el("button", { class: "audit-picker", type: "button", "aria-label": label, "aria-haspopup": "menu" });
       control.value = value;
@@ -1260,8 +1264,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     async function load() {
       const own = ++loads;
       const query = new URLSearchParams();
-      if (tool.value.trim()) query.set("tool", tool.value.trim());
-      if (client.value.trim()) query.set("client", client.value.trim());
+      if (search.value.trim()) query.set(scope.value, search.value.trim());
       if (outcome.value) query.set("outcome", outcome.value);
       query.set("since", since.value);
       window.history.replaceState(null, "", `/settings/audit?${query}`);
@@ -1289,8 +1292,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("shield")), el("p", { class: "muted", text: t("Nothing in this range matches.") })));
     }
     let typing = null;
-    for (const input of [tool, client]) input.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
-    for (const choice of [outcome, since]) choice.addEventListener("change", () => { clearTimeout(typing); typing = setTimeout(load, 0); });
+    for (const input of [search]) input.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
+    for (const choice of [outcome, since, scope]) choice.addEventListener("change", () => { clearTimeout(typing); typing = setTimeout(load, 0); });
     app().show(main,
       app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
       subnav("audit"),
@@ -1298,10 +1301,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "audit-filter-grid" },
           el("label", {}, el("span", { text: t("Time range") }), since),
           el("label", {}, el("span", { text: t("Outcome") }), outcome),
-          el("label", {}, el("span", { text: t("Tool or route") }), tool),
-          el("label", {}, el("span", { text: t("Client or user") }), client)),
+          el("div", { class: "audit-search" },
+            el("label", {}, el("span", { class: "visually-hidden", text: t("Search scope") }), scope),
+            el("label", {}, el("span", { class: "visually-hidden", text: t("Search") }), search))),
         el("div", { class: "audit-filter-footer" }, count,
-          HomeswiftCommon.clearFilters([[tool, ""], [client, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) }))),
+          HomeswiftCommon.clearFilters([[search, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) }))),
       body);
     await load();
   }

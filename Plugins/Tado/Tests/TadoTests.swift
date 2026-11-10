@@ -136,7 +136,7 @@ final class TestEnvironment: Sendable {
         return ["homes": try! JSONValue.array([.object(home)]).anyValue()]
     }
 
-    func start(settings: [String: Any], dailyLimit: Int? = nil) async throws -> PluginHost {
+    func start(settings: [String: Any], dailyLimit: Int? = nil, writeSleep: (@Sendable (Duration) async throws -> Void)? = nil) async throws -> PluginHost {
         var registry = PluginRegistry()
         registry.register(platform: TadoPlugin.platform, name: TadoPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(TadoPlugin.Configuration.self, from: json)
@@ -145,6 +145,7 @@ final class TestEnvironment: Sendable {
                 if delay > .seconds(30) { try await Task.sleep(for: .seconds(3600)) }
             })
             dependencies.home.writeDelay = .milliseconds(20)
+            if let writeSleep { dependencies.home.writeSleep = writeSleep }
             dependencies.home.resetDelay = .milliseconds(10)
             dependencies.home.delayUnit = .milliseconds(10)
             let plugin = TadoPlugin(configuration: configuration, context: context, dependencies: dependencies)
@@ -330,7 +331,12 @@ struct TadoPluginTests {
     @Test func zonesBecomeAccessoriesWithTheSpecsStates() async throws {
         let environment = TestEnvironment()
         let host = try await environment.start(settings: TestEnvironment.home(zones: [livingRoom, kitchen, bathroom, office]))
-        await expectEventually({ accessory(host, "My Home Office AC")?.service(.heaterCooler)?[.active]?.value.intValue == 1 })
+        await expectEventually({ accessory(host, "My Home Office AC")?.service(.heaterCooler)?[.coolingThresholdTemperature]?.value.doubleValue == 22 })
+        let plugin = try #require(environment.plugin)
+        let home = try #require(await plugin.homes.first)
+        // Reading the actor after seeing a value waits for the whole synchronous
+        // zone update to finish, including zones later in dictionary iteration.
+        #expect(await home.zones.count == 4)
         let living = try #require(accessory(host, "My Home Living Room Heater"))
         let thermostat = try #require(living.service(.thermostat))
         #expect(thermostat.subtype == "zone-thermostat" && thermostat.isPrimary)
@@ -368,11 +374,17 @@ struct TadoPluginTests {
 
     @Test func temperatureWritesAreCoalescedAndSendTheirOverlay() async throws {
         let environment = TestEnvironment()
-        let host = try await environment.start(settings: TestEnvironment.home(zones: [livingRoom]))
+        let released = NIOLockedValueBox(false)
+        let host = try await environment.start(settings: TestEnvironment.home(zones: [livingRoom]), writeSleep: { _ in
+            // Advance the debounce only after all writes, independent of runner load.
+            while !released.withLockedValue({ $0 }) { try await Task.sleep(for: .milliseconds(1)) }
+        })
         await expectEventually({ accessory(host, "My Home Living Room Heater")?.service(.thermostat)?[.currentTemperature]?.value.doubleValue == 19.6 })
         let thermostat = try #require(accessory(host, "My Home Living Room Heater")?.service(.thermostat))
         let target = try #require(thermostat[.targetTemperature])
         for value in [20.0, 21.5, 22.5] { try await write(target, .double(value)) }
+        #expect(environment.tado.sent("PUT", "/api/v2/homes/123456/zones/1/overlay").isEmpty)
+        released.withLockedValue { $0 = true }
         await expectEventually({ environment.tado.sent("PUT", "/api/v2/homes/123456/zones/1/overlay").count == 1 })
         let body = environment.tado.sent("PUT", "/api/v2/homes/123456/zones/1/overlay").first?.body
         #expect(body == ["setting": ["type": "HEATING", "power": "ON", "temperature": ["celsius": 22.5]], "termination": ["type": "MANUAL"]])

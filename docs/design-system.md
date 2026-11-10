@@ -145,3 +145,33 @@ node Scripts/design-system-check.mjs /tmp/homeswift-design-shots
 The checker visits every widget and characteristic story, exercises controls and state changes, checks mobile
 layout and languages under the public host’s CSP and frame restrictions, and verifies that no demo API request reaches the server. CI and the Pages deployment
 run the sync check: a stale catalog or runtime copy stops deployment.
+
+### Plugin management
+
+Plugin instances use compact rows with a stable icon column, flexible name, status/count group and action.
+At intermediate widths, metadata moves below the name while the action keeps its own column. Built-in services
+are a disclosure below the main list; grouped status filters expose `aria-pressed` and use two rows on phones.
+
+The plugin inspector overlays the unchanged page. Its background is `--material-solid` in both themes, never
+transparent. Desktop uses a full-height side sheet; phones use the shared slide-up sheet and grabber. The close
+button is 40×40px at every width. Grouped tabs support arrow keys, Home and End, with one tab stop. Phone tabs
+place their icons over their labels so all four remain visible at 375px. Actions have 20px top spacing and 10px gaps.
+Accessory rows explicitly size trailing SVGs to 18px to prevent intrinsic SVG dimensions stretching the row.
+Recent events use a fixed timestamp column and a connected timeline, with full logs available in the toolbar.
+
+Examples: [desktop inspector](images/ui/plugins-inspector.png), [phone drawer](images/ui/plugins-drawer.png),
+[accessories](images/ui/plugins-accessories.png), and [events](images/ui/plugins-events.png).
+
+Select controls inside sheets use the shared menu too, hosted in the dialog’s layer. Native values, validation and change events remain intact. See the [catalog sort menu](images/ui/plugins-catalog-sort.png).
+
+Plugin management actions use full-width grouped rows with 18px icons and 52px minimum targets. Removal is separated by 22px and retains its danger color. Overview keeps its compact primary actions.
+
+Setup account rows stay flat inside their plugin section: aligned with its content and separated by the list rule, without a second rounded or tinted card.
+
+At intermediate widths (641–1179px), log filters pair a two-row time-range group with the source selector. This avoids an empty full-width band; wide screens retain the filter sidebar and phones retain their compact grid.
+
+Plugins follows the Logs filter-panel pattern: segmented status choices, search and Clear filters share a padded toolbar inside the list card, separated from its rows by a hairline.
+
+Empty-state actions following explanatory text use `--space-16` above the button. Plugin rows use separate aligned status and count columns above phone width, with 12px vertical padding; inactive Clear filters stays hidden.
+
+Logbook follows the integrated Plugins card: a segmented time range, existing source filters, a quiet entry-count strip, and flat dated list sections. Clear filters is shown only while a selection differs from the default.

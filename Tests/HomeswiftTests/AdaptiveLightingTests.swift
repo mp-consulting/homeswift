@@ -129,8 +129,15 @@ struct AdaptiveLightingTests {
         let clock = Clock()
         let controller = Self.controller(lightbulb, mode: .automatic, clock: clock)
         clock.now = 1_699_999_400_000 + 600_000 + 400 * 60_000
+        let ended = AsyncStream<Void>.makeStream()
+        controller.setupStateChangeDelegate { ended.continuation.yield(()) }
         try controller.deserialize(Data(Self.serialized.utf8))
-        await controller.scheduleNextUpdate(dryRun: false)
+        // Deserialization already enqueues the automatic step. Wait for its end
+        // instead of racing a second, direct step against the next restored curve.
+        var events = ended.stream.makeAsyncIterator()
+        _ = await events.next()
+        ended.continuation.finish()
+        controller.setupStateChangeDelegate(nil)
         #expect(!controller.isAdaptiveLightingActive)
 
         clock.now = 1_699_999_400_000 + 600_000 + 30 * 60_000

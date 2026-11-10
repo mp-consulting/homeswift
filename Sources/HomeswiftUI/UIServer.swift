@@ -600,8 +600,9 @@ public final class UIServer: Sendable {
             logger.info("Web UI account created", metadata: ["username": "\(username)"])
             // The first account's language becomes the Home Language, unless config.json names one.
             let language = Self.language(request).map(HomeLanguage.resolve)
-            let catalog = catalog
-            Task { await catalog.adoptHomeLanguage(language) }
+            // Finish the initial config write before the browser can save/import
+            // its next settings; otherwise that write can race this one.
+            await catalog.adoptHomeLanguage(language)
             return .json(["username": .string(username)], headers: ["Set-Cookie": cookie(sessions.create(username: username), secure: request.secure)])
         case (.POST, "login"):
             if let refused = refuseCrossSite(request) { return refused }
