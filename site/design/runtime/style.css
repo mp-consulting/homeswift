@@ -5750,6 +5750,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .insight > div > span { font-size: var(--text-base); line-height: 1.35; }
 .energy-log-kinds { display: flex; flex-wrap: wrap; width: fit-content; max-width: 100%; margin-bottom: var(--space-10); }
 .energy-log { display: grid; gap: var(--space-14); }
+.energy-log-actions { justify-content: center; }
 .energy-log-day > strong { display: block; font-size: var(--text-sm); margin-bottom: var(--space-4); }
 .energy-log-day ol { list-style: none; margin: 0; padding: 0; }
 .energy-log-row { display: grid; grid-template-columns: 3.4rem 10px minmax(0, 1fr); align-items: start; gap: var(--space-10); padding: var(--space-8) 0; border-top: 1px solid var(--line); }

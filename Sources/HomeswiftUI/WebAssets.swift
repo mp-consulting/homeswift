@@ -4577,11 +4577,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     insights.body.append(insightList);
     const log = card(t("Energy log"), t("What happened, from your meters, batteries and the grid"), "history", "violet");
     const logKinds = energyLogKinds();
-    let logKind = "all", lastEvents = [];
-    const kindControl = segmented(t("Kind of event"), logKinds, logKind, (id) => { logKind = id; fillLog(lastEvents); });
+    let logKind = "all", lastEvents = [], logExpanded = false;
+    const kindControl = segmented(t("Kind of event"), logKinds, logKind, (id) => { logKind = id; logExpanded = false; fillLog(lastEvents); });
     kindControl.node.classList.add("energy-log-kinds");
-    const logList = el("div", { class: "energy-log" });
+    const logList = el("div", { class: "energy-log", id: page ? "energy-overview-log" : "status-energy-log" });
+    const logToggle = el("button", { type: "button", actionIcon: "history", text: t("Show more"),
+      "aria-expanded": "false", "aria-controls": logList.id,
+      onclick: () => { logExpanded = !logExpanded; fillLog(lastEvents); } });
+    const logActions = el("div", { class: "actions energy-log-actions", hidden: true }, logToggle);
     log.body.append(kindControl.node, logList);
+    if (!page) log.body.append(logActions);
     insights.node.hidden = log.node.hidden = true;
     let storyAt = 0;
     // The section in units of its own, each a section of the Status page the edit mode moves, removes and adds back
@@ -4730,7 +4735,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // A kind with nothing in the two days offers nothing to filter by: its button goes, and the choice falls back to All.
       for (const [kind] of logKinds) kindControl.show(kind, kind === "all" || events.some((one) => one.kind === kind));
       if (logKind !== "all" && !events.some((one) => one.kind === logKind)) { logKind = "all"; kindControl.set(logKind); }
-      logList.replaceChildren(...energyLogDays(events.filter((one) => logKind === "all" || one.kind === logKind), t("Nothing of this kind in the last two days.")));
+      const matching = events.filter((one) => logKind === "all" || one.kind === logKind).sort((a, b) => b.at - a.at);
+      // Status is an overview: keep the latest five, with the full two days available on request.
+      logList.replaceChildren(...energyLogDays(!page && !logExpanded ? matching.slice(0, 5) : matching, t("Nothing of this kind in the last two days.")));
+      logActions.hidden = page || matching.length <= 5;
+      logToggle.textContent = logExpanded ? t("Show less") : t("Show more");
+      logToggle.setAttribute("aria-expanded", String(logExpanded));
     }
 
     /// One period earlier (-1) or later (1): 7 days, a month or a year. The period of today is the latest.
@@ -40938,6 +40948,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .insight > div > span { font-size: var(--text-base); line-height: 1.35; }
 .energy-log-kinds { display: flex; flex-wrap: wrap; width: fit-content; max-width: 100%; margin-bottom: var(--space-10); }
 .energy-log { display: grid; gap: var(--space-14); }
+.energy-log-actions { justify-content: center; }
 .energy-log-day > strong { display: block; font-size: var(--text-sm); margin-bottom: var(--space-4); }
 .energy-log-day ol { list-style: none; margin: 0; padding: 0; }
 .energy-log-row { display: grid; grid-template-columns: 3.4rem 10px minmax(0, 1fr); align-items: start; gap: var(--space-10); padding: var(--space-8) 0; border-top: 1px solid var(--line); }
