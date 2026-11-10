@@ -3708,4 +3708,8 @@ HomeswiftI18n.add("pt", {
   "This light has no white to come back in.": "Esta luz não tem um branco em que voltar.",
   "Keep its last": "Manter o último",
   "Its last": "O seu último",
+  "Run selected rooms": "Executar nas divisões selecionadas",
+  "Choose the rooms to include when you run this scene.": "Escolha as divisões a incluir ao executar esta cena.",
+  "Select all": "Selecionar tudo",
+  "Deselect all": "Desselecionar tudo",
 });

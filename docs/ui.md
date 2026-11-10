@@ -435,8 +435,8 @@ filter beside **Scenes from your hubs** keeps one hub's scenes when there are se
 hubs**: the scenes plugins' hubs keep (a Hue Bridge's rooms and zones, a DIRIGERA hub, the scenes picked for Govee
 lights, Apple Home's through Wingman), with their pictures or colours. A scene a hub has in several rooms shows once,
 saying in how many: Hue makes Relax, Read or Concentrate in each room, so a home of fifteen rooms has a hundred of
-them. The most widespread come first, a dozen until **Show all**. A tap opens its rooms, each with its own tile and ⋯
-menu, and **Run in every room**; its own ⋯ runs it in every room, stops it, or opens its rooms. A scene in one room
+them. The most widespread come first, a dozen until **Show all**. A tap opens a compact room list with inclusion toggles and ⋯ menus. **Select all** and **Deselect all**
+choose the rooms for **Run selected rooms**; the selection lasts for the open sheet. The grouped tile’s ⋯ runs it in every room, stops it, or opens its rooms. A scene in one room
 runs at once. The scenes in no room (Apple Home's) are small
 buttons by name under **Around the house**, and several with one name show as one with their number (×3), which opens
 each copy. A tap recalls one on its hub; Hue's say **Scene active** while the bridge says so. **Stop** puts back the
@@ -447,6 +447,11 @@ colours, following the music…) with its speed, brightness and colour. Each bra
 its lights have it (Hue's effects, Govee's library scenes, an IKEA fade for a sunrise, a SONOFF L2 strip's scenes, an
 Ambilight TV for music);
 Homeswift plays it on the others. An animated scene is active while it plays, and **Stop** puts the lights back. They are changed in their own app.
+
+![Scene room selection with inclusion toggles](images/plugins/scene-rooms.png)
+
+<img src="images/plugins/scene-rooms-phone.png" alt="Scene room selection on a phone" width="375">
+
 
 **Ideas**, folded at the foot of the page (the page head's **Ideas** opens it; it stays open while a template plays):
 the templates, the rooms that have lights as chips, and the collection by kind, each drawn with photographic
