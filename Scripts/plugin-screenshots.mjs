@@ -261,7 +261,13 @@ const energyDemo = `(() => {
   // on their own inside it, the grid and the solar apart; what the home used is the week's home, so Unmetered is the rest.
   const consumption = () => {
     const bars = history().bars, sum = (key) => bars.reduce((total, bar) => total + bar[key], 0), round = (x) => Math.round(x * 100) / 100;
-    const meter = (accessory, name, consumption, role = null, returned = null) => ({ accessory, meter: "main", name, consumption: round(consumption), returned: returned == null ? null : round(returned), role, bars: [] });
+    const meter = (accessory, name, consumption, role = null, returned = null) => {
+      const useKey = role === "grid" ? "gridImport" : "home", returnKey = role === "solar" ? "solar" : "gridExport";
+      return { accessory, meter: "main", name, consumption: round(consumption), returned: returned == null ? null : round(returned), role,
+        bars: bars.map((bar) => ({ date: bar.date, consumption: round(consumption * bar[useKey] / (sum(useKey) || 1)),
+          returned: returned == null ? null : round(returned * bar[returnKey] / (sum(returnKey) || 1)),
+          hours: bar.recordedHours, recordedHours: bar.recordedHours })) };
+    };
     const home = sum("home");
     return { step: "day", currency: null, meters: [
       meter("demo:home", "Main meter", home, "home"), meter("demo:grid", "Grid connection", sum("gridImport"), "grid", sum("gridExport")),

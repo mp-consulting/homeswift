@@ -4513,10 +4513,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let earliest = null, historyAsked = 0;
     // What each Meter measured in the period (the bridge's own record of every plug, relay and meter), the most first.
     const consumers = card(t("Consumption by device"), t("What each meter measured in this period, the most first"), "outlet", "orange");
-    const consumerList = el("ol", { class: "consumers" });
-    const consumersMore = el("button", { type: "button", class: "link consumers-more", hidden: true });
-    consumers.body.append(consumerList, consumersMore);
+    const consumerList = el("ol", { class: "consumers", id: page ? "energy-overview-consumers" : "status-consumers" });
+    const consumersMore = el("button", { type: "button", actionIcon: "history", "aria-expanded": "false", "aria-controls": consumerList.id });
+    const consumerActions = el("div", { class: "actions consumer-actions", hidden: true }, consumersMore);
+    const consumerLoading = el("div", { class: "consumer-loading", role: "status", "aria-label": t("Loading…"), hidden: true },
+      el("span", { class: "muted", text: t("Loading…") }),
+      ...Array.from({ length: 5 }, () => el("div", { class: "consumer-skeleton", "aria-hidden": "true" }, el("i"), el("i"))));
+    consumers.body.append(consumerLoading, consumerList, consumerActions);
+    const setConsumersLoading = (loading) => {
+      consumerLoading.hidden = !loading;
+      consumers.node.classList.toggle("consumers-loading", loading);
+      consumerList.setAttribute("aria-busy", String(loading));
+    };
     let consumersAll = false, lastConsumption = null, hasMeters = false, hasRoles = false;
+    const consumerIcons = new Map();
+    let consumerIconsRequest;
     // Gas and water (GLOSSARY.md, "Meter"): the m³ their Meters measured, by day or month, a colour per Meter, with the
     // cost at their own Tariff. Shown when a plugin declares such a Meter.
     const utilities = [
@@ -4731,11 +4742,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     async function loadHistory(poll = false) {
       clearTimeout(importPoll);
       const asked = ++historyAsked;
+      if (!poll) setConsumersLoading(true);
       keepAddress();
       let history;
       try {
         history = await api(`/api/metrics/energy/history?${new URLSearchParams({ period: view, date: isoDay(anchor ?? new Date()), timeZone })}`);
       } catch (e) {
+        if (asked !== historyAsked) return;
+        setConsumersLoading(false);
         days.detail.textContent = e.message;
         return;
       }
@@ -4743,15 +4757,25 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       fillHistory(history);
       fillImports(history.imports ?? []);
       if (!poll || !(history.imports ?? []).some((one) => one.state === "running")) loadConsumers(asked);
+      else setConsumersLoading(false);
     }
 
     async function loadConsumers(asked) {
+      setConsumersLoading(true);
       let found;
       try {
-        found = await api(`/api/metrics/consumption?${new URLSearchParams({ period: view, date: isoDay(anchor ?? new Date()), timeZone })}`);
+        consumerIconsRequest ??= api("/api/accessories").then((accessories) => {
+          for (const accessory of accessories) consumerIcons.set(accessory.id, HomeswiftWidgets.accessoryIcon(accessory) ?? "accessory");
+        }).catch(() => { consumerIconsRequest = null; });
+        [found] = await Promise.all([
+          api(`/api/metrics/consumption?${new URLSearchParams({ period: view, date: isoDay(anchor ?? new Date()), timeZone })}`),
+          consumerIconsRequest,
+        ]);
       } catch (e) {
         if (asked === historyAsked) consumers.detail.textContent = e.message;
         return;
+      } finally {
+        if (asked === historyAsked) setConsumersLoading(false);
       }
       if (asked !== historyAsked) return;
       hasMeters = found.meters.length > 0;
@@ -4761,8 +4785,68 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       showSection();
     }
 
-    /// A row per meter: its device (and which of its meters), a bar as long as its share of the most any used, and its
-    /// kWh, with what it returned when it did. A row opens the device's history. The first eight, then the rest asked for.
+    // Subtract matching dates only; incomplete input remains a gap rather than zero.
+    function consumerUnmeteredBars(wholes, devices) {
+    const unmeteredSeries = [...wholes, ...devices].map((one) => new Map((one.bars ?? []).map((bar) => [bar.date, bar.consumption])));
+    return (wholes[0]?.bars ?? []).map((bar) => {
+      const values = unmeteredSeries.map((series) => series.get(bar.date));
+      return { date: bar.date, consumption: values.every(Number.isFinite)
+        ? Math.max(0, values.slice(0, wholes.length).reduce((a, b) => a + b, 0) - values.slice(wholes.length).reduce((a, b) => a + b, 0)) : null };
+    });
+    }
+
+    // Each meter's history uses its own scale; gaps remain gaps, including in the filled area.
+    function consumerSparkline(one, field) {
+      const tone = roles.find((role) => role.id === one.role)?.tone ?? 1;
+      const box = el("span", { class: "consumer-sparkline", style: `--consumer-tone: var(--series-${tone})`, "aria-hidden": "true" });
+      const values = (one.bars ?? []).map((bar) => Number.isFinite(bar[field]) ? bar[field] : null);
+      const known = values.filter((value) => value != null);
+      if (!known.length) return box;
+      const make = (tag, attrs) => {
+        const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+        for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+        return node;
+      };
+      const svg = make("svg", { viewBox: "0 0 160 32", preserveAspectRatio: "none" });
+      const max = Math.max(...known, 0.001);
+      let path = "", area = "", connected = false, lastX = 0;
+      const closeArea = () => { if (connected) area += `L${lastX},29 Z `; connected = false; };
+      values.forEach((value, index) => {
+        if (value == null) { closeArea(); return; }
+        const x = values.length === 1 ? 80 : 3 + index / (values.length - 1) * 154;
+        const y = 29 - Math.max(0, value) / max * 26;
+        path += `${connected ? "L" : "M"}${x},${y} `;
+        area += connected ? `L${x},${y} ` : `M${x},29 L${x},${y} `;
+        lastX = x;
+        connected = true;
+        svg.append(make("circle", { cx: x, cy: y, r: 1.5 }));
+      });
+      closeArea();
+      svg.prepend(make("path", { class: "spark-area", d: area }),
+        make("path", { class: "spark-baseline", d: "M3,29 H157" }), make("path", { d: path }));
+      box.append(svg);
+      return box;
+    }
+
+    // Measure folded rows too. The indent is shared across the phone and desktop layouts.
+    function sizeConsumerColumns(rows) {
+      const measure = document.createElement("canvas").getContext("2d");
+      if (!measure) return;
+      const textWidth = (node) => {
+        measure.font = getComputedStyle(node).font;
+        return measure.measureText(node.textContent).width;
+      };
+      const columnWidth = (selector) => Math.ceil(Math.max(0, ...rows.filter((item) => !item.querySelector(".unmeasured")).map((item) => {
+        const column = item.querySelector(selector);
+        const labels = selector === ".consumer-name" ? [column.firstElementChild] : [...column.children];
+        const indent = selector === ".consumer-name" && item.querySelector(".nested") ? 32 : 0;
+        return indent + Math.max(0, ...labels.map(textWidth)) + 2;
+      })));
+      consumerList.style.setProperty("--consumer-name-width", `${columnWidth(".consumer-name")}px`);
+      consumerList.style.setProperty("--consumer-value-width", `${columnWidth(".consumer-value")}px`);
+    }
+
+    /// Each meter's history and totals. Show five rows initially, counting every kind of meter.
     function fillConsumers(found) {
       lastConsumption = found;
       const meters = found.meters;
@@ -4782,8 +4866,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const sum = (list, field = "consumption") => list.reduce((total, one) => total + (one[field] ?? 0), 0);
       // What no device measures: the home less its devices, never below zero.
       const unmetered = whole != null && devices.length ? Math.max(0, whole - sum(devices)) : null;
-      const scale = whole ?? Math.max(0, ...devices.map((one) => one.consumption ?? 0));
-      const share = (value) => scale > 0 ? Math.max(value / scale * 100, value > 0 ? 1 : 0) : 0;
+      const unmeteredBars = consumerUnmeteredBars(wholes, devices);
       // A home meter that is not the whole home (one with no figures for the period) measures the home's use.
       const roleNames = { home: t("Home use"), solar: t("Solar"), battery: t("Battery") };
       // Inside the whole home, as a screen reader hears a nested row: the indent says it only to the eye.
@@ -4802,14 +4885,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const known = measured(one);
         const note = known ? [cost, returned].filter(Boolean).join(" · ") || null : t("Not measured");
         const value = known ? formatKWh(figure) : "—";
-        return el("li", { class: first ? (known ? "sources-start" : "unmeasured-start") : null }, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}${known ? "" : " unmeasured"}`, actionIcon: "chart",
+        return el("li", { class: first ? (known ? "sources-start" : "unmeasured-start") : "" }, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}${known ? "" : " unmeasured"}`, actionIcon: "chart",
           "aria-label": [t("{name}: {value}", { name, value: known ? value : t("Not measured") }), caption, nested ? inWhole : null, known ? cost : null, returned].filter(Boolean).join(", "),
           onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) },
+          nested ? el("span", { class: "consumer-type", "aria-hidden": "true" }, HomeswiftWidgets.controls.icon(consumerIcons.get(one.accessory) ?? "accessory")) : null,
           el("span", { class: "consumer-name" }, el("span", { text: name }), caption ? el("small", { text: caption }) : null),
-          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(known ? figure : 0)}%` })),
-          el("span", { class: "consumer-value" }, el("b", { text: value }), note ? el("small", { text: note }) : null)));
+          known ? consumerSparkline(one, solar && one.returned > 0 ? "returned" : "consumption")
+            : el("span", { class: "consumer-sparkline consumer-no-data" }, el("span", { text: t("Not measured") })),
+          el("span", { class: "consumer-value" }, el("b", { text: value }), known && note ? el("small", { text: note }) : null)));
       };
-      const shown = consumersAll ? devices : devices.slice(0, 8);
+      const shown = devices;
       // Several meters measure the whole home (a system of two units): what is inside it is nested under a line of its
       // own, or the indent would read as the last of them holding the devices. Not a row of the list: each nested row
       // says it is inside the whole home itself.
@@ -4825,17 +4910,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // The rest of the home: no history of its own to open.
         unmetered != null ? el("li", {}, el("div", { class: "consumer nested rest", role: "group",
           "aria-label": [t("{name}: {value}", { name: t("Unmetered"), value: formatKWh(unmetered) }), inWhole].join(", ") },
-          el("span", { class: "consumer-name" }, el("span", { text: t("Unmetered") }), el("small", { text: t("What no meter measures on its own") })),
-          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(unmetered)}%` })),
+          el("span", { class: "consumer-name" }, el("span", { text: t("Unmetered") })),
+          el("span", { class: "consumer-chart-note" }, consumerSparkline({ bars: unmeteredBars }, "consumption"),
+            el("small", { text: t("What no meter measures on its own") })),
           el("span", { class: "consumer-value" }, el("b", { text: formatKWh(unmetered) })),
           el("span", { class: "consumer-spacer", "aria-hidden": "true" }))) : null,
         ...sources.map((one, index) => row(one, false, index === 0 && before > 0)),
         // The meters with no figures for the period, together at the end.
         ...unmeasured.map((one, index) => row(one, false, index === 0 && before + sources.length > 0))].filter(Boolean)));
-      // The measured devices are the ones counted, and kept to eight.
-      consumersMore.hidden = !withFigures.length || devices.length <= 8;
-      consumersMore.replaceChildren(HomeswiftCommon.icon(consumersAll ? "up" : "down"),
-        el("span", { text: consumersAll ? t("Show fewer") : t("Show all {count}", { count: devices.length }) }));
+      // Bound the whole card, including home meters, sources and meters without readings.
+      // Totals above still use every meter, even when its row is folded away.
+      const rows = [...consumerList.children].filter((item) => item.querySelector(".consumer"));
+      sizeConsumerColumns(rows);
+      rows.forEach((item, index) => { item.hidden = !consumersAll && index >= 5; });
+      if (inside) inside.hidden = inside.nextElementSibling?.hidden ?? true;
+      consumerActions.hidden = rows.length <= 5;
+      consumersMore.textContent = consumersAll ? t("Show less") : t("Show more");
+      consumersMore.setAttribute("aria-expanded", String(consumersAll));
       // The card's figure and cost: the whole home's when a meter measures it, else the devices' together; nothing
       // when only solar or batteries measured (they are no one's use).
       const counted = wholes.length ? wholes : devices;
@@ -36669,69 +36760,78 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   .energy-tile .energy-share-keys { display: none; }
   .where-map { height: 200px; }
 }
-/* The consumption by device: a row per meter, its name, a bar of its share of the most any used, and its kWh. The row
-   opens the device's history. */
+/* Consumption history, with aligned placeholders for meters without readings. */
 .consumers { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.consumer.action-with-icon, .consumer.rest { width: 100%; display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr) 9.5rem auto; align-items: center; gap: var(--space-12);
-  padding: var(--space-8) var(--space-10); border: 0; border-radius: var(--radius-sm); background: none; box-shadow: none; color: inherit; font: inherit; text-align: left;
-  cursor: pointer; min-height: 40px; }
+.consumer.action-with-icon, .consumer.rest { width: 100%; display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr) 8rem 16px; align-items: center; gap: 2px var(--space-12); padding: var(--space-6) var(--space-16); border: 0; border-radius: var(--radius-sm); background: none; box-shadow: none; color: inherit; font: inherit; text-align: left; cursor: pointer; min-height: 40px; }
 .consumer:hover { background: var(--material-thin); }
 .consumer:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-/* Its chart icon last, quiet: the row opens the history. */
-.consumer.action-with-icon::before { order: 4; color: var(--muted); }
+.consumer.action-with-icon::before, .consumer-spacer { order: 4; color: var(--muted); }
 .consumer-name { display: grid; min-width: 0; }
-.consumer-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.consumer-name > small { font-size: var(--text-2xs); color: var(--muted); }
-/* A device inside the whole home: its name set in under the home's, with a quiet rule down its left; the bars stay in
-   one column, so the shares read against the home's. */
-.consumer.nested { position: relative; }
-.consumer.nested .consumer-name { padding-left: var(--space-16); }
-.consumer.nested::after { content: ""; position: absolute; left: calc(var(--space-10) + 3px); top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: var(--line); }
-/* Several meters measure the whole home: a line naming what the rows under it are inside, so the rule down their left
-   reads as the group's and not as the last home meter's. */
-.consumers-inside { padding: var(--space-6) var(--space-10) 0 var(--space-10); font-size: var(--text-2xs); color: var(--muted); }
-/* What no meter measures: the rest of the home, muted, no history to open. */
-.consumer.rest { cursor: default; color: var(--muted); }
-.consumer.rest:hover { background: none; }
-.consumer.rest .consumer-track i { background: var(--muted); opacity: 0.45; }
-.consumer-spacer { order: 4; width: 16px; }
-.consumer-track { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
-.consumer-track i { display: block; height: 100%; border-radius: 4px; background: var(--series-1); transition: width var(--normal) var(--ease-out); }
+.consumer-name > span { overflow-wrap: anywhere; }
+.consumer-name > small { font-size: var(--text-xs); color: var(--muted); }
 .consumer-value { display: grid; justify-items: end; font-variant-numeric: tabular-nums; }
 .consumer-value b { font-weight: var(--weight-semibold); white-space: nowrap; }
-/* The value column one width on every row, so the bars line up; a long note (a cost and what was returned) wraps. */
-.consumer-value small { font-size: var(--text-2xs); color: var(--muted); text-align: end; }
-.consumers-more { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-6); }
-.consumers-more svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-/* The sources apart from the home (the grid, solar, batteries): a rule above the first. */
-.consumers > li.sources-start, .consumers > li.unmeasured-start { margin-top: var(--space-6); padding-top: var(--space-8); border-top: 1px solid var(--line); }
-/* The meters with nothing for the period, together at the end: muted, still opening their history. */
+.consumer-value small { color: var(--muted); font-size: var(--text-xs); }
+.consumer.nested .consumer-name { padding-left: 32px; }
+.consumer.nested { position: relative; }
+.consumer-type { position: absolute; left: 5px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: var(--material-solid); color: var(--muted); }
+.consumer-type svg { width: 14px; height: 14px; }
+.consumers > li:has(.consumer-type)::after { display: none; }
+.consumers > li:has(> .consumer.nested) { position: relative; --consumer-guide-left: 32px; }
+.consumers > li:has(> .consumer.nested)::before { content: ""; position: absolute; left: var(--consumer-guide-left); top: 0; bottom: 0; width: 2px; background: var(--line); pointer-events: none; }
+.consumers > li:has(> .consumer.nested):has(+ li:not([hidden]) > .consumer.nested)::before { bottom: -2px; }
+.consumers > li:has(> .consumer.nested)::after { content: ""; position: absolute; left: calc(var(--consumer-guide-left) - 2px); top: calc(50% - 3px); width: 6px; height: 6px; border-radius: 50%; background: var(--muted); pointer-events: none; }
+.consumers-inside { padding: var(--space-6) var(--space-16) 0; font-size: var(--text-xs); color: var(--muted); }
+.consumer.rest { cursor: default; color: var(--muted); }
+.consumer.rest:hover { background: none; }
+.consumer-chart-note { display: grid; gap: 2px; min-width: 0; }
+.consumer-chart-note > small { color: var(--muted); font-size: var(--text-xs); }
+.consumer-actions { margin-top: var(--space-8); justify-content: center; }
+.consumers > li.sources-start, .consumers > li.unmeasured-start { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--line); }
 .consumer.unmeasured, .consumer.unmeasured .consumer-value b { color: var(--muted); font-weight: inherit; }
-/* No bar for them: an empty track would read as nothing used. */
-.consumer.unmeasured .consumer-track { visibility: hidden; }
+.consumer-sparkline { display: block; width: 100%; height: 32px; min-width: 0; color: var(--consumer-tone, var(--series-1)); }
+.consumer-sparkline svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.consumer-sparkline path { fill: none; stroke: currentColor; stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
+.consumer-sparkline .spark-area { fill: currentColor; fill-opacity: 0.12; stroke: none; }
+.consumer-sparkline .spark-baseline { stroke: var(--line); stroke-width: 1; }
+.consumer-sparkline circle { fill: currentColor; }
+.consumer.nested .consumer-sparkline { color: color-mix(in srgb, var(--consumer-tone, var(--series-1)) 65%, var(--material-solid)); }
+.consumer.rest .consumer-sparkline { color: var(--muted); }
+@media (min-width: 641px) {
+  .consumers { grid-template-columns: min(30%, var(--consumer-name-width, 11rem)) minmax(0, 1fr) min(8rem, var(--consumer-value-width, 8rem)) 16px 10px; column-gap: var(--space-8); padding-inline: var(--space-10); }
+  .consumers > li { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; }
+  .consumers .consumer { grid-column: 1 / -1; grid-template-columns: subgrid; padding-inline: 0; }
+  .consumers > li:has(> .consumer.nested) { --consumer-guide-left: 16px; }
+  .consumers .consumer::before, .consumers .consumer-spacer { grid-column: 4; }
+  .consumers-inside > span { grid-column: 1 / -1; }
+}
 @media (max-width: 640px) {
-  /* A phone: the name and its figure on the first line, its role and cost under them, the bar across the whole row
-     under both, so a name keeps its width and the bars still read against one another. */
-  .consumer.action-with-icon, .consumer.rest { grid-template-columns: auto minmax(0, 1fr) auto 16px;
-    grid-template-areas: "name name value icon" "caption note note icon" "track track track track";
-    align-items: baseline; column-gap: var(--space-12); row-gap: 2px; padding: var(--space-10) var(--space-8); }
+  .consumer.action-with-icon, .consumer.rest { grid-template-columns: auto minmax(0, 1fr) auto 16px; grid-template-areas: "name name value icon" "caption note note icon" "track track track track"; align-items: baseline; column-gap: var(--space-12); row-gap: 2px; padding: var(--space-6) var(--space-8); }
   .consumer-name, .consumer-value { display: contents; }
-  .consumer-name > span { grid-area: name; white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+  .consumer-name > span { grid-area: name; }
   .consumer-name > small { grid-area: caption; }
   .consumer-value > b { grid-area: value; justify-self: end; }
   .consumer-value > small { grid-area: note; justify-self: end; }
-  .consumer-name > small, .consumer-value > small { font-size: var(--text-xs); }
-  .consumer-track { grid-area: track; align-self: center; margin-top: var(--space-8); }
+  .consumer-sparkline { grid-area: track; height: 24px; margin-top: 2px; }
+  .consumer-chart-note { grid-area: track; }
+  .consumer-chart-note .consumer-sparkline { grid-area: auto; }
   .consumer-spacer, .consumer.action-with-icon::before { grid-area: icon; align-self: center; }
   .consumer.nested .consumer-name { padding-left: 0; }
-  .consumer.nested .consumer-name > * { padding-left: var(--space-16); }
-  /* The rule beside a device's words and its bar, both indented by it. */
-  .consumer.nested .consumer-track { margin-left: var(--space-16); }
-  .consumer.nested::after { left: calc(var(--space-8) + 3px); top: var(--space-10); bottom: var(--space-10); }
-  .consumer.unmeasured .consumer-track { display: none; }
-  /* In line with the rows' words, at their captions' size. */
-  .consumers-inside { padding: var(--space-6) var(--space-8) 0; font-size: var(--text-xs); }
+  .consumer.nested .consumer-name > * { padding-left: 32px; }
+  .consumer-type { left: 16px; }
+  .consumers > li:has(> .consumer.nested) { --consumer-guide-left: 27px; }
 }
+/* A dashed empty plot denotes missing readings, never a zero-consumption trace. */
+.consumer.unmeasured { position: relative; }
+.consumer-no-data { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: var(--text-xs); background: repeating-linear-gradient(to right, var(--line) 0 3px, transparent 3px 6px) center / 100% 1px no-repeat; }
+.consumer-no-data > span { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 2px var(--space-8); border-radius: var(--radius-sm); background: var(--material-solid); white-space: nowrap; }
+@media (max-width: 640px) { .consumer-no-data { position: relative; } }
+.consumer-loading { font-size: var(--text-xs); }
+.consumers-loading .consumers, .consumers-loading .actions, .consumers-loading .chart-figure, .consumers-loading .chart-detail { display: none; }
+.consumer-skeleton { display: grid; grid-template-columns: 2fr 1fr; align-items: center; gap: var(--space-16); height: 48px; padding-inline: var(--space-10); }
+.consumer-skeleton i { display: block; height: 12px; border-radius: var(--radius-sm); background: linear-gradient(100deg, var(--line) 25%, var(--material) 50%, var(--line) 75%); background-size: 250% 100%; animation: consumer-shimmer 1.4s ease-in-out infinite; }
+@keyframes consumer-shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+@media (prefers-reduced-motion: reduce) { .consumer-skeleton i { animation: none; } }
 /* The History sheet's note under its charts, apart from them. */
 .admin-dialog .chart-grid + p { margin-top: var(--space-14); }
 .chart-card { margin: 0; display: grid; gap: var(--space-10); align-content: start; min-width: 0; }
