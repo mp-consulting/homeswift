@@ -261,7 +261,13 @@ const energyDemo = `(() => {
   // on their own inside it, the grid and the solar apart; what the home used is the week's home, so Unmetered is the rest.
   const consumption = () => {
     const bars = history().bars, sum = (key) => bars.reduce((total, bar) => total + bar[key], 0), round = (x) => Math.round(x * 100) / 100;
-    const meter = (accessory, name, consumption, role = null, returned = null) => ({ accessory, meter: "main", name, consumption: round(consumption), returned: returned == null ? null : round(returned), role, bars: [] });
+    const meter = (accessory, name, consumption, role = null, returned = null) => {
+      const useKey = role === "grid" ? "gridImport" : "home", returnKey = role === "solar" ? "solar" : "gridExport";
+      return { accessory, meter: "main", name, consumption: round(consumption), returned: returned == null ? null : round(returned), role,
+        bars: bars.map((bar) => ({ date: bar.date, consumption: round(consumption * bar[useKey] / (sum(useKey) || 1)),
+          returned: returned == null ? null : round(returned * bar[returnKey] / (sum(returnKey) || 1)),
+          hours: bar.recordedHours, recordedHours: bar.recordedHours })) };
+    };
     const home = sum("home");
     return { step: "day", currency: null, meters: [
       meter("demo:home", "Main meter", home, "home"), meter("demo:grid", "Grid connection", sum("gridImport"), "grid", sum("gridExport")),
@@ -429,6 +435,11 @@ try {
   // Homeswift's Scenes page: the bridge's scenes, then the hubs' each once (Hue's Relax in three rooms is one tile), and
   // DIRIGERA's, in no room, under Around the house.
   await shot("scenes-from-hubs", "/scenes", { ready: ".hub-scene", tall: 1400 });
+  for (const [name, width] of [["scene-rooms", 1100], ["scene-rooms-phone", 375]]) {
+    await shot(name, "/scenes", { ready: ".scene-group", width, height: 900, mobile: width === 375,
+      element: "dialog.sheet[open]", viewport: false,
+      prepare: `document.querySelector('.scene-group[aria-haspopup="dialog"]').click(); await new Promise(done => setTimeout(done, 600));` });
+  }
   // The templates for a room's lights (docs/ui.md, docs/images/ui): the first kinds, one tried and playing, on a phone.
   const templates = join(root, "docs/images/ui");
   // Ideas is folded at the page's foot, its collection drawn when it opens: each opens it and waits for it first.
@@ -497,6 +508,10 @@ try {
   // The Energy page's Overview, on a day and a week of demonstration figures: its sections are there by default.
   await shot("energy", "/energy", { ready: '[data-widget="energy-days"] .chart-card svg', width: 1100, height: 900, element: "main", tall: 5200, before: energyDemo })
     .then(() => toStatus("energy"));
+  await shot("energy-devices", "/energy/devices", { ready: '.energy-device-row .consumer-sparkline svg', width: 1100, height: 1000, element: "main", before: energyDemo })
+    .then(() => toStatus("energy-devices"));
+  await shot("energy-devices-phone", "/energy/devices", { ready: '.energy-device-row .consumer-sparkline svg', width: 375, height: 1000, mobile: true, element: "main", before: energyDemo })
+    .then(() => toStatus("energy-devices-phone"));
   // The gas and water cards under it.
   await shot("energy-flow", "/status", { ready: '[data-widget="energy-flow"] .energy-house img', width: 1100, height: 1100, element: '[data-widget="energy-flow"] .energy-flow', before: energyDemo })
     .then(() => toStatus("energy-flow"));

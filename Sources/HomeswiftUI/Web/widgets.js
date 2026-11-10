@@ -230,6 +230,9 @@
     };
     /// A write with no value to keep (a remote's key): its failure is the caller's to show.
     ctx.send = (service, characteristic, value) => put(service, characteristic, value);
+    ctx.setAdaptive = (service, on) => options.group?.setAdaptive
+      ? options.group.setAdaptive(on)
+      : api(`/api/accessories/${encodeURIComponent(accessory.id)}/adaptive-lighting`, { method: "PUT", body: { service: serviceKey(service), on } });
     // A group's merged accessory (groups.js) writes to each of its members instead.
     const put = options.group ? (service, characteristic, value) => options.group.write(service, characteristic, value)
       : (service, characteristic, value) => api(`/api/accessories/${encodeURIComponent(accessory.id)}`, {
@@ -359,17 +362,18 @@
   /// A level: a pill whose fill (or, with `gradient`, a mark on the gradient) follows the pointer one to one;
   /// `onCommit` runs when it is let go, and after a pause in the arrow keys. `vertical`: a tall one, filled from
   /// the bottom, as the Home app's brightness.
-  function level({ label, min, max, step = 1, format, gradient, fill, thin = false, showLabel = true, vertical = false }, onCommit) {
+  function level({ label, min, max, step = 1, format, gradient, fill, thin = false, showLabel = true, vertical = false, handle = false }, onCommit) {
     const node = el("div", { class: `level${gradient ? " track" : ""}${thin ? " thin" : ""}${vertical ? " vertical" : ""}`, role: "slider", tabIndex: 0,
       "aria-label": label, "aria-valuemin": min, "aria-valuemax": max, "aria-orientation": vertical ? "vertical" : null });
     if (gradient) node.style.setProperty("--track", gradient);
     if (fill) node.style.setProperty("--fill", fill);
     const bar = gradient ? el("span", { class: "level-mark" }) : el("span", { class: "level-fill" });
+    const thumb = handle ? el("span", { class: "level-thumb", "aria-hidden": "true" }) : null;
     // Several values at once (a group's lights): the span from the lowest to the highest.
     const band = el("span", { class: "level-range" });
     const text = el("span", { class: "level-text" });
     // append() writes a null as the text "null": "" when there is no label.
-    node.append(band, bar, showLabel ? el("span", { class: "level-label", text: label }) : "", text);
+    node.append(band, bar, thumb || "", showLabel ? el("span", { class: "level-label", text: label }) : "", text);
     let value = min, dragging = false, keyTimer = null;
     function show(next) {
       node.classList.remove("ranged");
@@ -378,6 +382,7 @@
       if (gradient && vertical) bar.style.top = `calc(100% - 10px - ${share} * (100% - 20px))`;
       else if (gradient) bar.style.left = `calc(10px + ${share} * (100% - 20px))`;
       else bar.style.transform = vertical ? `scaleY(${share})` : `scaleX(${share})`;
+      if (thumb) thumb.style[vertical ? "top" : "left"] = `clamp(6px, ${100 * (vertical ? 1 - share : share)}%, calc(100% - 6px))`;
       text.textContent = format(value);
       node.setAttribute("aria-valuenow", value);
       node.setAttribute("aria-valuetext", format(value));
@@ -709,6 +714,20 @@
     [t("Warm white"), 30, 55], [t("Amber"), 26, 85], [t("Red"), 2, 90], [t("Pink"), 330, 70], [t("Violet"), 275, 70], [t("Blue"), 220, 85], [t("Cyan"), 185, 75], [t("Green"), 125, 75],
   ];
 
+  const colourUsageKey = "homeswift.colour-shortcuts";
+  function colourUsage() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(colourUsageKey) || "{}");
+      return Object.fromEntries(presets.map(([, hue]) => [hue,
+        Number.isSafeInteger(saved?.[hue]) && saved[hue] > 0 ? saved[hue] : 0]));
+    } catch { return {}; }
+  }
+  function rememberColour(hue) {
+    const counts = colourUsage();
+    counts[hue] = Math.min((counts[hue] || 0) + 1, Number.MAX_SAFE_INTEGER);
+    try { localStorage.setItem(colourUsageKey, JSON.stringify(counts)); } catch {}
+  }
+
   /// A light's controls, each a function that builds it (null when the light has none): `brightness` (a level,
   /// tall with `vertical`), `swatches` (colours, in a grid with `grid`), `white` (the temperature in kelvin);
   /// `color()`, the colour it shows now, for the tile.
@@ -717,18 +736,19 @@
     const temperature = ctx.take(service, "Color Temperature");
     // Adaptive Lighting (a controller on the bridge): on while a schedule runs, which its transition count says.
     const transitions = ctx.char(service, "Characteristic Value Active Transition Count");
-    const adaptive = service.adaptiveLighting ? { resumable: !!service.adaptiveLighting.resumable } : null;
+    const adaptive = service.adaptiveLighting || null;
     const adaptiveOn = () => !!adaptive && numberOf(transitions) > 0;
     const setAdaptive = async (on) => {
       const before = transitions?.value;
       if (transitions) transitions.value = on ? 1 : 0;
       ctx.paint();
       try {
-        await api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/adaptive-lighting`, { method: "PUT", body: { service: serviceKey(service), on } });
+        await ctx.setAdaptive(service, on);
         adaptive.resumable = true;
       } catch (e) {
         if (e.message === "signed out") return;
-        if (transitions) transitions.value = before;
+        // Group writes reconcile each member, including partial successes.
+        if (transitions && !ctx.options.group) transitions.value = before;
         ctx.flash(e.message);
       }
     };
@@ -763,8 +783,8 @@
     } : null;
     return {
       pickColor, pickWhite, whiteRange,
-      brightness: canWrite(brightness) ? ({ vertical = false } = {}) => {
-        const control = level({ label: t("Brightness"), min: brightness.minValue ?? 0, max: brightness.maxValue ?? 100, step: brightness.minStep || 1, format: (v) => `${v} %`, vertical },
+      brightness: canWrite(brightness) ? ({ vertical = false, compact = false } = {}) => {
+        const control = level({ label: t("Brightness"), min: brightness.minValue ?? 0, max: brightness.maxValue ?? 100, step: brightness.minStep || 1, format: (v) => `${v} %`, vertical, showLabel: !compact, handle: true },
           (v) => ctx.write(service, brightness, v));
         ctx.watch(() => {
           control.set(numberOf(brightness));
@@ -773,9 +793,14 @@
         });
         return control.node;
       } : null,
-      swatches: pickColor ? ({ grid = false } = {}) => {
-        const swatches = presets.map(([name, h, s]) => {
-          const swatch = el("button", { type: "button", class: "swatch", role: "radio", "aria-label": name, title: name, onclick: () => pickColor(h, s) });
+      swatches: pickColor ? ({ grid = false, compact = false } = {}) => {
+        const usage = colourUsage();
+        const choices = compact ? [...presets].sort((a, b) => (Number(usage[b[1]]) || 0) - (Number(usage[a[1]]) || 0)).slice(0, adaptive ? 2 : 3) : presets;
+        const swatches = choices.map(([name, h, s]) => {
+          const swatch = el("button", { type: "button", class: "swatch", role: "radio", "aria-label": name, title: name, onclick: () => {
+            pickColor(h, s);
+            rememberColour(h);
+          } });
           swatch.style.setProperty("--swatch", `hsl(${h} ${s}% 60%)`);
           return { swatch, h, s };
         });
@@ -1339,6 +1364,11 @@
       };
       // A white-only light's Adaptive control sits beside its white slider.
       const whiteRow = (options) => light.white ? (light.adaptive ? el("div", { class: "w-row" }, el("div", { class: "w-grow" }, light.white(options)), light.adaptive("round")) : light.white(options)) : null;
+      if (ctx.tall) {
+        const brightness = light.brightness?.({ compact: true });
+        const colours = light.swatches?.({ compact: true });
+        built.middle = colours ? el("div", { class: "light-shortcuts" }, brightness, colours) : brightness;
+      }
       if (size === "medium") built.body = [light.brightness?.(), light.swatches?.() ?? whiteRow({ thin: true })].filter(Boolean);
       if (size === "large") {
         // A tall brightness beside the colours, or beside a tall white (and the Adaptive chip under it).
@@ -2277,7 +2307,7 @@
         hit.addEventListener("touchmove", (event) => { if (armed) event.preventDefault(); }, { passive: false });
       }
       const middle = built.middle;
-      node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), middle ? el("div", { class: "w-middle" }, middle) : "", el("div", { class: "w-bottom" }, who, menu));
+      node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), middle ? el("div", { class: "w-middle" }, middle) : "", el("div", { class: "w-bottom" }, who), el("span", { class: "w-corner" }, menu));
       ctx.watch(() => {
         const on = built.on ? built.on() : false;
         node.classList.toggle("on", on);
@@ -2293,9 +2323,12 @@
       });
     } else {
       const body = (built.body || []).filter(Boolean);
+      // Keep scrolling options beside the menu, with a dedicated, unobstructed hit target.
+      const footerChips = size === "xlarge" && body.at(-1)?.classList?.contains("chips") ? body.pop() : null;
       node.append(el("div", { class: "w-head" }, glyph, who, powerToggle(ctx, built)),
-        body.length ? el("div", { class: "w-body" }, body) : "", el("span", { class: "w-corner" }, menu));
-      node.classList.toggle("head-only", !body.length);
+        body.length ? el("div", { class: "w-body" }, body) : "",
+        footerChips ? el("div", { class: "w-footer" }, footerChips, menu) : el("span", { class: "w-corner" }, menu));
+      node.classList.toggle("head-only", !body.length && !footerChips);
       ctx.watch(() => node.classList.toggle("powered-off", !!built.power && !built.power.big && !isOn(built.power.characteristic)));
     }
     ctx.watch(paintGlyph);
@@ -2316,7 +2349,7 @@
   function paused(node, ctx) {
     if (!ctx.accessory.paused) return;
     node.classList.add("paused");
-    for (const part of node.querySelectorAll(":scope > .w-hit, :scope > .w-body, :scope > .w-head .switch, :scope > .w-main, :scope > .w-split, :scope > details, :scope > .camera-view, :scope > .controls")) part.inert = true;
+    for (const part of node.querySelectorAll(":scope > .w-hit, :scope > .w-body, :scope > .w-footer > .chips, :scope > .w-head .switch, :scope > .w-main, :scope > .w-split, :scope > details, :scope > .camera-view, :scope > .controls")) part.inert = true;
   }
 
   /// Every control: the widget's body (beside its facets when there are any), what is left under More, the foot.

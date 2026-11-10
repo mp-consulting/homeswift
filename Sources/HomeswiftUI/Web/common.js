@@ -1607,14 +1607,14 @@
   }
   document.addEventListener("pointerdown", (event) => {
     const select = event.target.closest("select");
-    if (!select || select.disabled || select.multiple || select.size > 1 || event.button !== 0 || select.closest("dialog[open]")) return;
+    if (!select || select.disabled || select.multiple || select.size > 1 || event.button !== 0) return;
     event.preventDefault();
     select.focus();
     openSelectMenu(select);
   });
   document.addEventListener("keydown", (event) => {
     const select = event.target.closest("select");
-    if (!select || select.disabled || select.multiple || select.size > 1 || select.closest("dialog[open]")) return;
+    if (!select || select.disabled || select.multiple || select.size > 1) return;
     if ([" ", "Enter", "ArrowDown", "ArrowUp"].includes(event.key)) {
       event.preventDefault(); openSelectMenu(select, true);
     }

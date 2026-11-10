@@ -161,12 +161,24 @@
         if (steps.length) one.minStep = Math.max(...steps);
         return one;
       });
-      const service = { type: kind, characteristics };
+      // Adaptive Lighting is controller metadata, not a shared writable characteristic.
+      const adaptiveTargets = present.map((a) => ({ accessory: a, service: groupable(a).find((s) => s.type === kind && s.adaptiveLighting) }));
+      const adaptive = kind === 'Lightbulb' && adaptiveTargets.every((target) => target.service);
+      const transitionType = 'Characteristic Value Active Transition Count';
+      if (adaptive) characteristics.push({ type: transitionType, value: 0, permissions: ['pr'], format: 'uint8' });
+      const service = { type: kind, characteristics, ...(adaptive ? { adaptiveLighting: {} } : {}) };
       const merged = { id: group.id, name: group.name, displayName: group.name, members: group.members, category: present[0].category, services: [service] };
       // The members' state on the merged one: on when one is; every other value from the first member that is on.
       const follow = () => {
         const lit = present.find((a) => !power || isOn(controls(a).get(power).c)) || present[0];
+        if (adaptive) {
+          service.adaptiveLighting.resumable = adaptiveTargets.every(({ service }) => service.adaptiveLighting.resumable);
+        }
         for (const c of characteristics) {
+          if (c.type === transitionType) {
+            c.value = adaptiveTargets.every(({ service }) => (service.characteristics.find((c) => c.type === transitionType)?.value ?? service.adaptiveLighting.active)) ? 1 : 0;
+            continue;
+          }
           c.value = c.type === power
             ? (present.some((a) => isOn(controls(a).get(power).c)) ? (c.format === 'bool' ? true : 1) : (c.format === 'bool' ? false : 0))
             : controls(lit).get(c.type).c.value;
@@ -185,6 +197,19 @@
         const failed = present.filter((_, i) => outcomes[i].status === 'rejected');
         if (failed.length) throw new Error(t('Could not update: {names}', { names: failed.map((a) => a.displayName || a.name).join(', ') }));
       };
+      const setAdaptive = async (on) => {
+        const outcomes = await Promise.allSettled(adaptiveTargets.map(async ({ accessory, service }) => {
+          const result = await api(`/api/accessories/${encodeURIComponent(accessory.id)}/adaptive-lighting`, {
+            method: 'PUT', body: { service: service.subtype || service.type, on }
+          });
+          Object.assign(service.adaptiveLighting, result.adaptiveLighting);
+          const transition = service.characteristics.find((c) => c.type === transitionType);
+          if (transition) transition.value = result.adaptiveLighting.active ? 1 : 0;
+        }));
+        const failed = adaptiveTargets.filter((_, i) => outcomes[i].status === 'rejected');
+        draw();
+        if (failed.length) throw new Error(t('Could not update: {names}', { names: failed.map(({ accessory }) => accessory.displayName || accessory.name).join(', ') }));
+      };
       const draw = () => {
         follow();
         for (const ctx of views) {
@@ -201,7 +226,7 @@
           try { await persist(); refresh(); } catch (error) { layout.groups = before; HomeswiftCommon.showAlert(error.message); }
         } },
       ];
-      const node = HomeswiftWidgets.card(merged, { size: layout.sizes?.[group.id] || 'large', actions, group: { write, attach: (ctx) => views.add(ctx) } });
+      const node = HomeswiftWidgets.card(merged, { size: layout.sizes?.[group.id] || 'large', actions, group: { write, setAdaptive, attach: (ctx) => views.add(ctx) } });
       node.classList.add('accessory-group', 'merged');
       node.dataset.search = [group.name, ...people.map((a) => a?.name || '')].join(' ').toLowerCase();
       cards.add({ node, draw, members: new Set(group.members) });

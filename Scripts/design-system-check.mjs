@@ -93,6 +93,26 @@ try{
   await waitFor("!!document.querySelector('.widget')");
   if(await evaluate("document.querySelectorAll('iframe').length"))throw Error("Public hosting blocks iframe previews");
   await shot("explorer", "body");
+  await evaluate("location.hash='widget/light'");
+  await waitFor("!!document.querySelector('.widget-light')");
+  await evaluate("document.querySelector('#size-picker [data-size=medium]').click()");
+  await waitFor("!!document.querySelector('.widget-light.size-medium .w-middle [role=slider]')");
+  if (!await evaluate("document.querySelector('.light-shortcuts .swatches').firstElementChild.classList.contains('adaptive')")) throw Error("Adaptive Lighting must be the first shortcut");
+  if (!await evaluate("getComputedStyle(document.querySelector('.light-shortcuts .swatches')).overflow === 'visible' && getComputedStyle(document.querySelector('.widget-light .w-middle')).overflow === 'visible'")) throw Error("Colour shortcut shadows must not be clipped");
+  if (!await evaluate("document.querySelector('.widget-light .w-top .tile').getBoundingClientRect().width > 0")) throw Error("The accessory icon must remain visible");
+  await shot("light-medium", "body");
+  await appearance("dark");
+  await evaluate("document.querySelector('.widget-light .level').dispatchEvent(new KeyboardEvent('keydown', {key:'End', bubbles:true}))");
+  await waitFor("document.querySelector('.widget-light .level').getAttribute('aria-valuenow') === '100'");
+  if (!await evaluate(`(() => {
+    const slider = document.querySelector('.widget-light .level'), thumb = slider.querySelector('.level-thumb');
+    const track = slider.getBoundingClientRect(), grip = thumb.getBoundingClientRect();
+    const value = getComputedStyle(slider.querySelector('.level-text'));
+    return grip.left >= track.left && grip.right <= track.right && value.color === 'rgb(255, 255, 255)' && value.right === '14px';
+  })()`)) throw Error("Full brightness must keep its handle inside the track and its readout on the right");
+  await shot("light-medium-full-dark", "body");
+  await appearance("light");
+
   if(await evaluate("document.querySelectorAll('.story-link').length")!==267)throw Error("Incomplete story navigation");
   const checkBadges = async () => {
     const sizes = await evaluate("[...document.querySelectorAll('#size-picker button')].map(n=>{const r=n.getBoundingClientRect();return [r.width,r.height]})");

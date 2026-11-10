@@ -1,5 +1,11 @@
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Recent events": "Eventos recentes",
+  "No events yet.": "Ainda não há eventos.",
+  "This connection is ready.": "Esta ligação está pronta.",
+  "Your connections, devices and services.": "As suas ligações, dispositivos e serviços.",
+  "Built-in services": "Serviços integrados",
+
   "Powering the home": "Alimentação da casa",
   "Woodland cabin": "Cabana na floresta",
   "A cozy timber home among the trees.": "Uma casa acolhedora de madeira entre as árvores.",
@@ -1079,6 +1085,7 @@ HomeswiftI18n.add("pt", {
   "Filter": "Filtro",
   "filter {percent} %": "filtro {percent} %",
   "Filter by client": "Filtrar por cliente",
+  "Search scope": "Âmbito da pesquisa",
   "Filter by tool": "Filtrar por ferramenta",
   "Filter Change Indication": "Substituição do filtro",
   "Filter life": "Vida do filtro",
@@ -3708,4 +3715,8 @@ HomeswiftI18n.add("pt", {
   "This light has no white to come back in.": "Esta luz não tem um branco em que voltar.",
   "Keep its last": "Manter o último",
   "Its last": "O seu último",
+  "Run selected rooms": "Executar nas divisões selecionadas",
+  "Choose the rooms to include when you run this scene.": "Escolha as divisões a incluir ao executar esta cena.",
+  "Select all": "Selecionar tudo",
+  "Deselect all": "Desselecionar tudo",
 });

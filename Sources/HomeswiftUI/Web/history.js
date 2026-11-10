@@ -67,7 +67,13 @@
       charts.classList.remove("loading");
       note.className = "muted history-note";
       note.textContent = t("Each change is kept {days} days, and the hourly figures of numbers {years} years.", { days: String(found.days), years: String(found.years) });
-      const cards = found.series.map((series) => series.kind === "number" ? numberCard(series, found) : stateCard(series, found)).filter(Boolean);
+      // Names describe the accessory; they are not activity. Keep them available without a full timeline.
+      const metadata = new Set(["Name", "Configured Name", "Identifier", "Serial Number", "Manufacturer", "Model", "Firmware Revision"]);
+      const details = found.series.filter((series) => metadata.has(series.characteristic));
+      const cards = found.series.filter((series) => !metadata.has(series.characteristic))
+        .map((series) => series.kind === "number" ? numberCard(series, found) : stateCard(series, found)).filter(Boolean);
+      if (details.length) cards.push(el("details", { class: "history-details" },
+        el("summary", { text: t("Details") }), details.map((series) => stateCard(series, found))));
       charts.replaceChildren(...energyCards, ...cards);
       if (!cards.length && !energyCards.length) charts.append(el("p", { class: "muted", text: t("Nothing recorded in this range") }));
     }
@@ -115,6 +121,13 @@
       return node;
     }
 
+    function compactState(series) {
+      return el("div", { class: "history-state-row" },
+        el("div", { class: "who" }, el("strong", { text: title(series, accessory) }),
+          el("small", { class: "muted", text: tn("{n} change", "{n} changes", series.points?.length ?? 0) })),
+        el("b", { text: series.last != null ? valueText(series, series.last) : "—" }));
+    }
+
     function stateCard(series, found) {
       const spans = [];
       let at = found.from, value = series.before ?? null;
@@ -126,6 +139,7 @@
       spans.push({ from: at, to: found.to, value });
       if (!spans.some((span) => span.value != null)) return null;
       const changes = series.points.length;
+      if (!changes) return compactState(series);
       const figure = series.last != null ? valueText(series, series.last) : null;
       const [node, body] = card(series, figure, tn("{n} change", "{n} changes", changes));
       HomeswiftChart.stateTimeline(body, { title: title(series, accessory), spans, from: found.from, to: found.to, label: (one) => valueText(series, one), tone: (one) => toneOf(series, one) });
@@ -183,14 +197,26 @@
     const source = select("source", t("Change Source"), sourceKinds, params.get("source") ?? "");
     const since = select("since", t("Time range"), sinceChoices, params.get("since") ?? "24h");
     const controls = [room, accessory, source, since];
+    since.hidden = true;
+    const periods = el("div", { class: "group logbook-periods", role: "group", "aria-label": t("Time range") },
+      sinceChoices.map(([value, label]) => el("button", { type: "button", actionIcon: "history", text: label,
+        onclick: () => { since.value = value; since.dispatchEvent(new Event("change", { bubbles: true })); } })));
+    const syncPeriods = () => [...periods.children].forEach((button, index) => {
+      const selected = since.value === sinceChoices[index][0];
+      button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
+    });
+    since.addEventListener("change", syncPeriods);
+    syncPeriods();
     const clear = HomeswiftCommon.clearFilters(controls.map((control) => [control, control === since ? "24h" : ""]),
       { active: () => controls.some((control) => control.value !== (control === since ? "24h" : "")), events: controls.map((control) => [control, "change"]), reset: reload });
     const list = el("div", { class: "logbook" });
-    const count = el("p", { class: "muted" });
+    const count = el("p", { class: "muted logbook-count", "aria-live": "polite" });
     const icons = new Map(accessories.map((one) => [one.id, HomeswiftWidgets.accessoryIcon(one) ?? "accessory"]));
     const byID = new Map(accessories.map((one) => [one.id, one]));
     app().show(main, app().pageHead(t("Logbook"), t("What changed in the home, and who or what changed it.")),
-      el("div", { class: "logbook-filters" }, ...controls, clear), count, list);
+      el("div", { class: "card logbook-card" },
+        el("div", { class: "logbook-toolbar" }, periods,
+          el("div", { class: "logbook-filters" }, room, accessory, source, clear), since), count, list));
 
     async function reload() {
       const query = new URLSearchParams();

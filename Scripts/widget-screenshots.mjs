@@ -179,6 +179,25 @@ try {
     await open(mode);
     await shot(mode, mode === "sheet" ? "dialog" : mode === "adaptive" ? ".widget" : "main");
   }
+  // The expanded purifier keeps its options and menu in separate lanes at both widths.
+  for (const width of [1000, 375]) {
+    await open("sizes-more", width);
+    await evaluate(`(() => {
+      const a = structuredClone(previewAccessories.find(a => a.id === 'purifier'));
+      document.querySelector('main').replaceChildren(HomeswiftWidgets.card(a, {size:'xlarge'}));
+      document.querySelector('.widget').style.width = '100%';
+    })()`);
+    const footer = await evaluate(`(() => {
+      const menu = document.querySelector('.w-footer .menu-button').getBoundingClientRect();
+      const chips = document.querySelector('.w-footer .chips').getBoundingClientRect();
+      const body = document.querySelector('.w-body').getBoundingClientRect();
+      const last = document.querySelector('.w-body > :last-child').getBoundingClientRect();
+      return {circle:menu.width === menu.height, gap:menu.left - chips.right, full:Math.abs(body.right-last.right)<1};
+    })()`);
+    if (!footer.circle || footer.gap < 8 || !footer.full) throw new Error('Purifier footer spacing failed');
+    if (width === 375) await shot('purifier-footer-phone', '.widget');
+  }
+  console.log('PASS: purifier footer circle, separation and full-width body at desktop and phone widths');
   await open("wall");
   await evaluate(`(() => {
     const a = structuredClone(previewAccessories.find(a => a.id === 'pendant'));

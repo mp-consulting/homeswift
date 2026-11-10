@@ -121,8 +121,9 @@ has figures) has the whole story, where Status keeps a glance (its Energy title 
 - **Overview**: the Energy section's units below, in the user's order; **Edit**, at the bottom right, edits them as the
   Status page's edit mode does (the layout is `energyPage` in `/api/preferences`, apart from Status's).
 - **By accessory** (`/energy/devices?period=day|week|month|year&sort=used|cost|name&device=…`): the home split between the
-  devices measured on their own and Unmetered, then a row per device (its days as small bars, a bar of its share of the
-  most, its kWh, share and cost), Unmetered and the Meters with no readings last, and the sources apart under the list. A
+  devices measured on their own and Unmetered, then a row per device (a filled history sparkline, its kWh, share and
+  cost), Unmetered and the Meters with no readings last, and the sources apart under the list. Sparklines preserve gaps in readings
+  and remain visible on phones. A
   row opens its panel: its figures, when it used energy this week hour by hour (a cell per hour, a row per day), where
   most of its use falls, and **Full history**.
 - **Energy log** (`/energy/log?days=2|7|14&q=…`): what stands out over the span, then what happened by day, searchable
@@ -131,6 +132,10 @@ has figures) has the whole story, where Status keeps a glance (its Energy title 
 On Status, Energy flow and The big picture show by default; the other units are added from the edit mode.
 
 ![The Energy page's Overview: the house with its details, the big picture's tiles, each day with a usual day shaded, where the energy goes, consumption by device, and gas and water](images/status/energy.png)
+
+![By accessory: one history sparkline per device alongside energy, share and cost](images/status/energy-devices.png)
+
+<img src="images/status/energy-devices-phone.png" alt="By accessory on a phone, with history sparklines below each device" width="375">
 
 - **Energy flow**: where the power goes, followed live (the last minutes asked every ten seconds while the page is
   visible; the bridge counts the minute under way). On top, the **House**: a cutaway picture in the viewer's House
@@ -382,6 +387,10 @@ config.json, owner-only:
   others see "a Homeswift user" or "an MCP client". An accessory answering No Response holds no value: its hourly
   figures stop until it reports again.
 
+Unchanged states use compact rows. Names and identifiers are grouped under **Details**, where their history remains available.
+
+![Scene history with compact unchanged states](images/ui/history-scenes.png)
+
 ![An accessory's History tab: a line per number, a band per state](images/ui/history.png)
 
 ![The Logbook: each change with who or what made it](images/ui/logbook.png)
@@ -430,8 +439,8 @@ filter beside **Scenes from your hubs** keeps one hub's scenes when there are se
 hubs**: the scenes plugins' hubs keep (a Hue Bridge's rooms and zones, a DIRIGERA hub, the scenes picked for Govee
 lights, Apple Home's through Wingman), with their pictures or colours. A scene a hub has in several rooms shows once,
 saying in how many: Hue makes Relax, Read or Concentrate in each room, so a home of fifteen rooms has a hundred of
-them. The most widespread come first, a dozen until **Show all**. A tap opens its rooms, each with its own tile and ⋯
-menu, and **Run in every room**; its own ⋯ runs it in every room, stops it, or opens its rooms. A scene in one room
+them. The most widespread come first, a dozen until **Show all**. A tap opens a compact room list with inclusion toggles and ⋯ menus. **Select all** and **Deselect all**
+choose the rooms for **Run selected rooms**; the selection lasts for the open sheet. The grouped tile’s ⋯ runs it in every room, stops it, or opens its rooms. A scene in one room
 runs at once. The scenes in no room (Apple Home's) are small
 buttons by name under **Around the house**, and several with one name show as one with their number (×3), which opens
 each copy. A tap recalls one on its hub; Hue's say **Scene active** while the bridge says so. **Stop** puts back the
@@ -442,6 +451,11 @@ colours, following the music…) with its speed, brightness and colour. Each bra
 its lights have it (Hue's effects, Govee's library scenes, an IKEA fade for a sunrise, a SONOFF L2 strip's scenes, an
 Ambilight TV for music);
 Homeswift plays it on the others. An animated scene is active while it plays, and **Stop** puts the lights back. They are changed in their own app.
+
+![Scene room selection with inclusion toggles](images/plugins/scene-rooms.png)
+
+<img src="images/plugins/scene-rooms-phone.png" alt="Scene room selection on a phone" width="375">
+
 
 **Ideas**, folded at the foot of the page (the page head's **Ideas** opens it; it stays open while a template plays):
 the templates, the rooms that have lights as chips, and the collection by kind, each drawn with photographic
@@ -609,21 +623,26 @@ needs the page added to the home screen.
 
 ### Plugins
 
-![The Plugins page: your blocks, then the plugins compiled in](images/ui/plugins.png)
+![The Plugins page: searchable instances and status filters](images/ui/plugins.png)
 
-Every platform block of config.json, with whether it runs, is paused, and on which bridge; then **Add a plugin**, the
-plugins compiled into this homeswift, with a search and a sort.
+The list shows each plugin's status and accessory count, with attention states first. Search by name or platform,
+then filter **All**, **Needs attention**, **Running**, or **Paused**. Built-in services are folded below the list.
+**Add a plugin** opens the searchable catalog of plugins compiled into this homeswift.
 
-A running plugin shows a quiet green dot only when its devices can work. One whose account Needs Authorization (never set
-up, or refused since: a password changed, a token revoked) says what it needs instead, **Needs sign-in**, **Needs
-pairing** or **Needs keys**, in orange, and its card leads with **Set up** (**Set up again** once it has been), which
-opens the Setup sheet over the list; an optional account left alone needs no one. One whose every accessory shows No
-Response says **Not responding**. Sorted by **Needs attention first**, they come first.
+A name or **Open** opens an opaque inspector over the list, without resizing it. On phones it slides up from the bottom.
+The grouped tabs show **Overview** (state and primary action), **Accessories** (live accessories and their settings),
+**Settings** (the existing validated editor and management actions), and **Events** (recent plugin log entries).
+Escape, the close button, or a swipe on the phone's grabber closes it and returns focus to the row.
 
-- **A card's ⋯** opens the plugin's page, its Settings or config.json, pauses or resumes it, downloads its
-  [Diagnostics](#diagnostics), and removes it; its name
-  opens its page (its Settings when it has none). Removing a plugin that kept sign-ins or tokens in the vault offers to delete them too (off by default: left
-  there, adding the plugin again finds them; they are the entries its namespace owns, not those a person made).
+![Plugin inspector on desktop](images/ui/plugins-inspector.png)
+![Plugin drawer on a phone](images/ui/plugins-drawer.png)
+
+A plugin whose account Needs Authorization says **Needs sign-in**, **Needs pairing** or **Needs keys**.
+Its Overview offers **Set up** or **Set up again**, using the existing Setup flow. One whose every accessory shows
+No Response says **Not responding** and its Events tab provides the log.
+
+- **Settings** also offers config.json, pause or resume, [Diagnostics](#diagnostics), and removal.
+  Removing a plugin that kept sign-ins or tokens in the vault offers to delete them too (off by default).
 - **Pause** (also at the top right of a plugin's page) stops the plugin's calls to its devices, for when an app sharing
   the account would be signed out by them. Its accessories stay in the Home app, showing No Response, and the page
   offers **Resume**.
@@ -1253,3 +1272,9 @@ with readable names; the row scrolls horizontally on a phone. Scenes without art
 ![Quick controls on a phone](images/ui/quick-controls-phone.png)
 
 In **Appearance → Your house**, upload a JPEG, PNG or WebP photo, add a name and details, and place the Solar panels, Battery, Electrical board and Home markers. Select a marker and tap the photo, or adjust its horizontal and vertical position with the keyboard-accessible sliders. Save and use photo keeps the picture and marker positions privately for your account. Animated paths start at the marked source equipment and meet at Home; readings still come from connected devices. Replace a photo to start its marker placement again, or remove it to return to the realistic house.
+
+### Editing Status on a phone
+
+Edit mode reduces sections to compact rows with a title, remove button and move handle. Drag a row to reorder it; Done restores the full cards. Desktop retains full cards under the same edit header. Lifted sections use frosted glass across the whole drag zone.
+
+![Compact Status editor on a phone](images/ui/status-edit-phone.png)

@@ -232,7 +232,11 @@ const send = (method, params = {}) => new Promise((done) => {
   pending.set(id, done);
   socket.send(JSON.stringify({ id, method, params }));
 }).then((message) => { if (message.error) throw new Error(`${method}: ${message.error.message}`); return message.result; });
-const evaluate = async (expression) => (await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
+const evaluate = async (expression) => {
+  const reply = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+  if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
+  return reply.result.value;
+};
 
 await send("Page.enable");
 await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }, { name: "prefers-reduced-motion", value: "reduce" }] });
@@ -240,7 +244,7 @@ await send("Page.addScriptToEvaluateOnNewDocument", { source: pageScript });
 
 /// Opens `path` at the size given, waits for `ready` (a selector), runs `prepare`, and saves the page down to `tall`
 /// at most (the viewport's height when left out), or only `element` (a selector, its section, with a margin).
-async function shot(name, path, { width = 1280, height = 900, mobile = false, ready = "main h1", prepare = "", tall, element } = {}) {
+async function shot(name, path, { width = 1280, height = 900, mobile = false, ready = "main h1", prepare = "", tall, element, viewportOnly = false } = {}) {
   if (process.env.UI_SHOTS_ONLY && !process.env.UI_SHOTS_ONLY.split(",").includes(name)) return;
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile });
   await send("Page.navigate", { url: base + path });
@@ -258,7 +262,7 @@ async function shot(name, path, { width = 1280, height = 900, mobile = false, re
     clip = { x: Math.max(0, box.x - margin), y: Math.max(0, box.y - margin), width: box.width + margin * 2, height: box.height + margin * 2, scale: 1 };
   } else {
     const full = await evaluate("Math.ceil(document.documentElement.scrollHeight)");
-    clip = { x: 0, y: 0, width, height: Math.min(full, tall ?? height), scale: 1 };
+    clip = { x: 0, y: viewportOnly ? await evaluate("scrollY") : 0, width, height: Math.min(full, tall ?? height), scale: 1 };
   }
   const { data } = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip });
   writeFileSync(join(out, `${name}.png`), Buffer.from(data, "base64"));
@@ -270,15 +274,41 @@ try {
   await shot("scene-homekit", "/scenes/new", { ready: ".scene-editor .toggle", element: ".scene-editor .toggle" });
   await shot("scene-artwork", "/scenes/new", { ready: ".artwork-picker", prepare: 'document.querySelector(".artwork-picker").open = true;', tall: 1000 });
   // The bridge as the Home app pairs it: its setup code and QR code.
+  await shot("status-edit-phone", "/status", { width: 375, height: 812, mobile: true, ready: ".status-footer button", prepare: `
+    const edit = document.querySelector(".status-footer button");
+    edit.click();
+    const rows = [...document.querySelectorAll(".dash-widget.dash-compact:not([hidden]):not(.dash-empty)")];
+    if (!rows.length || rows.some(row => Math.abs(row.getBoundingClientRect().height - 56) > 1)) throw new Error("Mobile editor rows must be 56px tall");
+    for (const button of document.querySelectorAll(".dash-edit-header > button")) {
+      const box = button.getBoundingClientRect();
+      if (box.width !== 40 || box.height !== 40) throw new Error("Edit controls must be 40px circles");
+    }
+    document.querySelector(".dash-edit-bar .primary").click();
+    if (document.querySelector(".dash-compact, .dash-edit-header")) throw new Error("Done must restore section contents");
+    edit.click();` });
+  await shot("status-drag", "/status", { ready: ".dash-widget .card", prepare: 'document.querySelector(".status-footer button").click(); for (let i = 0; i < 40 && !document.querySelector(".dash-edit-header"); i++) await new Promise(r => setTimeout(r, 100)); document.querySelector(".dash-widget:has(.card)").classList.add("dragging");', element: ".dash-widget:has(.dash-edit-header):has(.card)" });
   await shot("status-bridge", "/status", { ready: ".card.server", element: "main .card.server" });
-  await shot("plugins", "/plugins", { ready: ".card", tall: 1000 });
+  await shot("plugins", "/plugins", { ready: ".plugins-row", tall: 1000 });
+  await shot("plugins-inspector", "/plugins", { ready: ".plugins-row", prepare: 'document.querySelector(".plugins-name").click();' });
+  await shot("plugins-phone", "/plugins", { width: 375, height: 812, mobile: true, ready: ".plugins-row" });
+  await shot("plugins-drawer", "/plugins", { width: 375, height: 812, mobile: true, ready: ".plugins-row", prepare: 'document.querySelector(".plugins-name").click();' });
+  await shot("plugins-accessories", "/plugins", { ready: ".plugins-row", prepare: 'document.querySelector("[data-plugin=demo] .plugins-name").click(); document.querySelector("#plugins-tab-1").click();' });
+  await shot("plugins-events", "/plugins", { ready: ".plugins-row", prepare: 'document.querySelector("[data-plugin=demo] .plugins-name").click(); document.querySelector("#plugins-tab-3").click();' });
+  await shot("plugins-catalog-sort", "/plugins", { ready: ".plugins-heading", prepare: 'document.querySelector(".plugins-heading > button").click(); document.querySelector("dialog select").dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));' });
+  await shot("plugins-actions", "/plugins", { ready: ".plugins-row", prepare: 'document.querySelector(".plugins-name").click(); document.querySelector("#plugins-tab-2").click();' });
+  await shot("setup-accounts", "/setup", { ready: ".setup-account", tall: 1100 });
+  await shot("automations-empty", "/automations", { ready: ".card.empty" });
+  await shot("audit-filters", "/settings/audit?since=7d", { width: 839, height: 867, ready: ".audit-filter-footer" });
   await shot("plugin-settings", "/plugins/desk-lights/settings", { ready: ".settings-device", tall: 1400 });
   await shot("accessory-settings", "/plugins/desk-lights/settings", { ready: ".settings-device button.settings-open",
     prepare: 'document.querySelector(".settings-device button.settings-open").click(); for (let i = 0; i < 40 && !document.querySelector(".accessory-settings-sheet .settings-danger"); i++) await new Promise((r) => setTimeout(r, 100));' });
   await shot("config", "/settings/config", { ready: ".code-editor", tall: 900 });
   await shot("logs", "/logs?level=trace", { ready: ".log-filter-panel", tall: 900 });
+  await shot("logs-medium", "/logs?level=trace", { width: 1145, height: 867, ready: ".log-filter-panel" });
   await shot("logs-phone", "/logs?level=trace", { width: 390, height: 844, mobile: true, ready: ".log-filter-panel" });
   await shot("appearance", "/appearance", { ready: ".wallpapers", tall: 2200 });
+  await shot("backups-phone", "/settings/backups", { width: 375, height: 812, mobile: true, ready: ".drop-zone" });
+  await shot("audit-phone", "/settings/audit?since=7d", { width: 375, height: 812, mobile: true, ready: ".audit-filter-footer" });
   await shot("backups", "/settings/backups", { ready: ".drop-zone", tall: 1000 });
   await shot("vault", "/settings/vault", { ready: ".vault-move", tall: 800 });
   // An accessory's History tab, and the Logbook (the demonstration's day, from writeHistory).
@@ -287,6 +317,45 @@ try {
     HomeswiftAdmin.history(list.find((one) => one.name === "Living Room"));
     for (let i = 0; i < 40 && !document.querySelector(".history-full .chart-card"); i++) await new Promise((r) => setTimeout(r, 100));
     await new Promise((r) => setTimeout(r, 600));` });
+  // Scene switches have many stable states and names: keep them readable on a phone.
+  for (const width of [1280, 375]) await shot(`history-scenes${width === 375 ? "-phone" : ""}`, "/accessories", {
+    width, height: 900, mobile: width === 375, ready: ".widget", prepare: `
+      const original = window.fetch;
+      window.fetch = async (url, options) => {
+        if (String(url).includes("/api/accessories/demo-scenes/history")) {
+          const to = Date.now(), from = to - 86400000;
+          const series = ["Bright", "Relax", "Evening", "Reading"].flatMap(service => [
+            { service, characteristic: "On", kind: "state", before: false, last: false, points: [] },
+            { service, characteristic: "Configured Name", kind: "state", before: service, last: service, points: [] }
+          ]);
+          return new Response(JSON.stringify({ from, to, days: 7, years: 2, series }));
+        }
+        return original(url, options);
+      };
+      HomeswiftAdmin.history({ id: "demo-scenes", name: "Living Room Scenes", services: [] });
+      for (let i = 0; i < 40 && !document.querySelector(".history-state-row"); i++) await new Promise(r => setTimeout(r, 100));
+      if (document.querySelectorAll(".history-charts > .history-state-row").length !== 4) throw Error("Unchanged scenes must be compact rows");
+      const details = document.querySelector(".history-details");
+      if (!details || details.open) throw Error("Metadata must be collapsed initially");
+      details.open = true;
+      if (details.querySelectorAll(".history-state-row").length !== 4) throw Error("Metadata must remain available");
+      details.open = false;
+      window.fetch = original;` });
+  for (const width of [375, 522]) await shot(`accessories-clearance-${width}`, "/accessories", {
+    width, height: 867, mobile: true, viewportOnly: true, ready: ".widget", prepare: `
+      document.querySelector(".accessories-search-toggle").click();
+      document.querySelector(".accessories-bar .search").value = "Room";
+      document.activeElement.blur();
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      for (const corner of document.querySelectorAll(".widget > .w-corner")) {
+        const card = corner.parentElement.getBoundingClientRect(), box = corner.getBoundingClientRect();
+        if (Math.abs(card.right - box.right - 11) > 1 || Math.abs(card.bottom - box.bottom - 11) > 1) throw Error("Widget menu insets must match");
+      }
+      const bar = document.querySelector(".accessories-bar").getBoundingClientRect();
+      const cards = [...document.querySelectorAll(".wall .widget")];
+      const bottom = Math.max(...cards.map(card => card.getBoundingClientRect().bottom));
+      if (bottom > bar.top - 12) throw Error("The last card must clear the expanded toolbar");` });
   // The remote's Controls: its press toggles the lamp and the blind, held it dims the lamp.
   const remotes = await (await fetch(`${base}/api/remotes`)).json();
   const remote = remotes.remotes?.find((one) => one.id === "HomebridgeDummy:remote");

@@ -57,7 +57,7 @@ contracts](widgets.md#for-plugin-developers).
 
 ### Size, state and visual foundations
 
-S is a compact summary and M a tall summary; both keep the primary action. L exposes the main controls. XL
+S is a compact summary and M a tall summary; both keep the primary action. M lights expose a 40px brightness slider above the name, while the rest of the tile retains its hold colour wheel. L exposes the main controls. XL
 exposes expanded controls. L and XL measure their actual content and span whole grid rows, so a sparse
 widget does not reserve empty space. All controls remain available in the accessory sheet.
 
@@ -145,3 +145,65 @@ node Scripts/design-system-check.mjs /tmp/homeswift-design-shots
 The checker visits every widget and characteristic story, exercises controls and state changes, checks mobile
 layout and languages under the public host’s CSP and frame restrictions, and verifies that no demo API request reaches the server. CI and the Pages deployment
 run the sync check: a stale catalog or runtime copy stops deployment.
+
+### Plugin management
+
+Plugin instances use compact rows with a stable icon column, flexible name, status/count group and action.
+Above phone width, status and count occupy separate aligned columns; phones place metadata below the name. Built-in services
+are a disclosure below the main list; grouped status filters expose `aria-pressed` and use two rows on phones.
+
+The plugin inspector overlays the unchanged page. Its background is `--material-solid` in both themes, never
+transparent. Desktop uses a full-height side sheet; phones use the shared slide-up sheet and grabber. The close
+button is 40×40px at every width. Grouped tabs support arrow keys, Home and End, with one tab stop. Phone tabs
+place their icons over their labels so all four remain visible at 375px. Actions have 20px top spacing and 10px gaps.
+Accessory rows explicitly size trailing SVGs to 18px to prevent intrinsic SVG dimensions stretching the row.
+Recent events use a fixed timestamp column and a connected timeline, with full logs available in the toolbar.
+
+Examples: [desktop inspector](images/ui/plugins-inspector.png), [phone drawer](images/ui/plugins-drawer.png),
+[accessories](images/ui/plugins-accessories.png), and [events](images/ui/plugins-events.png).
+
+Select controls inside sheets use the shared menu too, hosted in the dialog’s layer. Native values, validation and change events remain intact. See the [catalog sort menu](images/ui/plugins-catalog-sort.png).
+
+Plugin management actions use full-width grouped rows with 18px icons and 52px minimum targets. Removal is separated by 22px and retains its danger color. Overview keeps its compact primary actions.
+
+Setup account rows stay flat inside their plugin section: aligned with its content and separated by the list rule, without a second rounded or tinted card.
+
+At intermediate widths (641–1179px), log filters pair a two-row time-range group with the source selector. This avoids an empty full-width band; wide screens retain the filter sidebar and phones retain their compact grid.
+
+Plugins follows the Logs filter-panel pattern: segmented status choices, search and Clear filters share a padded toolbar inside the list card, separated from its rows by a hairline.
+
+Empty-state actions following explanatory text use `--space-16` above the button. Plugin rows use separate aligned status and count columns above phone width, with 12px vertical padding; inactive Clear filters stays hidden.
+
+Logbook follows the integrated Plugins card: a segmented time range, existing source filters, a quiet entry-count strip, and flat dated list sections. Clear filters is shown only while a selection differs from the default.
+
+Audit filters use one search input with a scope menu (tool/route or client/user), preserving accessible labels without an extra visible label row. Inactive reset controls are hidden.
+
+Backup actions use compact equal-height cards above 720px; the restore drop zone fills its remaining space. Phones stack the cards. Empty backup lists use an inline icon and message rather than a large blank slate.
+
+Dragged Status sections and glance tiles use a 35% tint of `--bg` with 48px backdrop blur and 160% saturation. Nested cards stay clear to avoid stacking bright fills; the lifted glass softens underlying content. The usual material returns when dropped.
+
+The lifted section’s glass extends to the edit shield’s outer edge (6px beyond its box), covering padding and gutters as one continuous surface.
+
+Status edit mode uses one full-width card header for the section title, remove button, and move handle. Both buttons are 40px circles; duplicate section headings are hidden only while editing.
+
+At phone width, Status edit mode collapses each section into a 56px header row, keeping remove and move controls available. Done restores the full content; individual widget controls remain in the section/widget management UI.
+
+### Accessory History
+
+Use compact divided rows for states with no recorded changes in the selected range: name and change count on the left, value on the right. Reserve timeline charts for states that changed. Names and identifiers belong in a collapsed Details disclosure, with their history retained inside it. Use the shared spacing, text and border tokens; avoid stacking elevated cards for static metadata.
+
+![Compact scene history on a phone](images/ui/history-scenes-phone.png)
+
+### Accessory tile controls
+
+The mobile Accessories toolbar reserves its measured height below the wall, including an expanded search field or wrapped buttons. Keep at least 16px between the final tile and floating controls, and account for the Assistant and navigation buttons.
+
+Accessory tile menus use a shared card-relative bottom-right anchor, inset 10px from the inner border for every size. Summary text reserves space for the menu instead of positioning it relative to the text baseline.
+
+M-size colour lights place three circular shortcuts below brightness. They begin with common presets and rank previously selected presets by use in this browser (shared across lights). The icon and name share a compact header; the tile retains its hold colour wheel. Brightness-only lights keep their icon and slider.
+
+When supported, Adaptive Lighting always occupies the first shortcut, followed by the two most-used colour presets. The shortcut row and its container allow shadows and focus rings to paint outside their bounds.
+
+Light sliders retain a subtle full-track outline above the fill, so the endpoint remains visible against a matching tile background. The outline does not affect slider geometry or pointer input.
+
+Brightness has a contrasting handle clamped inside both endpoints and a dark percentage badge fixed on the right in every tile size.
