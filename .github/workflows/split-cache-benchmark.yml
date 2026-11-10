@@ -31,11 +31,21 @@ jobs:
         run: |
           toolchain=$(swift --version 2>&1 | cksum | cut -d' ' -f1)
           echo "prefix=split-bench-20261110-${{ runner.os }}-${{ runner.arch }}-$toolchain-${{ hashFiles('Package.resolved', 'Package.swift', 'Scripts/build.sh', 'Scripts/split-build-cache.py') }}" >> "$GITHUB_OUTPUT"
+      - name: Restore diagnostic compiled outputs
+        id: diagnostic
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .build
+          key: ${{ steps.key.outputs.prefix }}-diagnostic-${{ github.sha }}
+          restore-keys: ${{ steps.key.outputs.prefix }}-diagnostic-
+      - name: Invalidate diagnostic source changes
+        run: Scripts/forget-changed-targets.sh
       - name: seed full-debug
         env:
           POLICY: seed
         run: python3 Scripts/split-cache-benchmark.py full-debug Scripts/build.sh --all
       - name: seed full-tests
+        id: seed-tests
         env:
           POLICY: seed
         run: python3 Scripts/split-cache-benchmark.py full-tests Scripts/ci-test.sh
@@ -85,6 +95,15 @@ jobs:
         env:
           POLICY: seed
         run: python3 Scripts/split-cache-benchmark.py roundtrip-noop Scripts/build.sh --all
+      - name: Record diagnostic provenance
+        if: ${{ failure() && steps.seed-tests.outcome == 'failure' }}
+        run: git rev-parse HEAD > .build/.built-from
+      - name: Preserve diagnostic compiled outputs
+        if: ${{ failure() && steps.seed-tests.outcome == 'failure' && steps.diagnostic.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .build
+          key: ${{ steps.key.outputs.prefix }}-diagnostic-${{ github.sha }}
       - name: Upload measurements
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -118,11 +137,21 @@ jobs:
         run: |
           toolchain=$(swift --version 2>&1 | cksum | cut -d' ' -f1)
           echo "prefix=split-bench-20261110-${{ runner.os }}-${{ runner.arch }}-$toolchain-${{ hashFiles('Package.resolved', 'Package.swift', 'Scripts/build.sh', 'Scripts/split-build-cache.py') }}" >> "$GITHUB_OUTPUT"
+      - name: Restore diagnostic compiled outputs
+        id: diagnostic
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .build
+          key: ${{ steps.key.outputs.prefix }}-diagnostic-${{ github.sha }}
+          restore-keys: ${{ steps.key.outputs.prefix }}-diagnostic-
+      - name: Invalidate diagnostic source changes
+        run: Scripts/forget-changed-targets.sh
       - name: seed full-debug
         env:
           POLICY: seed
         run: python3 Scripts/split-cache-benchmark.py full-debug Scripts/build.sh --all
       - name: seed full-tests
+        id: seed-tests
         env:
           POLICY: seed
         run: python3 Scripts/split-cache-benchmark.py full-tests Scripts/ci-test.sh
@@ -172,6 +201,15 @@ jobs:
         env:
           POLICY: seed
         run: python3 Scripts/split-cache-benchmark.py roundtrip-noop Scripts/build.sh --all
+      - name: Record diagnostic provenance
+        if: ${{ failure() && steps.seed-tests.outcome == 'failure' }}
+        run: git rev-parse HEAD > .build/.built-from
+      - name: Preserve diagnostic compiled outputs
+        if: ${{ failure() && steps.seed-tests.outcome == 'failure' && steps.diagnostic.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .build
+          key: ${{ steps.key.outputs.prefix }}-diagnostic-${{ github.sha }}
       - name: Upload measurements
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

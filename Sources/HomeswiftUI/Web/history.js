@@ -183,26 +183,14 @@
     const source = select("source", t("Change Source"), sourceKinds, params.get("source") ?? "");
     const since = select("since", t("Time range"), sinceChoices, params.get("since") ?? "24h");
     const controls = [room, accessory, source, since];
-    since.hidden = true;
-    const periods = el("div", { class: "group logbook-periods", role: "group", "aria-label": t("Time range") },
-      sinceChoices.map(([value, label]) => el("button", { type: "button", actionIcon: "history", text: label,
-        onclick: () => { since.value = value; since.dispatchEvent(new Event("change", { bubbles: true })); } })));
-    const syncPeriods = () => [...periods.children].forEach((button, index) => {
-      const selected = since.value === sinceChoices[index][0];
-      button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
-    });
-    since.addEventListener("change", syncPeriods);
-    syncPeriods();
     const clear = HomeswiftCommon.clearFilters(controls.map((control) => [control, control === since ? "24h" : ""]),
       { active: () => controls.some((control) => control.value !== (control === since ? "24h" : "")), events: controls.map((control) => [control, "change"]), reset: reload });
     const list = el("div", { class: "logbook" });
-    const count = el("p", { class: "muted logbook-count", "aria-live": "polite" });
+    const count = el("p", { class: "muted" });
     const icons = new Map(accessories.map((one) => [one.id, HomeswiftWidgets.accessoryIcon(one) ?? "accessory"]));
     const byID = new Map(accessories.map((one) => [one.id, one]));
     app().show(main, app().pageHead(t("Logbook"), t("What changed in the home, and who or what changed it.")),
-      el("div", { class: "card logbook-card" },
-        el("div", { class: "logbook-toolbar" }, periods,
-          el("div", { class: "logbook-filters" }, room, accessory, source, clear), since), count, list));
+      el("div", { class: "logbook-filters" }, ...controls, clear), count, list);
 
     async function reload() {
       const query = new URLSearchParams();

@@ -2298,12 +2298,9 @@
       });
     } else {
       const body = (built.body || []).filter(Boolean);
-      // Keep scrolling options beside the menu, with a dedicated, unobstructed hit target.
-      const footerChips = size === "xlarge" && body.at(-1)?.classList?.contains("chips") ? body.pop() : null;
       node.append(el("div", { class: "w-head" }, glyph, who, powerToggle(ctx, built)),
-        body.length ? el("div", { class: "w-body" }, body) : "",
-        footerChips ? el("div", { class: "w-footer" }, footerChips, menu) : el("span", { class: "w-corner" }, menu));
-      node.classList.toggle("head-only", !body.length && !footerChips);
+        body.length ? el("div", { class: "w-body" }, body) : "", el("span", { class: "w-corner" }, menu));
+      node.classList.toggle("head-only", !body.length);
       ctx.watch(() => node.classList.toggle("powered-off", !!built.power && !built.power.big && !isOn(built.power.characteristic)));
     }
     ctx.watch(paintGlyph);
@@ -2324,7 +2321,7 @@
   function paused(node, ctx) {
     if (!ctx.accessory.paused) return;
     node.classList.add("paused");
-    for (const part of node.querySelectorAll(":scope > .w-hit, :scope > .w-body, :scope > .w-footer > .chips, :scope > .w-head .switch, :scope > .w-main, :scope > .w-split, :scope > details, :scope > .camera-view, :scope > .controls")) part.inert = true;
+    for (const part of node.querySelectorAll(":scope > .w-hit, :scope > .w-body, :scope > .w-head .switch, :scope > .w-main, :scope > .w-split, :scope > details, :scope > .camera-view, :scope > .controls")) part.inert = true;
   }
 
   /// Every control: the widget's body (beside its facets when there are any), what is left under More, the foot.

@@ -506,3 +506,5 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
 extension String {
     fileprivate var nonEmpty: String? { isEmpty ? nil : self }
 }
+
+// CI cache benchmark: second source revision.

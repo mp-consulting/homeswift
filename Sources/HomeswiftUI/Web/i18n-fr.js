@@ -1,11 +1,5 @@
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
-  "Recent events": "Événements récents",
-  "No events yet.": "Aucun événement pour le moment.",
-  "This connection is ready.": "Cette connexion est prête.",
-  "Your connections, devices and services.": "Vos connexions, appareils et services.",
-  "Built-in services": "Services intégrés",
-
   "Powering the home": "Alimentation de la maison",
   "Woodland cabin": "Cabane dans les bois",
   "A cozy timber home among the trees.": "Une maison en bois chaleureuse au milieu des arbres.",
@@ -1085,7 +1079,6 @@ HomeswiftI18n.add("fr", {
   "Filter": "Filtre",
   "filter {percent} %": "filtre {percent} %",
   "Filter by client": "Filtrer par client",
-  "Search scope": "Champ de recherche",
   "Filter by tool": "Filtrer par outil",
   "Filter Change Indication": "Changement de filtre",
   "Filter life": "Vie du filtre",
@@ -3698,8 +3691,4 @@ HomeswiftI18n.add("fr", {
   "No battery is measured": "Aucune batterie n'est mesurée",
   "Edit the Energy page": "Modifier la page Énergie",
   "Something stands out in the energy use": "Quelque chose ressort dans la consommation d'énergie",
-  "Run selected rooms": "Lancer dans les pièces sélectionnées",
-  "Choose the rooms to include when you run this scene.": "Choisissez les pièces à inclure au lancement de cette scène.",
-  "Select all": "Tout sélectionner",
-  "Deselect all": "Tout désélectionner",
 });

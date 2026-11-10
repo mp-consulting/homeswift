@@ -2153,10 +2153,10 @@
     const consumers = card(t("Consumption by device"), t("What each meter measured in this period, the most first"), "outlet", "orange");
     const consumerList = el("ol", { class: "consumers", id: page ? "energy-overview-consumers" : "status-consumers" });
     const consumersMore = el("button", { type: "button", actionIcon: "history", "aria-expanded": "false", "aria-controls": consumerList.id });
-    const consumerActions = el("div", { class: "actions consumer-actions", hidden: true }, consumersMore);
+    const consumerActions = el("div", { class: "actions energy-log-actions", hidden: true }, consumersMore);
     const consumerLoading = el("div", { class: "consumer-loading", role: "status", "aria-label": t("Loading…"), hidden: true },
       el("span", { class: "muted", text: t("Loading…") }),
-      ...Array.from({ length: 5 }, () => el("div", { class: "consumer-skeleton", "aria-hidden": "true" }, el("i"), el("i"))));
+      ...Array.from({ length: 5 }, () => el("div", { class: "consumer-skeleton", "aria-hidden": "true" }, el("i"), el("i"), el("i"))));
     consumers.body.append(consumerLoading, consumerList, consumerActions);
     const setConsumersLoading = (loading) => {
       consumerLoading.hidden = !loading;
@@ -2164,8 +2164,6 @@
       consumerList.setAttribute("aria-busy", String(loading));
     };
     let consumersAll = false, lastConsumption = null, hasMeters = false, hasRoles = false;
-    const consumerIcons = new Map();
-    let consumerIconsRequest;
     // Gas and water (GLOSSARY.md, "Meter"): the m³ their Meters measured, by day or month, a colour per Meter, with the
     // cost at their own Tariff. Shown when a plugin declares such a Meter.
     const utilities = [
@@ -2395,20 +2393,13 @@
       fillHistory(history);
       fillImports(history.imports ?? []);
       if (!poll || !(history.imports ?? []).some((one) => one.state === "running")) loadConsumers(asked);
-      else setConsumersLoading(false);
     }
 
     async function loadConsumers(asked) {
       setConsumersLoading(true);
       let found;
       try {
-        consumerIconsRequest ??= api("/api/accessories").then((accessories) => {
-          for (const accessory of accessories) consumerIcons.set(accessory.id, HomeswiftWidgets.accessoryIcon(accessory) ?? "accessory");
-        }).catch(() => { consumerIconsRequest = null; });
-        [found] = await Promise.all([
-          api(`/api/metrics/consumption?${new URLSearchParams({ period: view, date: isoDay(anchor ?? new Date()), timeZone })}`),
-          consumerIconsRequest,
-        ]);
+        found = await api(`/api/metrics/consumption?${new URLSearchParams({ period: view, date: isoDay(anchor ?? new Date()), timeZone })}`);
       } catch (e) {
         if (asked === historyAsked) consumers.detail.textContent = e.message;
         return;
@@ -2423,25 +2414,8 @@
       showSection();
     }
 
-    // Measure folded rows too. The indent is shared across the phone and desktop layouts.
-    function sizeConsumerColumns(rows) {
-      const measure = document.createElement("canvas").getContext("2d");
-      if (!measure) return;
-      const textWidth = (node) => {
-        measure.font = getComputedStyle(node).font;
-        return measure.measureText(node.textContent).width;
-      };
-      const columnWidth = (selector) => Math.ceil(Math.max(0, ...rows.filter((item) => !item.querySelector(".unmeasured")).map((item) => {
-        const column = item.querySelector(selector);
-        const labels = selector === ".consumer-name" ? [column.firstElementChild] : [...column.children];
-        const indent = selector === ".consumer-name" && item.querySelector(".nested") ? 32 : 0;
-        return indent + Math.max(0, ...labels.map(textWidth)) + 2;
-      })));
-      consumerList.style.setProperty("--consumer-name-width", `${columnWidth(".consumer-name")}px`);
-      consumerList.style.setProperty("--consumer-value-width", `${columnWidth(".consumer-value")}px`);
-    }
-
-    /// Each meter's history and totals. Show five rows initially, counting every kind of meter.
+    /// A row per meter: its device (and which of its meters), a bar as long as its share of the most any used, and its
+    /// kWh, with what it returned when it did. A row opens the device's history. The first five, then the rest asked for.
     function fillConsumers(found) {
       lastConsumption = found;
       const meters = found.meters;
@@ -2461,11 +2435,48 @@
       const sum = (list, field = "consumption") => list.reduce((total, one) => total + (one[field] ?? 0), 0);
       // What no device measures: the home less its devices, never below zero.
       const unmetered = whole != null && devices.length ? Math.max(0, whole - sum(devices)) : null;
-      const unmeteredBars = consumerUnmeteredBars(wholes, devices);
+      const unmeteredSeries = [...wholes, ...devices].map((one) => new Map((one.bars ?? []).map((bar) => [bar.date, bar.consumption])));
+      const unmeteredBars = (wholes[0]?.bars ?? []).map((bar) => {
+        const values = unmeteredSeries.map((series) => series.get(bar.date));
+        return { date: bar.date, consumption: values.every(Number.isFinite)
+          ? Math.max(0, values.slice(0, wholes.length).reduce((a, b) => a + b, 0) - values.slice(wholes.length).reduce((a, b) => a + b, 0)) : null };
+      });
       // A home meter that is not the whole home (one with no figures for the period) measures the home's use.
       const roleNames = { home: t("Home use"), solar: t("Solar"), battery: t("Battery") };
       // Inside the whole home, as a screen reader hears a nested row: the indent says it only to the eye.
       const inWhole = t("inside the whole home");
+      // Each meter's history uses its own scale; gaps remain gaps, including in the filled area.
+      const sparkline = (one, field) => {
+        const tone = { home: 1, grid: 7, battery: 3, solar: 4 }[one.role] ?? 1;
+        const box = el("span", { class: "consumer-sparkline", style: `--consumer-tone: var(--series-${tone})`, "aria-hidden": "true" });
+        const values = (one.bars ?? []).map((bar) => Number.isFinite(bar[field]) ? bar[field] : null);
+        const known = values.filter((value) => value != null);
+        if (!known.length) return box;
+        const make = (tag, attrs) => {
+          const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+          for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+          return node;
+        };
+        const svg = make("svg", { viewBox: "0 0 160 32", preserveAspectRatio: "none" });
+        const max = Math.max(...known, 0.001);
+        let path = "", area = "", connected = false, lastX = 0;
+        const closeArea = () => { if (connected) area += `L${lastX},29 Z `; connected = false; };
+        values.forEach((value, index) => {
+          if (value == null) { closeArea(); return; }
+          const x = values.length === 1 ? 80 : 3 + index / (values.length - 1) * 154;
+          const y = 29 - Math.max(0, value) / max * 26;
+          path += `${connected ? "L" : "M"}${x},${y} `;
+          area += connected ? `L${x},${y} ` : `M${x},29 L${x},${y} `;
+          lastX = x;
+          connected = true;
+          svg.append(make("circle", { cx: x, cy: y, r: 1.5 }));
+        });
+        closeArea();
+        svg.prepend(make("path", { class: "spark-area", d: area }),
+          make("path", { class: "spark-baseline", d: "M3,29 H157" }), make("path", { d: path }));
+        box.append(svg);
+        return box;
+      };
       const row = (one, nested, first = false) => {
         const name = one.label ? `${one.name} · ${one.label}` : one.name;
         // The whole home is named so; a grid meter beside a meter of the home's use is the grid.
@@ -2480,12 +2491,11 @@
         const known = measured(one);
         const note = known ? [cost, returned].filter(Boolean).join(" · ") || null : t("Not measured");
         const value = known ? formatKWh(figure) : "—";
-        return el("li", { class: first ? (known ? "sources-start" : "unmeasured-start") : "" }, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}${known ? "" : " unmeasured"}`, actionIcon: "chart",
+        return el("li", { class: first ? (known ? "sources-start" : "unmeasured-start") : null }, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}${known ? "" : " unmeasured"}`, actionIcon: "chart",
           "aria-label": [t("{name}: {value}", { name, value: known ? value : t("Not measured") }), caption, nested ? inWhole : null, known ? cost : null, returned].filter(Boolean).join(", "),
           onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) },
-          nested ? el("span", { class: "consumer-type", "aria-hidden": "true" }, HomeswiftWidgets.controls.icon(consumerIcons.get(one.accessory) ?? "accessory")) : null,
           el("span", { class: "consumer-name" }, el("span", { text: name }), caption ? el("small", { text: caption }) : null),
-          known ? consumerSparkline(one, solar && one.returned > 0 ? "returned" : "consumption")
+          known ? sparkline(one, solar && one.returned > 0 ? "returned" : "consumption")
             : el("span", { class: "consumer-sparkline consumer-no-data" }, el("span", { text: t("Not measured") })),
           el("span", { class: "consumer-value" }, el("b", { text: value }), known && note ? el("small", { text: note }) : null)));
       };
@@ -2506,7 +2516,7 @@
         unmetered != null ? el("li", {}, el("div", { class: "consumer nested rest", role: "group",
           "aria-label": [t("{name}: {value}", { name: t("Unmetered"), value: formatKWh(unmetered) }), inWhole].join(", ") },
           el("span", { class: "consumer-name" }, el("span", { text: t("Unmetered") })),
-          el("span", { class: "consumer-chart-note" }, consumerSparkline({ bars: unmeteredBars }, "consumption"),
+          el("span", { class: "consumer-chart-note" }, sparkline({ bars: unmeteredBars }, "consumption"),
             el("small", { text: t("What no meter measures on its own") })),
           el("span", { class: "consumer-value" }, el("b", { text: formatKWh(unmetered) })),
           el("span", { class: "consumer-spacer", "aria-hidden": "true" }))) : null,
@@ -2514,9 +2524,21 @@
         // The meters with no figures for the period, together at the end.
         ...unmeasured.map((one, index) => row(one, false, index === 0 && before + sources.length > 0))].filter(Boolean)));
       // Bound the whole card, including home meters, sources and meters without readings.
-      // Totals above still use every meter, even when its row is folded away.
+      // Totals and shares above still use every meter, even when its row is folded away.
       const rows = [...consumerList.children].filter((item) => item.querySelector(".consumer"));
-      sizeConsumerColumns(rows);
+      // Size against all measured rows, including folded ones, to keep charts stable on expansion.
+      const measure = document.createElement("canvas").getContext("2d");
+      const textWidth = (node) => {
+        measure.font = getComputedStyle(node).font;
+        return measure.measureText(node.textContent).width;
+      };
+      const columnWidth = (selector) => Math.ceil(Math.max(0, ...rows.filter((item) => !item.querySelector(".unmeasured")).map((item) => {
+        const column = item.querySelector(selector);
+        const labels = selector === ".consumer-name" ? [column.firstElementChild] : [...column.children];
+        return (parseFloat(getComputedStyle(column).paddingLeft) || 0) + Math.max(0, ...labels.map(textWidth)) + 2;
+      })));
+      consumerList.style.setProperty("--consumer-name-width", `${columnWidth(".consumer-name")}px`);
+      consumerList.style.setProperty("--consumer-value-width", `${columnWidth(".consumer-value")}px`);
       rows.forEach((item, index) => { item.hidden = !consumersAll && index >= 5; });
       if (inside) inside.hidden = inside.nextElementSibling?.hidden ?? true;
       consumerActions.hidden = rows.length <= 5;
@@ -2887,51 +2909,8 @@
         el("span", { class: "energy-log-text" }, el("span", { text: one.text }), one.meta ? el("small", { text: one.meta }) : null))))));
   }
 
-  // Subtract matching dates only; incomplete input remains a gap rather than zero.
-  function consumerUnmeteredBars(wholes, devices) {
-    const unmeteredSeries = [...wholes, ...devices].map((one) => new Map((one.bars ?? []).map((bar) => [bar.date, bar.consumption])));
-    return (wholes[0]?.bars ?? []).map((bar) => {
-      const values = unmeteredSeries.map((series) => series.get(bar.date));
-      return { date: bar.date, consumption: values.every(Number.isFinite)
-        ? Math.max(0, values.slice(0, wholes.length).reduce((a, b) => a + b, 0) - values.slice(wholes.length).reduce((a, b) => a + b, 0)) : null };
-    });
-  }
-
-  // Each meter's history uses its own scale; gaps remain gaps, including in the filled area.
-  function consumerSparkline(one, field) {
-    const tone = ({ home: 1, grid: 7, battery: 3, solar: 4 })[one.role] ?? 1;
-    const box = el("span", { class: "consumer-sparkline", style: `--consumer-tone: var(--series-${tone})`, "aria-hidden": "true" });
-    const values = (one.bars ?? []).map((bar) => Number.isFinite(bar[field]) ? bar[field] : null);
-    const known = values.filter((value) => value != null);
-    if (!known.length) return box;
-    const make = (tag, attrs) => {
-      const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
-      for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
-      return node;
-    };
-    const svg = make("svg", { viewBox: "0 0 160 32", preserveAspectRatio: "none" });
-    const max = Math.max(...known, 0.001);
-    let path = "", area = "", connected = false, lastX = 0;
-    const closeArea = () => { if (connected) area += `L${lastX},29 Z `; connected = false; };
-    values.forEach((value, index) => {
-      if (value == null) { closeArea(); return; }
-      const x = values.length === 1 ? 80 : 3 + index / (values.length - 1) * 154;
-      const y = 29 - Math.max(0, value) / max * 26;
-      path += `${connected ? "L" : "M"}${x},${y} `;
-      area += connected ? `L${x},${y} ` : `M${x},29 L${x},${y} `;
-      lastX = x;
-      connected = true;
-      svg.append(make("circle", { cx: x, cy: y, r: 1.5 }));
-    });
-    closeArea();
-    svg.prepend(make("path", { class: "spark-area", d: area }),
-      make("path", { class: "spark-baseline", d: "M3,29 H157" }), make("path", { d: path }));
-    box.append(svg);
-    return box;
-  }
-
   /// The Energy page's By accessory: the home split between the devices measured on their own and the rest, then a row
-  /// per device (its history sparkline, its kWh, share and cost), sortable, for today, the week, the month or the year
+  /// per device (its days as small bars, its kWh, share and cost), sortable, for today, the week, the month or the year
   /// (`?period=`, `?sort=`, `?device=` in the address); a row opens its panel: when it ran this week, hour by hour, and
   /// its full history. The sources (solar, the grid, the batteries) are said apart, under the list.
   async function energyDevicesPage(main, head, nav) {
@@ -3003,32 +2982,34 @@
       const devices = meters.filter((one) => !one.role && one.consumption != null);
       const silent = meters.filter((one) => !one.role && one.consumption == null);
       // The whole home as the consumption card counts it, so both say the same Unmetered.
-      const { wholes, whole } = wholeHome(meters.filter((one) => one.consumption != null || one.returned != null));
+      const { whole } = wholeHome(meters.filter((one) => one.consumption != null || one.returned != null));
       const inDevices = devices.reduce((sum, one) => sum + one.consumption, 0);
       const rest = whole != null ? Math.max(0, whole - inDevices) : null;
       const base = whole ?? inDevices;
       split.replaceChildren(...splitBar(inDevices, rest));
       const ordered = [...devices].sort(sort === "name" ? (a, b) => nameOf(a).localeCompare(nameOf(b)) : sort === "cost" ? (a, b) => (b.cost ?? 0) - (a.cost ?? 0) : (a, b) => b.consumption - a.consumption);
+      const most = Math.max(0, ...devices.map((one) => one.consumption));
       const row = (one) => {
+        const days = (one.bars ?? []).map((bar) => bar.consumption ?? 0), top = Math.max(...days, 0);
         const share = base > 0 ? one.consumption / base * 100 : null;
         const id = `${one.accessory}\n${one.meter}`;
         return el("button", { type: "button", role: "listitem", class: `energy-device-row${id === chosen ? " on" : ""}`, actionIcon: "forward", "aria-label": t("{name}: {value}", { name: nameOf(one), value: formatKWh(one.consumption) }),
           onclick: () => choose(id) },
           el("span", { class: "device-name" }, el("strong", { text: nameOf(one) }), el("small", { text: one.room ?? (one.accessory.split(":")[0]) })),
-          consumerSparkline(one, "consumption"),
+          el("span", { class: "device-days", "aria-hidden": "true" }, days.slice(-14).map((value) => el("i", { style: `height: ${top > 0 ? Math.max(8, value / top * 100) : 8}%` }))),
+          el("span", { class: "device-track", "aria-hidden": "true" }, el("i", { style: `width: ${most > 0 ? one.consumption / most * 100 : 0}%` })),
           el("b", { class: "device-kwh", text: formatKWh(one.consumption) }),
           el("span", { class: "device-share", text: share == null ? "" : formatPercent(share) }),
           el("span", { class: "device-cost", text: one.cost != null && found.currency ? formatMoney(one.cost, found.currency) : "" }));
       };
       list.replaceChildren(...(devices.length ? [
-        el("div", { class: "energy-device-row head", "aria-hidden": "true" }, el("span", { text: t("Accessory") }), el("span", { text: t("History") }), el("span", { text: t("Energy") }),
+        el("div", { class: "energy-device-row head", "aria-hidden": "true" }, el("span", { text: t("Accessory") }), el("span", { text: t("Each day") }), el("span"), el("span", { text: t("Energy") }),
           el("span", { text: t("Share") }), el("span", { text: t("Cost") }), el("span")),
         ...ordered.map(row),
         rest != null && rest > 0 ? el("div", { class: "energy-device-row rest", role: "listitem" }, el("span", { class: "device-name" }, el("strong", { text: t("Unmetered") }), el("small", { text: t("What no meter measures on its own") })),
-          consumerSparkline({ bars: consumerUnmeteredBars(wholes, devices) }, "consumption"), el("b", { class: "device-kwh", text: formatKWh(rest) }), el("span", { class: "device-share", text: base > 0 ? formatPercent(rest / base * 100) : "" }), el("span", { class: "device-cost" }), el("span", { class: "device-row-spacer" })) : null,
+          el("span"), el("span"), el("b", { class: "device-kwh", text: formatKWh(rest) }), el("span", { class: "device-share", text: base > 0 ? formatPercent(rest / base * 100) : "" }), el("span"), el("span")) : null,
         ...silent.map((one) => el("div", { class: "energy-device-row silent", role: "listitem" }, el("span", { class: "device-name" }, el("strong", { text: nameOf(one) }), el("small", { text: t("No readings in this period") })),
-          el("span", { class: "consumer-sparkline consumer-no-data" }, el("span", { text: t("Not measured") })),
-          el("b", { class: "device-kwh", text: "—" }), el("span", { class: "device-share" }), el("span", { class: "device-cost" }), el("span", { class: "device-row-spacer" })))].filter(Boolean)
+          el("span"), el("span"), el("b", { class: "device-kwh", text: "—" }), el("span"), el("span"), el("span")))].filter(Boolean)
         : [el("p", { class: "muted", text: t("No device is measured on its own yet. A smart plug or a meter shows what a device uses.") })]));
       // The sources apart: what solar produced, what the grid brought and took, what the batteries cycled.
       const sum = (role, field) => meters.filter((one) => one.role === role).slice(0, 1).reduce((total, one) => total + (one[field] ?? 0), 0);
@@ -4256,97 +4237,42 @@
     const byPlatform = new Map(plugins.plugins.map((plugin) => [plugin.platform, plugin]));
     const running = (block) => plugins.platforms.find((p) => p.platform === block.platform && p.name === block.name);
 
-    // Rows and the inspector share the same state and actions; no parallel lifecycle implementation.
-    const noteFor = (block, plugin, instance) => instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
-      : instance?.needsAuthorization ? (instance.accountState === "refused" ? t("Its account refused its sign-in: set it up again.") : t("Its devices show once its account is set up."))
-      : instance?.noneResponding ? t("None of its accessories responds: the log may say why.")
-      : instance ? t("This connection is ready.") : block.system ? t("A block of the runtime itself.")
-      : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.");
     const blockCard = (block) => {
-      const plugin = byPlatform.get(block.platform), instance = running(block);
+      const plugin = byPlatform.get(block.platform);
+      const instance = running(block);
       const [state, kind] = blockState(block, plugin, instance);
+      // The name opens what the menu's first item opens: the plugin's page, else the form.
+      const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : pluginSettings(block);
+      // Under the name, what it is when the name does not say it already ("Daikin Cloud" says DaikinCloud): the plugin,
+      // else its platform.
       const bare = (name) => name.replace(/[\s_-]+/g, "").toLowerCase();
       const kindName = [plugin?.name, block.platform].find((name) => name && bare(name) !== bare(block.name));
-      const open = (event) => inspect(block, event.currentTarget);
-      const row = el("div", { class: "plugins-row", "data-plugin": block.slug },
-        tile(block.icon ?? plugin?.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
-        el("div", { class: "plugins-identity" },
-          el("button", { class: "plugins-name", actionIcon: "plugin", text: blockTitle(block), onclick: open }),
-          el("small", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
-        el("div", { class: "plugins-meta" }, el("span", { class: `plugins-state ${kind}`, text: state }),
-          instance ? el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", instance.accessories) }) : null),
-        el("button", { class: "plugins-open", actionIcon: "open", text: t("Open"), onclick: open }));
-      return row;
+      return el("div", { class: "card server plugin-instance" },
+        el("div", { class: "server-head" },
+          tile(block.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
+          el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: blockTitle(block) })),
+            el("div", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
+          // In this dense list, running is the usual state: a quiet dot; the others (paused, no plugin, built in) say so
+          // in words, as the plugin's own page and the bridges do for every state.
+          kind === "on" ? el("span", { class: "status-dot", role: "img", "aria-label": state, title: state }) : el("span", { class: `pill status ${kind}`, text: state })),
+        // Its accessories and the bridge they are on, a glyph each, on one line.
+        instance ? el("div", { class: "meta" },
+          el("span", { title: t("Accessories") }, HomeswiftCommon.icon("bulb"), tn("{n} accessory", "{n} accessories", instance.accessories)),
+          el("span", { title: t("On the bridge {name}", { name: instance.bridge }) }, HomeswiftCommon.icon(block.childBridge ? "child" : "bridge"), instance.bridge)) : null,
+        el("div", { class: "card-foot" },
+          el("span", { class: "muted", text: instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
+            : instance?.needsAuthorization ? (instance.accountState === "refused" ? t("Its account refused its sign-in: set it up again.") : t("Its devices show once its account is set up."))
+            : instance?.noneResponding ? t("None of its accessories responds: the log may say why.")
+            : instance ? "" : block.system ? t("A block of the runtime itself.") : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.") }),
+          el("div", { class: "plugin-card-actions" }, instance?.needsAuthorization ? setUpButton(block, plugin, instance)
+            : el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }),
+          menuButton(t("Actions for {name}", { name: blockTitle(block) }), () => blockActions(block, plugin, instance)))));
     };
 
-    function inspect(block, trigger) {
-      const plugin = byPlatform.get(block.platform), instance = running(block);
-      const [state, kind] = blockState(block, plugin, instance);
-      const content = el("section", { class: "plugins-panel-content", role: "tabpanel", id: "plugins-tab-content" });
-      let generation = 0;
-      const tabs = [["Overview", "plugin"], ["Accessories", "bulb"], ["Settings", "gear"], ["Events", "history"]];
-      const nav = el("nav", { class: "plugins-tabs", role: "tablist", "aria-label": t("Plugins") });
-      const actions = (overview = false) => el("div", { class: overview ? "plugins-panel-actions" : "plugins-settings-actions" },
-        ...blockActions(block, plugin, instance).filter((action) => action && (!overview || ["open", "pause", "play"].includes(action.icon))).map((action) => el(action.href ? "a" : "button", {
-          class: `button${action.danger ? " danger" : ""}`, href: action.href, actionIcon: action.icon, text: action.label,
-          onclick: action.href ? () => dialog.close() : async () => { dialog.close(); await action.onSelect(); }
-        })));
-      async function select(index) {
-        const turn = ++generation;
-        [...nav.children].forEach((button, i) => { button.setAttribute("aria-selected", String(i === index)); button.tabIndex = i === index ? 0 : -1; });
-        content.setAttribute("aria-labelledby", `plugins-tab-${index}`);
-        content.replaceChildren(spinner());
-        try {
-          let children;
-          if (index === 0) children = [el("p", { text: noteFor(block, plugin, instance) }),
-            el("div", { class: "plugins-facts" },
-              el("div", {}, el("small", { text: t("Status") }), el("strong", { class: kind, text: state })),
-              el("div", {}, el("small", { text: t("Accessories") }), el("strong", { text: String(instance?.accessories ?? 0) }))),
-            instance?.needsAuthorization ? el("div", { class: "plugins-panel-actions" }, setUpButton(block, plugin, instance, () => { dialog.close(); route(); })) : null,
-            actions(true)];
-          else if (index === 1) {
-            const accessories = (await api("/api/accessories")).filter((item) => item.platform === block.platform && item.platformName === block.name);
-            children = [el("p", { class: "muted", text: tn("{n} accessory", "{n} accessories", accessories.length) }),
-              ...accessories.map((item) => el("button", { class: "plugins-accessory", onclick: (event) => HomeswiftSettings.openAccessory({ accessoryID: item.id, name: item.name, trigger: event.currentTarget }) },
-                tile(item.icon ?? "bulb", "grey"), el("strong", { text: item.name }), HomeswiftCommon.icon("forward")))];
-          } else if (index === 2) children = [actions()];
-          else {
-            const lines = await api(`/api/logs?plugin=${encodeURIComponent(block.name)}`);
-            children = [el("div", { class: "plugins-events-head" }, el("h3", { text: t("Recent events") }),
-              el("a", { class: "button", href: `/logs?plugin=${encodeURIComponent(block.slug)}`, actionIcon: "logs", text: t("Logs") })),
-              lines.length ? el("ol", { class: "plugins-events" }, ...lines.slice(-30).reverse().map((line) => {
-                const date = new Date(line.time);
-                return el("li", {}, el("time", { datetime: date.toISOString(), title: date.toLocaleString() },
-                  el("span", { text: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }),
-                  el("small", { text: date.toLocaleDateString([], { month: "short", day: "numeric" }) })),
-                  el("p", { text: line.text }));
-              })) : el("p", { class: "plugins-empty muted", text: t("No events yet.") })];
-          }
-          if (turn === generation && dialog.open) content.replaceChildren(...children.filter(Boolean));
-        } catch (error) { if (turn === generation && dialog.open) content.replaceChildren(el("p", { class: "error", text: error.message })); }
-      }
-      tabs.forEach(([label, icon], index) => nav.append(el("button", { role: "tab", id: `plugins-tab-${index}`,
-        "aria-controls": "plugins-tab-content", actionIcon: icon, text: t(label), onclick: () => select(index),
-        onkeydown: (event) => {
-          const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
-          if (next !== null) { event.preventDefault(); nav.children[next].focus(); select(next); }
-        } })));
-      const row = trigger.closest(".plugins-row");
-      row?.classList.add("selected");
-      const dialog = openSheet((dismiss) => el("div", { class: "plugins-panel" },
-        el("div", { class: "plugins-panel-head" }, el("h2", { id: "plugins-panel-title", text: blockTitle(block) }),
-          el("button", { class: "plugins-close", actionIcon: "close", "aria-label": t("Close"), onclick: () => dismiss() })), nav, content), "plugins-panel-title",
-        { returnFocus: trigger, onClose: () => { generation++; row?.classList.remove("selected"); if (trigger.isConnected) trigger.focus(); } });
-      dialog.classList.add("plugins-inspector");
-      // Navigation links leave the overlay before the router renders the next view.
-      dialog.addEventListener("click", (event) => { if (event.target.closest("a[href]")) dialog.close(); });
-      select(0);
-    }
-
     /// What a card whose account Needs Authorization offers first: its Setup, in a sheet over the list.
-    const setUpButton = (block, plugin, instance, after = () => route()) => el("button", { type: "button", class: "primary", actionIcon: "pair",
+    const setUpButton = (block, plugin, instance) => el("button", { type: "button", class: "primary", actionIcon: "pair",
       text: instance.accountState === "notSetUp" ? t("Set up") : t("Set up again"),
-      onclick: (event) => HomeswiftSetup.setUp({ block, plugin, firstTime: instance.accountState === "notSetUp", trigger: event.currentTarget, after }) });
+      onclick: (event) => HomeswiftSetup.setUp({ block, plugin, firstTime: instance.accountState === "notSetUp", trigger: event.currentTarget, after: () => route() }) });
 
     /// What the menu of a plugin's card offers: its page, its Settings, config.json, pause or resume, and removal.
     function blockActions(block, plugin, instance) {
@@ -4395,51 +4321,32 @@
       }
     }
 
+    // Your plugins: by name, those that need a look first (no plugin, not running, paused), or by their accessories.
+    const blocks = plugins.blocks.map((block) => {
+      const plugin = byPlatform.get(block.platform), instance = running(block);
+      const attention = { away: 0, paused: 1, on: 2, standby: 3 }[blockState(block, plugin, instance)[1]];
+      return { card: blockCard(block), name: block.name, attention, accessories: instance?.accessories ?? -1,
+        text: [block.name, block.platform, plugin?.name, instance?.bridge].filter(Boolean).join(" ") };
+    });
+    const installed = finder({ grid: el("div", { class: "grid plugin-instances" }), entries: blocks, param: "order",
+      orders: [["name", t("Name A–Z"), () => 0], ["attention", t("Needs attention first"), (a, b) => a.attention - b.attention],
+        ["accessories", t("Most accessories"), (a, b) => b.accessories - a.accessories]],
+      placeholder: t("Search your plugins"), sortLabel: t("Sort your plugins"), empty: t("No plugin of yours matches the search."),
+      counted: (shown, total) => t("{shown} of {total} plugins", { shown, total }) });
     const available = finder({ grid: el("div", { class: "grid plugin-catalog" }), param: "sort", entries: catalogEntries,
-      orders: [["name", t("Name A–Z"), () => 0], ["used", t("In use first"), (a, b) => Number(b.used) - Number(a.used)]],
+      orders: [["name", t("Name A–Z"), () => 0], ["used", t("In use first"), (a, b) => Number(b.used) - Number(a.used)],
+        ["available", t("Available first"), (a, b) => Number(a.used) - Number(b.used)]],
       placeholder: t("Search plugins"), sortLabel: t("Sort plugins"), empty: t("No plugin matches the search."),
       counted: (shown, total) => t("{shown} of {total} plugins", { shown, total }) });
-    const list = el("div", { class: "plugins-list" });
-    const custom = plugins.blocks.filter((block) => !block.system).sort((a, b) => {
-      const order = (block) => ({ away: 0, paused: 1, on: 2, standby: 3 })[blockState(block, byPlatform.get(block.platform), running(block))[1]];
-      return order(a) - order(b) || blockTitle(a).localeCompare(blockTitle(b));
-    });
-    let filter = "all";
-    const search = el("input", { type: "search", class: "search", placeholder: t("Search your plugins"), "aria-label": t("Search your plugins"), oninput: render });
-    const filters = el("div", { class: "group plugins-filters", role: "group", "aria-label": t("Status") });
-    const matches = (block, value) => value === "all" || blockState(block, byPlatform.get(block.platform), running(block))[1] === value;
-    [["all", "All", "plugin"], ["away", "Needs attention", "logs"], ["on", "Running", "play"], ["paused", "Paused", "pause"]].forEach(([value, label, icon]) => {
-      filters.append(el("button", { actionIcon: icon, text: `${t(label)} · ${custom.filter((block) => matches(block, value)).length}`,
-        "aria-pressed": String(value === filter), onclick: () => { filter = value; render(); } }));
-    });
-    function render() {
-      const query = search.value.trim().toLocaleLowerCase();
-      const rows = custom.filter((block) => matches(block, filter) && [block.name, block.platform, byPlatform.get(block.platform)?.name].join(" ").toLocaleLowerCase().includes(query));
-      list.replaceChildren(...(rows.length ? rows.map(blockCard) : [el("p", { class: "muted plugins-empty", text: t("No plugin of yours matches the search.") })]));
-      [...filters.children].forEach((button, i) => {
-        const selected = ["all", "away", "on", "paused"][i] === filter;
-        button.setAttribute("aria-pressed", String(selected)); button.classList.toggle("on", selected);
-      });
-    }
-    const add = el("button", { class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: () => {
-      const dialog = openSheet((dismiss) => el("div", { class: "plugins-panel" },
-        el("div", { class: "plugins-panel-head" }, el("h2", { id: "plugins-catalog-title", text: t("Add a plugin") }),
-          el("button", { class: "plugins-close", actionIcon: "close", "aria-label": t("Close"), onclick: () => dismiss() })), ...available), "plugins-catalog-title");
-      dialog.classList.add("plugins-inspector");
-      dialog.addEventListener("click", (event) => { if (event.target.closest("a[href]")) dialog.close(); });
-    } });
-    const builtIn = plugins.blocks.filter((block) => block.system);
-    show(main, el("div", { class: "plugins-heading" }, pageHead(t("Plugins"), t("Your connections, devices and services.")), add),
+    show(main,
+      pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
+      // Blocks no plugin here runs, by the names the cards show (Homebridge's own blocks, from an imported config).
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("{names}: no plugin compiled into this homeswift runs these blocks, so they are ignored.",
         { names: plugins.blocks.filter((block) => plugins.unknownPlatforms.includes(block.platform)).map((block) => block.name).join(", ") }) })) : null,
-      el("div", { class: "card plugins-card" },
-        el("div", { class: "plugins-toolbar" }, filters, search, HomeswiftCommon.clearFilters([[search, ""]], {
-          active: () => filter !== "all", events: [[filters, "click"]], reset: () => { filter = "all"; render(); }
-        })), list),
-      !custom.length ? window.HomeswiftImport.offer() : null,
-      builtIn.length ? el("details", { class: "plugins-built-in" }, el("summary", { text: `${t("Built-in services")} · ${builtIn.length}` }),
-        el("div", { class: "card plugins-list" }, ...builtIn.map(blockCard))) : null);
-    render();
+      plugins.blocks.some((block) => !block.system) ? [el("div", { class: "section-head" }, el("h2", { text: t("Your plugins") }),
+        el("span", { class: "muted", text: tn("{n} block in config.json", "{n} blocks in config.json", plugins.blocks.length) })), ...installed] : window.HomeswiftImport.offer(),
+      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") })),
+      ...available);
   };
 
   /// A block's state pill: its label and tone.

@@ -847,7 +847,7 @@ enum WebAssets {
       el("div", { class: "backup-actions-grid" }, instance, restoreCard(backups)),
       sectionHead(t("Kept backups"), backups.backups.length ? t("{n}, newest first", { n: backups.backups.length }) : ""),
       backups.backups.length ? el("div", { class: "card rows" }, backups.backups.map(backupRow))
-        : el("div", { class: "card empty compact backup-empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("archive")), el("p", { class: "muted", text: t("None yet: the daily backup and Back up now keep them here.") })),
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("archive")), el("p", { class: "muted", text: t("None yet: the daily backup and Back up now keep them here.") })),
       sectionHead(t("config.json backups"), tn("The file before its last save", "The file before each of its last {n} saves", configBackups.kept)),
       configBackups.backups.length ? el("div", { class: "card rows" }, configBackups.backups.map(configBackupRow))
         : el("div", { class: "card empty" }, el("p", { class: "muted", text: t("None yet: each save of config.json keeps the file it replaces.") })));
@@ -1247,12 +1247,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   async function auditPage(main) {
     const params = new URLSearchParams(location.search);
-    const scope = el("select", { "aria-label": t("Search scope") },
-      el("option", { value: "tool", text: t("Tool or route") }),
-      el("option", { value: "client", text: t("Client or user") }));
-    scope.value = params.has("client") ? "client" : "tool";
-    const search = el("input", { type: "search", class: "search", placeholder: t("Search"),
-      value: params.get(scope.value) ?? "", "aria-label": t("Search") });
+    const tool = el("input", { type: "search", class: "search", placeholder: t("Tool or route"), value: params.get("tool") ?? "", "aria-label": t("Filter by tool") });
+    const client = el("input", { type: "search", class: "search", placeholder: t("Client or user"), value: params.get("client") ?? "", "aria-label": t("Filter by client") });
     const select = (choices, value, label) => {
       const control = el("button", { class: "audit-picker", type: "button", "aria-label": label, "aria-haspopup": "menu" });
       control.value = value;
@@ -1273,7 +1269,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     async function load() {
       const own = ++loads;
       const query = new URLSearchParams();
-      if (search.value.trim()) query.set(scope.value, search.value.trim());
+      if (tool.value.trim()) query.set("tool", tool.value.trim());
+      if (client.value.trim()) query.set("client", client.value.trim());
       if (outcome.value) query.set("outcome", outcome.value);
       query.set("since", since.value);
       window.history.replaceState(null, "", `/settings/audit?${query}`);
@@ -1301,8 +1298,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("shield")), el("p", { class: "muted", text: t("Nothing in this range matches.") })));
     }
     let typing = null;
-    for (const input of [search]) input.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
-    for (const choice of [outcome, since, scope]) choice.addEventListener("change", () => { clearTimeout(typing); typing = setTimeout(load, 0); });
+    for (const input of [tool, client]) input.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
+    for (const choice of [outcome, since]) choice.addEventListener("change", () => { clearTimeout(typing); typing = setTimeout(load, 0); });
     app().show(main,
       app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
       subnav("audit"),
@@ -1310,11 +1307,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "audit-filter-grid" },
           el("label", {}, el("span", { text: t("Time range") }), since),
           el("label", {}, el("span", { text: t("Outcome") }), outcome),
-          el("div", { class: "audit-search" },
-            el("label", {}, el("span", { class: "visually-hidden", text: t("Search scope") }), scope),
-            el("label", {}, el("span", { class: "visually-hidden", text: t("Search") }), search))),
+          el("label", {}, el("span", { text: t("Tool or route") }), tool),
+          el("label", {}, el("span", { text: t("Client or user") }), client)),
         el("div", { class: "audit-filter-footer" }, count,
-          HomeswiftCommon.clearFilters([[search, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) }))),
+          HomeswiftCommon.clearFilters([[tool, ""], [client, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) }))),
       body);
     await load();
   }
@@ -4519,10 +4515,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const consumers = card(t("Consumption by device"), t("What each meter measured in this period, the most first"), "outlet", "orange");
     const consumerList = el("ol", { class: "consumers", id: page ? "energy-overview-consumers" : "status-consumers" });
     const consumersMore = el("button", { type: "button", actionIcon: "history", "aria-expanded": "false", "aria-controls": consumerList.id });
-    const consumerActions = el("div", { class: "actions consumer-actions", hidden: true }, consumersMore);
+    const consumerActions = el("div", { class: "actions energy-log-actions", hidden: true }, consumersMore);
     const consumerLoading = el("div", { class: "consumer-loading", role: "status", "aria-label": t("Loading…"), hidden: true },
       el("span", { class: "muted", text: t("Loading…") }),
-      ...Array.from({ length: 5 }, () => el("div", { class: "consumer-skeleton", "aria-hidden": "true" }, el("i"), el("i"))));
+      ...Array.from({ length: 5 }, () => el("div", { class: "consumer-skeleton", "aria-hidden": "true" }, el("i"), el("i"), el("i"))));
     consumers.body.append(consumerLoading, consumerList, consumerActions);
     const setConsumersLoading = (loading) => {
       consumerLoading.hidden = !loading;
@@ -4530,8 +4526,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       consumerList.setAttribute("aria-busy", String(loading));
     };
     let consumersAll = false, lastConsumption = null, hasMeters = false, hasRoles = false;
-    const consumerIcons = new Map();
-    let consumerIconsRequest;
     // Gas and water (GLOSSARY.md, "Meter"): the m³ their Meters measured, by day or month, a colour per Meter, with the
     // cost at their own Tariff. Shown when a plugin declares such a Meter.
     const utilities = [
@@ -4761,20 +4755,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       fillHistory(history);
       fillImports(history.imports ?? []);
       if (!poll || !(history.imports ?? []).some((one) => one.state === "running")) loadConsumers(asked);
-      else setConsumersLoading(false);
     }
 
     async function loadConsumers(asked) {
       setConsumersLoading(true);
       let found;
       try {
-        consumerIconsRequest ??= api("/api/accessories").then((accessories) => {
-          for (const accessory of accessories) consumerIcons.set(accessory.id, HomeswiftWidgets.accessoryIcon(accessory) ?? "accessory");
-        }).catch(() => { consumerIconsRequest = null; });
-        [found] = await Promise.all([
-          api(`/api/metrics/consumption?${new URLSearchParams({ period: view, date: isoDay(anchor ?? new Date()), timeZone })}`),
-          consumerIconsRequest,
-        ]);
+        found = await api(`/api/metrics/consumption?${new URLSearchParams({ period: view, date: isoDay(anchor ?? new Date()), timeZone })}`);
       } catch (e) {
         if (asked === historyAsked) consumers.detail.textContent = e.message;
         return;
@@ -4789,25 +4776,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       showSection();
     }
 
-    // Measure folded rows too. The indent is shared across the phone and desktop layouts.
-    function sizeConsumerColumns(rows) {
-      const measure = document.createElement("canvas").getContext("2d");
-      if (!measure) return;
-      const textWidth = (node) => {
-        measure.font = getComputedStyle(node).font;
-        return measure.measureText(node.textContent).width;
-      };
-      const columnWidth = (selector) => Math.ceil(Math.max(0, ...rows.filter((item) => !item.querySelector(".unmeasured")).map((item) => {
-        const column = item.querySelector(selector);
-        const labels = selector === ".consumer-name" ? [column.firstElementChild] : [...column.children];
-        const indent = selector === ".consumer-name" && item.querySelector(".nested") ? 32 : 0;
-        return indent + Math.max(0, ...labels.map(textWidth)) + 2;
-      })));
-      consumerList.style.setProperty("--consumer-name-width", `${columnWidth(".consumer-name")}px`);
-      consumerList.style.setProperty("--consumer-value-width", `${columnWidth(".consumer-value")}px`);
-    }
-
-    /// Each meter's history and totals. Show five rows initially, counting every kind of meter.
+    /// A row per meter: its device (and which of its meters), a bar as long as its share of the most any used, and its
+    /// kWh, with what it returned when it did. A row opens the device's history. The first five, then the rest asked for.
     function fillConsumers(found) {
       lastConsumption = found;
       const meters = found.meters;
@@ -4827,11 +4797,48 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const sum = (list, field = "consumption") => list.reduce((total, one) => total + (one[field] ?? 0), 0);
       // What no device measures: the home less its devices, never below zero.
       const unmetered = whole != null && devices.length ? Math.max(0, whole - sum(devices)) : null;
-      const unmeteredBars = consumerUnmeteredBars(wholes, devices);
+      const unmeteredSeries = [...wholes, ...devices].map((one) => new Map((one.bars ?? []).map((bar) => [bar.date, bar.consumption])));
+      const unmeteredBars = (wholes[0]?.bars ?? []).map((bar) => {
+        const values = unmeteredSeries.map((series) => series.get(bar.date));
+        return { date: bar.date, consumption: values.every(Number.isFinite)
+          ? Math.max(0, values.slice(0, wholes.length).reduce((a, b) => a + b, 0) - values.slice(wholes.length).reduce((a, b) => a + b, 0)) : null };
+      });
       // A home meter that is not the whole home (one with no figures for the period) measures the home's use.
       const roleNames = { home: t("Home use"), solar: t("Solar"), battery: t("Battery") };
       // Inside the whole home, as a screen reader hears a nested row: the indent says it only to the eye.
       const inWhole = t("inside the whole home");
+      // Each meter's history uses its own scale; gaps remain gaps, including in the filled area.
+      const sparkline = (one, field) => {
+        const tone = { home: 1, grid: 7, battery: 3, solar: 4 }[one.role] ?? 1;
+        const box = el("span", { class: "consumer-sparkline", style: `--consumer-tone: var(--series-${tone})`, "aria-hidden": "true" });
+        const values = (one.bars ?? []).map((bar) => Number.isFinite(bar[field]) ? bar[field] : null);
+        const known = values.filter((value) => value != null);
+        if (!known.length) return box;
+        const make = (tag, attrs) => {
+          const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+          for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+          return node;
+        };
+        const svg = make("svg", { viewBox: "0 0 160 32", preserveAspectRatio: "none" });
+        const max = Math.max(...known, 0.001);
+        let path = "", area = "", connected = false, lastX = 0;
+        const closeArea = () => { if (connected) area += `L${lastX},29 Z `; connected = false; };
+        values.forEach((value, index) => {
+          if (value == null) { closeArea(); return; }
+          const x = values.length === 1 ? 80 : 3 + index / (values.length - 1) * 154;
+          const y = 29 - Math.max(0, value) / max * 26;
+          path += `${connected ? "L" : "M"}${x},${y} `;
+          area += connected ? `L${x},${y} ` : `M${x},29 L${x},${y} `;
+          lastX = x;
+          connected = true;
+          svg.append(make("circle", { cx: x, cy: y, r: 1.5 }));
+        });
+        closeArea();
+        svg.prepend(make("path", { class: "spark-area", d: area }),
+          make("path", { class: "spark-baseline", d: "M3,29 H157" }), make("path", { d: path }));
+        box.append(svg);
+        return box;
+      };
       const row = (one, nested, first = false) => {
         const name = one.label ? `${one.name} · ${one.label}` : one.name;
         // The whole home is named so; a grid meter beside a meter of the home's use is the grid.
@@ -4846,12 +4853,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const known = measured(one);
         const note = known ? [cost, returned].filter(Boolean).join(" · ") || null : t("Not measured");
         const value = known ? formatKWh(figure) : "—";
-        return el("li", { class: first ? (known ? "sources-start" : "unmeasured-start") : "" }, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}${known ? "" : " unmeasured"}`, actionIcon: "chart",
+        return el("li", { class: first ? (known ? "sources-start" : "unmeasured-start") : null }, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}${known ? "" : " unmeasured"}`, actionIcon: "chart",
           "aria-label": [t("{name}: {value}", { name, value: known ? value : t("Not measured") }), caption, nested ? inWhole : null, known ? cost : null, returned].filter(Boolean).join(", "),
           onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) },
-          nested ? el("span", { class: "consumer-type", "aria-hidden": "true" }, HomeswiftWidgets.controls.icon(consumerIcons.get(one.accessory) ?? "accessory")) : null,
           el("span", { class: "consumer-name" }, el("span", { text: name }), caption ? el("small", { text: caption }) : null),
-          known ? consumerSparkline(one, solar && one.returned > 0 ? "returned" : "consumption")
+          known ? sparkline(one, solar && one.returned > 0 ? "returned" : "consumption")
             : el("span", { class: "consumer-sparkline consumer-no-data" }, el("span", { text: t("Not measured") })),
           el("span", { class: "consumer-value" }, el("b", { text: value }), known && note ? el("small", { text: note }) : null)));
       };
@@ -4872,7 +4878,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         unmetered != null ? el("li", {}, el("div", { class: "consumer nested rest", role: "group",
           "aria-label": [t("{name}: {value}", { name: t("Unmetered"), value: formatKWh(unmetered) }), inWhole].join(", ") },
           el("span", { class: "consumer-name" }, el("span", { text: t("Unmetered") })),
-          el("span", { class: "consumer-chart-note" }, consumerSparkline({ bars: unmeteredBars }, "consumption"),
+          el("span", { class: "consumer-chart-note" }, sparkline({ bars: unmeteredBars }, "consumption"),
             el("small", { text: t("What no meter measures on its own") })),
           el("span", { class: "consumer-value" }, el("b", { text: formatKWh(unmetered) })),
           el("span", { class: "consumer-spacer", "aria-hidden": "true" }))) : null,
@@ -4880,9 +4886,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // The meters with no figures for the period, together at the end.
         ...unmeasured.map((one, index) => row(one, false, index === 0 && before + sources.length > 0))].filter(Boolean)));
       // Bound the whole card, including home meters, sources and meters without readings.
-      // Totals above still use every meter, even when its row is folded away.
+      // Totals and shares above still use every meter, even when its row is folded away.
       const rows = [...consumerList.children].filter((item) => item.querySelector(".consumer"));
-      sizeConsumerColumns(rows);
+      // Size against all measured rows, including folded ones, to keep charts stable on expansion.
+      const measure = document.createElement("canvas").getContext("2d");
+      const textWidth = (node) => {
+        measure.font = getComputedStyle(node).font;
+        return measure.measureText(node.textContent).width;
+      };
+      const columnWidth = (selector) => Math.ceil(Math.max(0, ...rows.filter((item) => !item.querySelector(".unmeasured")).map((item) => {
+        const column = item.querySelector(selector);
+        const labels = selector === ".consumer-name" ? [column.firstElementChild] : [...column.children];
+        return (parseFloat(getComputedStyle(column).paddingLeft) || 0) + Math.max(0, ...labels.map(textWidth)) + 2;
+      })));
+      consumerList.style.setProperty("--consumer-name-width", `${columnWidth(".consumer-name")}px`);
+      consumerList.style.setProperty("--consumer-value-width", `${columnWidth(".consumer-value")}px`);
       rows.forEach((item, index) => { item.hidden = !consumersAll && index >= 5; });
       if (inside) inside.hidden = inside.nextElementSibling?.hidden ?? true;
       consumerActions.hidden = rows.length <= 5;
@@ -5253,51 +5271,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("span", { class: "energy-log-text" }, el("span", { text: one.text }), one.meta ? el("small", { text: one.meta }) : null))))));
   }
 
-  // Subtract matching dates only; incomplete input remains a gap rather than zero.
-  function consumerUnmeteredBars(wholes, devices) {
-    const unmeteredSeries = [...wholes, ...devices].map((one) => new Map((one.bars ?? []).map((bar) => [bar.date, bar.consumption])));
-    return (wholes[0]?.bars ?? []).map((bar) => {
-      const values = unmeteredSeries.map((series) => series.get(bar.date));
-      return { date: bar.date, consumption: values.every(Number.isFinite)
-        ? Math.max(0, values.slice(0, wholes.length).reduce((a, b) => a + b, 0) - values.slice(wholes.length).reduce((a, b) => a + b, 0)) : null };
-    });
-  }
-
-  // Each meter's history uses its own scale; gaps remain gaps, including in the filled area.
-  function consumerSparkline(one, field) {
-    const tone = ({ home: 1, grid: 7, battery: 3, solar: 4 })[one.role] ?? 1;
-    const box = el("span", { class: "consumer-sparkline", style: `--consumer-tone: var(--series-${tone})`, "aria-hidden": "true" });
-    const values = (one.bars ?? []).map((bar) => Number.isFinite(bar[field]) ? bar[field] : null);
-    const known = values.filter((value) => value != null);
-    if (!known.length) return box;
-    const make = (tag, attrs) => {
-      const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
-      for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
-      return node;
-    };
-    const svg = make("svg", { viewBox: "0 0 160 32", preserveAspectRatio: "none" });
-    const max = Math.max(...known, 0.001);
-    let path = "", area = "", connected = false, lastX = 0;
-    const closeArea = () => { if (connected) area += `L${lastX},29 Z `; connected = false; };
-    values.forEach((value, index) => {
-      if (value == null) { closeArea(); return; }
-      const x = values.length === 1 ? 80 : 3 + index / (values.length - 1) * 154;
-      const y = 29 - Math.max(0, value) / max * 26;
-      path += `${connected ? "L" : "M"}${x},${y} `;
-      area += connected ? `L${x},${y} ` : `M${x},29 L${x},${y} `;
-      lastX = x;
-      connected = true;
-      svg.append(make("circle", { cx: x, cy: y, r: 1.5 }));
-    });
-    closeArea();
-    svg.prepend(make("path", { class: "spark-area", d: area }),
-      make("path", { class: "spark-baseline", d: "M3,29 H157" }), make("path", { d: path }));
-    box.append(svg);
-    return box;
-  }
-
   /// The Energy page's By accessory: the home split between the devices measured on their own and the rest, then a row
-  /// per device (its history sparkline, its kWh, share and cost), sortable, for today, the week, the month or the year
+  /// per device (its days as small bars, its kWh, share and cost), sortable, for today, the week, the month or the year
   /// (`?period=`, `?sort=`, `?device=` in the address); a row opens its panel: when it ran this week, hour by hour, and
   /// its full history. The sources (solar, the grid, the batteries) are said apart, under the list.
   async function energyDevicesPage(main, head, nav) {
@@ -5369,32 +5344,34 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const devices = meters.filter((one) => !one.role && one.consumption != null);
       const silent = meters.filter((one) => !one.role && one.consumption == null);
       // The whole home as the consumption card counts it, so both say the same Unmetered.
-      const { wholes, whole } = wholeHome(meters.filter((one) => one.consumption != null || one.returned != null));
+      const { whole } = wholeHome(meters.filter((one) => one.consumption != null || one.returned != null));
       const inDevices = devices.reduce((sum, one) => sum + one.consumption, 0);
       const rest = whole != null ? Math.max(0, whole - inDevices) : null;
       const base = whole ?? inDevices;
       split.replaceChildren(...splitBar(inDevices, rest));
       const ordered = [...devices].sort(sort === "name" ? (a, b) => nameOf(a).localeCompare(nameOf(b)) : sort === "cost" ? (a, b) => (b.cost ?? 0) - (a.cost ?? 0) : (a, b) => b.consumption - a.consumption);
+      const most = Math.max(0, ...devices.map((one) => one.consumption));
       const row = (one) => {
+        const days = (one.bars ?? []).map((bar) => bar.consumption ?? 0), top = Math.max(...days, 0);
         const share = base > 0 ? one.consumption / base * 100 : null;
         const id = `${one.accessory}\n${one.meter}`;
         return el("button", { type: "button", role: "listitem", class: `energy-device-row${id === chosen ? " on" : ""}`, actionIcon: "forward", "aria-label": t("{name}: {value}", { name: nameOf(one), value: formatKWh(one.consumption) }),
           onclick: () => choose(id) },
           el("span", { class: "device-name" }, el("strong", { text: nameOf(one) }), el("small", { text: one.room ?? (one.accessory.split(":")[0]) })),
-          consumerSparkline(one, "consumption"),
+          el("span", { class: "device-days", "aria-hidden": "true" }, days.slice(-14).map((value) => el("i", { style: `height: ${top > 0 ? Math.max(8, value / top * 100) : 8}%` }))),
+          el("span", { class: "device-track", "aria-hidden": "true" }, el("i", { style: `width: ${most > 0 ? one.consumption / most * 100 : 0}%` })),
           el("b", { class: "device-kwh", text: formatKWh(one.consumption) }),
           el("span", { class: "device-share", text: share == null ? "" : formatPercent(share) }),
           el("span", { class: "device-cost", text: one.cost != null && found.currency ? formatMoney(one.cost, found.currency) : "" }));
       };
       list.replaceChildren(...(devices.length ? [
-        el("div", { class: "energy-device-row head", "aria-hidden": "true" }, el("span", { text: t("Accessory") }), el("span", { text: t("History") }), el("span", { text: t("Energy") }),
+        el("div", { class: "energy-device-row head", "aria-hidden": "true" }, el("span", { text: t("Accessory") }), el("span", { text: t("Each day") }), el("span"), el("span", { text: t("Energy") }),
           el("span", { text: t("Share") }), el("span", { text: t("Cost") }), el("span")),
         ...ordered.map(row),
         rest != null && rest > 0 ? el("div", { class: "energy-device-row rest", role: "listitem" }, el("span", { class: "device-name" }, el("strong", { text: t("Unmetered") }), el("small", { text: t("What no meter measures on its own") })),
-          consumerSparkline({ bars: consumerUnmeteredBars(wholes, devices) }, "consumption"), el("b", { class: "device-kwh", text: formatKWh(rest) }), el("span", { class: "device-share", text: base > 0 ? formatPercent(rest / base * 100) : "" }), el("span", { class: "device-cost" }), el("span", { class: "device-row-spacer" })) : null,
+          el("span"), el("span"), el("b", { class: "device-kwh", text: formatKWh(rest) }), el("span", { class: "device-share", text: base > 0 ? formatPercent(rest / base * 100) : "" }), el("span"), el("span")) : null,
         ...silent.map((one) => el("div", { class: "energy-device-row silent", role: "listitem" }, el("span", { class: "device-name" }, el("strong", { text: nameOf(one) }), el("small", { text: t("No readings in this period") })),
-          el("span", { class: "consumer-sparkline consumer-no-data" }, el("span", { text: t("Not measured") })),
-          el("b", { class: "device-kwh", text: "—" }), el("span", { class: "device-share" }), el("span", { class: "device-cost" }), el("span", { class: "device-row-spacer" })))].filter(Boolean)
+          el("span"), el("span"), el("b", { class: "device-kwh", text: "—" }), el("span"), el("span"), el("span")))].filter(Boolean)
         : [el("p", { class: "muted", text: t("No device is measured on its own yet. A smart plug or a meter shows what a device uses.") })]));
       // The sources apart: what solar produced, what the grid brought and took, what the batteries cycled.
       const sum = (role, field) => meters.filter((one) => one.role === role).slice(0, 1).reduce((total, one) => total + (one[field] ?? 0), 0);
@@ -6622,97 +6599,42 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const byPlatform = new Map(plugins.plugins.map((plugin) => [plugin.platform, plugin]));
     const running = (block) => plugins.platforms.find((p) => p.platform === block.platform && p.name === block.name);
 
-    // Rows and the inspector share the same state and actions; no parallel lifecycle implementation.
-    const noteFor = (block, plugin, instance) => instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
-      : instance?.needsAuthorization ? (instance.accountState === "refused" ? t("Its account refused its sign-in: set it up again.") : t("Its devices show once its account is set up."))
-      : instance?.noneResponding ? t("None of its accessories responds: the log may say why.")
-      : instance ? t("This connection is ready.") : block.system ? t("A block of the runtime itself.")
-      : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.");
     const blockCard = (block) => {
-      const plugin = byPlatform.get(block.platform), instance = running(block);
+      const plugin = byPlatform.get(block.platform);
+      const instance = running(block);
       const [state, kind] = blockState(block, plugin, instance);
+      // The name opens what the menu's first item opens: the plugin's page, else the form.
+      const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : pluginSettings(block);
+      // Under the name, what it is when the name does not say it already ("Daikin Cloud" says DaikinCloud): the plugin,
+      // else its platform.
       const bare = (name) => name.replace(/[\s_-]+/g, "").toLowerCase();
       const kindName = [plugin?.name, block.platform].find((name) => name && bare(name) !== bare(block.name));
-      const open = (event) => inspect(block, event.currentTarget);
-      const row = el("div", { class: "plugins-row", "data-plugin": block.slug },
-        tile(block.icon ?? plugin?.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
-        el("div", { class: "plugins-identity" },
-          el("button", { class: "plugins-name", actionIcon: "plugin", text: blockTitle(block), onclick: open }),
-          el("small", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
-        el("div", { class: "plugins-meta" }, el("span", { class: `plugins-state ${kind}`, text: state }),
-          instance ? el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", instance.accessories) }) : null),
-        el("button", { class: "plugins-open", actionIcon: "open", text: t("Open"), onclick: open }));
-      return row;
+      return el("div", { class: "card server plugin-instance" },
+        el("div", { class: "server-head" },
+          tile(block.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
+          el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: blockTitle(block) })),
+            el("div", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
+          // In this dense list, running is the usual state: a quiet dot; the others (paused, no plugin, built in) say so
+          // in words, as the plugin's own page and the bridges do for every state.
+          kind === "on" ? el("span", { class: "status-dot", role: "img", "aria-label": state, title: state }) : el("span", { class: `pill status ${kind}`, text: state })),
+        // Its accessories and the bridge they are on, a glyph each, on one line.
+        instance ? el("div", { class: "meta" },
+          el("span", { title: t("Accessories") }, HomeswiftCommon.icon("bulb"), tn("{n} accessory", "{n} accessories", instance.accessories)),
+          el("span", { title: t("On the bridge {name}", { name: instance.bridge }) }, HomeswiftCommon.icon(block.childBridge ? "child" : "bridge"), instance.bridge)) : null,
+        el("div", { class: "card-foot" },
+          el("span", { class: "muted", text: instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
+            : instance?.needsAuthorization ? (instance.accountState === "refused" ? t("Its account refused its sign-in: set it up again.") : t("Its devices show once its account is set up."))
+            : instance?.noneResponding ? t("None of its accessories responds: the log may say why.")
+            : instance ? "" : block.system ? t("A block of the runtime itself.") : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.") }),
+          el("div", { class: "plugin-card-actions" }, instance?.needsAuthorization ? setUpButton(block, plugin, instance)
+            : el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }),
+          menuButton(t("Actions for {name}", { name: blockTitle(block) }), () => blockActions(block, plugin, instance)))));
     };
 
-    function inspect(block, trigger) {
-      const plugin = byPlatform.get(block.platform), instance = running(block);
-      const [state, kind] = blockState(block, plugin, instance);
-      const content = el("section", { class: "plugins-panel-content", role: "tabpanel", id: "plugins-tab-content" });
-      let generation = 0;
-      const tabs = [["Overview", "plugin"], ["Accessories", "bulb"], ["Settings", "gear"], ["Events", "history"]];
-      const nav = el("nav", { class: "plugins-tabs", role: "tablist", "aria-label": t("Plugins") });
-      const actions = (overview = false) => el("div", { class: overview ? "plugins-panel-actions" : "plugins-settings-actions" },
-        ...blockActions(block, plugin, instance).filter((action) => action && (!overview || ["open", "pause", "play"].includes(action.icon))).map((action) => el(action.href ? "a" : "button", {
-          class: `button${action.danger ? " danger" : ""}`, href: action.href, actionIcon: action.icon, text: action.label,
-          onclick: action.href ? () => dialog.close() : async () => { dialog.close(); await action.onSelect(); }
-        })));
-      async function select(index) {
-        const turn = ++generation;
-        [...nav.children].forEach((button, i) => { button.setAttribute("aria-selected", String(i === index)); button.tabIndex = i === index ? 0 : -1; });
-        content.setAttribute("aria-labelledby", `plugins-tab-${index}`);
-        content.replaceChildren(spinner());
-        try {
-          let children;
-          if (index === 0) children = [el("p", { text: noteFor(block, plugin, instance) }),
-            el("div", { class: "plugins-facts" },
-              el("div", {}, el("small", { text: t("Status") }), el("strong", { class: kind, text: state })),
-              el("div", {}, el("small", { text: t("Accessories") }), el("strong", { text: String(instance?.accessories ?? 0) }))),
-            instance?.needsAuthorization ? el("div", { class: "plugins-panel-actions" }, setUpButton(block, plugin, instance, () => { dialog.close(); route(); })) : null,
-            actions(true)];
-          else if (index === 1) {
-            const accessories = (await api("/api/accessories")).filter((item) => item.platform === block.platform && item.platformName === block.name);
-            children = [el("p", { class: "muted", text: tn("{n} accessory", "{n} accessories", accessories.length) }),
-              ...accessories.map((item) => el("button", { class: "plugins-accessory", onclick: (event) => HomeswiftSettings.openAccessory({ accessoryID: item.id, name: item.name, trigger: event.currentTarget }) },
-                tile(item.icon ?? "bulb", "grey"), el("strong", { text: item.name }), HomeswiftCommon.icon("forward")))];
-          } else if (index === 2) children = [actions()];
-          else {
-            const lines = await api(`/api/logs?plugin=${encodeURIComponent(block.name)}`);
-            children = [el("div", { class: "plugins-events-head" }, el("h3", { text: t("Recent events") }),
-              el("a", { class: "button", href: `/logs?plugin=${encodeURIComponent(block.slug)}`, actionIcon: "logs", text: t("Logs") })),
-              lines.length ? el("ol", { class: "plugins-events" }, ...lines.slice(-30).reverse().map((line) => {
-                const date = new Date(line.time);
-                return el("li", {}, el("time", { datetime: date.toISOString(), title: date.toLocaleString() },
-                  el("span", { text: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }),
-                  el("small", { text: date.toLocaleDateString([], { month: "short", day: "numeric" }) })),
-                  el("p", { text: line.text }));
-              })) : el("p", { class: "plugins-empty muted", text: t("No events yet.") })];
-          }
-          if (turn === generation && dialog.open) content.replaceChildren(...children.filter(Boolean));
-        } catch (error) { if (turn === generation && dialog.open) content.replaceChildren(el("p", { class: "error", text: error.message })); }
-      }
-      tabs.forEach(([label, icon], index) => nav.append(el("button", { role: "tab", id: `plugins-tab-${index}`,
-        "aria-controls": "plugins-tab-content", actionIcon: icon, text: t(label), onclick: () => select(index),
-        onkeydown: (event) => {
-          const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
-          if (next !== null) { event.preventDefault(); nav.children[next].focus(); select(next); }
-        } })));
-      const row = trigger.closest(".plugins-row");
-      row?.classList.add("selected");
-      const dialog = openSheet((dismiss) => el("div", { class: "plugins-panel" },
-        el("div", { class: "plugins-panel-head" }, el("h2", { id: "plugins-panel-title", text: blockTitle(block) }),
-          el("button", { class: "plugins-close", actionIcon: "close", "aria-label": t("Close"), onclick: () => dismiss() })), nav, content), "plugins-panel-title",
-        { returnFocus: trigger, onClose: () => { generation++; row?.classList.remove("selected"); if (trigger.isConnected) trigger.focus(); } });
-      dialog.classList.add("plugins-inspector");
-      // Navigation links leave the overlay before the router renders the next view.
-      dialog.addEventListener("click", (event) => { if (event.target.closest("a[href]")) dialog.close(); });
-      select(0);
-    }
-
     /// What a card whose account Needs Authorization offers first: its Setup, in a sheet over the list.
-    const setUpButton = (block, plugin, instance, after = () => route()) => el("button", { type: "button", class: "primary", actionIcon: "pair",
+    const setUpButton = (block, plugin, instance) => el("button", { type: "button", class: "primary", actionIcon: "pair",
       text: instance.accountState === "notSetUp" ? t("Set up") : t("Set up again"),
-      onclick: (event) => HomeswiftSetup.setUp({ block, plugin, firstTime: instance.accountState === "notSetUp", trigger: event.currentTarget, after }) });
+      onclick: (event) => HomeswiftSetup.setUp({ block, plugin, firstTime: instance.accountState === "notSetUp", trigger: event.currentTarget, after: () => route() }) });
 
     /// What the menu of a plugin's card offers: its page, its Settings, config.json, pause or resume, and removal.
     function blockActions(block, plugin, instance) {
@@ -6761,51 +6683,32 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     }
 
+    // Your plugins: by name, those that need a look first (no plugin, not running, paused), or by their accessories.
+    const blocks = plugins.blocks.map((block) => {
+      const plugin = byPlatform.get(block.platform), instance = running(block);
+      const attention = { away: 0, paused: 1, on: 2, standby: 3 }[blockState(block, plugin, instance)[1]];
+      return { card: blockCard(block), name: block.name, attention, accessories: instance?.accessories ?? -1,
+        text: [block.name, block.platform, plugin?.name, instance?.bridge].filter(Boolean).join(" ") };
+    });
+    const installed = finder({ grid: el("div", { class: "grid plugin-instances" }), entries: blocks, param: "order",
+      orders: [["name", t("Name A–Z"), () => 0], ["attention", t("Needs attention first"), (a, b) => a.attention - b.attention],
+        ["accessories", t("Most accessories"), (a, b) => b.accessories - a.accessories]],
+      placeholder: t("Search your plugins"), sortLabel: t("Sort your plugins"), empty: t("No plugin of yours matches the search."),
+      counted: (shown, total) => t("{shown} of {total} plugins", { shown, total }) });
     const available = finder({ grid: el("div", { class: "grid plugin-catalog" }), param: "sort", entries: catalogEntries,
-      orders: [["name", t("Name A–Z"), () => 0], ["used", t("In use first"), (a, b) => Number(b.used) - Number(a.used)]],
+      orders: [["name", t("Name A–Z"), () => 0], ["used", t("In use first"), (a, b) => Number(b.used) - Number(a.used)],
+        ["available", t("Available first"), (a, b) => Number(a.used) - Number(b.used)]],
       placeholder: t("Search plugins"), sortLabel: t("Sort plugins"), empty: t("No plugin matches the search."),
       counted: (shown, total) => t("{shown} of {total} plugins", { shown, total }) });
-    const list = el("div", { class: "plugins-list" });
-    const custom = plugins.blocks.filter((block) => !block.system).sort((a, b) => {
-      const order = (block) => ({ away: 0, paused: 1, on: 2, standby: 3 })[blockState(block, byPlatform.get(block.platform), running(block))[1]];
-      return order(a) - order(b) || blockTitle(a).localeCompare(blockTitle(b));
-    });
-    let filter = "all";
-    const search = el("input", { type: "search", class: "search", placeholder: t("Search your plugins"), "aria-label": t("Search your plugins"), oninput: render });
-    const filters = el("div", { class: "group plugins-filters", role: "group", "aria-label": t("Status") });
-    const matches = (block, value) => value === "all" || blockState(block, byPlatform.get(block.platform), running(block))[1] === value;
-    [["all", "All", "plugin"], ["away", "Needs attention", "logs"], ["on", "Running", "play"], ["paused", "Paused", "pause"]].forEach(([value, label, icon]) => {
-      filters.append(el("button", { actionIcon: icon, text: `${t(label)} · ${custom.filter((block) => matches(block, value)).length}`,
-        "aria-pressed": String(value === filter), onclick: () => { filter = value; render(); } }));
-    });
-    function render() {
-      const query = search.value.trim().toLocaleLowerCase();
-      const rows = custom.filter((block) => matches(block, filter) && [block.name, block.platform, byPlatform.get(block.platform)?.name].join(" ").toLocaleLowerCase().includes(query));
-      list.replaceChildren(...(rows.length ? rows.map(blockCard) : [el("p", { class: "muted plugins-empty", text: t("No plugin of yours matches the search.") })]));
-      [...filters.children].forEach((button, i) => {
-        const selected = ["all", "away", "on", "paused"][i] === filter;
-        button.setAttribute("aria-pressed", String(selected)); button.classList.toggle("on", selected);
-      });
-    }
-    const add = el("button", { class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: () => {
-      const dialog = openSheet((dismiss) => el("div", { class: "plugins-panel" },
-        el("div", { class: "plugins-panel-head" }, el("h2", { id: "plugins-catalog-title", text: t("Add a plugin") }),
-          el("button", { class: "plugins-close", actionIcon: "close", "aria-label": t("Close"), onclick: () => dismiss() })), ...available), "plugins-catalog-title");
-      dialog.classList.add("plugins-inspector");
-      dialog.addEventListener("click", (event) => { if (event.target.closest("a[href]")) dialog.close(); });
-    } });
-    const builtIn = plugins.blocks.filter((block) => block.system);
-    show(main, el("div", { class: "plugins-heading" }, pageHead(t("Plugins"), t("Your connections, devices and services.")), add),
+    show(main,
+      pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
+      // Blocks no plugin here runs, by the names the cards show (Homebridge's own blocks, from an imported config).
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("{names}: no plugin compiled into this homeswift runs these blocks, so they are ignored.",
         { names: plugins.blocks.filter((block) => plugins.unknownPlatforms.includes(block.platform)).map((block) => block.name).join(", ") }) })) : null,
-      el("div", { class: "card plugins-card" },
-        el("div", { class: "plugins-toolbar" }, filters, search, HomeswiftCommon.clearFilters([[search, ""]], {
-          active: () => filter !== "all", events: [[filters, "click"]], reset: () => { filter = "all"; render(); }
-        })), list),
-      !custom.length ? window.HomeswiftImport.offer() : null,
-      builtIn.length ? el("details", { class: "plugins-built-in" }, el("summary", { text: `${t("Built-in services")} · ${builtIn.length}` }),
-        el("div", { class: "card plugins-list" }, ...builtIn.map(blockCard))) : null);
-    render();
+      plugins.blocks.some((block) => !block.system) ? [el("div", { class: "section-head" }, el("h2", { text: t("Your plugins") }),
+        el("span", { class: "muted", text: tn("{n} block in config.json", "{n} blocks in config.json", plugins.blocks.length) })), ...installed] : window.HomeswiftImport.offer(),
+      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") })),
+      ...available);
   };
 
   /// A block's state pill: its label and tone.
@@ -12673,14 +12576,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
   document.addEventListener("pointerdown", (event) => {
     const select = event.target.closest("select");
-    if (!select || select.disabled || select.multiple || select.size > 1 || event.button !== 0) return;
+    if (!select || select.disabled || select.multiple || select.size > 1 || event.button !== 0 || select.closest("dialog[open]")) return;
     event.preventDefault();
     select.focus();
     openSelectMenu(select);
   });
   document.addEventListener("keydown", (event) => {
     const select = event.target.closest("select");
-    if (!select || select.disabled || select.multiple || select.size > 1) return;
+    if (!select || select.disabled || select.multiple || select.size > 1 || select.closest("dialog[open]")) return;
     if ([" ", "Enter", "ArrowDown", "ArrowUp"].includes(event.key)) {
       event.preventDefault(); openSelectMenu(select, true);
     }
@@ -18000,26 +17903,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const source = select("source", t("Change Source"), sourceKinds, params.get("source") ?? "");
     const since = select("since", t("Time range"), sinceChoices, params.get("since") ?? "24h");
     const controls = [room, accessory, source, since];
-    since.hidden = true;
-    const periods = el("div", { class: "group logbook-periods", role: "group", "aria-label": t("Time range") },
-      sinceChoices.map(([value, label]) => el("button", { type: "button", actionIcon: "history", text: label,
-        onclick: () => { since.value = value; since.dispatchEvent(new Event("change", { bubbles: true })); } })));
-    const syncPeriods = () => [...periods.children].forEach((button, index) => {
-      const selected = since.value === sinceChoices[index][0];
-      button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
-    });
-    since.addEventListener("change", syncPeriods);
-    syncPeriods();
     const clear = HomeswiftCommon.clearFilters(controls.map((control) => [control, control === since ? "24h" : ""]),
       { active: () => controls.some((control) => control.value !== (control === since ? "24h" : "")), events: controls.map((control) => [control, "change"]), reset: reload });
     const list = el("div", { class: "logbook" });
-    const count = el("p", { class: "muted logbook-count", "aria-live": "polite" });
+    const count = el("p", { class: "muted" });
     const icons = new Map(accessories.map((one) => [one.id, HomeswiftWidgets.accessoryIcon(one) ?? "accessory"]));
     const byID = new Map(accessories.map((one) => [one.id, one]));
     app().show(main, app().pageHead(t("Logbook"), t("What changed in the home, and who or what changed it.")),
-      el("div", { class: "card logbook-card" },
-        el("div", { class: "logbook-toolbar" }, periods,
-          el("div", { class: "logbook-filters" }, room, accessory, source, clear), since), count, list));
+      el("div", { class: "logbook-filters" }, ...controls, clear), count, list);
 
     async function reload() {
       const query = new URLSearchParams();
@@ -18477,34 +18368,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     await redrawScenes();
   }
 
-  /// Room toggles choose which copies run together; duplicate names without rooms keep their tiles.
+  /// A group's copies in a sheet (from the right, from the bottom on a phone), each with its own tile (run, stop, its ⋯
+  /// menu) named by its room, and Run in every room. Its tiles follow runs and stops (`redrawScenes`); a rename or a
+  /// delete draws the page again (`app.route`), and the sheet, whose tiles are the old page's, goes with it.
   let sheetSequence = 0;
   function sceneGroupSheet(group) {
     const first = group[0], rooms = inEveryRoom(group), id = `scene-group-${++sheetSequence}`;
-    const selected = new Set(group.filter(canRecall));
-    const toggles = new Map();
-    const runSelected = rooms ? el("button", { type: "button", class: "primary", actionIcon: "play", text: t("Run selected rooms"),
-      disabled: !selected.size, onclick: () => HomeswiftCommon.busyButton(runSelected, () => runSceneGroup([...selected])).finally(() => { runSelected.disabled = !selected.size; }) }) : null;
-    const choices = rooms ? el("div", { class: "scene-room-list" }, group.map((scene) => {
-      const toggle = el("input", { type: "checkbox", role: "switch", checked: selected.has(scene), disabled: !canRecall(scene),
-        onchange: () => { if (toggle.checked) selected.add(scene); else selected.delete(scene); runSelected.disabled = !selected.size; } });
-      toggles.set(scene, toggle);
-      return el("div", { class: "scene-room-row" },
-        el("label", { class: "scene-room-choice" }, el("span", { text: scenePlace(scene) }), el("span", { class: "switch" }, toggle, el("span"))),
-        menuButton(t("Actions for {name}", { name: scenePlace(scene) }), () => hubSceneMenu(scene)));
-    })) : el("div", { class: "quick-scenes" }, group.map((scene, index) => hubSceneButton(scene,
-      { label: scenePlace(scene) || scene.name, detail: t("{n} of {count}", { n: index + 1, count: group.length }) })));
-    const selectRooms = (checked) => {
-      for (const [scene, toggle] of toggles) {
-        if (toggle.disabled) continue;
-        toggle.checked = checked;
-        if (checked) selected.add(scene); else selected.delete(scene);
-      }
-      runSelected.disabled = !selected.size;
-    };
-    const selectionActions = rooms ? el("div", { class: "actions scene-room-selection" },
-      el("button", { type: "button", actionIcon: "check", text: t("Select all"), onclick: () => selectRooms(true) }),
-      el("button", { type: "button", actionIcon: "close", text: t("Deselect all"), onclick: () => selectRooms(false) })) : null;
+    const tiles = group.map((scene, index) => hubSceneButton(scene, rooms
+      ? { label: scenePlace(scene), detail: "" }
+      : { label: scenePlace(scene) || scene.name, detail: t("{n} of {count}", { n: index + 1, count: group.length }) }));
+    const all = rooms && group.filter(canRecall).length > 1
+      ? el("button", { type: "button", class: "primary", actionIcon: "play", text: t("Run in every room"), onclick: () => HomeswiftCommon.busyButton(all, () => runSceneGroup(group)) }) : null;
     let close = () => {};
     const page = new MutationObserver(() => close());
     page.observe(document.getElementById("view"), { childList: true });
@@ -18512,10 +18386,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       close = done;
       return el("div", { class: "account-form scene-group-sheet" },
         el("h2", { id, text: first.name }),
-        el("p", { class: "muted", text: rooms ? t("Choose the rooms to include when you run this scene.")
+        el("p", { class: "muted", text: rooms ? tn("{source} has it in {n} room. Run it there, or change it from its ⋯ menu.", "{source} has it in {n} rooms. Run it in one, in every room, or change one from its ⋯ menu.", group.length, { source: first.source.name })
           : tn("{source} has {n} scene with this name.", "{source} has {n} scenes with this name: copies, perhaps. Run one, or rename or delete one from its ⋯ menu.", group.length, { source: first.source.name }) }),
-        selectionActions, choices,
-        el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => done() }), runSelected));
+        el("div", { class: "quick-scenes" }, tiles),
+        el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => done() }), all));
     }, id, { onClose: () => page.disconnect() });
   }
 
@@ -20144,12 +20018,6 @@ window.HomeswiftHouseEditor = function ({ preferences, api, scaledImage, saved }
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
-  "Recent events": "Eventos recientes",
-  "No events yet.": "Todavía no hay eventos.",
-  "This connection is ready.": "Esta conexión está lista.",
-  "Your connections, devices and services.": "Tus conexiones, dispositivos y servicios.",
-  "Built-in services": "Servicios integrados",
-
   "Powering the home": "Suministro de la casa",
   "Woodland cabin": "Cabaña en el bosque",
   "A cozy timber home among the trees.": "Una acogedora casa de madera entre los árboles.",
@@ -21229,7 +21097,6 @@ HomeswiftI18n.add("es", {
   "Filter": "Filtro",
   "filter {percent} %": "filtro {percent} %",
   "Filter by client": "Filtrar por cliente",
-  "Search scope": "Ámbito de búsqueda",
   "Filter by tool": "Filtrar por herramienta",
   "Filter Change Indication": "Cambio de filtro",
   "Filter life": "Vida del filtro",
@@ -23842,22 +23709,12 @@ HomeswiftI18n.add("es", {
   "No battery is measured": "No se mide ninguna batería",
   "Edit the Energy page": "Editar la página Energía",
   "Something stands out in the energy use": "Algo destaca en el consumo de energía",
-  "Run selected rooms": "Ejecutar en las habitaciones seleccionadas",
-  "Choose the rooms to include when you run this scene.": "Elige las habitaciones que se incluirán al ejecutar esta escena.",
-  "Select all": "Seleccionar todo",
-  "Deselect all": "Deseleccionar todo",
 });
 
 """#),
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
-  "Recent events": "Événements récents",
-  "No events yet.": "Aucun événement pour le moment.",
-  "This connection is ready.": "Cette connexion est prête.",
-  "Your connections, devices and services.": "Vos connexions, appareils et services.",
-  "Built-in services": "Services intégrés",
-
   "Powering the home": "Alimentation de la maison",
   "Woodland cabin": "Cabane dans les bois",
   "A cozy timber home among the trees.": "Une maison en bois chaleureuse au milieu des arbres.",
@@ -24937,7 +24794,6 @@ HomeswiftI18n.add("fr", {
   "Filter": "Filtre",
   "filter {percent} %": "filtre {percent} %",
   "Filter by client": "Filtrer par client",
-  "Search scope": "Champ de recherche",
   "Filter by tool": "Filtrer par outil",
   "Filter Change Indication": "Changement de filtre",
   "Filter life": "Vie du filtre",
@@ -27550,22 +27406,12 @@ HomeswiftI18n.add("fr", {
   "No battery is measured": "Aucune batterie n'est mesurée",
   "Edit the Energy page": "Modifier la page Énergie",
   "Something stands out in the energy use": "Quelque chose ressort dans la consommation d'énergie",
-  "Run selected rooms": "Lancer dans les pièces sélectionnées",
-  "Choose the rooms to include when you run this scene.": "Choisissez les pièces à inclure au lancement de cette scène.",
-  "Select all": "Tout sélectionner",
-  "Deselect all": "Tout désélectionner",
 });
 
 """#),
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
-  "Recent events": "Eventos recentes",
-  "No events yet.": "Ainda não há eventos.",
-  "This connection is ready.": "Esta ligação está pronta.",
-  "Your connections, devices and services.": "As suas ligações, dispositivos e serviços.",
-  "Built-in services": "Serviços integrados",
-
   "Powering the home": "Alimentação da casa",
   "Woodland cabin": "Cabana na floresta",
   "A cozy timber home among the trees.": "Uma casa acolhedora de madeira entre as árvores.",
@@ -28645,7 +28491,6 @@ HomeswiftI18n.add("pt", {
   "Filter": "Filtro",
   "filter {percent} %": "filtro {percent} %",
   "Filter by client": "Filtrar por cliente",
-  "Search scope": "Âmbito da pesquisa",
   "Filter by tool": "Filtrar por ferramenta",
   "Filter Change Indication": "Substituição do filtro",
   "Filter life": "Vida do filtro",
@@ -31258,10 +31103,6 @@ HomeswiftI18n.add("pt", {
   "No battery is measured": "Nenhuma bateria é medida",
   "Edit the Energy page": "Editar a página Energia",
   "Something stands out in the energy use": "Algo se destaca no consumo de energia",
-  "Run selected rooms": "Executar nas divisões selecionadas",
-  "Choose the rooms to include when you run this scene.": "Escolha as divisões a incluir ao executar esta cena.",
-  "Select all": "Selecionar tudo",
-  "Deselect all": "Desselecionar tudo",
 });
 
 """#),
@@ -35830,7 +35671,6 @@ label > input, label > select { margin-top: 5px; }
 .grid > .card { margin: 0; min-width: 0; }
 .card.empty { text-align: center; padding: 28px var(--space-20); grid-column: 1 / -1; }
 .card.empty p { margin: 0; }
-.card.empty:not(.compact) > p + :is(button, a.button) { margin-top: var(--space-16); }
 .scenes-empty > .button { margin-top: var(--space-12); }
 /* Under the hubs' scenes, apart from their last row. */
 .hub-scenes ~ .scenes-empty { margin-top: var(--space-16); }
@@ -36096,18 +35936,12 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .size-large .swatches { gap: 5px; flex-wrap: nowrap; }
 .widget.size-large .swatch { width: min(28px, calc((100% - 40px) / 9)); height: auto; aspect-ratio: 1; }
 .size-xlarge .w-body { justify-content: safe center; gap: var(--space-8); overflow-y: auto; scrollbar-width: none; }
-.size-xlarge:has(> .w-corner) .w-body > :last-child { margin-right: 26px; }
+.size-xlarge .w-body > :last-child { margin-right: 26px; }
 /* A large box's chips on one line, swiped sideways when there are more than fit. */
 .widget.size-xlarge .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
 .widget.size-xlarge .chips > * { flex: none; }
-/* Options scroll within their lane; the menu stays inset and aligned with them. */
-.w-footer { display: flex; align-items: center; gap: var(--space-12); flex: none; min-width: 0; }
-.widget.size-xlarge .w-footer > .chips { flex: 1; min-width: 0; margin: 0; padding: 2px 16px 2px 0; mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent); }
-.widget:not(.widget-full) .w-footer > .menu-button { flex: none; width: 36px; height: 36px; min-height: 36px; }
-.powered-off .w-footer > .chips { opacity: 0.55; }
-@media (max-width: 640px), (pointer: coarse) {
-  .widget:not(.widget-full) .w-footer > .menu-button { width: 40px; height: 40px; min-height: 40px; }
-}
+/* The row's -2px margin would undo the last part's room for the corner's ⋯; the row keeps that room itself. */
+.widget.size-xlarge .w-body > .chips:last-child { margin-right: var(--space-24); }
 .head-only { justify-content: center; }
 .powered-off .w-body, .powered-off .w-main { opacity: 0.55; transition: opacity var(--normal) var(--ease-out); }
 /* The menu at the bottom right of the box, over its content's corner. */
@@ -36205,7 +36039,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 
 /* A paused plugin's accessory: quiet and striped, its controls out of reach; the menu stays to resume it. */
 .widget.paused { background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--muted) 9%, transparent) 10px 20px); }
-.widget.paused > :not(.w-corner):not(.w-bottom):not(.w-head):not(.w-footer), .widget.paused .w-footer > .chips, .widget.paused .w-bottom .who, .widget.paused .w-head > .tile, .widget.paused .w-head > .switch { opacity: 0.45; filter: grayscale(1); }
+.widget.paused > :not(.w-corner):not(.w-bottom):not(.w-head), .widget.paused .w-bottom .who, .widget.paused .w-head > .tile, .widget.paused .w-head > .switch { opacity: 0.45; filter: grayscale(1); }
 .widget.paused.widget-summary.on { background-color: var(--material); color: var(--text); }
 .widget.paused .w-hit { cursor: default; }
 
@@ -36905,7 +36739,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   .energy-tile .energy-share-keys { display: none; }
   .where-map { height: 200px; }
 }
-/* Consumption history, with aligned placeholders for meters without readings. */
+/* Consumption history with compact status rows for meters without readings. */
 .consumers { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .consumer.action-with-icon, .consumer.rest { width: 100%; display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr) 8rem 16px; align-items: center; gap: 2px var(--space-12); padding: var(--space-6) var(--space-16); border: 0; border-radius: var(--radius-sm); background: none; box-shadow: none; color: inherit; font: inherit; text-align: left; cursor: pointer; min-height: 40px; }
 .consumer:hover { background: var(--material-thin); }
@@ -36918,10 +36752,6 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumer-value b { font-weight: var(--weight-semibold); white-space: nowrap; }
 .consumer-value small { color: var(--muted); font-size: var(--text-xs); }
 .consumer.nested .consumer-name { padding-left: 32px; }
-.consumer.nested { position: relative; }
-.consumer-type { position: absolute; left: 5px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: var(--material-solid); color: var(--muted); }
-.consumer-type svg { width: 14px; height: 14px; }
-.consumers > li:has(.consumer-type)::after { display: none; }
 .consumers > li:has(> .consumer.nested) { position: relative; --consumer-guide-left: 32px; }
 .consumers > li:has(> .consumer.nested)::before { content: ""; position: absolute; left: var(--consumer-guide-left); top: 0; bottom: 0; width: 2px; background: var(--line); pointer-events: none; }
 .consumers > li:has(> .consumer.nested):has(+ li:not([hidden]) > .consumer.nested)::before { bottom: -2px; }
@@ -36931,7 +36761,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumer.rest:hover { background: none; }
 .consumer-chart-note { display: grid; gap: 2px; min-width: 0; }
 .consumer-chart-note > small { color: var(--muted); font-size: var(--text-xs); }
-.consumer-actions { margin-top: var(--space-8); justify-content: center; }
+.consumers + .actions { margin-top: var(--space-8); }
 .consumers > li.sources-start, .consumers > li.unmeasured-start { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--line); }
 .consumer.unmeasured, .consumer.unmeasured .consumer-value b { color: var(--muted); font-weight: inherit; }
 .consumer-sparkline { display: block; width: 100%; height: 32px; min-width: 0; color: var(--consumer-tone, var(--series-1)); }
@@ -36963,18 +36793,17 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   .consumer-spacer, .consumer.action-with-icon::before { grid-area: icon; align-self: center; }
   .consumer.nested .consumer-name { padding-left: 0; }
   .consumer.nested .consumer-name > * { padding-left: 32px; }
-  .consumer-type { left: 16px; }
   .consumers > li:has(> .consumer.nested) { --consumer-guide-left: 27px; }
 }
 /* A dashed empty plot denotes missing readings, never a zero-consumption trace. */
-.consumer.unmeasured { position: relative; }
-.consumer-no-data { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: var(--text-xs); background: repeating-linear-gradient(to right, var(--line) 0 3px, transparent 3px 6px) center / 100% 1px no-repeat; }
-.consumer-no-data > span { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 2px var(--space-8); border-radius: var(--radius-sm); background: var(--material-solid); white-space: nowrap; }
-@media (max-width: 640px) { .consumer-no-data { position: relative; } }
+.consumer-no-data { display: flex; align-items: center; justify-content: center; position: relative; color: var(--muted); font-size: var(--text-xs); }
+.consumer-no-data::before { content: ""; position: absolute; inset-inline: 0; top: 50%; border-top: 1px dashed var(--line); }
+.consumer-no-data > span { position: relative; padding: 2px var(--space-8); border-radius: var(--radius-sm); background: var(--material-solid); }
 .consumer-loading { font-size: var(--text-xs); }
 .consumers-loading .consumers, .consumers-loading .actions, .consumers-loading .chart-figure, .consumers-loading .chart-detail { display: none; }
 .consumer-skeleton { display: grid; grid-template-columns: 2fr 1fr; align-items: center; gap: var(--space-16); height: 48px; padding-inline: var(--space-10); }
 .consumer-skeleton i { display: block; height: 12px; border-radius: var(--radius-sm); background: linear-gradient(100deg, var(--line) 25%, var(--material) 50%, var(--line) 75%); background-size: 250% 100%; animation: consumer-shimmer 1.4s ease-in-out infinite; }
+.consumer-skeleton i:nth-child(3) { display: none; }
 @keyframes consumer-shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
 @media (prefers-reduced-motion: reduce) { .consumer-skeleton i { animation: none; } }
 /* The History sheet's note under its charts, apart from them. */
@@ -38399,34 +38228,31 @@ span.warning, .vault-problem .warning { color: var(--warn); }
 .secret-field input { flex: 1; min-width: 0; }
 
 /* Backup creation and recovery share a compact, responsive workspace. */
-.backup-actions-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-16); align-items: stretch; margin: var(--space-16) 0 var(--space-20); }
-.backup-actions-grid > .card { margin: 0; padding: var(--space-16); min-width: 0; }
+.backup-actions-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-20); margin: var(--space-24) 0 32px; }
+.backup-actions-grid > .card { margin: 0; padding: var(--space-24); min-width: 0; }
 .backup-create .server-head { align-items: flex-start; }
 .backup-create .server-head .muted { display: block; margin-top: var(--space-6); line-height: 1.6; overflow: visible; }
-.backup-create .facts { margin: 0; gap: var(--space-8); }
-.backup-create .fact.wide { padding: var(--space-8) var(--space-12); }
+.backup-create .facts { margin: 22px 0; gap: var(--space-16); }
+.backup-create .fact.wide { padding-top: var(--space-16); border-top: 1px solid var(--line); }
 .backup-create .fact.wide b { overflow-wrap: anywhere; }
-.backup-create .actions { margin-top: 0; flex-wrap: wrap; }
+.backup-create .actions { margin-top: var(--space-24); flex-wrap: wrap; }
 .backup-create .status-line:empty { display: none; }
-.backup-restore { display: flex; flex-direction: column; gap: var(--space-12); }
-.backup-restore > div:empty { display: none; }
+.backup-restore { display: flex; flex-direction: column; gap: var(--space-18); }
 .backup-restore h2 { margin: 0; font-size: var(--text-lg); }
 .backup-restore-help summary, .matter-help summary { cursor: pointer; color: var(--muted); font-size: var(--text-md); }
 .backup-restore-help p, .matter-help p { line-height: 1.6; font-size: var(--text-md); }
-.backup-restore .drop-zone { flex: 1; min-height: 100px; padding: var(--space-16); margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-14); border-radius: var(--radius-md); background: var(--material-thin); line-height: 1.6; }
+.backup-restore .drop-zone { flex: 1; min-height: 142px; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-14); border-radius: var(--radius-md); background: var(--material-thin); line-height: 1.6; }
 .backup-drop-icon svg { width: 28px; height: 28px; color: var(--accent); }
-@media (max-width: 720px) { .backup-actions-grid { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .backup-actions-grid { grid-template-columns: 1fr; } }
 
-.audit-filters { margin: var(--space-16) 0; padding: var(--space-12) var(--space-20); }
-.audit-filter-grid { display: grid; grid-template-columns: 1fr 1fr 2fr; align-items: end; gap: var(--space-12); }
-.audit-filter-grid label { display: flex; flex-direction: column; gap: var(--space-8); min-width: 0; margin: 0; }
+.audit-filters { margin: var(--space-24) 0 var(--space-20); padding: var(--space-20); }
+.audit-filter-grid { display: grid; grid-template-columns: 1fr 1fr 1.3fr 1.3fr; gap: var(--space-16); }
+.audit-filter-grid label { display: flex; flex-direction: column; gap: var(--space-8); min-width: 0; }
 .audit-filter-grid label > span { color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
 .audit-filter-grid .search { width: 100%; min-width: 0; }
 .audit-picker { display: flex; justify-content: space-between; align-items: center; gap: var(--space-10); min-height: 38px; text-align: left; }
 .audit-picker svg { width: 14px; height: 14px; }
-.audit-filter-footer { display: flex; align-items: center; gap: var(--space-12); margin-top: var(--space-8); padding: 0; font-size: var(--text-sm); }
-.audit-filter-footer .clear-filters:disabled { display: none; }
-.audit-filter-footer .clear-filters { margin-left: auto; width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; border-radius: 50%; }
+.audit-filter-footer { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-16); padding-top: var(--space-14); border-top: 1px solid var(--line); font-size: var(--text-sm); }
 .audit-results { padding: 0; overflow: hidden; }
 .audit-results .data-table th, .audit-results .data-table td { padding: var(--space-16); }
 .audit-results .data-table th { z-index: 1; font-size: var(--text-xs); }
@@ -38486,15 +38312,6 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 .log-scope-row .log-time { grid-column: 1 / -1; }
 .log-scope-row label > span, .log-scope-row .log-time > span { font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
 .log-scope-row select.popup { width: 100%; max-width: none; min-width: 0; }
-/* Intermediate widths use both columns instead of reserving a whole row for time. */
-@media (min-width: 641px) and (max-width: 1179px) {
-  .log-filter-panel { gap: var(--space-12); padding: var(--space-16) var(--space-20); }
-  .log-scope-row { grid-template-columns: minmax(0, 1fr) minmax(200px, .4fr); align-items: start; gap: var(--space-16); }
-  .log-scope-row .log-time { grid-column: auto; }
-  .log-scope-row label { margin: 0; }
-  .log-time > .group { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; box-sizing: border-box; border-radius: var(--radius-lg); }
-  .log-time > .group button { min-width: 0; padding-inline: var(--space-8); border-radius: var(--radius-md); }
-}
 /* A wide window: the filters become a column down the log's left, each a list (the levels with their counts, the time
    ranges), so the log takes the card's whole height rather than sitting under a band of filters. */
 @media (min-width: 1180px) {
@@ -39594,7 +39411,7 @@ select option:disabled { color: var(--muted); }
 .setup-device.is-excluded .who { opacity: 0.6; }
 .setup-device .status-dot { justify-self: end; }
 .setup-account .who .muted { white-space: normal; }
-.setup-account { background: none; margin: 0; border-radius: 0; }
+.setup-account { background: color-mix(in srgb, var(--accent) 7%, transparent); margin: 0 calc(-1 * var(--space-12)); padding-inline: var(--space-12); border-radius: var(--radius-md); }
 /* A plugin page's way to its Setup: what is set up there, and the button. */
 .setup-handoff { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-12); align-items: center; }
 .setup-handoff .who p { margin: var(--space-4) 0 0; font-size: var(--text-sm); }
@@ -40998,14 +40815,13 @@ main.energy-page.dash-grid > .subnav, main.energy-page.dash-grid > .page-head { 
 .devices-split { margin-bottom: var(--space-14); }
 .devices-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); align-items: start; }
 .devices-layout:has(> .device-detail:not([hidden])) { grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); }
-.devices-table { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(120px, 1.4fr) max-content 52px 64px 20px; column-gap: var(--space-12); padding: var(--space-6) 0; margin: 0; overflow-x: auto; }
-.devices-table > p { grid-column: 1 / -1; margin-inline: var(--space-18); }
-/* Shared columns fit energy values without reserving blank space beside every sparkline. */
-.energy-device-row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; gap: var(--space-12);
+.devices-table { padding: var(--space-6) 0; margin: 0; overflow-x: auto; }
+/* A row: its name and where it is, its days as small bars, a bar of its share of the most, its kWh, share and cost. */
+.energy-device-row { display: grid; grid-template-columns: minmax(150px, 2fr) 84px minmax(60px, 1fr) 88px 52px 64px 20px; align-items: center; gap: var(--space-12);
   width: 100%; min-width: 600px; box-sizing: border-box; padding: var(--space-10) var(--space-18); border: 0; border-top: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
   border-radius: 0; background: none; box-shadow: none; color: inherit; font: inherit; text-align: left; min-height: 56px; }
 .energy-device-row.head { border-top: 0; min-height: 0; padding-block: var(--space-6); font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
-.energy-device-row.head > span:nth-child(n+3) { text-align: right; }
+.energy-device-row.head > span:nth-child(n+4) { text-align: right; }
 button.energy-device-row { cursor: pointer; }
 button.energy-device-row:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
 button.energy-device-row.on { background: color-mix(in srgb, var(--series-1) 12%, transparent); }
@@ -41014,9 +40830,11 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
 .device-name { display: grid; gap: 1px; min-width: 0; }
 .device-name strong { font-weight: var(--weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .device-name small { font-size: var(--text-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.energy-device-row.rest .consumer-sparkline { color: var(--muted); }
-.energy-device-row .consumer-no-data { position: relative; }
-.device-kwh { text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--weight-semibold); white-space: nowrap; }
+.device-days { display: flex; align-items: flex-end; gap: 2px; height: 22px; }
+.device-days i { flex: 1; min-width: 2px; border-radius: 1px; background: color-mix(in srgb, var(--series-1) 70%, transparent); }
+.device-track { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text) 9%, transparent); overflow: hidden; }
+.device-track i { display: block; height: 100%; border-radius: 3px; background: var(--series-1); }
+.device-kwh { text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--weight-semibold); }
 .device-share, .device-cost { text-align: right; font-size: var(--text-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
 .energy-device-row.rest .device-name strong, .energy-device-row.silent .device-name strong { color: var(--muted); }
 .devices-sources { margin: var(--space-10) var(--space-4) 0; font-size: var(--text-sm); }
@@ -41061,13 +40879,8 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
   .devices-layout > .device-detail[hidden], .devices-layout.pushed > .devices-main { transform: none; }
 }
 @media (max-width: 640px) {
-  .devices-table { display: block; }
   .energy-device-row { grid-template-columns: minmax(0, 1fr) auto 18px; min-width: 0; padding-inline: var(--space-14); }
-  .energy-device-row > .device-share, .energy-device-row > .device-cost { display: none; }
-  .energy-device-row > .consumer-sparkline { grid-area: auto; grid-column: 1 / -1; grid-row: 2; }
-  .energy-device-row > .device-name { grid-column: 1; grid-row: 1; }
-  .energy-device-row > .device-kwh { grid-column: 2; grid-row: 1; }
-  .energy-device-row.action-with-icon::before, .energy-device-row > .device-row-spacer { grid-column: 3; grid-row: 1; }
+  .energy-device-row > .device-days, .energy-device-row > .device-track, .energy-device-row > .device-share, .energy-device-row > .device-cost { display: none; }
   .energy-device-row.head { display: none; }
   .devices-bar .search { max-width: none; }
 }
@@ -41089,174 +40902,6 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
 .glance-tile.dragging { position: relative; z-index: 25; box-shadow: 0 16px 34px rgba(0, 0, 0, 0.22); }
 .tiles-moving .dash-tile-move, .tiles-moving .dash-tile-size, .tiles-moving .dash-edit-remove.tile { opacity: 0; }
 @media (max-width: 640px) { .dash-tile-size { width: 30px; height: 30px; min-width: 30px; min-height: 30px; } }
-
-/* Scene copies share a compact room selector, with separate inclusion and menu targets. */
-.scene-room-list { display: grid; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
-.scene-room-row { display: flex; align-items: center; gap: var(--space-12); padding: var(--space-10) var(--space-14); }
-.scene-room-row + .scene-room-row { border-top: 1px solid var(--line); }
-.scene-room-choice { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--space-16); cursor: pointer; }
-.scene-room-choice > span:first-child { overflow-wrap: anywhere; }
-.scene-room-row > .menu-button { flex: none; width: 36px; height: 36px; min-height: 36px; }
-@media (max-width: 640px) { .scene-room-row > .menu-button { width: 40px; height: 40px; min-height: 40px; } }
-
-.scene-room-selection { margin-bottom: var(--space-16); }
-.scene-room-list + .actions { margin-top: var(--space-16); }
-.admin-dialog.sheet .scene-group-sheet > .actions { margin-top: var(--space-16); padding-top: 0; }
-.admin-dialog.sheet .scene-group-sheet > .scene-room-selection { margin-top: 0; }
-.scene-room-list { flex-shrink: 0; }
-
-/* Plugins: compact instance rows, with an opaque inspector over the unchanged page. */
-.plugins-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-.plugins-heading > button { flex-shrink: 0; }
-.plugins-card { padding: 0; overflow: hidden; }
-.plugins-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-16); padding: var(--space-20); border-bottom: 1px solid var(--line); }
-.plugins-toolbar .search { flex: 1; min-width: 180px; }
-.plugins-filters { flex: 0 1 auto; max-width: 100%; margin: 0; }
-.plugins-filters button { white-space: nowrap; }
-.plugins-list { padding: 0; overflow: hidden; }
-.plugins-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto auto; gap: 16px; align-items: center; padding: 18px 20px; }
-.plugins-row + .plugins-row { border-top: 1px solid var(--line); }
-.plugins-row.selected { box-shadow: inset 3px 0 var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
-.plugins-identity { min-width: 0; }
-.plugins-identity small { display: block; overflow-wrap: anywhere; }
-button.plugins-name { padding: 0; min-height: 28px; border: 0; border-radius: 4px; box-shadow: none; background: none; text-align: left; font-weight: 650; justify-content: flex-start; }
-.plugins-name .icon { display: none; }
-.plugins-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: var(--text-sm); }
-.plugins-state.away { color: var(--warning, #905000); }
-.plugins-state.on::before { content: "●"; margin-right: 5px; }
-.plugins-open { white-space: nowrap; }
-.plugins-built-in { margin-top: 28px; }
-.plugins-built-in summary { margin-bottom: 14px; color: var(--muted); cursor: pointer; }
-.plugins-empty { padding: 20px; }
-.admin-dialog.sheet.plugins-inspector { background: var(--material-solid); background-image: none; backdrop-filter: none; -webkit-backdrop-filter: none; width: min(480px, calc(100% - 24px)); }
-.plugins-panel { min-width: 0; }
-.plugins-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
-.plugins-panel h2 { margin: 0; }
-button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; flex-shrink: 0; border-radius: 50%; }
-.plugins-tabs { display: flex; gap: 2px; padding: 5px; border: 1px solid var(--line); border-radius: 28px; background: color-mix(in srgb, var(--text) 5%, transparent); overflow-x: auto; }
-.plugins-tabs button { flex: 1 0 auto; padding: 10px 12px; border: 0; box-shadow: none; background: none; font-size: 13px; white-space: nowrap; }
-.plugins-tabs [aria-selected="true"] { background: var(--material-solid); box-shadow: var(--shadow-control); }
-.plugins-tabs .icon { width: 14px; height: 14px; }
-.plugins-panel-content { margin-top: 22px; }
-.plugins-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.plugins-facts > div { display: grid; gap: 6px; border-radius: 14px; background: color-mix(in srgb, var(--text) 4%, transparent); padding: 14px; }
-.plugins-facts small { color: var(--muted); }
-.plugins-panel-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0 8px; }
-.plugins-accessory { display: flex; align-items: center; gap: 12px; width: 100%; padding: 16px 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; box-shadow: none; text-align: left; }
-.plugins-accessory strong { flex: 1; }
-/* A fixed time column grounds the timeline; messages wrap without moving its markers. */
-.plugins-events-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
-.plugins-events-head h3 { margin: 0; font-size: var(--text-base); }
-.plugins-events { list-style: none; padding: 0; margin: 0; }
-.plugins-events li { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 22px; padding: 0 0 20px; }
-.plugins-events time { display: grid; align-content: start; gap: 3px; text-align: right; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.plugins-events time small { font-size: 11px; }
-.plugins-events p { position: relative; margin: 0; padding: 0 0 0 14px; font-size: var(--text-sm); overflow-wrap: anywhere; line-height: 1.5; }
-.plugins-events p::before { content: ""; position: absolute; left: -4px; top: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
-.plugins-events li:not(:last-child) p::after { content: ""; position: absolute; left: -1px; top: 16px; bottom: -20px; width: 1px; background: var(--line); }
-.plugins-panel .plugin-catalog { grid-template-columns: minmax(0, 1fr); }
-@media (max-width: 1000px) {
-  .plugins-row { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 6px 14px; }
-  .plugins-row > .tile { grid-row: 1 / 3; }
-  .plugins-meta { grid-column: 2; }
-  .plugins-open { grid-column: 3; grid-row: 1 / 3; }
-}
-@media (max-width: 640px) {
-  .plugins-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); width: 100%; box-sizing: border-box; border-radius: 20px; }
-  .plugins-filters button { min-width: 0; padding-inline: 6px; font-size: 12px; border-radius: 15px; }
-  .plugins-heading { align-items: flex-start; flex-wrap: wrap; margin-bottom: 16px; }
-  .plugins-row { padding: 16px; }
-  .plugins-meta { grid-column: 2 / -1; }
-  .plugins-open { grid-row: 1; }
-  .admin-dialog.sheet.plugins-inspector { width: 100%; height: auto; max-height: 88dvh; }
-  .plugins-tabs button { padding-inline: 12px; }
-}
-
-.plugins-heading + input.search { width: 100%; }
-.admin-dialog.sheet.plugins-inspector { box-sizing: border-box; }
-.plugins-accessory > svg { width: 18px; height: 18px; flex: 0 0 18px; }
-.plugins-accessory > .tile { flex-shrink: 0; }
-.plugins-accessory strong { min-width: 0; overflow-wrap: anywhere; }
-@media (max-width: 640px) {
-  .plugins-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-radius: 18px; overflow: visible; }
-  .plugins-tabs button { flex-direction: column; gap: 4px; min-width: 0; padding: 8px 2px; font-size: 11px; border-radius: 14px; }
-}
-
-/* Management actions form one aligned list; removal stays visually separate. */
-.plugins-settings-actions { display: grid; gap: 0; margin: 0; }
-.plugins-settings-actions > .button { justify-content: flex-start; width: 100%; min-height: 52px; box-sizing: border-box; margin: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 0; background: color-mix(in srgb, var(--text) 3%, var(--material-solid)); box-shadow: none; text-align: left; }
-.plugins-settings-actions > .button + .button { border-top: 0; }
-.plugins-settings-actions > .button:first-child { border-radius: var(--radius-md) var(--radius-md) 0 0; }
-.plugins-settings-actions > .button:last-child:not(.danger), .plugins-settings-actions > .button:has(+ .danger) { border-radius: 0 0 var(--radius-md) var(--radius-md); }
-.plugins-settings-actions > .button:only-child { border-radius: var(--radius-md); }
-.plugins-settings-actions > .button.danger { margin-top: 22px; border: 1px solid var(--line); border-radius: var(--radius-md); background: none; }
-.plugins-settings-actions > .button > svg { flex: 0 0 18px; width: 18px; height: 18px; }
-@media (hover: hover) { .plugins-settings-actions > .button:hover { background: color-mix(in srgb, var(--accent) 8%, var(--material-solid)); } }
-
-@media (max-width: 640px) {
-  .plugins-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: var(--space-12); gap: var(--space-10); }
-  .plugins-toolbar .plugins-filters { grid-column: 1 / -1; }
-  .plugins-toolbar .search { width: 100%; min-width: 0; }
-  .plugins-toolbar .clear-filters { width: 40px; height: 40px; min-height: 40px; padding: 0; font-size: 0; gap: 0; }
-}
-/* Reset never creates an otherwise empty toolbar row. */
-.plugins-toolbar .clear-filters:disabled { display: none; }
-.plugins-toolbar .clear-filters { flex: 0 0 40px; width: 40px; height: 40px; min-height: 40px; padding: 0; margin: 0; gap: 0; font-size: 0; border-radius: 50%; }
-@media (min-width: 641px) and (max-width: 1100px) {
-  .plugins-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: var(--space-10); }
-  .plugins-toolbar .plugins-filters { grid-column: 1 / -1; }
-  .plugins-toolbar .search { width: 100%; min-width: 0; }
-  .plugins-toolbar:has(.clear-filters:disabled) .search { grid-column: 1 / -1; }
-}
-@media (max-width: 640px) {
-  .plugins-toolbar:has(.clear-filters:disabled) .search { grid-column: 1 / -1; }
-}
-/* Status and count occupy the middle of the list instead of stacking under names. */
-@media (min-width: 641px) {
-  .plugins-row { grid-template-columns: 40px minmax(0, 1fr) minmax(90px, .35fr) minmax(90px, .35fr) auto; gap: 12px; padding-block: 12px; }
-  .plugins-row > .tile { grid-column: 1; grid-row: 1; }
-  .plugins-identity { grid-column: 2; grid-row: 1; }
-  .plugins-meta { display: contents; }
-  .plugins-meta > :first-child { grid-column: 3; grid-row: 1; font-size: var(--text-sm); }
-  .plugins-meta > :nth-child(2) { grid-column: 4; grid-row: 1; font-size: var(--text-sm); }
-  .plugins-open { grid-column: 5; grid-row: 1; }
-}
-
-/* Logbook uses the same integrated filter-and-list card as Plugins. */
-.logbook-card { padding: 0; overflow: hidden; }
-.logbook-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-12); padding: var(--space-20); border-bottom: 1px solid var(--line); }
-.logbook-periods { flex: 0 1 auto; max-width: 100%; }
-.logbook-toolbar .logbook-filters { flex: 1 1 480px; display: flex; flex-wrap: wrap; gap: var(--space-8); margin: 0; }
-.logbook-toolbar .logbook-filters select { flex: 1; width: 0; min-width: 125px; border-radius: var(--radius-pill); }
-.logbook-toolbar .clear-filters { width: 40px; height: 40px; min-height: 40px; flex: 0 0 40px; padding: 0; margin: 0; gap: 0; font-size: 0; border-radius: 50%; }
-.logbook-toolbar .clear-filters:disabled { display: none; }
-.logbook-card .logbook-count { margin: 0; padding: var(--space-12) var(--space-20); font-size: var(--text-sm); border-bottom: 1px solid var(--line); }
-.logbook-card .logbook-day h3 { margin: 0; padding: var(--space-12) var(--space-20); background: color-mix(in srgb, var(--text) 3%, transparent); border-bottom: 1px solid var(--line); }
-.logbook-card .logbook-list { border: 0; border-radius: 0; background: none; }
-.logbook-card .logbook-entry { padding: var(--space-12) var(--space-20); }
-.logbook-card .logbook > .empty, .logbook-card .logbook > .error { padding: var(--space-20); margin: 0; }
-@media (max-width: 640px) {
-  .logbook-toolbar { padding: var(--space-12); }
-  .logbook-periods { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; border-radius: var(--radius-lg); }
-  .logbook-periods button { flex-direction: column; min-width: 0; padding: 8px 4px; font-size: 12px; white-space: normal; border-radius: var(--radius-md); }
-  .logbook-toolbar .logbook-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .logbook-toolbar .logbook-filters select { width: 100%; min-width: 0; }
-  .logbook-card .logbook-entry { padding-inline: var(--space-12); }
-}
-@media (max-width: 640px) {
-  .logbook-toolbar .logbook-filters > select[name="source"] { grid-column: 1 / -1; }
-  .logbook-toolbar .logbook-filters:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px; }
-  .logbook-toolbar .logbook-filters:has(.clear-filters:not(:disabled)) > select[name="accessory"] { grid-column: 2 / 4; }
-  .logbook-toolbar .logbook-filters:has(.clear-filters:not(:disabled)) > select[name="source"] { grid-column: 1 / 3; }
-}
-
-.audit-search { display: grid; grid-template-columns: minmax(140px, auto) minmax(0, 1fr); gap: var(--space-12); min-width: 0; }
-@media (max-width: 1000px) { .audit-search { grid-column: 1 / -1; } }
-@media (max-width: 460px) { .audit-search { grid-template-columns: minmax(0, 1fr); } }
-
-.backup-empty { display: flex; align-items: center; gap: var(--space-12); padding: var(--space-16); text-align: left; }
-.backup-empty > .empty-glyph { flex: none; width: 36px; height: 36px; margin: 0; }
-.card.backup-empty > p { margin: 0; max-width: none; }
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
@@ -43628,12 +43273,9 @@ self.addEventListener("notificationclick", (event) => {
       });
     } else {
       const body = (built.body || []).filter(Boolean);
-      // Keep scrolling options beside the menu, with a dedicated, unobstructed hit target.
-      const footerChips = size === "xlarge" && body.at(-1)?.classList?.contains("chips") ? body.pop() : null;
       node.append(el("div", { class: "w-head" }, glyph, who, powerToggle(ctx, built)),
-        body.length ? el("div", { class: "w-body" }, body) : "",
-        footerChips ? el("div", { class: "w-footer" }, footerChips, menu) : el("span", { class: "w-corner" }, menu));
-      node.classList.toggle("head-only", !body.length && !footerChips);
+        body.length ? el("div", { class: "w-body" }, body) : "", el("span", { class: "w-corner" }, menu));
+      node.classList.toggle("head-only", !body.length);
       ctx.watch(() => node.classList.toggle("powered-off", !!built.power && !built.power.big && !isOn(built.power.characteristic)));
     }
     ctx.watch(paintGlyph);
@@ -43654,7 +43296,7 @@ self.addEventListener("notificationclick", (event) => {
   function paused(node, ctx) {
     if (!ctx.accessory.paused) return;
     node.classList.add("paused");
-    for (const part of node.querySelectorAll(":scope > .w-hit, :scope > .w-body, :scope > .w-footer > .chips, :scope > .w-head .switch, :scope > .w-main, :scope > .w-split, :scope > details, :scope > .camera-view, :scope > .controls")) part.inert = true;
+    for (const part of node.querySelectorAll(":scope > .w-hit, :scope > .w-body, :scope > .w-head .switch, :scope > .w-main, :scope > .w-split, :scope > details, :scope > .camera-view, :scope > .controls")) part.inert = true;
   }
 
   /// Every control: the widget's body (beside its facets when there are any), what is left under More, the foot.
