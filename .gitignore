@@ -9,3 +9,5 @@ DerivedData/
 .claude/launch.json
 
 tmp/
+# Staged dependency/project CI cache partitions.
+.ci-build-cache/
