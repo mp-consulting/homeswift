@@ -67,7 +67,13 @@
       charts.classList.remove("loading");
       note.className = "muted history-note";
       note.textContent = t("Each change is kept {days} days, and the hourly figures of numbers {years} years.", { days: String(found.days), years: String(found.years) });
-      const cards = found.series.map((series) => series.kind === "number" ? numberCard(series, found) : stateCard(series, found)).filter(Boolean);
+      // Names describe the accessory; they are not activity. Keep them available without a full timeline.
+      const metadata = new Set(["Name", "Configured Name", "Identifier", "Serial Number", "Manufacturer", "Model", "Firmware Revision"]);
+      const details = found.series.filter((series) => metadata.has(series.characteristic));
+      const cards = found.series.filter((series) => !metadata.has(series.characteristic))
+        .map((series) => series.kind === "number" ? numberCard(series, found) : stateCard(series, found)).filter(Boolean);
+      if (details.length) cards.push(el("details", { class: "history-details" },
+        el("summary", { text: t("Details") }), details.map((series) => stateCard(series, found))));
       charts.replaceChildren(...energyCards, ...cards);
       if (!cards.length && !energyCards.length) charts.append(el("p", { class: "muted", text: t("Nothing recorded in this range") }));
     }
@@ -115,6 +121,13 @@
       return node;
     }
 
+    function compactState(series) {
+      return el("div", { class: "history-state-row" },
+        el("div", { class: "who" }, el("strong", { text: title(series, accessory) }),
+          el("small", { class: "muted", text: tn("{n} change", "{n} changes", series.points?.length ?? 0) })),
+        el("b", { text: series.last != null ? valueText(series, series.last) : "—" }));
+    }
+
     function stateCard(series, found) {
       const spans = [];
       let at = found.from, value = series.before ?? null;
@@ -126,6 +139,7 @@
       spans.push({ from: at, to: found.to, value });
       if (!spans.some((span) => span.value != null)) return null;
       const changes = series.points.length;
+      if (!changes) return compactState(series);
       const figure = series.last != null ? valueText(series, series.last) : null;
       const [node, body] = card(series, figure, tn("{n} change", "{n} changes", changes));
       HomeswiftChart.stateTimeline(body, { title: title(series, accessory), spans, from: found.from, to: found.to, label: (one) => valueText(series, one), tone: (one) => toneOf(series, one) });

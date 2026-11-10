@@ -93,6 +93,12 @@ try{
   await waitFor("!!document.querySelector('.widget')");
   if(await evaluate("document.querySelectorAll('iframe').length"))throw Error("Public hosting blocks iframe previews");
   await shot("explorer", "body");
+  await evaluate("location.hash='widget/light'");
+  await waitFor("!!document.querySelector('.widget-light')");
+  await evaluate("document.querySelector('#size-picker [data-size=medium]').click()");
+  await waitFor("!!document.querySelector('.widget-light.size-medium .w-middle [role=slider]')");
+  await shot("light-medium", "body");
+
   if(await evaluate("document.querySelectorAll('.story-link').length")!==267)throw Error("Incomplete story navigation");
   const checkBadges = async () => {
     const sizes = await evaluate("[...document.querySelectorAll('#size-picker button')].map(n=>{const r=n.getBoundingClientRect();return [r.width,r.height]})");

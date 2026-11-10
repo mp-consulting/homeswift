@@ -317,6 +317,30 @@ try {
     HomeswiftAdmin.history(list.find((one) => one.name === "Living Room"));
     for (let i = 0; i < 40 && !document.querySelector(".history-full .chart-card"); i++) await new Promise((r) => setTimeout(r, 100));
     await new Promise((r) => setTimeout(r, 600));` });
+  // Scene switches have many stable states and names: keep them readable on a phone.
+  for (const width of [1280, 375]) await shot(`history-scenes${width === 375 ? "-phone" : ""}`, "/accessories", {
+    width, height: 900, mobile: width === 375, ready: ".widget", prepare: `
+      const original = window.fetch;
+      window.fetch = async (url, options) => {
+        if (String(url).includes("/api/accessories/demo-scenes/history")) {
+          const to = Date.now(), from = to - 86400000;
+          const series = ["Bright", "Relax", "Evening", "Reading"].flatMap(service => [
+            { service, characteristic: "On", kind: "state", before: false, last: false, points: [] },
+            { service, characteristic: "Configured Name", kind: "state", before: service, last: service, points: [] }
+          ]);
+          return new Response(JSON.stringify({ from, to, days: 7, years: 2, series }));
+        }
+        return original(url, options);
+      };
+      HomeswiftAdmin.history({ id: "demo-scenes", name: "Living Room Scenes", services: [] });
+      for (let i = 0; i < 40 && !document.querySelector(".history-state-row"); i++) await new Promise(r => setTimeout(r, 100));
+      if (document.querySelectorAll(".history-charts > .history-state-row").length !== 4) throw Error("Unchanged scenes must be compact rows");
+      const details = document.querySelector(".history-details");
+      if (!details || details.open) throw Error("Metadata must be collapsed initially");
+      details.open = true;
+      if (details.querySelectorAll(".history-state-row").length !== 4) throw Error("Metadata must remain available");
+      details.open = false;
+      window.fetch = original;` });
   // The remote's Controls: its press toggles the lamp and the blind, held it dims the lamp.
   const remotes = await (await fetch(`${base}/api/remotes`)).json();
   const remote = remotes.remotes?.find((one) => one.id === "HomebridgeDummy:remote");

@@ -57,7 +57,7 @@ contracts](widgets.md#for-plugin-developers).
 
 ### Size, state and visual foundations
 
-S is a compact summary and M a tall summary; both keep the primary action. L exposes the main controls. XL
+S is a compact summary and M a tall summary; both keep the primary action. M lights expose a 40px brightness slider above the name, while the rest of the tile retains its hold colour wheel. L exposes the main controls. XL
 exposes expanded controls. L and XL measure their actual content and span whole grid rows, so a sparse
 widget does not reserve empty space. All controls remain available in the accessory sheet.
 
@@ -187,3 +187,9 @@ The lifted section’s glass extends to the edit shield’s outer edge (6px beyo
 Status edit mode uses one full-width card header for the section title, remove button, and move handle. Both buttons are 40px circles; duplicate section headings are hidden only while editing.
 
 At phone width, Status edit mode collapses each section into a 56px header row, keeping remove and move controls available. Done restores the full content; individual widget controls remain in the section/widget management UI.
+
+### Accessory History
+
+Use compact divided rows for states with no recorded changes in the selected range: name and change count on the left, value on the right. Reserve timeline charts for states that changed. Names and identifiers belong in a collapsed Details disclosure, with their history retained inside it. Use the shared spacing, text and border tokens; avoid stacking elevated cards for static metadata.
+
+![Compact scene history on a phone](images/ui/history-scenes-phone.png)

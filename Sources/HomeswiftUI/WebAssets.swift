@@ -2885,6 +2885,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // /config, /logs[/<accessory>]?since=…&level=…&q=…, /account. Pages below a section keep it lit in the header.
   const views = {};
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
+  // Keep our layout event from rebuilding the wall, even when its save is slow.
+  let wallSaves = 0, wallSavedAt = 0;
+  async function saveWallLayout(layout) {
+    wallSaves++;
+    try { return await api("/api/layout", { method: "PUT", body: layout }); }
+    finally { wallSaves--; wallSavedAt = Date.now(); }
+  }
+  const ownWallChange = () => wallSaves > 0 || Date.now() - wallSavedAt < 2000;
   /// What the view shown does when the tab is shown again, given how long it was hidden (ms); set by the view as it
   /// starts (`onReturn`), cleared by each new view. Without one, nothing.
   let returnHook = null;
@@ -3052,13 +3060,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // it, the redraw waits for them to end, so a save from Edit does not put back what changed meanwhile.
     let layoutTimer = null;
     const redrawLayout = () => {
-      if (location.pathname !== "/accessories") return;
+      if (location.pathname !== "/accessories" || ownWallChange()) return;
       if (document.querySelector(".wall.editing, dialog[open]")) { layoutTimer = setTimeout(redrawLayout, 1000); return; }
       route();
     };
     stream.addEventListener("layout", () => {
       clearTimeout(layoutTimer);
-      if (Date.now() - HomeswiftCommon.lastChange() < 2000) return;
+      if (ownWallChange() || Date.now() - HomeswiftCommon.lastChange() < 2000) return;
       layoutTimer = setTimeout(redrawLayout, 300);
     });
     stream.addEventListener("asset", (event) => applyAsset(JSON.parse(event.data)));
@@ -5841,7 +5849,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
         try {
-          await api("/api/layout", { method: "PUT", body: layout });
+          await saveWallLayout(layout);
           note.classList.add("hidden");
         } catch (e) {
           if (e.status === 401) return;
@@ -5866,7 +5874,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         for (const accessory of movable) accessory.room = room;
       } : null,
       moveToRoom: isAdmin() ? (group) => HomeswiftHome.moveGroupToRoom(group, all) : null,
-      persist: async () => { clearTimeout(saveTimer); await api("/api/layout", { method: "PUT", body: layout }); }, refresh: render });
+      persist: async () => { clearTimeout(saveTimer); await saveWallLayout(layout); }, refresh: render });
     window.homeswiftGroupEvent = groupingControls.event;
     window.homeswiftGroupSnapshot = groupingControls.snapshot;
     const nodes = new Map();
@@ -5900,6 +5908,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         for (const [id, node] of nodes) {
           const was = before.get(id), now = node.getBoundingClientRect();
           if (!was?.width || !now.width || !now.height) continue;
+          if (was.left === now.left && was.top === now.top && was.width === now.width && was.height === now.height) continue;
           node.getAnimations().forEach((animation) => animation.cancel());
           node.animate([
             { transformOrigin: "top left", transform: `translate(${was.left - now.left}px, ${was.top - now.top}px) scale(${was.width / now.width}, ${was.height / now.height})` },
@@ -17743,12 +17752,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         if (steps.length) one.minStep = Math.max(...steps);
         return one;
       });
-      const service = { type: kind, characteristics };
+      // Adaptive Lighting is controller metadata, not a shared writable characteristic.
+      const adaptiveTargets = present.map((a) => ({ accessory: a, service: groupable(a).find((s) => s.type === kind && s.adaptiveLighting) }));
+      const adaptive = kind === 'Lightbulb' && adaptiveTargets.every((target) => target.service);
+      const transitionType = 'Characteristic Value Active Transition Count';
+      if (adaptive) characteristics.push({ type: transitionType, value: 0, permissions: ['pr'], format: 'uint8' });
+      const service = { type: kind, characteristics, ...(adaptive ? { adaptiveLighting: {} } : {}) };
       const merged = { id: group.id, name: group.name, displayName: group.name, members: group.members, category: present[0].category, services: [service] };
       // The members' state on the merged one: on when one is; every other value from the first member that is on.
       const follow = () => {
         const lit = present.find((a) => !power || isOn(controls(a).get(power).c)) || present[0];
+        if (adaptive) {
+          service.adaptiveLighting.resumable = adaptiveTargets.every(({ service }) => service.adaptiveLighting.resumable);
+        }
         for (const c of characteristics) {
+          if (c.type === transitionType) {
+            c.value = adaptiveTargets.every(({ service }) => (service.characteristics.find((c) => c.type === transitionType)?.value ?? service.adaptiveLighting.active)) ? 1 : 0;
+            continue;
+          }
           c.value = c.type === power
             ? (present.some((a) => isOn(controls(a).get(power).c)) ? (c.format === 'bool' ? true : 1) : (c.format === 'bool' ? false : 0))
             : controls(lit).get(c.type).c.value;
@@ -17767,6 +17788,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const failed = present.filter((_, i) => outcomes[i].status === 'rejected');
         if (failed.length) throw new Error(t('Could not update: {names}', { names: failed.map((a) => a.displayName || a.name).join(', ') }));
       };
+      const setAdaptive = async (on) => {
+        const outcomes = await Promise.allSettled(adaptiveTargets.map(async ({ accessory, service }) => {
+          const result = await api(`/api/accessories/${encodeURIComponent(accessory.id)}/adaptive-lighting`, {
+            method: 'PUT', body: { service: service.subtype || service.type, on }
+          });
+          Object.assign(service.adaptiveLighting, result.adaptiveLighting);
+          const transition = service.characteristics.find((c) => c.type === transitionType);
+          if (transition) transition.value = result.adaptiveLighting.active ? 1 : 0;
+        }));
+        const failed = adaptiveTargets.filter((_, i) => outcomes[i].status === 'rejected');
+        draw();
+        if (failed.length) throw new Error(t('Could not update: {names}', { names: failed.map(({ accessory }) => accessory.displayName || accessory.name).join(', ') }));
+      };
       const draw = () => {
         follow();
         for (const ctx of views) {
@@ -17783,7 +17817,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           try { await persist(); refresh(); } catch (error) { layout.groups = before; HomeswiftCommon.showAlert(error.message); }
         } },
       ];
-      const node = HomeswiftWidgets.card(merged, { size: layout.sizes?.[group.id] || 'large', actions, group: { write, attach: (ctx) => views.add(ctx) } });
+      const node = HomeswiftWidgets.card(merged, { size: layout.sizes?.[group.id] || 'large', actions, group: { write, setAdaptive, attach: (ctx) => views.add(ctx) } });
       node.classList.add('accessory-group', 'merged');
       node.dataset.search = [group.name, ...people.map((a) => a?.name || '')].join(' ').toLowerCase();
       cards.add({ node, draw, members: new Set(group.members) });
@@ -18004,7 +18038,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       charts.classList.remove("loading");
       note.className = "muted history-note";
       note.textContent = t("Each change is kept {days} days, and the hourly figures of numbers {years} years.", { days: String(found.days), years: String(found.years) });
-      const cards = found.series.map((series) => series.kind === "number" ? numberCard(series, found) : stateCard(series, found)).filter(Boolean);
+      // Names describe the accessory; they are not activity. Keep them available without a full timeline.
+      const metadata = new Set(["Name", "Configured Name", "Identifier", "Serial Number", "Manufacturer", "Model", "Firmware Revision"]);
+      const details = found.series.filter((series) => metadata.has(series.characteristic));
+      const cards = found.series.filter((series) => !metadata.has(series.characteristic))
+        .map((series) => series.kind === "number" ? numberCard(series, found) : stateCard(series, found)).filter(Boolean);
+      if (details.length) cards.push(el("details", { class: "history-details" },
+        el("summary", { text: t("Details") }), details.map((series) => stateCard(series, found))));
       charts.replaceChildren(...energyCards, ...cards);
       if (!cards.length && !energyCards.length) charts.append(el("p", { class: "muted", text: t("Nothing recorded in this range") }));
     }
@@ -18052,6 +18092,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       return node;
     }
 
+    function compactState(series) {
+      return el("div", { class: "history-state-row" },
+        el("div", { class: "who" }, el("strong", { text: title(series, accessory) }),
+          el("small", { class: "muted", text: tn("{n} change", "{n} changes", series.points?.length ?? 0) })),
+        el("b", { text: series.last != null ? valueText(series, series.last) : "—" }));
+    }
+
     function stateCard(series, found) {
       const spans = [];
       let at = found.from, value = series.before ?? null;
@@ -18063,6 +18110,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       spans.push({ from: at, to: found.to, value });
       if (!spans.some((span) => span.value != null)) return null;
       const changes = series.points.length;
+      if (!changes) return compactState(series);
       const figure = series.last != null ? valueText(series, series.last) : null;
       const [node, body] = card(series, figure, tn("{n} change", "{n} changes", changes));
       HomeswiftChart.stateTimeline(body, { title: title(series, accessory), spans, from: found.from, to: found.to, label: (one) => valueText(series, one), tone: (one) => toneOf(series, one) });
@@ -40849,6 +40897,14 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .history-full .history-head h2 { margin: 0; }
 .history-full .chart-grid { grid-template-columns: minmax(0, 1fr); }
 .history-full .history-note { margin: 0; }
+.history-full .chart-card { box-shadow: none; border-radius: var(--radius-md); }
+.history-state-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-16); padding: var(--space-12) 0; border-bottom: 1px solid var(--line); }
+.history-state-row .who { min-width: 0; }
+.history-state-row .who small { display: block; }
+.history-state-row > b { text-align: right; overflow-wrap: anywhere; max-width: 45%; }
+.history-details { border-top: 1px solid var(--line); padding-top: var(--space-12); }
+.history-details > summary { color: var(--muted); cursor: pointer; }
+.history-details .history-state-row:last-child { border-bottom: 0; }
 
 /* The Logbook: a day per section, a line per change with who made it. */
 .logbook-filters { display: flex; flex-wrap: wrap; gap: var(--space-8); align-items: center; margin-bottom: var(--space-12); }
@@ -41640,6 +41696,14 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .logbook-toolbar .logbook-filters:has(.clear-filters:not(:disabled)) > select[name="source"] { grid-column: 1 / 3; }
 }
 
+/* Medium lights keep brightness directly reachable above the tile hit target. */
+.widget-light.size-medium .w-middle > .level { pointer-events: auto; height: 40px; min-height: 40px; }
+.widget-light.size-medium:has(.w-middle) { gap: var(--space-4); padding: var(--space-10); }
+.widget-light.size-medium:has(.w-middle) .tile { width: 24px; height: 24px; }
+.widget-light.size-medium:has(.w-middle) .tile svg { width: 16px; height: 16px; }
+.widget-light.size-medium .w-middle { padding: 0; }
+.widget-light.size-medium:has(.w-middle) .who strong { display: block; white-space: nowrap; }
+
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI's service worker: it only shows the bridge's push notifications (Notifications page, "this browser")
@@ -41942,6 +42006,9 @@ self.addEventListener("notificationclick", (event) => {
     };
     /// A write with no value to keep (a remote's key): its failure is the caller's to show.
     ctx.send = (service, characteristic, value) => put(service, characteristic, value);
+    ctx.setAdaptive = (service, on) => options.group?.setAdaptive
+      ? options.group.setAdaptive(on)
+      : api(`/api/accessories/${encodeURIComponent(accessory.id)}/adaptive-lighting`, { method: "PUT", body: { service: serviceKey(service), on } });
     // A group's merged accessory (groups.js) writes to each of its members instead.
     const put = options.group ? (service, characteristic, value) => options.group.write(service, characteristic, value)
       : (service, characteristic, value) => api(`/api/accessories/${encodeURIComponent(accessory.id)}`, {
@@ -42429,18 +42496,19 @@ self.addEventListener("notificationclick", (event) => {
     const temperature = ctx.take(service, "Color Temperature");
     // Adaptive Lighting (a controller on the bridge): on while a schedule runs, which its transition count says.
     const transitions = ctx.char(service, "Characteristic Value Active Transition Count");
-    const adaptive = service.adaptiveLighting ? { resumable: !!service.adaptiveLighting.resumable } : null;
+    const adaptive = service.adaptiveLighting || null;
     const adaptiveOn = () => !!adaptive && numberOf(transitions) > 0;
     const setAdaptive = async (on) => {
       const before = transitions?.value;
       if (transitions) transitions.value = on ? 1 : 0;
       ctx.paint();
       try {
-        await api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/adaptive-lighting`, { method: "PUT", body: { service: serviceKey(service), on } });
+        await ctx.setAdaptive(service, on);
         adaptive.resumable = true;
       } catch (e) {
         if (e.message === "signed out") return;
-        if (transitions) transitions.value = before;
+        // Group writes reconcile each member, including partial successes.
+        if (transitions && !ctx.options.group) transitions.value = before;
         ctx.flash(e.message);
       }
     };
@@ -42475,8 +42543,8 @@ self.addEventListener("notificationclick", (event) => {
     } : null;
     return {
       pickColor, pickWhite, whiteRange,
-      brightness: canWrite(brightness) ? ({ vertical = false } = {}) => {
-        const control = level({ label: t("Brightness"), min: brightness.minValue ?? 0, max: brightness.maxValue ?? 100, step: brightness.minStep || 1, format: (v) => `${v} %`, vertical },
+      brightness: canWrite(brightness) ? ({ vertical = false, compact = false } = {}) => {
+        const control = level({ label: t("Brightness"), min: brightness.minValue ?? 0, max: brightness.maxValue ?? 100, step: brightness.minStep || 1, format: (v) => `${v} %`, vertical, showLabel: !compact },
           (v) => ctx.write(service, brightness, v));
         ctx.watch(() => {
           control.set(numberOf(brightness));
@@ -43051,6 +43119,7 @@ self.addEventListener("notificationclick", (event) => {
       };
       // A white-only light's Adaptive control sits beside its white slider.
       const whiteRow = (options) => light.white ? (light.adaptive ? el("div", { class: "w-row" }, el("div", { class: "w-grow" }, light.white(options)), light.adaptive("round")) : light.white(options)) : null;
+      if (ctx.tall) built.middle = light.brightness?.({ compact: true });
       if (size === "medium") built.body = [light.brightness?.(), light.swatches?.() ?? whiteRow({ thin: true })].filter(Boolean);
       if (size === "large") {
         // A tall brightness beside the colours, or beside a tall white (and the Adaptive chip under it).

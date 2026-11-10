@@ -230,6 +230,9 @@
     };
     /// A write with no value to keep (a remote's key): its failure is the caller's to show.
     ctx.send = (service, characteristic, value) => put(service, characteristic, value);
+    ctx.setAdaptive = (service, on) => options.group?.setAdaptive
+      ? options.group.setAdaptive(on)
+      : api(`/api/accessories/${encodeURIComponent(accessory.id)}/adaptive-lighting`, { method: "PUT", body: { service: serviceKey(service), on } });
     // A group's merged accessory (groups.js) writes to each of its members instead.
     const put = options.group ? (service, characteristic, value) => options.group.write(service, characteristic, value)
       : (service, characteristic, value) => api(`/api/accessories/${encodeURIComponent(accessory.id)}`, {
@@ -717,18 +720,19 @@
     const temperature = ctx.take(service, "Color Temperature");
     // Adaptive Lighting (a controller on the bridge): on while a schedule runs, which its transition count says.
     const transitions = ctx.char(service, "Characteristic Value Active Transition Count");
-    const adaptive = service.adaptiveLighting ? { resumable: !!service.adaptiveLighting.resumable } : null;
+    const adaptive = service.adaptiveLighting || null;
     const adaptiveOn = () => !!adaptive && numberOf(transitions) > 0;
     const setAdaptive = async (on) => {
       const before = transitions?.value;
       if (transitions) transitions.value = on ? 1 : 0;
       ctx.paint();
       try {
-        await api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/adaptive-lighting`, { method: "PUT", body: { service: serviceKey(service), on } });
+        await ctx.setAdaptive(service, on);
         adaptive.resumable = true;
       } catch (e) {
         if (e.message === "signed out") return;
-        if (transitions) transitions.value = before;
+        // Group writes reconcile each member, including partial successes.
+        if (transitions && !ctx.options.group) transitions.value = before;
         ctx.flash(e.message);
       }
     };
@@ -763,8 +767,8 @@
     } : null;
     return {
       pickColor, pickWhite, whiteRange,
-      brightness: canWrite(brightness) ? ({ vertical = false } = {}) => {
-        const control = level({ label: t("Brightness"), min: brightness.minValue ?? 0, max: brightness.maxValue ?? 100, step: brightness.minStep || 1, format: (v) => `${v} %`, vertical },
+      brightness: canWrite(brightness) ? ({ vertical = false, compact = false } = {}) => {
+        const control = level({ label: t("Brightness"), min: brightness.minValue ?? 0, max: brightness.maxValue ?? 100, step: brightness.minStep || 1, format: (v) => `${v} %`, vertical, showLabel: !compact },
           (v) => ctx.write(service, brightness, v));
         ctx.watch(() => {
           control.set(numberOf(brightness));
@@ -1339,6 +1343,7 @@
       };
       // A white-only light's Adaptive control sits beside its white slider.
       const whiteRow = (options) => light.white ? (light.adaptive ? el("div", { class: "w-row" }, el("div", { class: "w-grow" }, light.white(options)), light.adaptive("round")) : light.white(options)) : null;
+      if (ctx.tall) built.middle = light.brightness?.({ compact: true });
       if (size === "medium") built.body = [light.brightness?.(), light.swatches?.() ?? whiteRow({ thin: true })].filter(Boolean);
       if (size === "large") {
         // A tall brightness beside the colours, or beside a tall white (and the Adaptive chip under it).

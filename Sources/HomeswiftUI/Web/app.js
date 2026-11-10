@@ -507,6 +507,14 @@
   // /config, /logs[/<accessory>]?since=…&level=…&q=…, /account. Pages below a section keep it lit in the header.
   const views = {};
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
+  // Keep our layout event from rebuilding the wall, even when its save is slow.
+  let wallSaves = 0, wallSavedAt = 0;
+  async function saveWallLayout(layout) {
+    wallSaves++;
+    try { return await api("/api/layout", { method: "PUT", body: layout }); }
+    finally { wallSaves--; wallSavedAt = Date.now(); }
+  }
+  const ownWallChange = () => wallSaves > 0 || Date.now() - wallSavedAt < 2000;
   /// What the view shown does when the tab is shown again, given how long it was hidden (ms); set by the view as it
   /// starts (`onReturn`), cleared by each new view. Without one, nothing.
   let returnHook = null;
@@ -674,13 +682,13 @@
     // it, the redraw waits for them to end, so a save from Edit does not put back what changed meanwhile.
     let layoutTimer = null;
     const redrawLayout = () => {
-      if (location.pathname !== "/accessories") return;
+      if (location.pathname !== "/accessories" || ownWallChange()) return;
       if (document.querySelector(".wall.editing, dialog[open]")) { layoutTimer = setTimeout(redrawLayout, 1000); return; }
       route();
     };
     stream.addEventListener("layout", () => {
       clearTimeout(layoutTimer);
-      if (Date.now() - HomeswiftCommon.lastChange() < 2000) return;
+      if (ownWallChange() || Date.now() - HomeswiftCommon.lastChange() < 2000) return;
       layoutTimer = setTimeout(redrawLayout, 300);
     });
     stream.addEventListener("asset", (event) => applyAsset(JSON.parse(event.data)));
@@ -3463,7 +3471,7 @@
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
         try {
-          await api("/api/layout", { method: "PUT", body: layout });
+          await saveWallLayout(layout);
           note.classList.add("hidden");
         } catch (e) {
           if (e.status === 401) return;
@@ -3488,7 +3496,7 @@
         for (const accessory of movable) accessory.room = room;
       } : null,
       moveToRoom: isAdmin() ? (group) => HomeswiftHome.moveGroupToRoom(group, all) : null,
-      persist: async () => { clearTimeout(saveTimer); await api("/api/layout", { method: "PUT", body: layout }); }, refresh: render });
+      persist: async () => { clearTimeout(saveTimer); await saveWallLayout(layout); }, refresh: render });
     window.homeswiftGroupEvent = groupingControls.event;
     window.homeswiftGroupSnapshot = groupingControls.snapshot;
     const nodes = new Map();
@@ -3522,6 +3530,7 @@
         for (const [id, node] of nodes) {
           const was = before.get(id), now = node.getBoundingClientRect();
           if (!was?.width || !now.width || !now.height) continue;
+          if (was.left === now.left && was.top === now.top && was.width === now.width && was.height === now.height) continue;
           node.getAnimations().forEach((animation) => animation.cancel());
           node.animate([
             { transformOrigin: "top left", transform: `translate(${was.left - now.left}px, ${was.top - now.top}px) scale(${was.width / now.width}, ${was.height / now.height})` },

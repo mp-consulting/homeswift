@@ -18,6 +18,10 @@ Its [maintainer guide](design-system.md) explains the catalog, isolated demo tra
 
 ### Four sizes
 
+Medium light tiles include a directly adjustable brightness slider and keep the press-and-hold colour wheel.
+
+![Medium light tile with direct brightness adjustment](images/widgets/light-medium.png)
+
 Small and Medium use fixed boxes; Large and Extra large fit their controls to the grid:
 
 | Size | Box | What it shows |
@@ -97,6 +101,9 @@ widget shows. An accessory no widget knows gets those rows, so nothing a plugin 
   schedule, starting now at the white for this time of day, for a day. The Home app then shows it on. A light whose
   Adaptive Lighting was never turned on in the Home app says so when the swatch is pressed. Picking a colour or a
   white turns it off, as in the Home app.
+
+  Groups show the sun when every member supports Adaptive Lighting. The control applies to each member,
+  reports failures by name, and keeps the successful changes. Each member needs its saved Home app schedule.
 
   Apple Home lights mirrored through Wingman show their latest reported colour temperature in kelvin in the
   status line, when available. Their Apple Adaptive Lighting schedule stays in Apple Home.

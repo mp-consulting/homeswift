@@ -387,6 +387,10 @@ config.json, owner-only:
   others see "a Homeswift user" or "an MCP client". An accessory answering No Response holds no value: its hourly
   figures stop until it reports again.
 
+Unchanged states use compact rows. Names and identifiers are grouped under **Details**, where their history remains available.
+
+![Scene history with compact unchanged states](images/ui/history-scenes.png)
+
 ![An accessory's History tab: a line per number, a band per state](images/ui/history.png)
 
 ![The Logbook: each change with who or what made it](images/ui/logbook.png)
