@@ -130,6 +130,8 @@ public struct HomeswiftCatalog: Sendable {
         public var metered = false
         /// For a separated Function, its device's room (empty for none): where it starts until it is given its own.
         public var deviceRoom: String?
+        /// Known membership of the linked Apple Home; nil before the Home Link has supplied a snapshot.
+        public var inHome: Bool?
 
         /// The device behind it: the plugin's own accessory when this one stands for it in HomeKit with its Functions
         /// separated, or is one of its Functions; the accessory itself otherwise.
@@ -187,6 +189,7 @@ public struct HomeswiftCatalog: Sendable {
                 let platform = owners.instance(of: accessory.id, on: bridge)
                 var located = Located(accessory: accessory, bridge: bridge, platform: platform, layout: live.entry(for: accessory.id, platform: platform, legacy: layout[accessory.id]),
                                       metered: metered.contains(accessory.id))
+                located.inHome = isInHome(accessory.id)
                 if located.isSeparatedFunction { located.deviceRoom = live.entry(for: located.device.id, platform: platform, legacy: layout[located.device.id])?.room }
                 return located
             }
@@ -202,6 +205,7 @@ public struct HomeswiftCatalog: Sendable {
             let platform = host.platform(owning: id, on: bridge) ?? Owners(host.platforms).instance(of: id, on: bridge)
             let layout = LiveSettings.entry(for: id, platform: platform, legacy: home.layout.value.accessories[id], in: host.configuration)
             var located = Located(accessory: accessory, bridge: bridge, platform: platform, layout: layout, metered: metrics?.meters.hasMeters(accessory: id) == true)
+            located.inHome = isInHome(id)
             if located.isSeparatedFunction {
                 located.deviceRoom = LiveSettings.entry(for: located.device.id, platform: platform, legacy: home.layout.value.accessories[located.device.id], in: host.configuration)?.room
             }
@@ -372,6 +376,18 @@ public struct HomeswiftCatalog: Sendable {
                 json.field("doorbell", true)
             }
             if layout?.favourite == true { json.field("favourite", true) }
+            // The picker uses the same Function type and eligibility as groupProblem, rather than just shared On.
+            let function = groupingFunction(accessory)
+            let associated = Functions.of(accessory).count > 1
+            let blocked: String? = located.inHome == false || located.bridge.server.isHiddenFromHomeKit(accessory.id) ? "notInHome"
+                : function == nil ? "functions" : !canGroup([accessory]) ? "controls" : nil
+            var grouping: [String: JSONValue] = [:]
+            if let blocked { grouping["blocked"] = .string(blocked) }
+            else if let function {
+                grouping["kind"] = .string(function.type.uuid.uuidString)
+                if associated { grouping["associatedFunctions"] = true }
+            }
+            json.field("grouping", .object(grouping))
             if layout?.hidden == true { json.field("hidden", true) }
             // Kept out of the Home app (`_hiddenFromHomeKit`); the web UI offers to show it there again.
             if located.bridge.server.isHiddenFromHomeKit(accessory.id) { json.field("hiddenFromHomeKit", true) }

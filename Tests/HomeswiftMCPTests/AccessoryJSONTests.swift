@@ -21,6 +21,18 @@ import Testing
         object["supportsIdentify"] = .bool(accessory.supportsIdentify)
         object["category"] = .string("\(accessory.category)")
         object["bridge"] = .string(located.bridge.name)
+        let function = HomeswiftCatalog.groupingFunction(accessory)
+        if located.inHome == false || located.bridge.server.isHiddenFromHomeKit(accessory.id) {
+            object["grouping"] = ["blocked": "notInHome"]
+        } else if function == nil {
+            object["grouping"] = ["blocked": "functions"]
+        } else if !HomeswiftCatalog.canGroup([accessory]) {
+            object["grouping"] = ["blocked": "controls"]
+        } else {
+            var grouping: [String: JSONValue] = ["kind": .string(function!.type.uuid.uuidString)]
+            if Functions.of(accessory).count > 1 { grouping["associatedFunctions"] = true }
+            object["grouping"] = .object(grouping)
+        }
         object["manufacturer"] = HomeswiftCatalog.json(information[.manufacturer]?.value ?? .null)
         object["model"] = HomeswiftCatalog.json(information[.model]?.value ?? .null)
         object["serialNumber"] = HomeswiftCatalog.json(information[.serialNumber]?.value ?? .null)

@@ -14,7 +14,14 @@
   const groupable = (a) => (a?.services || []).filter((s) => s.characteristics?.some((c) => c.group));
   const controls = (a) => new Map(groupable(a).flatMap((s) => s.characteristics.filter((c) => c.group).map((c) => [c.type, { service: s.subtype || s.type, c }])));
   const shared = (members) => types.filter((type) => members.length && members.every((a) => controls(a).has(type)));
-  const compatible = (members) => shared(members).some((type) => ['On', 'Active', 'Target Position'].includes(type));
+  const groupingProblem = (members) => {
+    if (members.some((a) => a?.grouping?.blocked === 'notInHome')) return t('Every member of a group must be in Apple Home.');
+    if (members.some((a) => a?.grouping?.blocked === 'functions')) return t('Separate accessory Functions before grouping them.');
+    if (new Set(members.map((a) => a?.grouping?.kind).filter(Boolean)).size > 1) return t('Choose accessories of the same kind.');
+    if (members.some((a) => a?.grouping?.blocked) || !shared(members).some((type) => ['On', 'Active', 'Target Position'].includes(type))) return t('Choose at least two accessories with shared controls.');
+    return null;
+  };
+  const compatible = (members) => !groupingProblem(members);
   // Follow the first visible member in saved member order, not the first wall on the page.
   // This also gives mixed-room/plugin groups a stable home without moving any accessories.
   function sectionIndex(group, sections) {
@@ -40,6 +47,7 @@
         [...new Set([...rooms, ...all.map((a) => a.room).filter(Boolean)])].map((room) => el('option', { value: room, text: room })));
       roomSelect.value = initialRoom;
       const message = el('p', { role: 'status', class: 'error' });
+      const associatedHint = el('p', { class: 'help', hidden: true, text: t('Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.') });
       const occupied = new Set(layout.groups.filter((g) => g !== existing && !ids.includes(g.id)).flatMap((g) => g.members));
       const choices = all.filter((a) => selected.has(a.id) || (!occupied.has(a.id) && controls(a).size));
       const roomLabels = new Map([...roomSelect.options].map((option) => [option.value, option.textContent]));
@@ -49,15 +57,17 @@
       const selectedEmpty = el('p', { class: 'muted', text: t('Choose at least two accessories with shared controls.') });
       const rows = choices.map((a) => {
         const button = el('button', { type: 'button', class: 'group-transfer' });
-        const row = el('div', { class: 'group-member-row', 'data-search': (a.displayName || a.name).toLowerCase(), 'data-type': deviceType(a)[0], 'data-room': a.room || '' },
+        const reason = el('p', { class: 'help group-member-reason', hidden: true });
+        const row = el('div', { class: 'group-member-row', 'data-accessory': a.id, 'data-search': (a.displayName || a.name).toLowerCase(), 'data-type': deviceType(a)[0], 'data-room': a.room || '' },
           el('span', { class: 'group-device-icon', title: deviceType(a)[2], 'aria-hidden': 'true' }, HomeswiftCommon.icon(deviceType(a)[1])),
-          el('span', { class: 'group-member-name', text: a.displayName || a.name }), button);
+          el('div', { class: 'group-member-name' }, el('span', { text: a.displayName || a.name }), reason), button);
         const update = () => {
           const chosen = selected.has(a.id);
           button.textContent = chosen ? '−' : '+';
           button.setAttribute('aria-label', t(chosen ? 'Remove {name}' : 'Add {name}', { name: a.displayName || a.name }));
           (chosen ? selectedList : list).append(row);
           row.hidden = false;
+          reason.hidden = true;
           selectedCount.textContent = String(selected.size);
           selectedEmpty.hidden = selected.size > 0;
         };
@@ -73,6 +83,20 @@
       let activeType = '';
       const empty = el('p', { class: 'muted', hidden: true, text: t('No accessory matches.') });
       const applyFilter = () => {
+        const problem = groupingProblem([...selected].map((id) => byID.get(id)));
+        associatedHint.hidden = ![...selected].some((id) => byID.get(id)?.grouping?.associatedFunctions);
+        save.disabled = selected.size < 2 || Boolean(problem);
+        message.textContent = selected.size ? problem || '' : '';
+        for (const row of list.children) {
+          const accessory = choices.find((a) => a.id === row.dataset.accessory);
+          const reason = groupingProblem([...selected].map((id) => byID.get(id)).concat(accessory));
+          const button = row.querySelector('button');
+          button.disabled = Boolean(reason);
+          button.title = reason || '';
+          const hint = row.querySelector('.group-member-reason');
+          hint.textContent = reason || '';
+          hint.hidden = !reason;
+        }
         const query = search.value.trim().toLowerCase();
         for (const button of typeFilter.children) {
           const count = [...list.children].filter((row) => (!button.dataset.type || row.dataset.type === button.dataset.type) && (roomSelect.value === '__keep__' || row.dataset.room === roomSelect.value) && row.dataset.search.includes(query)).length;
@@ -108,6 +132,7 @@
       applyFilter();
       const form = el('form', {}, el('div', { class: 'group-dialog-head' }, HomeswiftCommon.tile('group', 'blue'), el('h2', { text: t('Accessory group') })), el('label', { class: 'group-name-field' }, el('span', { text: t('Name') }), name),
         setGroupRoom ? el('label', { class: 'group-room-field' }, el('span', { text: t('Room') }), roomSelect, el('span', { class: 'help', text: t('Moves the selected accessories in the Home app too once this bridge is linked to Apple Home.') })) : null,
+        associatedHint,
         el('div', { class: 'group-picker-columns' },
           el('section', {}, el('h3', { text: t('Available') }), search, typeFilter, clearFilters, list, empty),
           el('section', {}, el('div', { class: 'group-selected-heading' }, el('h3', { text: t('Selected') }), selectedCount), selectedList, selectedEmpty)), message,
@@ -117,7 +142,8 @@
       form.prepend(content);
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
-        if (selected.size < 2 || !compatible([...selected].map((id) => byID.get(id)))) { message.textContent = t('Choose at least two accessories with shared controls.'); return; }
+        const problem = groupingProblem([...selected].map((id) => byID.get(id)));
+        if (selected.size < 2 || problem) { message.textContent = problem || t('Choose at least two accessories with shared controls.'); return; }
         save.disabled = true;
         const before = layout.groups;
         layout.groups = before.filter((g) => g !== existing && !g.members.some((id) => selected.has(id)));
@@ -135,6 +161,10 @@
       dialog.append(form); document.body.append(dialog); dialog.addEventListener('close', () => dialog.remove(), { once: true }); dialog.showModal();
     }
     const cards = new Set();
+    const associatedActions = (people) => people.filter((a) => a?.grouping?.associatedFunctions).map((a) => ({
+      label: t('Controls for {name}', { name: a.displayName || a.name }), icon: 'sliders',
+      onSelect: () => HomeswiftWidgets.open(a)
+    }));
     // The service type every shared control of the members sits on (a light's Lightbulb), else null: the members then
     // differ too much to look like one of them.
     function mergedKind(present) {
@@ -217,6 +247,7 @@
         }
       };
       const actions = () => [
+        ...associatedActions(present),
         ...((resume) => resume.length ? [...resume, { separator: true }] : [])(resumeChoices?.(present) ?? []),
         ...(sizeChoices ? [sizeChoices(group), { separator: true }] : []),
         ...(moveToRoom ? [{ label: t('Move to room…'), icon: 'room', onSelect: () => moveToRoom(group).catch((error) => HomeswiftCommon.showAlert(error.message)) }] : []),
@@ -347,6 +378,7 @@
       const node = el('div', { class: `widget size-${layout.sizes?.[group.id] || 'large'} accessory-group`, 'data-id': group.id, 'data-search': [group.name, ...people.map((a) => a?.name || '')].join(' ').toLowerCase() },
         el('div', { class: 'server-head' }, glyph, el('div', { class: 'who' }, el('strong', { text: group.name }), el('div', { class: 'muted', text: people.map((a) => a?.displayName || a?.name || '—').join(', ') })),
           menuButton(t('Actions for {name}', { name: group.name }), () => [
+            ...associatedActions(people),
             ...(moveToRoom ? [{ label: t('Move to room…'), icon: 'room', onSelect: async () => {
               try { await moveToRoom(group); } catch (error) { notify(error.message); }
             } }] : []),

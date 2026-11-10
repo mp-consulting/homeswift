@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Home Link identity**: keep cached, read-only Accessory Information readable when a device is unavailable, so
+  Wingman can match its serial number to the accessory already in Apple Home. Device-state reads and paused-device
+  writes still report No Response, and no offline read handler is called.
+
+- **Groups and Wingman**: explain incompatible selections in the picker, recheck queued group changes against Apple
+  Home, preserve pending edits across read-only reconnects, and show HomeKit refusals instead of silently losing them.
+  A rejected new Group is removed locally; Wingman selects the control service and rejects members of another Home.
+  Primary lights can group while retaining their associated controls in the Group menu. The picker explains Apple
+  Home’s separate-tiles display setting; group commands leave associated effect switches unchanged.
+
 ### Changed
 
 - **Status editor**: compact sections into movable rows on phones, unify edit headers, and use full-area frosted glass while dragging.

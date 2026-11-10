@@ -195,6 +195,17 @@ const pageScript = `(() => {
   const discovery = ${literal(discovery)};
   const original = window.fetch;
   window.fetch = async (input, init) => {
+    const homeLinkDemo = new URLSearchParams(location.search).get("homeLinkDemo");
+    if (homeLinkDemo && String(input).includes("/api/rooms")) {
+      const response = await original(input, init);
+      const rooms = await response.json();
+      rooms.homeLink = {
+      state: homeLinkDemo === "pending" ? "readOnly" : "up", linked: true, home: "Demo Home",
+      reason: "Edits are turned off in Wingman", pending: homeLinkDemo === "pending" ? 2 : 0,
+      refused: homeLinkDemo === "refused" ? [{ reason: "The group was removed from Apple Home." }] : [],
+      };
+      return new Response(JSON.stringify(rooms), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (String(input).includes("/api/setup/discover")) return new Response(JSON.stringify(discovery), { status: 200, headers: { "Content-Type": "application/json" } });
     const response = await original(input, init);
     const type = response.headers.get("content-type") || "";
@@ -270,6 +281,28 @@ async function shot(name, path, { width = 1280, height = 900, mobile = false, re
 }
 
 try {
+  await shot("home-link-pending", "/accessories?homeLinkDemo=pending", { ready: ".home-link-banner" });
+  await shot("home-link-refused", "/accessories?homeLinkDemo=refused", { ready: ".home-link-banner" });
+  await shot("home-link-pending-phone", "/accessories?homeLinkDemo=pending", { width: 375, height: 812, mobile: true, ready: ".home-link-banner" });
+  for (const width of [1280, 375]) await shot(`group-constraints${width === 375 ? "-phone" : ""}`, "/accessories", {
+    width, height: 900, mobile: width === 375, ready: ".widget", prepare: `
+      const accessory = (id, name, type, grouping) => ({ id, name, grouping, services: [{ type, characteristics: [{ type: 'On', value: false, group: true }] }] });
+      const all = [accessory('left', 'Sofa Left', 'Lightbulb', { kind: 'light', associatedFunctions: true }), accessory('right', 'Sofa Right', 'Lightbulb', { kind: 'light' }),
+        accessory('switch', 'Desk Switch', 'Switch', { kind: 'switch' }), accessory('sensor', 'Light with Sensor', 'Lightbulb', { blocked: 'functions' }),
+        accessory('missing', 'Not in Home', 'Lightbulb', { blocked: 'notInHome' })];
+      await HomeswiftGroups.mount({ all, layout: {}, persist: async () => {}, refresh() {} }).edit(['left']);
+      const button = id => document.querySelector('[data-accessory="' + id + '"] button');
+      if (button('right').disabled || !button('switch').disabled || !button('sensor').disabled || !button('missing').disabled) throw new Error('Group eligibility was not enforced');
+      button('right').click();
+      if (document.querySelector('.accessory-group-dialog button[type=submit]').disabled) throw new Error('Compatible group cannot be saved');
+      for (const one of document.querySelectorAll('.group-transfer')) {
+        const bounds = one.getBoundingClientRect();
+        if (Math.abs(bounds.width - bounds.height) > 1) throw new Error('Group transfer button is not circular');
+      }
+      document.activeElement.blur();
+      document.querySelector('.group-dialog-content').scrollTop = 0;
+    `,
+  });
   await shot("location", "/settings", { ready: "details.location", prepare: 'document.querySelector("details.location").open = true;', element: "details.location" });
   await shot("scene-homekit", "/scenes/new", { ready: ".scene-editor .toggle", element: ".scene-editor .toggle" });
   await shot("scene-artwork", "/scenes/new", { ready: ".artwork-picker", prepare: 'document.querySelector(".artwork-picker").open = true;', tall: 1000 });

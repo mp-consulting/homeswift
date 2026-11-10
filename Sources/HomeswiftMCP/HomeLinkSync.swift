@@ -162,6 +162,8 @@ extension HomeswiftCatalog {
     func homeLinkSummary() -> JSONValue {
         var object = homeLinkStatus(state: home.lastHome.withLockedValue { $0?.state }, via: nil)
         if home.homeLink.value.comparison != nil { object["waiting"] = true }
+        let refused = home.homeLink.value.refused
+        if !refused.isEmpty { object["refused"] = .array(refused.suffix(10).map(\.json)) }
         return .object(object)
     }
 
@@ -334,18 +336,32 @@ extension HomeswiftCatalog {
 
     private func adoptGroups(_ snapshot: HomeSnapshot) throws {
         let current = wallGroups
+        // A read-only reconnect (or an interrupted replay) must not erase the local ids and edits still queued.
+        let pending = home.homeLink.value.pending
+        let edited = Set(pending.compactMap { change -> String? in
+            switch change {
+            case .createGroup(let id), .renameGroup(let id, _), .setGroupMembers(let id, _, _): id
+            default: nil
+            }
+        })
+        let deleted = Set(pending.compactMap { change -> String? in
+            if case .deleteGroup(let id) = change { return id }
+            return nil
+        })
         var groups: [WallGroup] = []
         var taken = Set<String>()
         for group in current {
+            if edited.contains(group.id) { groups.append(group); continue }
             guard let id = group.homeKitID else { groups.append(group); continue }
             guard let there = snapshot.groups.first(where: { $0.id == id }), there.members.count >= 2 else { continue }
             groups.append(WallGroup(id: group.id, name: there.name, members: there.members, homeKitID: id))
         }
-        for group in snapshot.groups where group.members.count >= 2 && !groups.contains(where: { $0.homeKitID == group.id }) {
+        for group in snapshot.groups where group.members.count >= 2 && !deleted.contains(group.id) && !groups.contains(where: { $0.homeKitID == group.id }) {
             groups.append(WallGroup(id: "group:\(UUID().uuidString.lowercased())", name: group.name, members: group.members, homeKitID: group.id))
         }
-        // An accessory is in one group at most: a linked group wins over one never linked.
-        groups = groups.sorted { ($0.homeKitID != nil ? 0 : 1) < ($1.homeKitID != nil ? 0 : 1) }.compactMap { group in
+        // Pending edits win, then linked groups, then groups never linked.
+        func priority(_ group: WallGroup) -> Int { edited.contains(group.id) ? 0 : (group.homeKitID != nil ? 1 : 2) }
+        groups = groups.sorted { priority($0) < priority($1) }.compactMap { group in
             var group = group
             group.members = group.members.filter { taken.insert($0).inserted }
             return group.members.count >= 2 ? group : nil
@@ -426,6 +442,7 @@ extension HomeswiftCatalog {
     func recordForHome(_ changes: [HomeLinkFile.PendingChange], into answer: inout [String: JSONValue]) async {
         let refused = await homeLinkRecord(changes)
         if !refused.isEmpty { answer["appleHomeRefused"] = .array(refused) }
+        answer["homeLink"] = homeLinkSummary()
     }
 
     /// `recordForHome` without an answer: what Apple Home refused.
@@ -443,9 +460,12 @@ extension HomeswiftCatalog {
                 }
                 try home.homeLink.update { $0.pending += changes }
                 guard let link, link.state.canEdit else { return [] }
-                let before = home.homeLink.value.refused.count
-                await replayPending(link: link)
-                return home.homeLink.value.refused.dropFirst(before).map(\.json)
+                let refused = await replayPending(link: link)
+                if !refused.isEmpty, let snapshot = await link.plugin.homeSnapshot() {
+                    do { try adoptGroups(snapshot) }
+                    catch { logger.warning("Could not restore Apple Home's groups after a refused change: \(error)") }
+                }
+                return refused.map(\.json)
             }
         } catch {
             logger.warning("Could not keep a change for Apple Home: \(error)")
@@ -461,24 +481,33 @@ extension HomeswiftCatalog {
     }
 
     /// Makes the Pending Changes in the Home, in order, until one finds the link down: that one and the rest stay.
-    private func replayPending(link: HomeLinkPlugin) async {
+    @discardableResult
+    private func replayPending(link: HomeLinkPlugin) async -> [HomeLinkFile.Refused] {
+        var refused: [HomeLinkFile.Refused] = []
         while let change = home.homeLink.value.pending.first {
             do {
                 try await push(change, plugin: link.plugin)
             } catch let error as HomeChangeError where error.kind == .unreachable {
                 logger.info("Apple Home is not reachable: \(home.homeLink.value.pending.count) changes wait for it")
-                return
+                return refused
             } catch let error as HomeChangeError where error.kind == .notFound && !change.isGroupChange {
                 // A move of an accessory Apple Home does not have (Not in Home), a room or zone already gone there.
                 logger.debug("\(change.described): no longer in Apple Home")
             } catch {
                 logger.warning("Apple Home refused: \(change.described): \(error)")
-                try? keepRefused([.init(change: change, reason: "\(error)")])
+                let failure = HomeLinkFile.Refused(change: change, reason: "\(error)")
+                refused.append(failure)
+                try? keepRefused([failure])
+                if case .createGroup(let id) = change {
+                    // A refused creation is not a local-only Group that looks successfully synchronized.
+                    try? setWallGroups(wallGroups.filter { $0.id != id })
+                }
             }
             try? home.homeLink.update { file in
                 if file.pending.first == change { file.pending.removeFirst() }
             }
         }
+        return refused
     }
 
     /// One change made in the Home, by the Home's ids as the links know them now; links what it creates.
@@ -495,6 +524,18 @@ extension HomeswiftCatalog {
         func roomName(_ id: String) -> String? { home.layout.value.room(id: id)?.name }
         func zoneHomeKitID(_ id: String) -> String? { file.zones.first { $0.id == id }?.homeKitID }
         func groupHomeKitID(_ id: String) -> String? { wallGroups.first { $0.id == id }?.homeKitID }
+        func checkGroup(_ members: [String], in snapshot: HomeSnapshot) throws {
+            guard members.count >= 2, Set(members).count == members.count else {
+                throw HomeChangeError(.refused, "A group needs at least two different accessories")
+            }
+            guard members.allSatisfy({ snapshot.placements[$0] != nil }) else {
+                throw HomeChangeError(.notFound, "An accessory of the group is no longer in Apple Home")
+            }
+            if let problem = groupProblem(members: members) { throw HomeChangeError(.refused, problem) }
+            guard Self.canGroup(members.compactMap { find(id: $0)?.accessory }) else {
+                throw HomeChangeError(.refused, "The group's accessories no longer share a control")
+            }
+        }
         switch change {
         case .createRoom(let name):
             _ = try await roomID(name)
@@ -532,6 +573,8 @@ extension HomeswiftCatalog {
         case .createGroup(let group):
             let groups = wallGroups
             guard let local = groups.first(where: { $0.id == group }), local.homeKitID == nil else { return }
+            guard let snapshot = await plugin.homeSnapshot() else { throw HomeChangeError(.unreachable, "Apple Home is not reachable") }
+            try checkGroup(local.members, in: snapshot)
             let id = try await plugin.applyHomeChange(.createGroup(name: local.name, members: local.members))
             guard let id else { throw HomeChangeError(.refused, "Apple Home did not create the group \(local.name)") }
             try setWallGroups(groups.map { one in
@@ -540,12 +583,16 @@ extension HomeswiftCatalog {
                 return one
             })
         case .renameGroup(let group, let name):
-            guard let id = groupHomeKitID(group) else { return }
+            guard let id = groupHomeKitID(group) else { throw HomeChangeError(.notFound, "The group is no longer linked to Apple Home") }
             _ = try await plugin.applyHomeChange(.renameGroup(id: id, name: name))
         case .deleteGroup(let id):
             _ = try await plugin.applyHomeChange(.deleteGroup(id: id))
         case .setGroupMembers(let group, let add, let remove):
-            guard let id = groupHomeKitID(group) else { return }
+            guard let id = groupHomeKitID(group) else { throw HomeChangeError(.notFound, "The group is no longer linked to Apple Home") }
+            guard let snapshot = await plugin.homeSnapshot() else { throw HomeChangeError(.unreachable, "Apple Home is not reachable") }
+            guard let remote = snapshot.groups.first(where: { $0.id == id }) else { throw HomeChangeError(.notFound, "The group is no longer in Apple Home") }
+            let members = remote.members.filter { !remove.contains($0) } + add.filter { !remote.members.contains($0) }
+            try checkGroup(members, in: snapshot)
             _ = try await plugin.applyHomeChange(.setGroupMembers(id: id, add: add, remove: remove))
         }
     }
@@ -639,14 +686,13 @@ extension HomeswiftCatalog {
     // MARK: Groups
 
     /// Why Apple Home would not group these accessories, or nil: the Home app groups accessories of one kind, each with
-    /// one Function, every one of them in Apple Home.
+    /// one grouping Function (possibly a primary light with associated controls), every one in Apple Home.
     func groupProblem(members: [String]) -> String? {
         let found = members.compactMap(find(id:))
         guard found.count == members.count else { return "an accessory of the group is not on the bridge" }
         var kinds = Set<String>()
         for located in found {
-            let functions = Functions.of(located.accessory)
-            guard functions.count == 1, let function = functions.first else {
+            guard let function = Self.groupingFunction(located.accessory) else {
                 return "\(located.accessory.name) does more than one thing: separate its Functions to group it"
             }
             if isInHome(located.accessory.id) == false || located.bridge.server.isHiddenFromHomeKit(located.accessory.id) {

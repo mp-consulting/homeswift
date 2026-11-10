@@ -150,7 +150,9 @@ _Avoid_: Floor, area, group, Hue zone
 **Group**:
 Accessories shown and controlled as one, as Apple Home groups them: the Home keeps the list and the bridge a copy, as
 for Rooms, and grouping or ungrouping on either side does it on the other. Its members are accessories in Apple Home
-of one kind, each with one Function, as the Home app allows; one with fewer than two members is no Group. A Group
+of one kind, each with one grouping Function: its only Function, or its explicitly primary light. Associated
+Functions, such as light effects, remain independent and accessible. Apple Home may require **Show as Separate Tiles**
+for a device with associated Functions to display the Group. One with fewer than two members is no Group. A Group
 gathers accessories; a Zone gathers Rooms.
 _Avoid_: Wall group, service group, accessory group, Zone
 

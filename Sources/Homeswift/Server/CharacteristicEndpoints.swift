@@ -31,7 +31,7 @@ extension HAPConnection {
         var read: Set<Int> = []
         defer { if !read.isEmpty { server.recordTiming(.request, aids: read, since: start) } }
         // The reads to run: the result's index and the characteristic.
-        var reads: [(index: Int, characteristic: Characteristic)] = []
+        var reads: [(index: Int, characteristic: Characteristic, identity: Bool)] = []
         for key in keys {
             guard let characteristic = lookup.characteristics[key] else {
                 results.append(CharacteristicJSON(aid: key.aid, iid: key.iid, status: .resourceDoesNotExist))
@@ -42,17 +42,24 @@ extension HAPConnection {
                 continue
             }
             read.insert(key.aid)
-            reads.append((results.count, characteristic))
+            let identity = lookup.accessories[key.aid]?.information.characteristics.contains { $0 === characteristic } == true
+                && !characteristic.type.permissions.contains(.pairedWrite)
+            reads.append((results.count, characteristic, identity))
             results.append(CharacteristicJSON(aid: key.aid, iid: key.iid))
         }
 
         // As HAP-NodeJS, the reads of one request run at the same time: the Home app asks for every tile on screen in
         // one request, and one slow device must not hold up the others' values. One read runs in place.
         let origin = id
-        let perform = { @Sendable (read: (index: Int, characteristic: Characteristic)) async -> (Int, Characteristic, HAPStatus?) in
+        let perform = { @Sendable (read: (index: Int, characteristic: Characteristic, identity: Bool)) async -> (Int, Characteristic, HAPStatus?) in
             let characteristic = read.characteristic
             do {
-                if characteristic.showsNoResponse { throw HAPStatusError(.serviceCommunicationFailure) }
+                if characteristic.showsNoResponse {
+                    // Identity belongs to the bridge's database even while the device cannot answer. Home Link
+                    // needs its serial to match an existing Home accessory. Never call an offline device's handler.
+                    if read.identity, characteristic.value != .null { return (read.index, characteristic, nil) }
+                    throw HAPStatusError(.serviceCommunicationFailure)
+                }
                 if let handler = characteristic.readHandler {
                     let value = try await HAPRequestContext.$current.withValue(requestContext) { try await characteristic.timed(handler) }
                     characteristic.update(value, origin: origin, force: false, reason: .read)

@@ -522,6 +522,7 @@ final class FakeHomeLink: @unchecked Sendable {
                 guard let index = state.home.zones.firstIndex(where: { $0.id == id }) else { throw HomeChangeError(.notFound, "no zone") }
                 state.home.zones[index].rooms = state.home.zones[index].rooms.filter { !remove.contains($0) } + add
             case .createGroup(let name, let members):
+                try refuse(name)
                 let id = newID("group")
                 state.home.groups.append(.init(id: id, name: name, members: members))
                 return id

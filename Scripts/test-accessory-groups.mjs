@@ -60,19 +60,25 @@ console.log('Passed: French, Spanish and Portuguese group-control labels and acc
 // all take, on when one is, and a change sent to each.
 {
   const requests = [];
-  let drawn;
+  let drawn, opened;
   const merging = { window: {}, document: { activeElement: null }, HomeswiftI18n: { t: (key, values) => key.replace('{names}', values?.names ?? ''), message: (key) => key },
     HomeswiftCommon: { el: () => ({}), tile: () => ({}), menuButton: () => null,
       api: async (path, options) => { requests.push({ path, ...options }); if (path.includes('two') && options.body.characteristic === 'Hue') throw new Error('offline'); } },
-    HomeswiftWidgets: { card: (merged, options) => { drawn = { merged, options }; return { classList: { add() {} }, dataset: {} }; } } };
+    HomeswiftWidgets: { open: (a) => { opened = a; }, card: (merged, options) => { drawn = { merged, options }; return { classList: { add() {} }, dataset: {} }; } } };
   vm.runInNewContext(readFileSync('Sources/HomeswiftUI/Web/groups.js', 'utf8'), merging);
   const lamp = (id, on, hue, max) => ({ id, name: id, category: 5, services: [{ type: 'Lightbulb', characteristics: [
     { type: 'On', format: 'bool', value: on, permissions: ['pr', 'pw'], group: true },
     { type: 'Brightness', value: 50, minValue: 0, maxValue: max, permissions: ['pr', 'pw'], group: true },
     { type: 'Hue', value: hue, minValue: 0, maxValue: 360, permissions: ['pr', 'pw'], group: true }] }] });
   const lamps = [lamp('one', false, 10, 100), lamp('two', true, 200, 80)];
+  lamps[0].grouping = { kind: 'light', associatedFunctions: true };
+  lamps[0].services.push({ type: 'Switch', subtype: 'effect', characteristics: [{ type: 'On', value: false, permissions: ['pr', 'pw'] }] });
   const group = { id: 'group:lamps', name: 'Lamps', members: ['one', 'two'] };
   merging.window.HomeswiftGroups.mount({ all: lamps, layout: { groups: [group] }, persist() {}, refresh() {} }).card(group, false);
+  const memberAction = drawn.options.actions().find((a) => a.label?.startsWith('Controls for'));
+  assert.ok(memberAction, 'associated controls remain reachable from the group menu');
+  memberAction.onSelect();
+  assert.equal(opened, lamps[0]);
   const [service] = drawn.merged.services;
   assert.equal(service.type, 'Lightbulb');
   const char = (type) => service.characteristics.find((c) => c.type === type);
@@ -81,6 +87,9 @@ console.log('Passed: French, Spanish and Portuguese group-control labels and acc
   assert.equal(char('Brightness').maxValue, 80, 'the range every member takes');
   await drawn.options.group.write(service, char('Brightness'), 30);
   assert.deepEqual(requests.map((r) => [r.path, r.body.characteristic, r.body.value]), [['/api/accessories/one', 'Brightness', 30], ['/api/accessories/two', 'Brightness', 30]]);
+  await drawn.options.group.write(service, char('On'), true);
+  assert.equal(requests.filter((r) => r.body.service === 'effect').length, 0, 'group power must never activate effect switches');
+  assert.equal(lamps[0].services[1].characteristics[0].value, false);
   await assert.rejects(drawn.options.group.write(service, char('Hue'), 90), /two/);
   assert.equal(lamps[0].services[0].characteristics[2].value, 90);
 }
@@ -139,3 +148,10 @@ await assert.rejects(moveGroup(), /Room update failed/);
 assert.equal(routes, 2);
 assert.deepEqual(lights.map(a => a.room), ['Living room', 'Living room']);
 console.log('Passed: group room move is metadata-only, cancellation, clearing and failed saves.');
+
+// Home Link eligibility is authoritative even when two accessories share On/Off.
+const eligible = (kind, blocked) => ({ grouping: blocked ? { blocked } : { kind }, services: [{ type: 'Lightbulb', characteristics: [{ type: 'On', group: true }] }] });
+assert.equal(compatible([eligible('light'), eligible('switch')]), false);
+assert.equal(compatible([eligible('light'), eligible('light')]), true);
+for (const reason of ['notInHome', 'functions', 'controls']) assert.equal(compatible([eligible('light'), eligible(null, reason)]), false);
+console.log('Passed: group picker rejects mixed kinds, multiple Functions, missing Home members and unsupported controls.');
