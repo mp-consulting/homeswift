@@ -47,6 +47,9 @@ class CacheTests(unittest.TestCase):
                       'out/Products/Debug/libNIOCore.a', 'out/Products/Debug/NIOCore.swiftmodule/arm64.swiftmodule',
                       'out/ModuleCache.noindex/ABC/Foundation-123.pcm']
         project = ['build.db', 'workspace-state.json', '.built-from',
+                   'arm64/debug/NIOCore.build/output-file-map.json',
+                   'arm64/debug/NIOCore.build/homeswift.autolink',
+                   'out/Intermediates.noindex/swift-nio.build/Debug/NIOCore-t.build/output-file-map.json',
                    'arm64/debug/HomeswiftPlugin.build/a.o', 'arm64/debug/homeswiftPackageTests.build/a.o',
                    'arm64/debug/Modules/RingTests.swiftmodule',
                    'out/Intermediates.noindex/homeswift.build/Debug/CHAPMath.build/a.o',
@@ -68,10 +71,15 @@ class CacheTests(unittest.TestCase):
         dep = self.file('arm64/debug/NIOCore.build/a.o')
         project = self.file('arm64/debug/HomeswiftPlugin.build/a.o')
         git_index = self.file('checkouts/nio/.git/index')
+        file_map = self.file('arm64/debug/NIOCore.build/output-file-map.json')
+        autolink = self.file('arm64/debug/NIOCore.build/homeswift.autolink')
         first = cache.split(self.build, self.staging, self.owner)
         cache.restore(self.build, self.staging)
         project.write_text('new project object')
         git_index.write_text('refreshed Git stat metadata')
+        # The hosted runner rewrites these with identical bytes but new dates.
+        file_map.touch()
+        autolink.touch()
         second = cache.split(self.build, self.staging, self.owner)
         self.assertEqual(first, second)
         cache.restore(self.build, self.staging)

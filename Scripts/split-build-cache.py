@@ -34,6 +34,11 @@ class Ownership:
         p = relative.parts
         if p[0] in ('checkouts', 'repositories', 'artifacts'):
             return 'dependencies'
+        # SwiftPM rewrites these for the current project plan/link, even when
+        # it stores them inside an external target's directory. Their dates
+        # must travel with the project database, not churn dependency caches.
+        if p[-1] == 'output-file-map.json' or relative.suffix == '.autolink':
+            return 'project'
         # SwiftBuild groups intermediates by package, including C targets.
         if len(p) >= 3 and p[:2] == ('out', 'Intermediates.noindex') and p[2].endswith('.build'):
             return 'project' if p[2][:-6].casefold() == self.package else 'dependencies'
@@ -101,6 +106,12 @@ def split(build, cache, ownership):
 
     def move(source, relative):
         owner = ownership.owner(relative)
+        # External target trees also contain project planning/link inputs.
+        # Walk them so those files can be separated from compiled objects.
+        if (owner == 'dependencies' and source.is_dir() and not source.is_symlink()
+                and relative.parts[0] not in ('checkouts', 'repositories', 'artifacts')
+                and any(part.endswith('.build') for part in relative.parts)):
+            owner = None
         if owner or source.is_symlink() or not source.is_dir():
             destination = cache / (owner or 'project') / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
