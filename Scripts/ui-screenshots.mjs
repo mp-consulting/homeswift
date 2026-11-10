@@ -271,14 +271,27 @@ try {
   await shot("scene-artwork", "/scenes/new", { ready: ".artwork-picker", prepare: 'document.querySelector(".artwork-picker").open = true;', tall: 1000 });
   // The bridge as the Home app pairs it: its setup code and QR code.
   await shot("status-bridge", "/status", { ready: ".card.server", element: "main .card.server" });
-  await shot("plugins", "/plugins", { ready: ".card", tall: 1000 });
+  await shot("plugins", "/plugins", { ready: ".plugins-row", tall: 1000 });
+  await shot("plugins-inspector", "/plugins", { ready: ".plugins-row", prepare: 'document.querySelector(".plugins-name").click();' });
+  await shot("plugins-phone", "/plugins", { width: 375, height: 812, mobile: true, ready: ".plugins-row" });
+  await shot("plugins-drawer", "/plugins", { width: 375, height: 812, mobile: true, ready: ".plugins-row", prepare: 'document.querySelector(".plugins-name").click();' });
+  await shot("plugins-accessories", "/plugins", { ready: ".plugins-row", prepare: 'document.querySelector("[data-plugin=demo] .plugins-name").click(); document.querySelector("#plugins-tab-1").click();' });
+  await shot("plugins-events", "/plugins", { ready: ".plugins-row", prepare: 'document.querySelector("[data-plugin=demo] .plugins-name").click(); document.querySelector("#plugins-tab-3").click();' });
+  await shot("plugins-catalog-sort", "/plugins", { ready: ".plugins-heading", prepare: 'document.querySelector(".plugins-heading > button").click(); document.querySelector("dialog select").dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));' });
+  await shot("plugins-actions", "/plugins", { ready: ".plugins-row", prepare: 'document.querySelector(".plugins-name").click(); document.querySelector("#plugins-tab-2").click();' });
+  await shot("setup-accounts", "/setup", { ready: ".setup-account", tall: 1100 });
+  await shot("automations-empty", "/automations", { ready: ".card.empty" });
+  await shot("audit-filters", "/settings/audit?since=7d", { width: 839, height: 867, ready: ".audit-filter-footer" });
   await shot("plugin-settings", "/plugins/desk-lights/settings", { ready: ".settings-device", tall: 1400 });
   await shot("accessory-settings", "/plugins/desk-lights/settings", { ready: ".settings-device button.settings-open",
     prepare: 'document.querySelector(".settings-device button.settings-open").click(); for (let i = 0; i < 40 && !document.querySelector(".accessory-settings-sheet .settings-danger"); i++) await new Promise((r) => setTimeout(r, 100));' });
   await shot("config", "/settings/config", { ready: ".code-editor", tall: 900 });
   await shot("logs", "/logs?level=trace", { ready: ".log-filter-panel", tall: 900 });
+  await shot("logs-medium", "/logs?level=trace", { width: 1145, height: 867, ready: ".log-filter-panel" });
   await shot("logs-phone", "/logs?level=trace", { width: 390, height: 844, mobile: true, ready: ".log-filter-panel" });
   await shot("appearance", "/appearance", { ready: ".wallpapers", tall: 2200 });
+  await shot("backups-phone", "/settings/backups", { width: 375, height: 812, mobile: true, ready: ".drop-zone" });
+  await shot("audit-phone", "/settings/audit?since=7d", { width: 375, height: 812, mobile: true, ready: ".audit-filter-footer" });
   await shot("backups", "/settings/backups", { ready: ".drop-zone", tall: 1000 });
   await shot("vault", "/settings/vault", { ready: ".vault-move", tall: 800 });
   // An accessory's History tab, and the Logbook (the demonstration's day, from writeHistory).

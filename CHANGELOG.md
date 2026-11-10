@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Web UI**: manage plugins through compact lists and a responsive inspector; unify Logbook filters, simplify Audit search, and tighten Backup, Setup, and Logs layouts.
+
 ### Fixed
 
 - **Matter Devices**: adding a Thread device on a host that has no route to its Thread network (a Linux kernel that
