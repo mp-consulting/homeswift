@@ -2,6 +2,7 @@ name: Split cache benchmark
 on:
   push:
     branches: [codex/ci-split-cache-benchmark-20261110]
+    paths-ignore: [".github/workflows/cache-diagnostic.yml", ".github/workflows/split-cache-benchmark.yml"]
 permissions:
   contents: read
 jobs:
@@ -31,54 +32,11 @@ jobs:
         run: |
           toolchain=$(swift --version 2>&1 | cksum | cut -d' ' -f1)
           echo "prefix=split-bench-20261110-${{ runner.os }}-${{ runner.arch }}-$toolchain-${{ hashFiles('Package.resolved', 'Package.swift', 'Scripts/build.sh', 'Scripts/split-build-cache.py') }}" >> "$GITHUB_OUTPUT"
-      - name: before restore monolithic cache
-        id: baseline
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: .build
-          key: ${{ steps.key.outputs.prefix }}-monolithic-seed
-          fail-on-cache-miss: true
-      - name: before invalidate changed targets
-        run: Scripts/forget-changed-targets.sh
-      - name: before full-debug
-        env:
-          POLICY: before
-        run: python3 Scripts/split-cache-benchmark.py full-debug Scripts/build.sh --all
-      - name: before full-tests
-        env:
-          POLICY: before
-        run: python3 Scripts/split-cache-benchmark.py full-tests Scripts/ci-test.sh
-      - name: before full-release
-        env:
-          POLICY: before
-        run: python3 Scripts/split-cache-benchmark.py full-release swift build -c release
-      - name: before restart and asset checks
-        run: |
-          swiftc -parse-as-library -o "$RUNNER_TEMP/test-restart" Sources/HomeswiftCLI/Restart.swift Scripts/test-restart.swift
-          "$RUNNER_TEMP/test-restart"
-          swift Scripts/embed-assets.swift all
-          git diff --exit-code -- Sources Plugins
-          test -z "$(git ls-files --others --exclude-standard -- Sources Plugins)"
-      - name: Record baseline provenance
-        run: git rev-parse HEAD > .build/.built-from
-      - name: before save monolithic cache
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: .build
-          key: ${{ steps.key.outputs.prefix }}-monolithic-${{ github.sha }}
-      - name: before shared-runtime rebuilds
-        env:
-          POLICY: before
-        run: python3 Scripts/split-cache-benchmark.py shared
-      - name: Reset benchmark build area
-        run: |
-          python3 Scripts/split-cache-benchmark.py clear
-          swift Scripts/restore-mtimes.swift
       - name: after restore project cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: .ci-build-cache/project
-          key: ${{ steps.key.outputs.prefix }}-project-seed
+          key: ${{ steps.key.outputs.prefix }}-project-56aa916752f586a7c85bd741e2a74f197035b196
           fail-on-cache-miss: true
       - name: Read matching dependency generation
         id: dep-key
@@ -140,6 +98,49 @@ jobs:
       - name: after shared-runtime rebuilds
         env:
           POLICY: after
+        run: python3 Scripts/split-cache-benchmark.py shared
+      - name: Reset benchmark build area
+        run: |
+          python3 Scripts/split-cache-benchmark.py clear
+          swift Scripts/restore-mtimes.swift
+      - name: before restore monolithic cache
+        id: baseline
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .build
+          key: ${{ steps.key.outputs.prefix }}-monolithic-56aa916752f586a7c85bd741e2a74f197035b196
+          fail-on-cache-miss: true
+      - name: before invalidate changed targets
+        run: Scripts/forget-changed-targets.sh
+      - name: before full-debug
+        env:
+          POLICY: before
+        run: python3 Scripts/split-cache-benchmark.py full-debug Scripts/build.sh --all
+      - name: before full-tests
+        env:
+          POLICY: before
+        run: python3 Scripts/split-cache-benchmark.py full-tests Scripts/ci-test.sh
+      - name: before full-release
+        env:
+          POLICY: before
+        run: python3 Scripts/split-cache-benchmark.py full-release swift build -c release
+      - name: before restart and asset checks
+        run: |
+          swiftc -parse-as-library -o "$RUNNER_TEMP/test-restart" Sources/HomeswiftCLI/Restart.swift Scripts/test-restart.swift
+          "$RUNNER_TEMP/test-restart"
+          swift Scripts/embed-assets.swift all
+          git diff --exit-code -- Sources Plugins
+          test -z "$(git ls-files --others --exclude-standard -- Sources Plugins)"
+      - name: Record baseline provenance
+        run: git rev-parse HEAD > .build/.built-from
+      - name: before save monolithic cache
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .build
+          key: ${{ steps.key.outputs.prefix }}-monolithic-${{ github.sha }}
+      - name: before shared-runtime rebuilds
+        env:
+          POLICY: before
         run: python3 Scripts/split-cache-benchmark.py shared
       - name: Upload measurements
         if: always()
@@ -174,54 +175,11 @@ jobs:
         run: |
           toolchain=$(swift --version 2>&1 | cksum | cut -d' ' -f1)
           echo "prefix=split-bench-20261110-${{ runner.os }}-${{ runner.arch }}-$toolchain-${{ hashFiles('Package.resolved', 'Package.swift', 'Scripts/build.sh', 'Scripts/split-build-cache.py') }}" >> "$GITHUB_OUTPUT"
-      - name: before restore monolithic cache
-        id: baseline
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: .build
-          key: ${{ steps.key.outputs.prefix }}-monolithic-seed
-          fail-on-cache-miss: true
-      - name: before invalidate changed targets
-        run: Scripts/forget-changed-targets.sh
-      - name: before full-debug
-        env:
-          POLICY: before
-        run: python3 Scripts/split-cache-benchmark.py full-debug Scripts/build.sh --all
-      - name: before full-tests
-        env:
-          POLICY: before
-        run: python3 Scripts/split-cache-benchmark.py full-tests Scripts/ci-test.sh
-      - name: before full-release
-        env:
-          POLICY: before
-        run: python3 Scripts/split-cache-benchmark.py full-release swift build -c release
-      - name: before restart and asset checks
-        run: |
-          swiftc -parse-as-library -o "$RUNNER_TEMP/test-restart" Sources/HomeswiftCLI/Restart.swift Scripts/test-restart.swift
-          "$RUNNER_TEMP/test-restart"
-          swift Scripts/embed-assets.swift all
-          git diff --exit-code -- Sources Plugins
-          test -z "$(git ls-files --others --exclude-standard -- Sources Plugins)"
-      - name: Record baseline provenance
-        run: git rev-parse HEAD > .build/.built-from
-      - name: before save monolithic cache
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: .build
-          key: ${{ steps.key.outputs.prefix }}-monolithic-${{ github.sha }}
-      - name: before shared-runtime rebuilds
-        env:
-          POLICY: before
-        run: python3 Scripts/split-cache-benchmark.py shared
-      - name: Reset benchmark build area
-        run: |
-          python3 Scripts/split-cache-benchmark.py clear
-          swift Scripts/restore-mtimes.swift
       - name: after restore project cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: .ci-build-cache/project
-          key: ${{ steps.key.outputs.prefix }}-project-seed
+          key: ${{ steps.key.outputs.prefix }}-project-56aa916752f586a7c85bd741e2a74f197035b196
           fail-on-cache-miss: true
       - name: Read matching dependency generation
         id: dep-key
@@ -283,6 +241,49 @@ jobs:
       - name: after shared-runtime rebuilds
         env:
           POLICY: after
+        run: python3 Scripts/split-cache-benchmark.py shared
+      - name: Reset benchmark build area
+        run: |
+          python3 Scripts/split-cache-benchmark.py clear
+          swift Scripts/restore-mtimes.swift
+      - name: before restore monolithic cache
+        id: baseline
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .build
+          key: ${{ steps.key.outputs.prefix }}-monolithic-56aa916752f586a7c85bd741e2a74f197035b196
+          fail-on-cache-miss: true
+      - name: before invalidate changed targets
+        run: Scripts/forget-changed-targets.sh
+      - name: before full-debug
+        env:
+          POLICY: before
+        run: python3 Scripts/split-cache-benchmark.py full-debug Scripts/build.sh --all
+      - name: before full-tests
+        env:
+          POLICY: before
+        run: python3 Scripts/split-cache-benchmark.py full-tests Scripts/ci-test.sh
+      - name: before full-release
+        env:
+          POLICY: before
+        run: python3 Scripts/split-cache-benchmark.py full-release swift build -c release
+      - name: before restart and asset checks
+        run: |
+          swiftc -parse-as-library -o "$RUNNER_TEMP/test-restart" Sources/HomeswiftCLI/Restart.swift Scripts/test-restart.swift
+          "$RUNNER_TEMP/test-restart"
+          swift Scripts/embed-assets.swift all
+          git diff --exit-code -- Sources Plugins
+          test -z "$(git ls-files --others --exclude-standard -- Sources Plugins)"
+      - name: Record baseline provenance
+        run: git rev-parse HEAD > .build/.built-from
+      - name: before save monolithic cache
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .build
+          key: ${{ steps.key.outputs.prefix }}-monolithic-${{ github.sha }}
+      - name: before shared-runtime rebuilds
+        env:
+          POLICY: before
         run: python3 Scripts/split-cache-benchmark.py shared
       - name: Upload measurements
         if: always()

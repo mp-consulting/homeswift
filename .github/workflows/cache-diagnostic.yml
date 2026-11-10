@@ -1,0 +1,66 @@
+name: Diagnose dependency cache generations
+on:
+  push:
+    branches: [codex/ci-split-cache-benchmark-20261110]
+    paths: [.github/workflows/cache-diagnostic.yml]
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    container: swift:6.2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: apt-get update && apt-get install -y --no-install-recommends python3
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .ci-build-cache/dependencies
+          key: split-bench-20261110-Linux-X64-1798579924-e77e45df7c52ad083d6c89da348ee0e552cb5ed3c8a55d4599a9d7d39a5b791c-deps-184af2e9b938cc5fc9510ffa9bcead270a1a6e7768aeb6b8a3fc753b78d435a8
+          fail-on-cache-miss: true
+      - name: Inspect seed
+        run: |
+          python3 - seed <<'PYTHON'
+          import hashlib,json,os,sys
+          from pathlib import Path
+          root=Path('.ci-build-cache/dependencies')
+          result={}
+          for p in sorted(root.rglob('*')):
+              r=p.relative_to(root)
+              if r.parts[0]=='repositories' or '.git' in r.parts or p.name=='.homeswift-cache-metadata.json':continue
+              if p.is_symlink() or p.is_file():
+                  s=p.lstat(); result[str(r)]=[s.st_mode,s.st_mtime_ns,s.st_size,os.readlink(p) if p.is_symlink() else hashlib.sha256(p.read_bytes()).hexdigest()]
+          out=Path(os.environ['RUNNER_TEMP'])/'cache-diagnostic';out.mkdir(exist_ok=True)
+          (out/(sys.argv[1]+'.json')).write_text(json.dumps(result,indent=2))
+          if sys.argv[1]=='update':
+              seed=json.loads((out/'seed.json').read_text());changes=[{'path':p,'seed':seed.get(p),'update':result.get(p)} for p in sorted(set(seed)|set(result)) if seed.get(p)!=result.get(p)]
+              (out/'changes.json').write_text(json.dumps(changes,indent=2));print(json.dumps({'changed':len(changes),'examples':changes[:30]},indent=2))
+          PYTHON
+          rm -rf .ci-build-cache/dependencies
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .ci-build-cache/dependencies
+          key: split-bench-20261110-Linux-X64-1798579924-e77e45df7c52ad083d6c89da348ee0e552cb5ed3c8a55d4599a9d7d39a5b791c-deps-34c246895f5c976a63178bcc87f1376b33019f04b7054338514a5e11aa0856cf
+          fail-on-cache-miss: true
+      - name: Inspect update
+        run: |
+          python3 - update <<'PYTHON'
+          import hashlib,json,os,sys
+          from pathlib import Path
+          root=Path('.ci-build-cache/dependencies')
+          result={}
+          for p in sorted(root.rglob('*')):
+              r=p.relative_to(root)
+              if r.parts[0]=='repositories' or '.git' in r.parts or p.name=='.homeswift-cache-metadata.json':continue
+              if p.is_symlink() or p.is_file():
+                  s=p.lstat(); result[str(r)]=[s.st_mode,s.st_mtime_ns,s.st_size,os.readlink(p) if p.is_symlink() else hashlib.sha256(p.read_bytes()).hexdigest()]
+          out=Path(os.environ['RUNNER_TEMP'])/'cache-diagnostic';out.mkdir(exist_ok=True)
+          (out/(sys.argv[1]+'.json')).write_text(json.dumps(result,indent=2))
+          if sys.argv[1]=='update':
+              seed=json.loads((out/'seed.json').read_text());changes=[{'path':p,'seed':seed.get(p),'update':result.get(p)} for p in sorted(set(seed)|set(result)) if seed.get(p)!=result.get(p)]
+              (out/'changes.json').write_text(json.dumps(changes,indent=2));print(json.dumps({'changed':len(changes),'examples':changes[:30]},indent=2))
+          PYTHON
+          rm -rf .ci-build-cache/dependencies
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: dependency-generation-diagnostic
+          path: ${{ runner.temp }}/cache-diagnostic
