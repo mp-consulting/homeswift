@@ -5910,13 +5910,14 @@ main.energy-page.dash-grid > .subnav, main.energy-page.dash-grid > .page-head { 
 .devices-split { margin-bottom: var(--space-14); }
 .devices-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); align-items: start; }
 .devices-layout:has(> .device-detail:not([hidden])) { grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); }
-.devices-table { padding: var(--space-6) 0; margin: 0; overflow-x: auto; }
-/* A row: its name and where it is, its days as small bars, a bar of its share of the most, its kWh, share and cost. */
-.energy-device-row { display: grid; grid-template-columns: minmax(150px, 2fr) 84px minmax(60px, 1fr) 88px 52px 64px 20px; align-items: center; gap: var(--space-12);
+.devices-table { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(120px, 1.4fr) max-content 52px 64px 20px; column-gap: var(--space-12); padding: var(--space-6) 0; margin: 0; overflow-x: auto; }
+.devices-table > p { grid-column: 1 / -1; margin-inline: var(--space-18); }
+/* Shared columns fit energy values without reserving blank space beside every sparkline. */
+.energy-device-row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; gap: var(--space-12);
   width: 100%; min-width: 600px; box-sizing: border-box; padding: var(--space-10) var(--space-18); border: 0; border-top: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
   border-radius: 0; background: none; box-shadow: none; color: inherit; font: inherit; text-align: left; min-height: 56px; }
 .energy-device-row.head { border-top: 0; min-height: 0; padding-block: var(--space-6); font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
-.energy-device-row.head > span:nth-child(n+4) { text-align: right; }
+.energy-device-row.head > span:nth-child(n+3) { text-align: right; }
 button.energy-device-row { cursor: pointer; }
 button.energy-device-row:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
 button.energy-device-row.on { background: color-mix(in srgb, var(--series-1) 12%, transparent); }
@@ -5925,11 +5926,9 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
 .device-name { display: grid; gap: 1px; min-width: 0; }
 .device-name strong { font-weight: var(--weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .device-name small { font-size: var(--text-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.device-days { display: flex; align-items: flex-end; gap: 2px; height: 22px; }
-.device-days i { flex: 1; min-width: 2px; border-radius: 1px; background: color-mix(in srgb, var(--series-1) 70%, transparent); }
-.device-track { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text) 9%, transparent); overflow: hidden; }
-.device-track i { display: block; height: 100%; border-radius: 3px; background: var(--series-1); }
-.device-kwh { text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--weight-semibold); }
+.energy-device-row.rest .consumer-sparkline { color: var(--muted); }
+.energy-device-row .consumer-no-data { position: relative; }
+.device-kwh { text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--weight-semibold); white-space: nowrap; }
 .device-share, .device-cost { text-align: right; font-size: var(--text-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
 .energy-device-row.rest .device-name strong, .energy-device-row.silent .device-name strong { color: var(--muted); }
 .devices-sources { margin: var(--space-10) var(--space-4) 0; font-size: var(--text-sm); }
@@ -5974,8 +5973,13 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
   .devices-layout > .device-detail[hidden], .devices-layout.pushed > .devices-main { transform: none; }
 }
 @media (max-width: 640px) {
+  .devices-table { display: block; }
   .energy-device-row { grid-template-columns: minmax(0, 1fr) auto 18px; min-width: 0; padding-inline: var(--space-14); }
-  .energy-device-row > .device-days, .energy-device-row > .device-track, .energy-device-row > .device-share, .energy-device-row > .device-cost { display: none; }
+  .energy-device-row > .device-share, .energy-device-row > .device-cost { display: none; }
+  .energy-device-row > .consumer-sparkline { grid-area: auto; grid-column: 1 / -1; grid-row: 2; }
+  .energy-device-row > .device-name { grid-column: 1; grid-row: 1; }
+  .energy-device-row > .device-kwh { grid-column: 2; grid-row: 1; }
+  .energy-device-row.action-with-icon::before, .energy-device-row > .device-row-spacer { grid-column: 3; grid-row: 1; }
   .energy-device-row.head { display: none; }
   .devices-bar .search { max-width: none; }
 }
