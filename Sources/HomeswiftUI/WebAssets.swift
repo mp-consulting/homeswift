@@ -847,7 +847,7 @@ enum WebAssets {
       el("div", { class: "backup-actions-grid" }, instance, restoreCard(backups)),
       sectionHead(t("Kept backups"), backups.backups.length ? t("{n}, newest first", { n: backups.backups.length }) : ""),
       backups.backups.length ? el("div", { class: "card rows" }, backups.backups.map(backupRow))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("archive")), el("p", { class: "muted", text: t("None yet: the daily backup and Back up now keep them here.") })),
+        : el("div", { class: "card empty compact backup-empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("archive")), el("p", { class: "muted", text: t("None yet: the daily backup and Back up now keep them here.") })),
       sectionHead(t("config.json backups"), tn("The file before its last save", "The file before each of its last {n} saves", configBackups.kept)),
       configBackups.backups.length ? el("div", { class: "card rows" }, configBackups.backups.map(configBackupRow))
         : el("div", { class: "card empty" }, el("p", { class: "muted", text: t("None yet: each save of config.json keeps the file it replaces.") })));
@@ -1247,8 +1247,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   async function auditPage(main) {
     const params = new URLSearchParams(location.search);
-    const tool = el("input", { type: "search", class: "search", placeholder: t("Tool or route"), value: params.get("tool") ?? "", "aria-label": t("Filter by tool") });
-    const client = el("input", { type: "search", class: "search", placeholder: t("Client or user"), value: params.get("client") ?? "", "aria-label": t("Filter by client") });
+    const scope = el("select", { "aria-label": t("Search scope") },
+      el("option", { value: "tool", text: t("Tool or route") }),
+      el("option", { value: "client", text: t("Client or user") }));
+    scope.value = params.has("client") ? "client" : "tool";
+    const search = el("input", { type: "search", class: "search", placeholder: t("Search"),
+      value: params.get(scope.value) ?? "", "aria-label": t("Search") });
     const select = (choices, value, label) => {
       const control = el("button", { class: "audit-picker", type: "button", "aria-label": label, "aria-haspopup": "menu" });
       control.value = value;
@@ -1269,8 +1273,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     async function load() {
       const own = ++loads;
       const query = new URLSearchParams();
-      if (tool.value.trim()) query.set("tool", tool.value.trim());
-      if (client.value.trim()) query.set("client", client.value.trim());
+      if (search.value.trim()) query.set(scope.value, search.value.trim());
       if (outcome.value) query.set("outcome", outcome.value);
       query.set("since", since.value);
       window.history.replaceState(null, "", `/settings/audit?${query}`);
@@ -1298,8 +1301,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("shield")), el("p", { class: "muted", text: t("Nothing in this range matches.") })));
     }
     let typing = null;
-    for (const input of [tool, client]) input.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
-    for (const choice of [outcome, since]) choice.addEventListener("change", () => { clearTimeout(typing); typing = setTimeout(load, 0); });
+    search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
+    for (const choice of [outcome, since, scope]) choice.addEventListener("change", () => { clearTimeout(typing); typing = setTimeout(load, 0); });
     app().show(main,
       app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
       subnav("audit"),
@@ -1307,10 +1310,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "audit-filter-grid" },
           el("label", {}, el("span", { text: t("Time range") }), since),
           el("label", {}, el("span", { text: t("Outcome") }), outcome),
-          el("label", {}, el("span", { text: t("Tool or route") }), tool),
-          el("label", {}, el("span", { text: t("Client or user") }), client)),
+          el("div", { class: "audit-search" },
+            el("label", {}, el("span", { class: "visually-hidden", text: t("Search scope") }), scope),
+            el("label", {}, el("span", { class: "visually-hidden", text: t("Search") }), search))),
         el("div", { class: "audit-filter-footer" }, count,
-          HomeswiftCommon.clearFilters([[tool, ""], [client, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) }))),
+          HomeswiftCommon.clearFilters([[search, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) }))),
       body);
     await load();
   }
@@ -6650,42 +6654,97 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const byPlatform = new Map(plugins.plugins.map((plugin) => [plugin.platform, plugin]));
     const running = (block) => plugins.platforms.find((p) => p.platform === block.platform && p.name === block.name);
 
+    // Rows and the inspector share the same state and actions; no parallel lifecycle implementation.
+    const noteFor = (block, plugin, instance) => instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
+      : instance?.needsAuthorization ? (instance.accountState === "refused" ? t("Its account refused its sign-in: set it up again.") : t("Its devices show once its account is set up."))
+      : instance?.noneResponding ? t("None of its accessories responds: the log may say why.")
+      : instance ? t("This connection is ready.") : block.system ? t("A block of the runtime itself.")
+      : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.");
     const blockCard = (block) => {
-      const plugin = byPlatform.get(block.platform);
-      const instance = running(block);
+      const plugin = byPlatform.get(block.platform), instance = running(block);
       const [state, kind] = blockState(block, plugin, instance);
-      // The name opens what the menu's first item opens: the plugin's page, else the form.
-      const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : pluginSettings(block);
-      // Under the name, what it is when the name does not say it already ("Daikin Cloud" says DaikinCloud): the plugin,
-      // else its platform.
       const bare = (name) => name.replace(/[\s_-]+/g, "").toLowerCase();
       const kindName = [plugin?.name, block.platform].find((name) => name && bare(name) !== bare(block.name));
-      return el("div", { class: "card server plugin-instance" },
-        el("div", { class: "server-head" },
-          tile(block.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
-          el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: blockTitle(block) })),
-            el("div", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
-          // In this dense list, running is the usual state: a quiet dot; the others (paused, no plugin, built in) say so
-          // in words, as the plugin's own page and the bridges do for every state.
-          kind === "on" ? el("span", { class: "status-dot", role: "img", "aria-label": state, title: state }) : el("span", { class: `pill status ${kind}`, text: state })),
-        // Its accessories and the bridge they are on, a glyph each, on one line.
-        instance ? el("div", { class: "meta" },
-          el("span", { title: t("Accessories") }, HomeswiftCommon.icon("bulb"), tn("{n} accessory", "{n} accessories", instance.accessories)),
-          el("span", { title: t("On the bridge {name}", { name: instance.bridge }) }, HomeswiftCommon.icon(block.childBridge ? "child" : "bridge"), instance.bridge)) : null,
-        el("div", { class: "card-foot" },
-          el("span", { class: "muted", text: instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
-            : instance?.needsAuthorization ? (instance.accountState === "refused" ? t("Its account refused its sign-in: set it up again.") : t("Its devices show once its account is set up."))
-            : instance?.noneResponding ? t("None of its accessories responds: the log may say why.")
-            : instance ? "" : block.system ? t("A block of the runtime itself.") : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.") }),
-          el("div", { class: "plugin-card-actions" }, instance?.needsAuthorization ? setUpButton(block, plugin, instance)
-            : el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }),
-          menuButton(t("Actions for {name}", { name: blockTitle(block) }), () => blockActions(block, plugin, instance)))));
+      const open = (event) => inspect(block, event.currentTarget);
+      const row = el("div", { class: "plugins-row", "data-plugin": block.slug },
+        tile(block.icon ?? plugin?.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
+        el("div", { class: "plugins-identity" },
+          el("button", { class: "plugins-name", actionIcon: "plugin", text: blockTitle(block), onclick: open }),
+          el("small", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
+        el("div", { class: "plugins-meta" }, el("span", { class: `plugins-state ${kind}`, text: state }),
+          instance ? el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", instance.accessories) }) : null),
+        el("button", { class: "plugins-open", actionIcon: "open", text: t("Open"), onclick: open }));
+      return row;
     };
 
+    function inspect(block, trigger) {
+      const plugin = byPlatform.get(block.platform), instance = running(block);
+      const [state, kind] = blockState(block, plugin, instance);
+      const content = el("section", { class: "plugins-panel-content", role: "tabpanel", id: "plugins-tab-content" });
+      let generation = 0;
+      const tabs = [["Overview", "plugin"], ["Accessories", "bulb"], ["Settings", "gear"], ["Events", "history"]];
+      const nav = el("nav", { class: "plugins-tabs", role: "tablist", "aria-label": t("Plugins") });
+      const actions = (overview = false) => el("div", { class: overview ? "plugins-panel-actions" : "plugins-settings-actions" },
+        ...blockActions(block, plugin, instance).filter((action) => action && (!overview || ["open", "pause", "play"].includes(action.icon))).map((action) => el(action.href ? "a" : "button", {
+          class: `button${action.danger ? " danger" : ""}`, href: action.href, actionIcon: action.icon, text: action.label,
+          onclick: action.href ? () => dialog.close() : async () => { dialog.close(); await action.onSelect(); }
+        })));
+      async function select(index) {
+        const turn = ++generation;
+        [...nav.children].forEach((button, i) => { button.setAttribute("aria-selected", String(i === index)); button.tabIndex = i === index ? 0 : -1; });
+        content.setAttribute("aria-labelledby", `plugins-tab-${index}`);
+        content.replaceChildren(spinner());
+        try {
+          let children;
+          if (index === 0) children = [el("p", { text: noteFor(block, plugin, instance) }),
+            el("div", { class: "plugins-facts" },
+              el("div", {}, el("small", { text: t("Status") }), el("strong", { class: kind, text: state })),
+              el("div", {}, el("small", { text: t("Accessories") }), el("strong", { text: String(instance?.accessories ?? 0) }))),
+            instance?.needsAuthorization ? el("div", { class: "plugins-panel-actions" }, setUpButton(block, plugin, instance, () => { dialog.close(); route(); })) : null,
+            actions(true)];
+          else if (index === 1) {
+            const accessories = (await api("/api/accessories")).filter((item) => item.platform === block.platform && item.platformName === block.name);
+            children = [el("p", { class: "muted", text: tn("{n} accessory", "{n} accessories", accessories.length) }),
+              ...accessories.map((item) => el("button", { class: "plugins-accessory", onclick: (event) => HomeswiftSettings.openAccessory({ accessoryID: item.id, name: item.name, trigger: event.currentTarget }) },
+                tile(item.icon ?? "bulb", "grey"), el("strong", { text: item.name }), HomeswiftCommon.icon("forward")))];
+          } else if (index === 2) children = [actions()];
+          else {
+            const lines = await api(`/api/logs?plugin=${encodeURIComponent(block.name)}`);
+            children = [el("div", { class: "plugins-events-head" }, el("h3", { text: t("Recent events") }),
+              el("a", { class: "button", href: `/logs?plugin=${encodeURIComponent(block.slug)}`, actionIcon: "logs", text: t("Logs") })),
+              lines.length ? el("ol", { class: "plugins-events" }, ...lines.slice(-30).reverse().map((line) => {
+                const date = new Date(line.time);
+                return el("li", {}, el("time", { datetime: date.toISOString(), title: HomeswiftI18n.formatDate(date, { dateStyle: "medium", timeStyle: "short" }) },
+                  el("span", { text: HomeswiftI18n.formatDate(date, { hour: "2-digit", minute: "2-digit" }) }),
+                  el("small", { text: HomeswiftI18n.formatDate(date, { month: "short", day: "numeric" }) })),
+                  el("p", { text: line.text }));
+              })) : el("p", { class: "plugins-empty muted", text: t("No events yet.") })];
+          }
+          if (turn === generation && dialog.open) content.replaceChildren(...children.filter(Boolean));
+        } catch (error) { if (turn === generation && dialog.open) content.replaceChildren(el("p", { class: "error", text: error.message })); }
+      }
+      tabs.forEach(([label, icon], index) => nav.append(el("button", { role: "tab", id: `plugins-tab-${index}`,
+        "aria-controls": "plugins-tab-content", actionIcon: icon, text: t(label), onclick: () => select(index),
+        onkeydown: (event) => {
+          const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
+          if (next !== null) { event.preventDefault(); nav.children[next].focus(); select(next); }
+        } })));
+      const row = trigger.closest(".plugins-row");
+      row?.classList.add("selected");
+      const dialog = openSheet((dismiss) => el("div", { class: "plugins-panel" },
+        el("div", { class: "plugins-panel-head" }, el("h2", { id: "plugins-panel-title", text: blockTitle(block) }),
+          el("button", { class: "plugins-close", actionIcon: "close", "aria-label": t("Close"), onclick: () => dismiss() })), nav, content), "plugins-panel-title",
+        { returnFocus: trigger, onClose: () => { generation++; row?.classList.remove("selected"); if (trigger.isConnected) trigger.focus(); } });
+      dialog.classList.add("plugins-inspector");
+      // Navigation links leave the overlay before the router renders the next view.
+      dialog.addEventListener("click", (event) => { if (event.target.closest("a[href]")) dialog.close(); });
+      select(0);
+    }
+
     /// What a card whose account Needs Authorization offers first: its Setup, in a sheet over the list.
-    const setUpButton = (block, plugin, instance) => el("button", { type: "button", class: "primary", actionIcon: "pair",
+    const setUpButton = (block, plugin, instance, after = () => route()) => el("button", { type: "button", class: "primary", actionIcon: "pair",
       text: instance.accountState === "notSetUp" ? t("Set up") : t("Set up again"),
-      onclick: (event) => HomeswiftSetup.setUp({ block, plugin, firstTime: instance.accountState === "notSetUp", trigger: event.currentTarget, after: () => route() }) });
+      onclick: (event) => HomeswiftSetup.setUp({ block, plugin, firstTime: instance.accountState === "notSetUp", trigger: event.currentTarget, after }) });
 
     /// What the menu of a plugin's card offers: its page, its Settings, config.json, pause or resume, and removal.
     function blockActions(block, plugin, instance) {
@@ -6734,32 +6793,51 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     }
 
-    // Your plugins: by name, those that need a look first (no plugin, not running, paused), or by their accessories.
-    const blocks = plugins.blocks.map((block) => {
-      const plugin = byPlatform.get(block.platform), instance = running(block);
-      const attention = { away: 0, paused: 1, on: 2, standby: 3 }[blockState(block, plugin, instance)[1]];
-      return { card: blockCard(block), name: block.name, attention, accessories: instance?.accessories ?? -1,
-        text: [block.name, block.platform, plugin?.name, instance?.bridge].filter(Boolean).join(" ") };
-    });
-    const installed = finder({ grid: el("div", { class: "grid plugin-instances" }), entries: blocks, param: "order",
-      orders: [["name", t("Name A–Z"), () => 0], ["attention", t("Needs attention first"), (a, b) => a.attention - b.attention],
-        ["accessories", t("Most accessories"), (a, b) => b.accessories - a.accessories]],
-      placeholder: t("Search your plugins"), sortLabel: t("Sort your plugins"), empty: t("No plugin of yours matches the search."),
-      counted: (shown, total) => t("{shown} of {total} plugins", { shown, total }) });
     const available = finder({ grid: el("div", { class: "grid plugin-catalog" }), param: "sort", entries: catalogEntries,
-      orders: [["name", t("Name A–Z"), () => 0], ["used", t("In use first"), (a, b) => Number(b.used) - Number(a.used)],
-        ["available", t("Available first"), (a, b) => Number(a.used) - Number(b.used)]],
+      orders: [["name", t("Name A–Z"), () => 0], ["used", t("In use first"), (a, b) => Number(b.used) - Number(a.used)]],
       placeholder: t("Search plugins"), sortLabel: t("Sort plugins"), empty: t("No plugin matches the search."),
       counted: (shown, total) => t("{shown} of {total} plugins", { shown, total }) });
-    show(main,
-      pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
-      // Blocks no plugin here runs, by the names the cards show (Homebridge's own blocks, from an imported config).
+    const list = el("div", { class: "plugins-list" });
+    const custom = plugins.blocks.filter((block) => !block.system).sort((a, b) => {
+      const order = (block) => ({ away: 0, paused: 1, on: 2, standby: 3 })[blockState(block, byPlatform.get(block.platform), running(block))[1]];
+      return order(a) - order(b) || blockTitle(a).localeCompare(blockTitle(b));
+    });
+    let filter = "all";
+    const search = el("input", { type: "search", class: "search", placeholder: t("Search your plugins"), "aria-label": t("Search your plugins"), oninput: render });
+    const filters = el("div", { class: "group plugins-filters", role: "group", "aria-label": t("Status") });
+    const matches = (block, value) => value === "all" || blockState(block, byPlatform.get(block.platform), running(block))[1] === value;
+    [["all", "All", "plugin"], ["away", "Needs attention", "logs"], ["on", "Running", "play"], ["paused", "Paused", "pause"]].forEach(([value, label, icon]) => {
+      filters.append(el("button", { actionIcon: icon, text: `${t(label)} · ${custom.filter((block) => matches(block, value)).length}`,
+        "aria-pressed": String(value === filter), onclick: () => { filter = value; render(); } }));
+    });
+    function render() {
+      const query = search.value.trim().toLocaleLowerCase();
+      const rows = custom.filter((block) => matches(block, filter) && [block.name, block.platform, byPlatform.get(block.platform)?.name].join(" ").toLocaleLowerCase().includes(query));
+      list.replaceChildren(...(rows.length ? rows.map(blockCard) : [el("p", { class: "muted plugins-empty", text: t("No plugin of yours matches the search.") })]));
+      [...filters.children].forEach((button, i) => {
+        const selected = ["all", "away", "on", "paused"][i] === filter;
+        button.setAttribute("aria-pressed", String(selected)); button.classList.toggle("on", selected);
+      });
+    }
+    const add = el("button", { class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: () => {
+      const dialog = openSheet((dismiss) => el("div", { class: "plugins-panel" },
+        el("div", { class: "plugins-panel-head" }, el("h2", { id: "plugins-catalog-title", text: t("Add a plugin") }),
+          el("button", { class: "plugins-close", actionIcon: "close", "aria-label": t("Close"), onclick: () => dismiss() })), ...available), "plugins-catalog-title");
+      dialog.classList.add("plugins-inspector");
+      dialog.addEventListener("click", (event) => { if (event.target.closest("a[href]")) dialog.close(); });
+    } });
+    const builtIn = plugins.blocks.filter((block) => block.system);
+    show(main, el("div", { class: "plugins-heading" }, pageHead(t("Plugins"), t("Your connections, devices and services.")), add),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("{names}: no plugin compiled into this homeswift runs these blocks, so they are ignored.",
         { names: plugins.blocks.filter((block) => plugins.unknownPlatforms.includes(block.platform)).map((block) => block.name).join(", ") }) })) : null,
-      plugins.blocks.some((block) => !block.system) ? [el("div", { class: "section-head" }, el("h2", { text: t("Your plugins") }),
-        el("span", { class: "muted", text: tn("{n} block in config.json", "{n} blocks in config.json", plugins.blocks.length) })), ...installed] : window.HomeswiftImport.offer(),
-      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") })),
-      ...available);
+      el("div", { class: "card plugins-card" },
+        el("div", { class: "plugins-toolbar" }, filters, search, HomeswiftCommon.clearFilters([[search, ""]], {
+          active: () => filter !== "all", events: [[filters, "click"]], reset: () => { filter = "all"; render(); }
+        })), list),
+      !custom.length ? window.HomeswiftImport.offer() : null,
+      builtIn.length ? el("details", { class: "plugins-built-in" }, el("summary", { text: `${t("Built-in services")} · ${builtIn.length}` }),
+        el("div", { class: "card plugins-list" }, ...builtIn.map(blockCard))) : null);
+    render();
   };
 
   /// A block's state pill: its label and tone.
@@ -12682,14 +12760,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
   document.addEventListener("pointerdown", (event) => {
     const select = event.target.closest("select");
-    if (!select || select.disabled || select.multiple || select.size > 1 || event.button !== 0 || select.closest("dialog[open]")) return;
+    if (!select || select.disabled || select.multiple || select.size > 1 || event.button !== 0) return;
     event.preventDefault();
     select.focus();
     openSelectMenu(select);
   });
   document.addEventListener("keydown", (event) => {
     const select = event.target.closest("select");
-    if (!select || select.disabled || select.multiple || select.size > 1 || select.closest("dialog[open]")) return;
+    if (!select || select.disabled || select.multiple || select.size > 1) return;
     if ([" ", "Enter", "ArrowDown", "ArrowUp"].includes(event.key)) {
       event.preventDefault(); openSelectMenu(select, true);
     }
@@ -18036,14 +18114,26 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const source = select("source", t("Change Source"), sourceKinds, params.get("source") ?? "");
     const since = select("since", t("Time range"), sinceChoices, params.get("since") ?? "24h");
     const controls = [room, accessory, source, since];
+    since.hidden = true;
+    const periods = el("div", { class: "group logbook-periods", role: "group", "aria-label": t("Time range") },
+      sinceChoices.map(([value, label]) => el("button", { type: "button", actionIcon: "history", text: label,
+        onclick: () => { since.value = value; since.dispatchEvent(new Event("change", { bubbles: true })); } })));
+    const syncPeriods = () => [...periods.children].forEach((button, index) => {
+      const selected = since.value === sinceChoices[index][0];
+      button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
+    });
+    since.addEventListener("change", syncPeriods);
+    syncPeriods();
     const clear = HomeswiftCommon.clearFilters(controls.map((control) => [control, control === since ? "24h" : ""]),
       { active: () => controls.some((control) => control.value !== (control === since ? "24h" : "")), events: controls.map((control) => [control, "change"]), reset: reload });
     const list = el("div", { class: "logbook" });
-    const count = el("p", { class: "muted" });
+    const count = el("p", { class: "muted logbook-count", "aria-live": "polite" });
     const icons = new Map(accessories.map((one) => [one.id, HomeswiftWidgets.accessoryIcon(one) ?? "accessory"]));
     const byID = new Map(accessories.map((one) => [one.id, one]));
     app().show(main, app().pageHead(t("Logbook"), t("What changed in the home, and who or what changed it.")),
-      el("div", { class: "logbook-filters" }, ...controls, clear), count, list);
+      el("div", { class: "card logbook-card" },
+        el("div", { class: "logbook-toolbar" }, periods,
+          el("div", { class: "logbook-filters" }, room, accessory, source, clear), since), count, list));
 
     async function reload() {
       const query = new URLSearchParams();
@@ -20184,6 +20274,12 @@ window.HomeswiftHouseEditor = function ({ preferences, api, scaledImage, saved }
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Recent events": "Eventos recientes",
+  "No events yet.": "Todavía no hay eventos.",
+  "This connection is ready.": "Esta conexión está lista.",
+  "Your connections, devices and services.": "Tus conexiones, dispositivos y servicios.",
+  "Built-in services": "Servicios integrados",
+
   "Powering the home": "Suministro de la casa",
   "Woodland cabin": "Cabaña en el bosque",
   "A cozy timber home among the trees.": "Una acogedora casa de madera entre los árboles.",
@@ -21263,6 +21359,7 @@ HomeswiftI18n.add("es", {
   "Filter": "Filtro",
   "filter {percent} %": "filtro {percent} %",
   "Filter by client": "Filtrar por cliente",
+  "Search scope": "Ámbito de búsqueda",
   "Filter by tool": "Filtrar por herramienta",
   "Filter Change Indication": "Cambio de filtro",
   "Filter life": "Vida del filtro",
@@ -23902,6 +23999,12 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Recent events": "Événements récents",
+  "No events yet.": "Aucun événement pour le moment.",
+  "This connection is ready.": "Cette connexion est prête.",
+  "Your connections, devices and services.": "Vos connexions, appareils et services.",
+  "Built-in services": "Services intégrés",
+
   "Powering the home": "Alimentation de la maison",
   "Woodland cabin": "Cabane dans les bois",
   "A cozy timber home among the trees.": "Une maison en bois chaleureuse au milieu des arbres.",
@@ -24981,6 +25084,7 @@ HomeswiftI18n.add("fr", {
   "Filter": "Filtre",
   "filter {percent} %": "filtre {percent} %",
   "Filter by client": "Filtrer par client",
+  "Search scope": "Champ de recherche",
   "Filter by tool": "Filtrer par outil",
   "Filter Change Indication": "Changement de filtre",
   "Filter life": "Vie du filtre",
@@ -27620,6 +27724,12 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Recent events": "Eventos recentes",
+  "No events yet.": "Ainda não há eventos.",
+  "This connection is ready.": "Esta ligação está pronta.",
+  "Your connections, devices and services.": "As suas ligações, dispositivos e serviços.",
+  "Built-in services": "Serviços integrados",
+
   "Powering the home": "Alimentação da casa",
   "Woodland cabin": "Cabana na floresta",
   "A cozy timber home among the trees.": "Uma casa acolhedora de madeira entre as árvores.",
@@ -28699,6 +28809,7 @@ HomeswiftI18n.add("pt", {
   "Filter": "Filtro",
   "filter {percent} %": "filtro {percent} %",
   "Filter by client": "Filtrar por cliente",
+  "Search scope": "Âmbito da pesquisa",
   "Filter by tool": "Filtrar por ferramenta",
   "Filter Change Indication": "Substituição do filtro",
   "Filter life": "Vida do filtro",
@@ -36031,6 +36142,7 @@ label > input, label > select { margin-top: 5px; }
 .grid > .card { margin: 0; min-width: 0; }
 .card.empty { text-align: center; padding: 28px var(--space-20); grid-column: 1 / -1; }
 .card.empty p { margin: 0; }
+.card.empty:not(.compact) > p + :is(button, a.button) { margin-top: var(--space-16); }
 .scenes-empty > .button { margin-top: var(--space-12); }
 /* Under the hubs' scenes, apart from their last row. */
 .hub-scenes ~ .scenes-empty { margin-top: var(--space-16); }
@@ -38628,31 +38740,42 @@ span.warning, .vault-problem .warning { color: var(--warn); }
 .secret-field input { flex: 1; min-width: 0; }
 
 /* Backup creation and recovery share a compact, responsive workspace. */
-.backup-actions-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-20); margin: var(--space-24) 0 32px; }
-.backup-actions-grid > .card { margin: 0; padding: var(--space-24); min-width: 0; }
+.backup-actions-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-16); align-items: stretch; margin: var(--space-16) 0 var(--space-20); }
+.backup-actions-grid > .card { margin: 0; padding: var(--space-16); min-width: 0; }
 .backup-create .server-head { align-items: flex-start; }
 .backup-create .server-head .muted { display: block; margin-top: var(--space-6); line-height: 1.6; overflow: visible; }
-.backup-create .facts { margin: 22px 0; gap: var(--space-16); }
-.backup-create .fact.wide { padding-top: var(--space-16); border-top: 1px solid var(--line); }
+.backup-create .facts { margin: 0; gap: var(--space-8); }
+.backup-create .fact.wide { padding: var(--space-8) var(--space-12); }
 .backup-create .fact.wide b { overflow-wrap: anywhere; }
-.backup-create .actions { margin-top: var(--space-24); flex-wrap: wrap; }
+.backup-create .actions { margin-top: 0; flex-wrap: wrap; }
 .backup-create .status-line:empty { display: none; }
-.backup-restore { display: flex; flex-direction: column; gap: var(--space-18); }
+.backup-restore { display: flex; flex-direction: column; gap: var(--space-12); }
+.backup-restore > div:empty { display: none; }
 .backup-restore h2 { margin: 0; font-size: var(--text-lg); }
 .backup-restore-help summary, .matter-help summary { cursor: pointer; color: var(--muted); font-size: var(--text-md); }
 .backup-restore-help p, .matter-help p { line-height: 1.6; font-size: var(--text-md); }
-.backup-restore .drop-zone { flex: 1; min-height: 142px; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-14); border-radius: var(--radius-md); background: var(--material-thin); line-height: 1.6; }
+.backup-restore .drop-zone { flex: 1; min-height: 100px; padding: var(--space-16); margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-14); border-radius: var(--radius-md); background: var(--material-thin); line-height: 1.6; }
 .backup-drop-icon svg { width: 28px; height: 28px; color: var(--accent); }
-@media (max-width: 900px) { .backup-actions-grid { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .backup-actions-grid { grid-template-columns: 1fr; } }
 
-.audit-filters { margin: var(--space-24) 0 var(--space-20); padding: var(--space-20); }
-.audit-filter-grid { display: grid; grid-template-columns: 1fr 1fr 1.3fr 1.3fr; gap: var(--space-16); }
-.audit-filter-grid label { display: flex; flex-direction: column; gap: var(--space-8); min-width: 0; }
+.card.backup-empty { display: flex; align-items: center; gap: var(--space-12); padding: var(--space-16); text-align: left; }
+.backup-empty > .empty-glyph { flex: none; width: 36px; height: 36px; margin: 0; }
+.card.backup-empty > p { margin: 0; max-width: none; }
+
+.audit-filters { margin: var(--space-16) 0; padding: var(--space-12) var(--space-20); }
+.audit-filter-grid { display: grid; grid-template-columns: 1fr 1fr 2fr; align-items: end; gap: var(--space-12); }
+.audit-filter-grid label { display: flex; flex-direction: column; gap: var(--space-8); min-width: 0; margin: 0; }
 .audit-filter-grid label > span { color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
 .audit-filter-grid .search { width: 100%; min-width: 0; }
 .audit-picker { display: flex; justify-content: space-between; align-items: center; gap: var(--space-10); min-height: 38px; text-align: left; }
 .audit-picker svg { width: 14px; height: 14px; }
-.audit-filter-footer { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-16); padding-top: var(--space-14); border-top: 1px solid var(--line); font-size: var(--text-sm); }
+.audit-filter-footer { display: flex; align-items: center; gap: var(--space-12); margin-top: var(--space-8); padding: 0; font-size: var(--text-sm); }
+.audit-filter-footer .clear-filters:disabled { display: none; }
+.audit-filter-footer .clear-filters { margin-left: auto; width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; border-radius: 50%; }
+.audit-search { display: grid; grid-template-columns: minmax(140px, auto) minmax(0, 1fr); gap: var(--space-12); min-width: 0; }
+@media (max-width: 1000px) { .audit-search { grid-column: 1 / -1; } }
+@media (max-width: 460px) { .audit-search { grid-template-columns: minmax(0, 1fr); } }
+
 .audit-results { padding: 0; overflow: hidden; }
 .audit-results .data-table th, .audit-results .data-table td { padding: var(--space-16); }
 .audit-results .data-table th { z-index: 1; font-size: var(--text-xs); }
@@ -38712,6 +38835,15 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 .log-scope-row .log-time { grid-column: 1 / -1; }
 .log-scope-row label > span, .log-scope-row .log-time > span { font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
 .log-scope-row select.popup { width: 100%; max-width: none; min-width: 0; }
+/* Intermediate widths use both columns instead of reserving a whole row for time. */
+@media (min-width: 641px) and (max-width: 1179px) {
+  .log-filter-panel { gap: var(--space-12); padding: var(--space-16) var(--space-20); }
+  .log-scope-row { grid-template-columns: minmax(0, 1fr) minmax(200px, .4fr); align-items: start; gap: var(--space-16); }
+  .log-scope-row .log-time { grid-column: auto; }
+  .log-scope-row label { margin: 0; }
+  .log-time > .group { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; box-sizing: border-box; border-radius: var(--radius-lg); }
+  .log-time > .group button { min-width: 0; padding-inline: var(--space-8); border-radius: var(--radius-md); }
+}
 /* A wide window: the filters become a column down the log's left, each a list (the levels with their counts, the time
    ranges), so the log takes the card's whole height rather than sitting under a band of filters. */
 @media (min-width: 1180px) {
@@ -39798,7 +39930,7 @@ select option:disabled { color: var(--muted); }
 .setup-device.is-excluded .who { opacity: 0.6; }
 .setup-device .status-dot { justify-self: end; }
 .setup-account .who .muted { white-space: normal; }
-.setup-account { background: color-mix(in srgb, var(--accent) 7%, transparent); margin: 0 calc(-1 * var(--space-12)); padding-inline: var(--space-12); border-radius: var(--radius-md); }
+.setup-account { background: none; margin: 0; border-radius: 0; }
 /* A plugin page's way to its Setup: what is set up there, and the button. */
 .setup-handoff { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-12); align-items: center; }
 .setup-handoff .who p { margin: var(--space-4) 0 0; font-size: var(--text-sm); }
@@ -41338,6 +41470,149 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
 .admin-dialog.sheet .scene-group-sheet > .actions { margin-top: var(--space-16); padding-top: 0; }
 .admin-dialog.sheet .scene-group-sheet > .scene-room-selection { margin-top: 0; }
 .scene-room-list { flex-shrink: 0; }
+
+/* Plugins: compact instance rows, with an opaque inspector over the unchanged page. */
+.plugins-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-20); }
+.plugins-heading > button { flex-shrink: 0; }
+.plugins-card { padding: 0; overflow: hidden; }
+.plugins-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-16); padding: var(--space-20); border-bottom: 1px solid var(--line); }
+.plugins-toolbar .search { flex: 1; min-width: 180px; }
+.plugins-filters { flex: 0 1 auto; max-width: 100%; margin: 0; }
+.plugins-filters button { white-space: nowrap; }
+.plugins-list { padding: 0; overflow: hidden; }
+.plugins-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto auto; gap: var(--space-16); align-items: center; padding: var(--space-18) var(--space-20); }
+.plugins-row + .plugins-row { border-top: 1px solid var(--line); }
+.plugins-row.selected { box-shadow: inset 3px 0 var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.plugins-identity { min-width: 0; }
+.plugins-identity small { display: block; overflow-wrap: anywhere; }
+button.plugins-name { padding: 0; min-height: 40px; border: 0; border-radius: 4px; box-shadow: none; background: none; text-align: left; font-weight: 650; justify-content: flex-start; }
+.plugins-name .icon { display: none; }
+.plugins-meta { display: flex; flex-wrap: wrap; gap: var(--space-6) var(--space-12); align-items: center; font-size: var(--text-sm); }
+.plugins-state.away { color: var(--warn); }
+.plugins-state.on::before { content: "●"; margin-right: 5px; }
+.plugins-open { white-space: nowrap; }
+.plugins-built-in { margin-top: 28px; }
+.plugins-built-in summary { margin-bottom: var(--space-14); color: var(--muted); cursor: pointer; }
+.plugins-empty { padding: var(--space-20); }
+.admin-dialog.sheet.plugins-inspector { background: var(--material-solid); background-image: none; backdrop-filter: none; -webkit-backdrop-filter: none; width: min(480px, calc(100% - 24px)); }
+.plugins-panel { min-width: 0; }
+.plugins-panel-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-16); margin-bottom: 22px; }
+.plugins-panel h2 { margin: 0; }
+button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; flex-shrink: 0; border-radius: 50%; }
+.plugins-tabs { display: flex; gap: var(--space-2); padding: 5px; border: 1px solid var(--line); border-radius: 28px; background: color-mix(in srgb, var(--text) 5%, transparent); overflow-x: auto; }
+.plugins-tabs button { flex: 1 0 auto; padding: var(--space-10) var(--space-12); border: 0; box-shadow: none; background: none; font-size: 13px; white-space: nowrap; }
+.plugins-tabs [aria-selected="true"] { background: var(--material-solid); box-shadow: var(--shadow-control); }
+.plugins-tabs .icon { width: 14px; height: 14px; }
+.plugins-panel-content { margin-top: 22px; }
+.plugins-facts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-12); }
+.plugins-facts > div { display: grid; gap: var(--space-6); border-radius: 14px; background: color-mix(in srgb, var(--text) 4%, transparent); padding: var(--space-14); }
+.plugins-facts small { color: var(--muted); }
+.plugins-panel-actions { display: flex; flex-wrap: wrap; gap: var(--space-10); margin: var(--space-20) 0 var(--space-8); }
+.plugins-accessory { display: flex; align-items: center; gap: var(--space-12); width: 100%; padding: var(--space-16) 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; box-shadow: none; text-align: left; }
+.plugins-accessory strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+/* A fixed time column grounds the timeline; messages wrap without moving its markers. */
+.plugins-events-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-12); margin-bottom: var(--space-18); }
+.plugins-events-head h3 { margin: 0; font-size: var(--text-base); }
+.plugins-events { list-style: none; padding: 0; margin: 0; }
+.plugins-events li { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 22px; padding: 0 0 var(--space-20); }
+.plugins-events time { display: grid; align-content: start; gap: 3px; text-align: right; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.plugins-events time small { font-size: 11px; }
+.plugins-events p { position: relative; margin: 0; padding: 0 0 0 var(--space-14); font-size: var(--text-sm); overflow-wrap: anywhere; line-height: 1.5; }
+.plugins-events p::before { content: ""; position: absolute; left: -4px; top: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.plugins-events li:not(:last-child) p::after { content: ""; position: absolute; left: -1px; top: 16px; bottom: -20px; width: 1px; background: var(--line); }
+.plugins-panel .plugin-catalog { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1000px) {
+  .plugins-row { grid-template-columns: 40px minmax(0, 1fr) auto; gap: var(--space-6) var(--space-14); }
+  .plugins-row > .tile { grid-row: 1 / 3; }
+  .plugins-meta { grid-column: 2; }
+  .plugins-open { grid-column: 3; grid-row: 1 / 3; }
+}
+@media (max-width: 640px) {
+  .plugins-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); width: 100%; box-sizing: border-box; border-radius: 20px; }
+  .plugins-filters button { min-height: 40px; min-width: 0; padding-inline: var(--space-6); font-size: 12px; border-radius: 15px; }
+  .plugins-heading { align-items: flex-start; flex-wrap: wrap; margin-bottom: var(--space-16); }
+  .plugins-row { padding: var(--space-16); }
+  .plugins-meta { grid-column: 2 / -1; }
+  .plugins-open { grid-row: 1; }
+  .admin-dialog.sheet.plugins-inspector { width: 100%; height: auto; max-height: 88dvh; }
+  .plugins-tabs button { padding-inline: var(--space-12); }
+}
+
+.admin-dialog.sheet.plugins-inspector { box-sizing: border-box; }
+.plugins-accessory > svg { width: 18px; height: 18px; flex: 0 0 18px; }
+.plugins-accessory > .tile { flex-shrink: 0; }
+@media (max-width: 640px) {
+  .plugins-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-radius: 18px; overflow: visible; }
+  .plugins-tabs button { flex-direction: column; gap: var(--space-4); min-width: 0; padding: var(--space-8) var(--space-2); font-size: 11px; border-radius: 14px; }
+}
+
+/* Management actions form one aligned list; removal stays visually separate. */
+.plugins-settings-actions { display: grid; gap: 0; margin: 0; }
+.plugins-settings-actions > .button { justify-content: flex-start; width: 100%; min-height: 52px; box-sizing: border-box; margin: 0; padding: var(--space-14) var(--space-16); border: 1px solid var(--line); border-radius: 0; background: color-mix(in srgb, var(--text) 3%, var(--material-solid)); box-shadow: none; text-align: left; }
+.plugins-settings-actions > .button + .button { border-top: 0; }
+.plugins-settings-actions > .button:first-child { border-radius: var(--radius-md) var(--radius-md) 0 0; }
+.plugins-settings-actions > .button:last-child:not(.danger), .plugins-settings-actions > .button:has(+ .danger) { border-radius: 0 0 var(--radius-md) var(--radius-md); }
+.plugins-settings-actions > .button:only-child { border-radius: var(--radius-md); }
+.plugins-settings-actions > .button.danger { margin-top: 22px; border: 1px solid var(--line); border-radius: var(--radius-md); background: none; }
+.plugins-settings-actions > .button > svg { flex: 0 0 18px; width: 18px; height: 18px; }
+@media (hover: hover) { .plugins-settings-actions > .button:hover { background: color-mix(in srgb, var(--accent) 8%, var(--material-solid)); } }
+
+@media (max-width: 640px) {
+  .plugins-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: var(--space-12); gap: var(--space-10); }
+  .plugins-toolbar .plugins-filters { grid-column: 1 / -1; }
+  .plugins-toolbar .search { width: 100%; min-width: 0; }
+  .plugins-toolbar .clear-filters { width: 40px; height: 40px; min-height: 40px; padding: 0; font-size: 0; gap: 0; }
+}
+/* Reset never creates an otherwise empty toolbar row. */
+.plugins-toolbar .clear-filters:disabled { display: none; }
+.plugins-toolbar .clear-filters { flex: 0 0 40px; width: 40px; height: 40px; min-height: 40px; padding: 0; margin: 0; gap: 0; font-size: 0; border-radius: 50%; }
+@media (min-width: 641px) and (max-width: 1100px) {
+  .plugins-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: var(--space-10); }
+  .plugins-toolbar .plugins-filters { grid-column: 1 / -1; }
+  .plugins-toolbar .search { width: 100%; min-width: 0; }
+  .plugins-toolbar:has(.clear-filters:disabled) .search { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  .plugins-toolbar:has(.clear-filters:disabled) .search { grid-column: 1 / -1; }
+}
+/* Status and count occupy the middle of the list instead of stacking under names. */
+@media (min-width: 641px) {
+  .plugins-row { grid-template-columns: 40px minmax(0, 1fr) minmax(90px, .35fr) minmax(90px, .35fr) auto; gap: var(--space-12); padding-block: var(--space-12); }
+  .plugins-row > .tile { grid-column: 1; grid-row: 1; }
+  .plugins-identity { grid-column: 2; grid-row: 1; }
+  .plugins-meta { display: contents; }
+  .plugins-meta > :first-child { grid-column: 3; grid-row: 1; font-size: var(--text-sm); }
+  .plugins-meta > :nth-child(2) { grid-column: 4; grid-row: 1; font-size: var(--text-sm); }
+  .plugins-open { grid-column: 5; grid-row: 1; }
+}
+
+/* Logbook uses the same integrated filter-and-list card as Plugins. */
+.logbook-card { padding: 0; overflow: hidden; }
+.logbook-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-12); padding: var(--space-20); border-bottom: 1px solid var(--line); }
+.logbook-periods { flex: 0 1 auto; max-width: 100%; }
+.logbook-toolbar .logbook-filters { flex: 1 1 480px; display: flex; flex-wrap: wrap; gap: var(--space-8); margin: 0; }
+.logbook-toolbar .logbook-filters select { flex: 1; width: 0; min-width: 125px; border-radius: var(--radius-pill); }
+.logbook-toolbar .clear-filters { width: 40px; height: 40px; min-height: 40px; flex: 0 0 40px; padding: 0; margin: 0; gap: 0; font-size: 0; border-radius: 50%; }
+.logbook-toolbar .clear-filters:disabled { display: none; }
+.logbook-card .logbook-count { margin: 0; padding: var(--space-12) var(--space-20); font-size: var(--text-sm); border-bottom: 1px solid var(--line); }
+.logbook-card .logbook-day h3 { margin: 0; padding: var(--space-12) var(--space-20); background: color-mix(in srgb, var(--text) 3%, transparent); border-bottom: 1px solid var(--line); }
+.logbook-card .logbook-list { border: 0; border-radius: 0; background: none; }
+.logbook-card .logbook-entry { padding: var(--space-12) var(--space-20); }
+.logbook-card .logbook > .empty, .logbook-card .logbook > .error { padding: var(--space-20); margin: 0; }
+@media (max-width: 640px) {
+  .logbook-toolbar { padding: var(--space-12); }
+  .logbook-periods { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; border-radius: var(--radius-lg); }
+  .logbook-periods button { flex-direction: column; min-width: 0; padding: var(--space-8) var(--space-4); font-size: 12px; white-space: normal; border-radius: var(--radius-md); }
+  .logbook-toolbar .logbook-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .logbook-toolbar .logbook-filters select { width: 100%; min-width: 0; }
+  .logbook-card .logbook-entry { padding-inline: var(--space-12); }
+}
+@media (max-width: 640px) {
+  .logbook-toolbar .logbook-filters > select[name="source"] { grid-column: 1 / -1; }
+  .logbook-toolbar .logbook-filters:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px; }
+  .logbook-toolbar .logbook-filters:has(.clear-filters:not(:disabled)) > select[name="accessory"] { grid-column: 2 / 4; }
+  .logbook-toolbar .logbook-filters:has(.clear-filters:not(:disabled)) > select[name="source"] { grid-column: 1 / 3; }
+}
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""

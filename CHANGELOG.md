@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Web UI**: manage plugins through compact lists and a responsive inspector; unify Logbook filters, simplify Audit search, and tighten Backup, Setup, and Logs layouts.
+
 ### Fixed
 
 - An accessory's History named a Meter with an Energy Role by its key: a STREAM's showed "Consumption · home" and
