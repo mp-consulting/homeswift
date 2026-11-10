@@ -35955,12 +35955,18 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .size-large .swatches { gap: 5px; flex-wrap: nowrap; }
 .widget.size-large .swatch { width: min(28px, calc((100% - 40px) / 9)); height: auto; aspect-ratio: 1; }
 .size-xlarge .w-body { justify-content: safe center; gap: var(--space-8); overflow-y: auto; scrollbar-width: none; }
-.size-xlarge .w-body > :last-child { margin-right: 26px; }
+.size-xlarge:has(> .w-corner) .w-body > :last-child { margin-right: 26px; }
 /* A large box's chips on one line, swiped sideways when there are more than fit. */
 .widget.size-xlarge .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
 .widget.size-xlarge .chips > * { flex: none; }
-/* The row's -2px margin would undo the last part's room for the corner's ⋯; the row keeps that room itself. */
-.widget.size-xlarge .w-body > .chips:last-child { margin-right: var(--space-24); }
+/* Options scroll within their lane; the menu stays inset and aligned with them. */
+.w-footer { display: flex; align-items: center; gap: var(--space-12); flex: none; min-width: 0; }
+.widget.size-xlarge .w-footer > .chips { flex: 1; min-width: 0; margin: 0; padding: 2px 16px 2px 0; mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent); }
+.widget:not(.widget-full) .w-footer > .menu-button { flex: none; width: 36px; height: 36px; min-height: 36px; }
+.powered-off .w-footer > .chips { opacity: 0.55; }
+@media (max-width: 640px), (pointer: coarse) {
+  .widget:not(.widget-full) .w-footer > .menu-button { width: 40px; height: 40px; min-height: 40px; }
+}
 .head-only { justify-content: center; }
 .powered-off .w-body, .powered-off .w-main { opacity: 0.55; transition: opacity var(--normal) var(--ease-out); }
 /* The menu at the bottom right of the box, over its content's corner. */
@@ -36058,7 +36064,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 
 /* A paused plugin's accessory: quiet and striped, its controls out of reach; the menu stays to resume it. */
 .widget.paused { background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--muted) 9%, transparent) 10px 20px); }
-.widget.paused > :not(.w-corner):not(.w-bottom):not(.w-head), .widget.paused .w-bottom .who, .widget.paused .w-head > .tile, .widget.paused .w-head > .switch { opacity: 0.45; filter: grayscale(1); }
+.widget.paused > :not(.w-corner):not(.w-bottom):not(.w-head):not(.w-footer), .widget.paused .w-footer > .chips, .widget.paused .w-bottom .who, .widget.paused .w-head > .tile, .widget.paused .w-head > .switch { opacity: 0.45; filter: grayscale(1); }
 .widget.paused.widget-summary.on { background-color: var(--material); color: var(--text); }
 .widget.paused .w-hit { cursor: default; }
 
@@ -43301,9 +43307,12 @@ self.addEventListener("notificationclick", (event) => {
       });
     } else {
       const body = (built.body || []).filter(Boolean);
+      // Keep scrolling options beside the menu, with a dedicated, unobstructed hit target.
+      const footerChips = size === "xlarge" && body.at(-1)?.classList?.contains("chips") ? body.pop() : null;
       node.append(el("div", { class: "w-head" }, glyph, who, powerToggle(ctx, built)),
-        body.length ? el("div", { class: "w-body" }, body) : "", el("span", { class: "w-corner" }, menu));
-      node.classList.toggle("head-only", !body.length);
+        body.length ? el("div", { class: "w-body" }, body) : "",
+        footerChips ? el("div", { class: "w-footer" }, footerChips, menu) : el("span", { class: "w-corner" }, menu));
+      node.classList.toggle("head-only", !body.length && !footerChips);
       ctx.watch(() => node.classList.toggle("powered-off", !!built.power && !built.power.big && !isOn(built.power.characteristic)));
     }
     ctx.watch(paintGlyph);
@@ -43324,7 +43333,7 @@ self.addEventListener("notificationclick", (event) => {
   function paused(node, ctx) {
     if (!ctx.accessory.paused) return;
     node.classList.add("paused");
-    for (const part of node.querySelectorAll(":scope > .w-hit, :scope > .w-body, :scope > .w-head .switch, :scope > .w-main, :scope > .w-split, :scope > details, :scope > .camera-view, :scope > .controls")) part.inert = true;
+    for (const part of node.querySelectorAll(":scope > .w-hit, :scope > .w-body, :scope > .w-footer > .chips, :scope > .w-head .switch, :scope > .w-main, :scope > .w-split, :scope > details, :scope > .camera-view, :scope > .controls")) part.inert = true;
   }
 
   /// Every control: the widget's body (beside its facets when there are any), what is left under More, the foot.

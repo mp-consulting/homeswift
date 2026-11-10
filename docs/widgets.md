@@ -335,6 +335,11 @@ HomeswiftWidgets.register({
 More in the sheet), `ctx.write(service, characteristic, value)` writes it (at once on the page, back with the
 reason when the device refuses), `ctx.watch(paint)` repaints after every change of the accessory.
 
+Expanded cards with option chips keep them in a scrolling footer beside the inset menu. The controls above
+use the full content width; paused options stay disabled while the menu remains available.
+
+<img src="images/widgets/purifier-footer-phone.png" alt="Expanded air purifier with a separate options row and menu on a phone" width="375">
+
 ## Screenshots
 
 The checked-in images use demonstration accessories and the production widget code. Retake them with:
