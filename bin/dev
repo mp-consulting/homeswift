@@ -35,16 +35,8 @@ EOF
 }
 
 embed() {
-  swift Scripts/embed-assets.swift web Sources/HomeswiftUI/Web Sources/HomeswiftUI/WebAssets.swift
-  for plugin in Plugins/*/; do
-    plugin="${plugin%/}"
-    local type
-    type="$(basename "$plugin")Plugin"
-    [[ -f "$plugin/config.schema.json" ]] && swift Scripts/embed-assets.swift plugin "$plugin" "$type"
-    [[ -d "$plugin/Web" ]] && swift Scripts/embed-assets.swift web "$plugin/Web" "$plugin/Sources/WebFiles.swift" "$type"
-  done
-  [[ -f Plugins/Govee/Scripts/embed-scene-library.swift ]] && swift Plugins/Govee/Scripts/embed-scene-library.swift
-  git status --short -- '*WebAssets.swift' '*WebFiles.swift' '*ConfigurationSchema.swift' '*SceneLibraryData.swift'
+  swift Scripts/embed-assets.swift all
+  git status --short -- '*WebAssets.swift' '*WebFiles.swift' '*ConfigurationSchema.swift' '*SceneLibraryData.swift' '*PromptFiles.swift' '*ShellyPluginSchema.swift'
 }
 
 start() {
@@ -101,11 +93,11 @@ usage() {
   cat <<EOF
 bin/dev <command>   (scratch path $SCRATCH, test server config $DIR)
 
-  build [args]       swift build
-  test [filter]      swift test, only the tests matching filter when given (e.g. GoveeTests)
+  build [args]       build the bridge; --all builds every product
+  test [filter] [--skip-build] [--target NameTests]
+                     run tests; a target name (Govee or GoveeTests) selects its macOS bundle
   check              embed, then build and run every test: what to run before committing
-  embed              regenerate WebAssets.swift, each plugin's WebFiles.swift and ConfigurationSchema.swift
-                     (and Govee's scene library) after editing pages or schemas
+  embed              regenerate pages, schemas, prompts and Govee scenes in one Swift process
   start [-- args]    build and start the test server in the background (pages live from the checkout)
   stop | restart     stop it, or stop and start it again on a fresh build
   status             whether it runs, its web UI's address and its latest errors and warnings
@@ -119,9 +111,31 @@ EOF
 command="${1:-help}"
 [[ $# -gt 0 ]] && shift
 case "$command" in
-  build) swiftpm build "$@" ;;
-  test) if [[ $# -gt 0 ]]; then swiftpm test --filter "$1"; else swiftpm test; fi ;;
-  check) embed && swiftpm build --build-tests && swiftpm test ;;
+  build) Scripts/build.sh --scratch-path "$SCRATCH" "$@" ;;
+  test)
+    args=(--scratch-path "$SCRATCH")
+    filter=""
+    target=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --skip-build) args+=("$1"); shift ;;
+        --target) [[ -n "${2:-}" ]] || { echo "--target needs a test target" >&2; exit 2; }; target="$2"; shift 2 ;;
+        --target=) echo "--target needs a test target" >&2; exit 2 ;;
+        --target=*) target="${1#*=}"; shift ;;
+        -*) echo "Unknown test option: $1" >&2; exit 2 ;;
+        *) [[ -z "$filter" ]] || { echo "Only one test filter is supported" >&2; exit 2; }; filter="$1"; shift ;;
+      esac
+    done
+    if [[ -z "$target" && -n "$filter" && "$(uname)" == Darwin ]]; then
+      # Only exact known target names are shorthand; regular expressions stay full-suite filters.
+      inferred="$(awk -v name="$filter" '$2 == name || $2 == name "Tests" {print $2; exit}' Scripts/test-durations.tsv)"
+      if [[ -n "$inferred" ]]; then target="$inferred"; filter=""; fi
+    fi
+    [[ -z "$target" ]] || args+=(--target "$target")
+    [[ -z "$filter" ]] || args+=(-- --filter "$filter")
+    Scripts/test.sh "${args[@]}"
+    ;;
+  check) embed && Scripts/test.sh --scratch-path "$SCRATCH" ;;
   embed) embed ;;
   start) [[ "${1:-}" == "--" ]] && shift; start "$@" ;;
   stop) stop ;;

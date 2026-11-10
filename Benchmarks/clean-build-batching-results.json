@@ -1,0 +1,258 @@
+{
+  "environment": {
+    "date": "2026-11-10",
+    "swift": "6.4.2",
+    "os": "macOS 27.2",
+    "machine": "Mac14,7",
+    "cores": 8,
+    "memory_gib": 16,
+    "configuration": "debug",
+    "engine": "default swiftbuild",
+    "background_load": "variable; observed unrelated applications and system services, not stopped"
+  },
+  "baseline": [
+    {
+      "label": "clean-before-0",
+      "seconds": 147.018172209,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-full-bench/clean",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "clean-before-1",
+      "seconds": 120.298166542,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-full-bench/clean",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "clean-before-2",
+      "seconds": 123.133520375,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-full-bench/clean",
+        "--disable-automatic-resolution"
+      ],
+      "child_user_seconds": 710.445217,
+      "child_system_seconds": 90.025919
+    }
+  ],
+  "two_batches": [
+    {
+      "label": "clean-batch2-0",
+      "seconds": 124.965969916,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-full-bench/clean",
+        "--disable-automatic-resolution",
+        "-Xswiftc",
+        "-driver-batch-count",
+        "-Xswiftc",
+        "2"
+      ]
+    },
+    {
+      "label": "clean-batch2-1",
+      "seconds": 115.492365,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-full-bench/clean",
+        "--disable-automatic-resolution",
+        "-Xswiftc",
+        "-driver-batch-count",
+        "-Xswiftc",
+        "2"
+      ]
+    },
+    {
+      "label": "clean-batch2-2",
+      "seconds": 113.656639375,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-full-bench/clean",
+        "--disable-automatic-resolution",
+        "-Xswiftc",
+        "-driver-batch-count",
+        "-Xswiftc",
+        "2"
+      ],
+      "child_user_seconds": 656.112505,
+      "child_system_seconds": 74.231753
+    }
+  ],
+  "rejected_assets": {
+    "c": {
+      "label": "clean-after-0",
+      "seconds": 150.769708625,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-full-bench/clean",
+        "--disable-automatic-resolution"
+      ]
+    },
+    "swift": {
+      "label": "clean-swift-assets-0",
+      "seconds": 145.008481417,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-full-bench/clean",
+        "--disable-automatic-resolution"
+      ]
+    }
+  },
+  "shared_before": [
+    {
+      "label": "shared-before-0",
+      "seconds": 8.9600545,
+      "exit": 0
+    },
+    {
+      "label": "shared-before-1",
+      "seconds": 6.1369497079999995,
+      "exit": 0
+    },
+    {
+      "label": "shared-before-2",
+      "seconds": 6.036060875,
+      "exit": 0
+    }
+  ],
+  "shared_candidate": [
+    {
+      "label": "shared-batch2-0",
+      "seconds": 9.257425875,
+      "exit": 0
+    },
+    {
+      "label": "shared-batch2-1",
+      "seconds": 6.111467040999999,
+      "exit": 0
+    },
+    {
+      "label": "shared-batch2-2",
+      "seconds": 6.088363542,
+      "exit": 0
+    }
+  ],
+  "shared_final_wrapper": [
+    {
+      "label": "shared-final-0",
+      "seconds": 8.41373825,
+      "exit": 0
+    },
+    {
+      "label": "shared-final-1",
+      "seconds": 5.392340583999999,
+      "exit": 0
+    },
+    {
+      "label": "shared-final-2",
+      "seconds": 5.351498707999999,
+      "exit": 0
+    }
+  ],
+  "restored_final_build": {
+    "label": "restored-final",
+    "seconds": 5.356503375,
+    "exit": 0,
+    "command": [
+      "Scripts/build.sh",
+      "--all",
+      "--scratch-path",
+      "/tmp/homeswift-full-bench/clean",
+      "--disable-automatic-resolution"
+    ],
+    "child_user_seconds": 5.561678,
+    "child_system_seconds": 0.742744
+  },
+  "full_suites": [
+    {
+      "label": "final-suite-0",
+      "seconds": 156.59389675,
+      "exit": 0,
+      "command": [
+        "Scripts/test.sh",
+        "--scratch-path",
+        "/tmp/homeswift-full-bench/clean",
+        "--disable-automatic-resolution"
+      ],
+      "test_count": 3748,
+      "bundle_count": 55
+    },
+    {
+      "label": "final-suite-1",
+      "seconds": 21.122738624999982,
+      "exit": 0,
+      "command": [
+        "Scripts/test.sh",
+        "--scratch-path",
+        "/tmp/homeswift-full-bench/clean",
+        "--disable-automatic-resolution"
+      ],
+      "test_count": 3748,
+      "bundle_count": 55
+    }
+  ],
+  "validation": {
+    "runner_regression_tests": 4,
+    "shell_syntax": "passed",
+    "diff_check": "passed",
+    "native_linux": "not run; argument forwarding and wrapper defaults tested with mocks"
+  },
+  "restored_files": {
+    "Package.swift": "e8f160880fa7ff21168424a798df47eeac66867997243438eeacbb0a25789917",
+    "Scripts/embed-assets.swift": "4026acb3e6b45c3c3e0b700f8257aa6120ccead702ea752bf54637220a3c596e",
+    "Sources/HomeswiftUI/WebAssets.swift": "5f46903b28a1e4012af16cb038dea4dd9e57b1889b76d21d5c8b2f7ffba4a1a2",
+    "Tests/HomeswiftUITests/UITests.swift": "f486b0365616f352a1eec5352e033c3bbe0e358b5e2f7da3140b4a73a29721ac"
+  },
+  "warning_counts": {
+    "clean-c-assets-0.log": 0,
+    "clean-swift-assets-0.log": 0,
+    "clean-batch2-0.log": 0,
+    "clean-batch2-1.log": 0,
+    "clean-batch2-2.log": 0,
+    "clean-before-2.log": 0,
+    "clean-before-1.log": 0,
+    "clean-before-0.log": 0,
+    "shared-final-0.log": 0,
+    "shared-final-1.log": 0,
+    "shared-final-2.log": 0,
+    "shared-batch2-1.log": 0,
+    "shared-batch2-0.log": 0,
+    "shared-batch2-2.log": 0,
+    "shared-before-2.log": 0,
+    "shared-before-0.log": 0,
+    "shared-before-1.log": 0,
+    "final-suite-1.log": 0,
+    "final-suite-0.log": 0,
+    "restored-final.log": 0
+  }
+}

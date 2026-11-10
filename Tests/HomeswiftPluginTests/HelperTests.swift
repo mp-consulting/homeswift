@@ -134,6 +134,16 @@ struct PluginContextHelperTests {
         #expect(PersistedDictionary<Int>(url: store.url).values == ["level": 3])
     }
 
+    @Test func aResetThatFinishesInsideAWriteIsNotOverwritten() async throws {
+        let on = Characteristic(.on, value: .bool(false))
+        on.onWrite { [weak on] _ in
+            guard let on else { return }
+            await on.revert(to: .bool(false), after: .zero).value
+        }
+        try await on.write(.bool(true))
+        #expect(on.value == .bool(false))
+    }
+
     @Test func revertsAValueLater() async throws {
         let on = Characteristic(.on, value: .bool(true))
         let task = on.revert(to: .bool(false), after: .milliseconds(10))

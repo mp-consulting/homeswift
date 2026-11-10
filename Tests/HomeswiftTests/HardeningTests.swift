@@ -67,7 +67,10 @@ struct CameraHardeningTests {
         let delegate = FakeStreamingDelegate()
         let rtp = try CameraTLVTests.management(delegate)
         let owners = (0..<8).map { _ in NSObject() }
-        let contexts = owners.map { Self.context($0, local: "192.168.1.10") }
+        // This stress test exercises the stream claim, not host interface discovery.
+        // Loopback avoids enumerating real interfaces in every round; the address
+        // selection tests below still exercise routing and both address families.
+        let contexts = owners.map { Self.context($0, local: "127.0.0.1") }
         let setup = Self.setupEndpoints(version: .ipv4, address: "192.168.1.20")
         // The race is narrow: it takes many rounds to see it.
         var doubleClaims = 0

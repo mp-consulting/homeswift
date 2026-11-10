@@ -1,0 +1,272 @@
+{
+  "environment": {
+    "date": "2026-11-10",
+    "swift": "6.4.2",
+    "os": "macOS 27.2",
+    "machine": "Mac14,7",
+    "cores": 8,
+    "memory_gib": 16,
+    "configuration": "debug",
+    "engine": "default swiftbuild"
+  },
+  "baseline_two_batches": [
+    {
+      "label": "before-0",
+      "batches": 2,
+      "seconds": 137.245019916,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-clean-next/scratch",
+        "--disable-automatic-resolution"
+      ],
+      "child_user_seconds": 695.7976289999999,
+      "child_system_seconds": 84.422933
+    },
+    {
+      "label": "before-1",
+      "batches": 2,
+      "seconds": 128.85262729200002,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-clean-next/scratch",
+        "--disable-automatic-resolution"
+      ],
+      "child_user_seconds": 671.487896,
+      "child_system_seconds": 80.042457
+    },
+    {
+      "label": "before-2",
+      "batches": 2,
+      "seconds": 114.500861375,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-clean-next/scratch",
+        "--disable-automatic-resolution"
+      ],
+      "child_user_seconds": 643.521421,
+      "child_system_seconds": 74.933278
+    }
+  ],
+  "candidate_one_batch": [
+    {
+      "label": "one-batch-0",
+      "batches": 1,
+      "seconds": 134.206798875,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-clean-next/scratch",
+        "--disable-automatic-resolution"
+      ],
+      "child_user_seconds": 685.236794,
+      "child_system_seconds": 80.364772
+    },
+    {
+      "label": "one-batch-1",
+      "batches": 1,
+      "seconds": 110.089381834,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-clean-next/scratch",
+        "--disable-automatic-resolution"
+      ],
+      "child_user_seconds": 622.921931,
+      "child_system_seconds": 70.631214
+    },
+    {
+      "label": "one-batch-2",
+      "batches": 1,
+      "seconds": 132.43877075,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-clean-next/scratch",
+        "--disable-automatic-resolution"
+      ],
+      "child_user_seconds": 658.784952,
+      "child_system_seconds": 76.414887
+    }
+  ],
+  "candidate_twelve_jobs": {
+    "label": "jobs12-0",
+    "batches": 2,
+    "seconds": 143.604098625,
+    "exit": 0,
+    "command": [
+      "Scripts/build.sh",
+      "--all",
+      "--scratch-path",
+      "/tmp/homeswift-clean-next/scratch",
+      "--disable-automatic-resolution",
+      "--jobs",
+      "12"
+    ],
+    "child_user_seconds": 726.236892,
+    "child_system_seconds": 86.5366
+  },
+  "shared_baseline": [
+    {
+      "label": "shared-before-0",
+      "batches": 2,
+      "seconds": 9.853777124999999,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-clean-next/scratch",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "shared-before-1",
+      "batches": 2,
+      "seconds": 6.086450292,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-clean-next/scratch",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "shared-before-2",
+      "batches": 2,
+      "seconds": 6.504213499999999,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-clean-next/scratch",
+        "--disable-automatic-resolution"
+      ]
+    }
+  ],
+  "shared_one_batch": [
+    {
+      "label": "shared-one-batch-0",
+      "batches": 1,
+      "seconds": 6.742553625,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-clean-next/scratch",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "shared-one-batch-1",
+      "batches": 1,
+      "seconds": 6.294232957999999,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-clean-next/scratch",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "shared-one-batch-2",
+      "batches": 1,
+      "seconds": 6.375203249999998,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-clean-next/scratch",
+        "--disable-automatic-resolution"
+      ]
+    }
+  ],
+  "shared_one_batch_repeat": [
+    {
+      "label": "shared-one-batch-repeat-0",
+      "batches": 1,
+      "seconds": 6.621359208,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-clean-next/scratch",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "shared-one-batch-repeat-1",
+      "batches": 1,
+      "seconds": 6.2864225000000005,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-clean-next/scratch",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "shared-one-batch-repeat-2",
+      "batches": 1,
+      "seconds": 6.483709084000001,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-clean-next/scratch",
+        "--disable-automatic-resolution"
+      ]
+    }
+  ],
+  "decision": "Reject both candidates; retain two batches with the default job count. No production, compiler-default or test-selection changes retained.",
+  "validation": {
+    "full_product_builds": 7,
+    "full_product_build_failures": 0,
+    "new_full_suite_execution": false,
+    "reason": "All candidates rejected; build wrapper, package, generator and tests unchanged. Previous retained-default full-suite validation remains in clean-build-batching.md."
+  },
+  "unchanged_build_wrapper_sha256": "848b2e19a7fc3e03d3b0a935d2e0fd8635fe8ce0f5f4519f9fca116900e21cde",
+  "warning_counts": {
+    "before-2.log": 0,
+    "before-1.log": 0,
+    "before-0.log": 0,
+    "one-batch-0.log": 0,
+    "one-batch-1.log": 0,
+    "one-batch-2.log": 0,
+    "jobs12-0.log": 0,
+    "shared-before-2.log": 0,
+    "shared-before-0.log": 0,
+    "shared-before-1.log": 0,
+    "shared-one-batch-repeat-1.log": 0,
+    "shared-one-batch-2.log": 0,
+    "shared-one-batch-repeat-0.log": 0,
+    "shared-one-batch-repeat-2.log": 0,
+    "shared-one-batch-0.log": 0,
+    "shared-one-batch-1.log": 0
+  }
+}

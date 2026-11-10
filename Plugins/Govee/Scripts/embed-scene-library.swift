@@ -21,4 +21,8 @@ let output = """
     }
 
     """
-try output.write(toFile: "Plugins/Govee/Sources/SceneLibraryData.swift", atomically: true, encoding: .utf8)
+let destination = URL(fileURLWithPath: "Plugins/Govee/Sources/SceneLibraryData.swift")
+let bytes = Data(output.utf8)
+if (try? Data(contentsOf: destination)) != bytes {
+    try bytes.write(to: destination, options: .atomic)
+}

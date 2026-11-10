@@ -1,0 +1,870 @@
+{
+  "environment": {
+    "date": "2026-11-10",
+    "swift": "6.4.2",
+    "os": "macOS 27.2",
+    "machine": "Mac14,7",
+    "cores": 8,
+    "memory_gib": 16,
+    "configuration": "debug",
+    "engine": "default swiftbuild",
+    "compiler_batches": 2
+  },
+  "clean_before": [
+    {
+      "label": "before-0",
+      "batches": 2,
+      "seconds": 142.62161162499999,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ],
+      "child_user_seconds": 685.910446,
+      "child_system_seconds": 85.2698
+    },
+    {
+      "label": "before-1",
+      "batches": 2,
+      "seconds": 151.722629875,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ],
+      "child_user_seconds": 700.455585,
+      "child_system_seconds": 86.563512
+    },
+    {
+      "label": "before-2",
+      "batches": 2,
+      "seconds": 156.545635541,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ],
+      "child_user_seconds": 706.832964,
+      "child_system_seconds": 86.267057
+    }
+  ],
+  "clean_after": [
+    {
+      "label": "after-0",
+      "batches": 2,
+      "seconds": 140.801684459,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ],
+      "child_user_seconds": 698.651895,
+      "child_system_seconds": 84.550545
+    },
+    {
+      "label": "after-1",
+      "batches": 2,
+      "seconds": 151.7108035,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ],
+      "child_user_seconds": 708.099307,
+      "child_system_seconds": 86.126857
+    },
+    {
+      "label": "after-2",
+      "batches": 2,
+      "seconds": 140.505743791,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ],
+      "child_user_seconds": 695.164637,
+      "child_system_seconds": 83.147384
+    }
+  ],
+  "module_profiles": [
+    {
+      "phase": "before",
+      "seconds": 2.4676603750000004,
+      "exit": 0,
+      "semantic_analysis_seconds": 1.9240000247955322,
+      "sil_llvm_seconds": 0.24274992942810059,
+      "slowest_expressions": [
+        {
+          "milliseconds": 1045.53,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/SceneArtwork.swift:73:45"
+        },
+        {
+          "milliseconds": 307.69,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/LightShows.swift:187:42"
+        },
+        {
+          "milliseconds": 6.2,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/Notifications.swift:104:27"
+        },
+        {
+          "milliseconds": 3.02,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/HomeswiftCatalog.swift:664:9"
+        },
+        {
+          "milliseconds": 2.65,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/Notifications.swift:57:52"
+        }
+      ]
+    },
+    {
+      "phase": "before-1",
+      "seconds": 2.702144959,
+      "exit": 0,
+      "semantic_analysis_seconds": 2.1630280017852783,
+      "sil_llvm_seconds": 0.2411179542541504,
+      "slowest_expressions": [
+        {
+          "milliseconds": 1292.53,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/SceneArtwork.swift:73:45"
+        },
+        {
+          "milliseconds": 304.67,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/LightShows.swift:187:42"
+        },
+        {
+          "milliseconds": 6.32,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/Notifications.swift:104:27"
+        },
+        {
+          "milliseconds": 3.19,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/HomeswiftCatalog.swift:664:9"
+        },
+        {
+          "milliseconds": 2.87,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/Notifications.swift:57:52"
+        }
+      ]
+    },
+    {
+      "phase": "before-2",
+      "seconds": 2.4681254160000003,
+      "exit": 0,
+      "semantic_analysis_seconds": 1.9734179973602295,
+      "sil_llvm_seconds": 0.23669910430908203,
+      "slowest_expressions": [
+        {
+          "milliseconds": 1121.88,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/SceneArtwork.swift:73:45"
+        },
+        {
+          "milliseconds": 299.7,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/LightShows.swift:187:42"
+        },
+        {
+          "milliseconds": 6.04,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/Notifications.swift:104:27"
+        },
+        {
+          "milliseconds": 2.92,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/HomeswiftCatalog.swift:664:9"
+        },
+        {
+          "milliseconds": 2.75,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/Notifications.swift:57:52"
+        }
+      ]
+    },
+    {
+      "phase": "factories",
+      "seconds": 0.8817025000000001,
+      "exit": 0,
+      "semantic_analysis_seconds": 0.48399901390075684,
+      "sil_llvm_seconds": 0.19162702560424805,
+      "slowest_expressions": [
+        {
+          "milliseconds": 5.93,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/Notifications.swift:104:27"
+        },
+        {
+          "milliseconds": 3.25,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/HomeswiftCatalog.swift:664:9"
+        },
+        {
+          "milliseconds": 2.98,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/Notifications.swift:57:52"
+        },
+        {
+          "milliseconds": 2.32,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/Automations.swift:799:46"
+        },
+        {
+          "milliseconds": 2.24,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/HTTPServer.swift:333:24"
+        }
+      ]
+    },
+    {
+      "phase": "after-1",
+      "seconds": 0.8628387080000002,
+      "exit": 0,
+      "semantic_analysis_seconds": 0.48334693908691406,
+      "sil_llvm_seconds": 0.18648600578308105,
+      "slowest_expressions": [
+        {
+          "milliseconds": 5.68,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/Notifications.swift:104:27"
+        },
+        {
+          "milliseconds": 2.91,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/HomeswiftCatalog.swift:664:9"
+        },
+        {
+          "milliseconds": 2.81,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/Notifications.swift:57:52"
+        },
+        {
+          "milliseconds": 2.76,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/HTTPServer.swift:333:24"
+        },
+        {
+          "milliseconds": 2.3,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/Automations.swift:799:46"
+        }
+      ]
+    },
+    {
+      "phase": "after-2",
+      "seconds": 0.85107025,
+      "exit": 0,
+      "semantic_analysis_seconds": 0.47604990005493164,
+      "sil_llvm_seconds": 0.18323922157287598,
+      "slowest_expressions": [
+        {
+          "milliseconds": 5.34,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/Notifications.swift:104:27"
+        },
+        {
+          "milliseconds": 2.93,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/HomeswiftCatalog.swift:664:9"
+        },
+        {
+          "milliseconds": 2.78,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/Notifications.swift:57:52"
+        },
+        {
+          "milliseconds": 2.47,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/Automations.swift:799:46"
+        },
+        {
+          "milliseconds": 2.21,
+          "location": "/Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftMCP/HTTPServer.swift:333:24"
+        }
+      ]
+    }
+  ],
+  "initializer_equivalence": [
+    {
+      "file": "Sources/HomeswiftMCP/SceneArtwork.swift",
+      "initializer_sha256": "e35d5d158b55582212f140fa7133047e86c166f52332f76caf24f129a193c16d",
+      "factory_expression_matches_original": true
+    },
+    {
+      "file": "Sources/HomeswiftMCP/LightShows.swift",
+      "initializer_sha256": "c8907ecaec0926c093be0e30cf2212f89b20b58243f4280243d52eeec3775367",
+      "factory_expression_matches_original": true
+    }
+  ],
+  "shared_before": [
+    {
+      "label": "shared-before-0",
+      "batches": 2,
+      "seconds": 13.558056833,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "shared-before-1",
+      "batches": 2,
+      "seconds": 6.233291541,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "shared-before-2",
+      "batches": 2,
+      "seconds": 6.576945457999997,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ]
+    }
+  ],
+  "shared_after": [
+    {
+      "label": "shared-after-0",
+      "batches": 2,
+      "seconds": 12.325256791,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "shared-after-1",
+      "batches": 2,
+      "seconds": 6.615948875000001,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "shared-after-2",
+      "batches": 2,
+      "seconds": 6.218743665999998,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ]
+    }
+  ],
+  "shared_initial_validation": [
+    {
+      "label": "shared-final-0",
+      "batches": 2,
+      "seconds": 8.84071075,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "shared-final-1",
+      "batches": 2,
+      "seconds": 5.718045792,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "shared-final-2",
+      "batches": 2,
+      "seconds": 5.627623417000001,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ]
+    }
+  ],
+  "shared_confirmed": [
+    {
+      "label": "shared-confirmed-0",
+      "batches": 2,
+      "seconds": 8.571063958,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "shared-confirmed-1",
+      "batches": 2,
+      "seconds": 6.365712709,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "shared-confirmed-2",
+      "batches": 2,
+      "seconds": 6.176032333,
+      "exit": 0,
+      "command": [
+        "Scripts/build.sh",
+        "--all",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ]
+    }
+  ],
+  "initial_full_suites": [
+    {
+      "label": "final-suite-0",
+      "seconds": 187.00744075,
+      "exit": 1,
+      "command": [
+        "Scripts/test.sh",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ]
+    },
+    {
+      "label": "final-suite-1",
+      "seconds": 36.615908042,
+      "exit": 1,
+      "command": [
+        "Scripts/test.sh",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ]
+    }
+  ],
+  "confirmed_full_suites": [
+    {
+      "label": "confirmed-suite-0",
+      "seconds": 35.740358083,
+      "exit": 0,
+      "command": [
+        "Scripts/test.sh",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ],
+      "tests": 3748,
+      "bundles": 55
+    },
+    {
+      "label": "confirmed-suite-1",
+      "seconds": 22.424211874999997,
+      "exit": 0,
+      "command": [
+        "Scripts/test.sh",
+        "--scratch-path",
+        "/tmp/homeswift-source-build/scratch",
+        "--disable-automatic-resolution"
+      ],
+      "tests": 3748,
+      "bundles": 55
+    }
+  ],
+  "fixture_repetitions": [
+    {
+      "label": "repeat-ReolinkTests-0",
+      "seconds": 0.32728199999999996,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-1",
+      "seconds": 0.28390158400000004,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-2",
+      "seconds": 0.26457029199999993,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-3",
+      "seconds": 0.2723878329999999,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-4",
+      "seconds": 0.26393362499999995,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-5",
+      "seconds": 0.2590208330000001,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-6",
+      "seconds": 0.2631567910000001,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-7",
+      "seconds": 0.26267150000000017,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-8",
+      "seconds": 0.25625066699999977,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-9",
+      "seconds": 0.2583812499999998,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-10",
+      "seconds": 0.25877266600000004,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-11",
+      "seconds": 0.25833095800000017,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-12",
+      "seconds": 0.25632116599999977,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-13",
+      "seconds": 0.2605004169999998,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-14",
+      "seconds": 0.26281599999999994,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-15",
+      "seconds": 0.2679844170000001,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-16",
+      "seconds": 0.2612261250000003,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-17",
+      "seconds": 0.26146795899999997,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-18",
+      "seconds": 0.2621902500000006,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-19",
+      "seconds": 0.2609425830000003,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-20",
+      "seconds": 0.27192845899999973,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-21",
+      "seconds": 0.2591909579999996,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-22",
+      "seconds": 0.25717766600000047,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-23",
+      "seconds": 0.25923783299999936,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-24",
+      "seconds": 0.2676257909999995,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-25",
+      "seconds": 0.2654939170000006,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-26",
+      "seconds": 0.2599154590000001,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-27",
+      "seconds": 0.2613861670000004,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-28",
+      "seconds": 0.26119129199999946,
+      "exit": 0
+    },
+    {
+      "label": "repeat-ReolinkTests-29",
+      "seconds": 0.2557746249999999,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-0",
+      "seconds": 0.42169554199999926,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-1",
+      "seconds": 0.404555083,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-2",
+      "seconds": 0.4062836670000003,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-3",
+      "seconds": 0.41529754199999935,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-4",
+      "seconds": 0.3997472919999989,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-5",
+      "seconds": 0.3863922500000001,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-6",
+      "seconds": 0.39583124999999875,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-7",
+      "seconds": 0.4037210420000008,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-8",
+      "seconds": 0.3960097090000012,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-9",
+      "seconds": 0.40568091699999975,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-10",
+      "seconds": 0.40638412500000065,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-11",
+      "seconds": 0.40909245799999994,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-12",
+      "seconds": 0.37730125000000037,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-13",
+      "seconds": 0.40014429199999846,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-14",
+      "seconds": 0.4123511250000007,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-15",
+      "seconds": 0.41094649999999966,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-16",
+      "seconds": 0.4006750830000012,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-17",
+      "seconds": 0.40171016700000095,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-18",
+      "seconds": 0.39617820900000034,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-19",
+      "seconds": 0.39411245800000216,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-20",
+      "seconds": 0.39727087500000025,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-21",
+      "seconds": 0.3984186670000014,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-22",
+      "seconds": 0.4979977909999995,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-23",
+      "seconds": 0.3882732080000011,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-24",
+      "seconds": 0.3862484170000009,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-25",
+      "seconds": 0.3959795419999992,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-26",
+      "seconds": 0.40053829200000024,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-27",
+      "seconds": 0.39595858399999884,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-28",
+      "seconds": 0.4001669579999998,
+      "exit": 0
+    },
+    {
+      "label": "repeat-SmartThingsTests-29",
+      "seconds": 0.38667066600000055,
+      "exit": 0
+    }
+  ],
+  "restored_build": {
+    "seconds": 8.28037291599999,
+    "exit": 0,
+    "command": [
+      "Scripts/build.sh",
+      "--all",
+      "--scratch-path",
+      "/tmp/homeswift-source-build/scratch",
+      "--disable-automatic-resolution"
+    ]
+  },
+  "initial_failures": {
+    "final-suite-0": "UI embedding checks for style.css and app.js: independently edited web files/generated assets changed after the clean-build measurements, during initial validation. No UI source changes made by this task.",
+    "final-suite-1": "Reolink push readiness assertion and SmartThings 300-microsecond debounce fixture raced scheduling. Test-only fixes retained; all assertions/cases remain."
+  },
+  "validation": {
+    "runner_regression_tests_passed": 4,
+    "syntax_and_diff_checks": "passed",
+    "native_linux": "not run; production source changes use existing portable Swift features"
+  },
+  "untouched_examined_sources": {
+    "Sources/HomeswiftMCP/HostTools.swift": "bcf7a821d9853f2cd0a7b31419cb4df8828b33b9f7dcea966b4805a8c2203058",
+    "Sources/Homeswift/Model/Definitions.swift": "8d34125e57637638d5a5cc9cfc64d8eed13366eef813a9063bd90c60481613e0",
+    "Scripts/generate-definitions.js": "ff8d258421e5819ef49fdee91dc52e1ad52f4629beb86ebcd626d1a2845b9e94"
+  },
+  "compiler_warning_counts": {
+    "before-2.log": 0,
+    "before-1.log": 0,
+    "before-0.log": 0,
+    "after-1.log": 0,
+    "after-0.log": 0,
+    "after-2.log": 0,
+    "shared-confirmed-2.log": 0,
+    "shared-confirmed-1.log": 0,
+    "shared-confirmed-0.log": 0,
+    "shared-final-0.log": 0,
+    "shared-after-2.log": 0,
+    "shared-final-1.log": 0,
+    "shared-after-0.log": 0,
+    "shared-after-1.log": 0,
+    "shared-final-2.log": 0,
+    "shared-before-2.log": 0,
+    "shared-before-0.log": 0,
+    "shared-before-1.log": 0,
+    "confirmed-suite-1.log": 0,
+    "confirmed-suite-0.log": 0,
+    "restored-confirmed.log": 0
+  },
+  "observed_ui_update": {
+    "latest_observed_mtimes": {
+      "Sources/HomeswiftUI/Web/app.js": 1794319663.0792797,
+      "Sources/HomeswiftUI/Web/style.css": 1794319663.1188214,
+      "Sources/HomeswiftUI/WebAssets.swift": 1794319664.1665053
+    },
+    "clean_timing_finished_at": 1794318994.3036776,
+    "confirmed_validation_started_at": 1794319460.5274827
+  }
+}
