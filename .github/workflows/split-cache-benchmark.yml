@@ -2,6 +2,7 @@ name: Split cache benchmark
 on:
   push:
     branches: [codex/ci-split-cache-benchmark-20261110]
+    paths: ["Sources/**", "Plugins/**", "Scripts/**"]
 permissions:
   contents: read
 jobs:

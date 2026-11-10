@@ -1,0 +1,19 @@
+name: Measure split cache setup overhead
+on:
+  push:
+    branches: [codex/ci-split-cache-benchmark-20261110]
+    paths: [.github/workflows/cache-setup-benchmark.yml]
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    container: swift:6.2
+    steps:
+      - name: Original dependency installation
+        run: apt-get update && apt-get install -y --no-install-recommends libavahi-compat-libdnssd-dev
+      - name: Additional Python installation
+        shell: bash
+        run: |
+          TIMEFORMAT='python_install_seconds=%R'
+          time apt-get install -y --no-install-recommends python3
