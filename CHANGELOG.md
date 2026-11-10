@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Status editor**: compact sections into movable rows on phones, unify edit headers, and use full-area frosted glass while dragging.
+
 - **Web UI**: manage plugins through compact lists and a responsive inspector; unify Logbook filters, simplify Audit search, and tighten Backup, Setup, and Logs layouts.
 
 ### Fixed

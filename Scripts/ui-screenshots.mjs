@@ -232,7 +232,11 @@ const send = (method, params = {}) => new Promise((done) => {
   pending.set(id, done);
   socket.send(JSON.stringify({ id, method, params }));
 }).then((message) => { if (message.error) throw new Error(`${method}: ${message.error.message}`); return message.result; });
-const evaluate = async (expression) => (await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
+const evaluate = async (expression) => {
+  const reply = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+  if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
+  return reply.result.value;
+};
 
 await send("Page.enable");
 await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }, { name: "prefers-reduced-motion", value: "reduce" }] });
@@ -270,6 +274,19 @@ try {
   await shot("scene-homekit", "/scenes/new", { ready: ".scene-editor .toggle", element: ".scene-editor .toggle" });
   await shot("scene-artwork", "/scenes/new", { ready: ".artwork-picker", prepare: 'document.querySelector(".artwork-picker").open = true;', tall: 1000 });
   // The bridge as the Home app pairs it: its setup code and QR code.
+  await shot("status-edit-phone", "/status", { width: 375, height: 812, mobile: true, ready: ".status-footer button", prepare: `
+    const edit = document.querySelector(".status-footer button");
+    edit.click();
+    const rows = [...document.querySelectorAll(".dash-widget.dash-compact:not([hidden]):not(.dash-empty)")];
+    if (!rows.length || rows.some(row => Math.abs(row.getBoundingClientRect().height - 56) > 1)) throw new Error("Mobile editor rows must be 56px tall");
+    for (const button of document.querySelectorAll(".dash-edit-header > button")) {
+      const box = button.getBoundingClientRect();
+      if (box.width !== 40 || box.height !== 40) throw new Error("Edit controls must be 40px circles");
+    }
+    document.querySelector(".dash-edit-bar .primary").click();
+    if (document.querySelector(".dash-compact, .dash-edit-header")) throw new Error("Done must restore section contents");
+    edit.click();` });
+  await shot("status-drag", "/status", { ready: ".dash-widget .card", prepare: 'document.querySelector(".status-footer button").click(); for (let i = 0; i < 40 && !document.querySelector(".dash-edit-header"); i++) await new Promise(r => setTimeout(r, 100)); document.querySelector(".dash-widget:has(.card)").classList.add("dragging");', element: ".dash-widget:has(.dash-edit-header):has(.card)" });
   await shot("status-bridge", "/status", { ready: ".card.server", element: "main .card.server" });
   await shot("plugins", "/plugins", { ready: ".plugins-row", tall: 1000 });
   await shot("plugins-inspector", "/plugins", { ready: ".plugins-row", prepare: 'document.querySelector(".plugins-name").click();' });

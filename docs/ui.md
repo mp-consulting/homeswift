@@ -1268,3 +1268,9 @@ with readable names; the row scrolls horizontally on a phone. Scenes without art
 ![Quick controls on a phone](images/ui/quick-controls-phone.png)
 
 In **Appearance → Your house**, upload a JPEG, PNG or WebP photo, add a name and details, and place the Solar panels, Battery, Electrical board and Home markers. Select a marker and tap the photo, or adjust its horizontal and vertical position with the keyboard-accessible sliders. Save and use photo keeps the picture and marker positions privately for your account. Animated paths start at the marked source equipment and meet at Home; readings still come from connected devices. Replace a photo to start its marker placement again, or remove it to return to the realistic house.
+
+### Editing Status on a phone
+
+Edit mode reduces sections to compact rows with a title, remove button and move handle. Drag a row to reorder it; Done restores the full cards. Desktop retains full cards under the same edit header. Lifted sections use frosted glass across the whole drag zone.
+
+![Compact Status editor on a phone](images/ui/status-edit-phone.png)

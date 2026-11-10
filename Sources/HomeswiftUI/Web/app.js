@@ -1530,6 +1530,8 @@
       tilesWatcher = null;
       for (const node of main.querySelectorAll(":scope > .dash-widget")) {
         node.querySelector(":scope > .dash-edit")?.remove();
+        // Reveal phone contents before measuring whether the section is empty.
+        node.classList.remove("dash-compact");
         // A section with nothing to show yet (Quick controls before any favourite) takes no place while editing either.
         // Measured only while editing: outside the mode a refresh forces no layout.
         const empty = editing && [...node.children].every((child) => !child.getBoundingClientRect().height);
@@ -1552,8 +1554,12 @@
           status.textContent = t("{name} removed", { name });
           if (reduce()) done(); else node.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(0.94)" }], { duration: 180, easing: "ease-in" }).finished.then(done, done);
         } }, HomeswiftCommon.icon("minus"));
-        // Its name beside the badge, as Control Center labels each control: some sections have no title of their own.
-        node.append(el("div", { class: "dash-edit" }, shield, remove, el("span", { class: "dash-edit-name", "aria-hidden": "true", text: name }), handle));
+        // One header names every section, including those with no title of their own.
+        const header = el("div", { class: "dash-edit-header" }, remove,
+          el("span", { class: "dash-edit-name", text: name }), handle);
+        header.addEventListener("pointerdown", (event) => { if (!event.target.closest("button")) drag(event, node); });
+        node.append(el("div", { class: "dash-edit" }, shield, header));
+        node.classList.add("dash-compact");
         // At a glance: each widget on its own, above the section's shield: removed by its badge, made wide or small by
         // the button at its corner, moved by dragging it (or the arrow keys on it) among the others.
         const edit = node.querySelector(":scope > .dash-edit");

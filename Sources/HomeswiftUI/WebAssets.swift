@@ -3908,6 +3908,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       tilesWatcher = null;
       for (const node of main.querySelectorAll(":scope > .dash-widget")) {
         node.querySelector(":scope > .dash-edit")?.remove();
+        // Reveal phone contents before measuring whether the section is empty.
+        node.classList.remove("dash-compact");
         // A section with nothing to show yet (Quick controls before any favourite) takes no place while editing either.
         // Measured only while editing: outside the mode a refresh forces no layout.
         const empty = editing && [...node.children].every((child) => !child.getBoundingClientRect().height);
@@ -3930,8 +3932,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           status.textContent = t("{name} removed", { name });
           if (reduce()) done(); else node.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(0.94)" }], { duration: 180, easing: "ease-in" }).finished.then(done, done);
         } }, HomeswiftCommon.icon("minus"));
-        // Its name beside the badge, as Control Center labels each control: some sections have no title of their own.
-        node.append(el("div", { class: "dash-edit" }, shield, remove, el("span", { class: "dash-edit-name", "aria-hidden": "true", text: name }), handle));
+        // One header names every section, including those with no title of their own.
+        const header = el("div", { class: "dash-edit-header" }, remove,
+          el("span", { class: "dash-edit-name", text: name }), handle);
+        header.addEventListener("pointerdown", (event) => { if (!event.target.closest("button")) drag(event, node); });
+        node.append(el("div", { class: "dash-edit" }, shield, header));
+        node.classList.add("dash-compact");
         // At a glance: each widget on its own, above the section's shield: removed by its badge, made wide or small by
         // the button at its corner, moved by dragging it (or the arrow keys on it) among the others.
         const edit = node.querySelector(":scope > .dash-edit");
@@ -41148,7 +41154,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .dash-editing > .dash-widget:not([hidden]) { position: relative; animation: dash-sway 0.34s ease-in-out infinite alternate; transform-origin: 50% 50%; }
 .dash-editing > .dash-widget:nth-of-type(2n) { animation-delay: -0.17s; animation-duration: 0.37s; }
 .dash-editing > .dash-widget:nth-of-type(3n) { animation-delay: -0.09s; animation-duration: 0.31s; }
-.dash-editing > .dash-widget.dragging { animation: none; z-index: 30; filter: drop-shadow(0 18px 34px rgba(0, 0, 0, 0.22)); cursor: grabbing; }
+.dash-editing > .dash-widget.dragging { border-radius: var(--radius); animation: none; z-index: 30; box-shadow: 0 18px 34px rgba(0, 0, 0, 0.22); cursor: grabbing; }
 .dash-editing > .status-footer { visibility: hidden; }
 .dash-edit { position: absolute; inset: 0; z-index: 20; pointer-events: none; }
 .dash-edit-shield { position: absolute; inset: -6px; border-radius: var(--radius); outline: 1.5px dashed color-mix(in srgb, var(--text) 22%, transparent); outline-offset: 0;
@@ -41178,9 +41184,29 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
   .dash-edit-remove { left: -4px; }
   .dash-edit-handle { right: -4px; }
 }
-/* Room for the badges: the sections apart, a title clear of the remove badge. */
+/* Keep neighbouring edit sections apart and reserve space for the shared header. */
 .dash-editing > .dash-widget:not([hidden]) + .dash-widget:not([hidden]) { margin-top: var(--space-18); }
-.dash-editing > .dash-widget:not([hidden]):not(.dash-empty) { padding-top: var(--space-24); }
+.dash-editing > .dash-widget:not([hidden]):not(.dash-empty) { padding-top: 68px; }
+
+/* Lifted surfaces soften underlying content without a bright opaque fill. */
+.dash-editing > .dash-widget.dragging::before, .glance-tile.dragging {
+  background: color-mix(in srgb, var(--bg) 35%, transparent);
+  -webkit-backdrop-filter: blur(48px) saturate(160%);
+  backdrop-filter: blur(48px) saturate(160%);
+}
+.dash-widget.dragging .card { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+/* Match the lift surface to the edit shield, including its six-pixel outer gutter. */
+.dash-editing > .dash-widget.dragging::before { content: ""; position: absolute; inset: -6px; z-index: -1; border-radius: var(--radius); pointer-events: none; }
+.dash-widget.dragging > .dash-edit > .dash-edit-shield { background: transparent; }
+
+/* Phones reorder sections as compact rows; Done restores their full contents. */
+@media (max-width: 640px) {
+  .dash-editing > .dash-widget.dash-compact:not([hidden]):not(.dash-empty) { padding: 0; height: 56px; min-height: 56px; margin-top: var(--space-12); }
+  .dash-widget.dash-compact > :not(.dash-edit) { display: none; }
+  .dash-widget.dash-compact > .dash-edit > :not(.dash-edit-header):not(.dash-edit-shield) { display: none; }
+  .dash-widget.dash-compact .dash-edit-header { border-radius: var(--radius); border-bottom: 0; }
+}
 
 /* At a glance: the small widgets added in the edit mode, a tile each, its figure big, a line, and a thin meter. */
 /* At a glance is a wall (the Accessories page's grid): each tile a Medium widget's place, one column and two rows. */
@@ -41230,11 +41256,11 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
   .energy-log-kinds button { flex: none; }
 }
 
-/* The edit mode names each section beside its badge. */
-.dash-edit-name { position: absolute; top: -6px; left: 30px; max-width: calc(100% - 80px); padding: 3px var(--space-10); border-radius: var(--radius-pill);
-  background: var(--material-solid); box-shadow: var(--shadow); font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
-@media (max-width: 640px) { .dash-edit-name { top: -2px; left: 38px; } }
+/* A single edit header contains the section title and its management controls. */
+.dash-edit-header { position: absolute; inset: 0 0 auto; display: flex; align-items: center; gap: var(--space-12); padding: var(--space-8); border-bottom: 1px solid var(--line); border-radius: var(--radius) var(--radius) 0 0; background: var(--material-thick); pointer-events: auto; cursor: grab; touch-action: none; }
+.dash-edit-header > .dash-edit-name { flex: 1; min-width: 0; font-size: var(--text-base); font-weight: var(--weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-edit-header > button { position: static; flex: none; width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
+.dash-editing > .dash-widget > h2, .dash-editing > .dash-widget > .activity-part > h2 { display: none; }
 
 /* The Status page on a wide screen: the half sections (Energy by day, Where it goes, Worth knowing, Energy log) two to
    a row, the others across. */

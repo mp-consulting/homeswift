@@ -179,3 +179,11 @@ Logbook follows the integrated Plugins card: a segmented time range, existing so
 Audit filters use one search input with a scope menu (tool/route or client/user), preserving accessible labels without an extra visible label row. Inactive reset controls are hidden.
 
 Backup actions use compact equal-height cards above 720px; the restore drop zone fills its remaining space. Phones stack the cards. Empty backup lists use an inline icon and message rather than a large blank slate.
+
+Dragged Status sections and glance tiles use a 35% tint of `--bg` with 48px backdrop blur and 160% saturation. Nested cards stay clear to avoid stacking bright fills; the lifted glass softens underlying content. The usual material returns when dropped.
+
+The lifted section’s glass extends to the edit shield’s outer edge (6px beyond its box), covering padding and gutters as one continuous surface.
+
+Status edit mode uses one full-width card header for the section title, remove button, and move handle. Both buttons are 40px circles; duplicate section headings are hidden only while editing.
+
+At phone width, Status edit mode collapses each section into a 56px header row, keeping remove and move controls available. Done restores the full content; individual widget controls remain in the section/widget management UI.
