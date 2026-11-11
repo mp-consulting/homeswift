@@ -39793,14 +39793,14 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
   /* Each action its own glass: a circle, the search a pill with its name. */
   .accessories-bar .accessories-toolbar > :is(button, a), .accessories-bar .accessories-toolbar > .accessory-options-button, .accessories-bar .subnav a {
     position: relative; display: flex; align-items: center; justify-content: center; width: var(--float-action); height: var(--float-action);
-    min-width: var(--float-action); min-height: var(--float-action); padding: 0; gap: 0; border-radius: var(--radius-md); font-size: 0; flex: none; color: var(--text);
+    min-width: var(--float-action); min-height: var(--float-action); padding: 0; gap: 0; border-radius: 50%; font-size: 0; flex: none; color: var(--text);
     background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
   }
-  .accessories-bar .accessories-toolbar > .accessories-search-toggle { width: auto; padding: 0 var(--space-18) 0 var(--space-16); gap: var(--space-8); border-radius: var(--radius-md);
+  .accessories-bar .accessories-toolbar > .accessories-search-toggle { width: auto; padding: 0 var(--space-18) 0 var(--space-16); gap: var(--space-8); border-radius: var(--radius-pill);
     font-size: var(--text-base); font-weight: var(--weight-semibold); }
   .accessories-bar .accessories-search-toggle .toolbar-label { display: inline; }
-  .accessories-bar.searching .accessories-search-toggle { width: var(--float-action); padding: 0; font-size: 0; }
+  .accessories-bar.searching .accessories-search-toggle { width: var(--float-action); padding: 0; border-radius: 50%; font-size: 0; }
   .accessories-bar.searching .accessories-search-toggle .toolbar-label { display: none; }
   .accessories-bar :is(.accessories-filters.on, .accessories-edit[aria-pressed="true"]) { color: var(--accent-ink); }
   .accessories-bar .accessories-filters .toolbar-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -39808,7 +39808,7 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
   .accessories-bar .accessories-toolbar button > svg, .accessories-bar .accessory-options-button svg, .accessories-bar .subnav svg { width: 21px; height: 21px; margin: 0; color: currentColor; opacity: 1; }
   .accessories-bar .accessories-edit.action-with-icon::before { width: 21px; height: 21px; margin: 0; }
   /* The search: a glass field across the width, its button left to close it. */
-  .accessories-bar .search { order: 0; flex: 1 1 auto; min-width: 0; height: var(--float-action); display: none; border-radius: var(--radius-md);
+  .accessories-bar .search { order: 0; flex: 1 1 auto; min-width: 0; height: var(--float-action); display: none; border-radius: var(--radius-pill);
     background-color: var(--material-chrome); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
   .accessories-bar.searching .search { display: block; animation: accessories-search-in 180ms var(--ease-out); }
@@ -42405,11 +42405,11 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 @media (max-width: 640px) {
   .tabbar { left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); }
   .tabbar .mobile-nav-toggle { display: none; }
-  .tabbar-tabs { display: flex; gap: 2px; padding: 5px; border-radius: var(--radius-xl); background-color: var(--material-chrome); background-image: var(--sheen);
+  .tabbar-tabs { display: flex; gap: 2px; padding: 5px; border-radius: var(--radius-pill); background-color: var(--material-chrome); background-image: var(--sheen);
     -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light); }
   .tabbar .tabbar-tabs > :is(a, button) { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 54px;
-    padding: var(--space-6) 2px 5px; border: 0; border-radius: var(--radius-lg); background: none; box-shadow: none; color: var(--text); font-size: 11px; font-weight: var(--weight-semibold);
+    padding: var(--space-6) 2px 5px; border: 0; border-radius: var(--radius-pill); background: none; box-shadow: none; color: var(--text); font-size: 11px; font-weight: var(--weight-semibold);
     letter-spacing: 0.01em; text-decoration: none; transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out); }
   .tabbar .tabbar-tabs > :is(a, button) span { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.1; }
   .tabbar .tabbar-tabs svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -42423,7 +42423,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   #app > main { padding-bottom: calc(var(--tab-bar-top) + var(--space-24)); }
   /* The Status page's button floats over the tab bar's end, as the Accessories page's actions do. */
   .status-footer, body:has(.chat-dock) .status-footer { right: max(14px, env(safe-area-inset-right)); bottom: calc(var(--tab-bar-top) + var(--space-10)); }
-  .status-footer > .link { width: var(--float-action); height: var(--float-action); min-width: var(--float-action); min-height: var(--float-action); border-radius: var(--radius-md);
+  .status-footer > .link { width: var(--float-action); height: var(--float-action); min-width: var(--float-action); min-height: var(--float-action);
     background-color: var(--material-chrome); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     border: 1px solid var(--edge); }
   #app > main:has(> .status-footer)::after { height: calc(var(--float-action) + var(--space-10)); }
