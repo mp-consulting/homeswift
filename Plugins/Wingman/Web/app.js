@@ -113,8 +113,8 @@
     const one = groups.length === 1;
     const confirmed = await HomeswiftCommon.confirmAction({
       title: one ? t("Remove the group {name}?", { name: groups[0].name }) : tn("Remove {n} hidden group?", "Remove {n} hidden groups?", groups.length),
-      text: one ? t("It is removed from {home} in Apple Home. It holds no accessory there, so nothing else changes.", { home })
-        : t("They are removed from {home} in Apple Home. None holds an accessory there, so nothing else changes.", { home }),
+      text: one ? t("It is removed from {home} in Apple Home. Its accessories stay as they are.", { home })
+        : t("They are removed from {home} in Apple Home. Their accessories stay as they are.", { home }),
       confirmLabel: t("Remove"), confirmIcon: "trash" });
     if (!confirmed) return;
     try {

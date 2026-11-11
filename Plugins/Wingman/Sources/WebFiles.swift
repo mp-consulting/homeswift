@@ -122,8 +122,8 @@ extension WingmanPlugin {
     const one = groups.length === 1;
     const confirmed = await HomeswiftCommon.confirmAction({
       title: one ? t("Remove the group {name}?", { name: groups[0].name }) : tn("Remove {n} hidden group?", "Remove {n} hidden groups?", groups.length),
-      text: one ? t("It is removed from {home} in Apple Home. It holds no accessory there, so nothing else changes.", { home })
-        : t("They are removed from {home} in Apple Home. None holds an accessory there, so nothing else changes.", { home }),
+      text: one ? t("It is removed from {home} in Apple Home. Its accessories stay as they are.", { home })
+        : t("They are removed from {home} in Apple Home. Their accessories stay as they are.", { home }),
       confirmLabel: t("Remove"), confirmIcon: "trash" });
     if (!confirmed) return;
     try {
@@ -167,8 +167,8 @@ HomeswiftI18n.add({
     "Remove the group {name}?": "Supprimer le groupe {name} ?",
     "Remove {n} hidden group?": "Supprimer {n} groupe masqué ?",
     "Remove {n} hidden groups?": "Supprimer {n} groupes masqués ?",
-    "It is removed from {home} in Apple Home. It holds no accessory there, so nothing else changes.": "Il est supprimé de {home} dans l'app Maison. Il n'y contient aucun accessoire, donc rien d'autre ne change.",
-    "They are removed from {home} in Apple Home. None holds an accessory there, so nothing else changes.": "Ils sont supprimés de {home} dans l'app Maison. Aucun n'y contient d'accessoire, donc rien d'autre ne change.",
+    "It is removed from {home} in Apple Home. Its accessories stay as they are.": "Il est supprimé de {home} dans l'app Maison. Ses accessoires restent tels quels.",
+    "They are removed from {home} in Apple Home. Their accessories stay as they are.": "Ils sont supprimés de {home} dans l'app Maison. Leurs accessoires restent tels quels.",
     "Remove": "Supprimer",
     "{name}: {error}": "{name} : {error}",
     "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, scenes and the Assistant, and stay out of HomeKit, which has them already.": "Les accessoires de l'app Maison dans Homeswift, grâce à Homeswift Wingman sur un Mac. Ils rejoignent la page Accessoires, les scènes et l'Assistant, et restent hors de HomeKit, qui les a déjà.",
@@ -209,8 +209,8 @@ HomeswiftI18n.add({
     "Remove the group {name}?": "¿Eliminar el grupo {name}?",
     "Remove {n} hidden group?": "¿Eliminar {n} grupo oculto?",
     "Remove {n} hidden groups?": "¿Eliminar {n} grupos ocultos?",
-    "It is removed from {home} in Apple Home. It holds no accessory there, so nothing else changes.": "Se elimina de {home} en la app Casa. No contiene ningún accesorio allí, así que nada más cambia.",
-    "They are removed from {home} in Apple Home. None holds an accessory there, so nothing else changes.": "Se eliminan de {home} en la app Casa. Ninguno contiene accesorios allí, así que nada más cambia.",
+    "It is removed from {home} in Apple Home. Its accessories stay as they are.": "Se elimina de {home} en la app Casa. Sus accesorios quedan como están.",
+    "They are removed from {home} in Apple Home. Their accessories stay as they are.": "Se eliminan de {home} en la app Casa. Sus accesorios quedan como están.",
     "Remove": "Eliminar",
     "{name}: {error}": "{name}: {error}",
     "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, scenes and the Assistant, and stay out of HomeKit, which has them already.": "Los accesorios de la app Casa en Homeswift, a través de Homeswift Wingman en un Mac. Se suman a la página Accesorios, las escenas y el Asistente, y quedan fuera de HomeKit, que ya los tiene.",
@@ -251,8 +251,8 @@ HomeswiftI18n.add({
     "Remove the group {name}?": "Remover o grupo {name}?",
     "Remove {n} hidden group?": "Remover {n} grupo oculto?",
     "Remove {n} hidden groups?": "Remover {n} grupos ocultos?",
-    "It is removed from {home} in Apple Home. It holds no accessory there, so nothing else changes.": "É removido de {home} na app Casa. Não contém nenhum acessório lá, por isso nada mais muda.",
-    "They are removed from {home} in Apple Home. None holds an accessory there, so nothing else changes.": "São removidos de {home} na app Casa. Nenhum contém acessórios lá, por isso nada mais muda.",
+    "It is removed from {home} in Apple Home. Its accessories stay as they are.": "É removido de {home} na app Casa. Os seus acessórios ficam como estão.",
+    "They are removed from {home} in Apple Home. Their accessories stay as they are.": "São removidos de {home} na app Casa. Os seus acessórios ficam como estão.",
     "Remove": "Remover",
     "{name}: {error}": "{name}: {error}",
     "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, scenes and the Assistant, and stay out of HomeKit, which has them already.": "Os acessórios da app Casa no Homeswift, através do Homeswift Wingman num Mac. Juntam-se à página Acessórios, às cenas e ao Assistente, e ficam fora do HomeKit, que já os tem.",
