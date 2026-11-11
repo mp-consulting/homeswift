@@ -162,7 +162,7 @@ struct Structure: Sendable {
         let groups = home.serviceGroups.map { group in
             var seen: Set<String> = []
             let members = group.services.compactMap { byService[$0] }.filter { seen.insert($0).inserted }
-            return HomeSnapshot.Group(id: group.id, name: group.name, members: members)
+            return HomeSnapshot.Group(id: group.id, name: group.name, members: members, accessories: group.services.count)
         }
         return HomeSnapshot(
             homeID: home.id, homeName: home.name, rooms: home.rooms.map { HomeSnapshot.Room(id: $0.id, name: $0.name) },

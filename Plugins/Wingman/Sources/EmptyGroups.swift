@@ -7,13 +7,15 @@ import HomeswiftPlugin
 
 extension WingmanPlugin {
     /// The bridge's home's groups that hold fewer than two services; nil without a Home Link.
-    func emptyGroups() async -> (home: Structure.Home, link: Link, groups: [WingmanAPI.ServiceGroup])? {
-        guard let (link, _, home) = await homeLinkOwner() else { return nil }
-        return (home, link, home.serviceGroups.filter { $0.services.count < 2 })
+    func emptyGroups() async -> (home: Structure.Home, groups: [WingmanAPI.ServiceGroup])? {
+        guard let (_, _, home) = await homeLinkOwner() else { return nil }
+        return (home, home.serviceGroups.filter { $0.services.count < 2 })
     }
 
+    private static let noHomeLink = PluginWebResponse.error(409, "No Home Link: pair Homeswift Wingman and link the bridge to its home")
+
     func emptyGroupsResponse() async -> PluginWebResponse {
-        guard let found = await emptyGroups() else { return .error(409, "No Home Link: pair Homeswift Wingman and link the bridge to its home") }
+        guard let found = await emptyGroups() else { return Self.noHomeLink }
         return PluginWebResponse([
             "home": .string(found.home.name),
             "groups": .array(found.groups.map { ["id": .string($0.id), "name": .string($0.name), "accessories": .number(Double($0.services.count))] }),
@@ -21,11 +23,10 @@ extension WingmanPlugin {
     }
 
     /// Removes the groups of `ids` (all of them without `ids`) that still hold fewer than two services.
-    func removeEmptyGroups(_ ids: [String]?) async -> PluginWebResponse {
-        guard let found = await emptyGroups() else { return .error(409, "No Home Link: pair Homeswift Wingman and link the bridge to its home") }
-        let chosen = found.groups.filter { ids == nil || ids!.contains($0.id) }
+    func removeEmptyGroups(_ ids: Set<String>?) async -> PluginWebResponse {
+        guard let found = await emptyGroups() else { return Self.noHomeLink }
         var removed: [JSONValue] = [], failed: [JSONValue] = []
-        for group in chosen {
+        for group in found.groups where ids?.contains(group.id) ?? true {
             do {
                 _ = try await applyHomeChange(.deleteGroup(id: group.id))
                 removed.append(["id": .string(group.id), "name": .string(group.name)])

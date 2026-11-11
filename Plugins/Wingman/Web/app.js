@@ -94,22 +94,23 @@
       return;
     }
     const groups = answer.groups || [];
+    const show = (...children) => hidden.replaceChildren(el("div", { class: "card hidden-groups" }, ...children));
     const why = el("p", { class: "muted note", text: t("Groups of fewer than two accessories, which the Home app does not show. An interrupted group creation can leave one: it keeps the name, so a new group of that name is refused, and it counts towards Apple Home's limit.") });
     if (!groups.length) {
-      hidden.replaceChildren(el("div", { class: "card hidden-groups" }, why, el("p", { class: "note", text: t("No hidden groups in {home}.", { home: answer.home }) })));
+      show(why, el("p", { class: "note", text: t("No hidden groups in {home}.", { home: answer.home }) }));
       return;
     }
-    hidden.replaceChildren(el("div", { class: "card hidden-groups" }, why,
+    show(why,
       el("div", { class: "rows" }, groups.map((group) => el("div", { class: "row" },
         el("div", { class: "who" }, el("strong", { text: group.name }),
           el("span", { class: "muted", text: group.accessories ? t("1 accessory") : t("No accessories") })),
         el("button", { type: "button", class: "icon-button danger", "aria-label": t("Remove {name}", { name: group.name }), title: t("Remove {name}", { name: group.name }),
-          onclick: () => removeGroups([group], answer.home) }, HomeswiftCommon.icon("trash"))))),
+          onclick: (event) => removeGroups(event.currentTarget, [group], answer.home) }, HomeswiftCommon.icon("trash"))))),
       el("div", { class: "actions" }, el("button", { type: "button", class: "danger", actionIcon: "trash", text: t("Remove all"),
-        onclick: () => removeGroups(groups, answer.home) }))));
+        onclick: (event) => removeGroups(event.currentTarget, groups, answer.home) })));
   }
 
-  async function removeGroups(groups, home) {
+  async function removeGroups(button, groups, home) {
     const one = groups.length === 1;
     const confirmed = await HomeswiftCommon.confirmAction({
       title: one ? t("Remove the group {name}?", { name: groups[0].name }) : tn("Remove {n} hidden group?", "Remove {n} hidden groups?", groups.length),
@@ -117,11 +118,12 @@
         : t("They are removed from {home} in Apple Home. Their accessories stay as they are.", { home }),
       confirmLabel: t("Remove"), confirmIcon: "trash" });
     if (!confirmed) return;
-    try {
+    // Disabled while it runs, so a second click does not remove them again.
+    await HomeswiftCommon.busyButton(button, async () => {
       const result = await request("empty-groups/remove", { method: "POST", body: { ids: groups.map((group) => group.id) } });
       const failed = (result.failed || []).map((group) => t("{name}: {error}", { name: group.name, error: group.error }));
       if (failed.length) HomeswiftCommon.showAlert(failed.join("\n"));
-    } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    });
     loadHiddenGroups();
   }
 

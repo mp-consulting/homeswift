@@ -305,6 +305,18 @@ import Testing
         #expect(!environment.homeLink.applied.contains { if case .createGroup = $0 { true } else { false } })
     }
 
+    /// A group of that name with accessories of its own in Apple Home (another bridge's) is the user's: never taken over.
+    @Test func aVisibleGroupOfTheSameNameIsNotTakenOver() async throws {
+        let environment = try await environment(bulbs: 2)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil])
+        environment.homeLink.set { $0.home.groups = [.init(id: "hk-users", name: "Spots Salon", members: [], accessories: 3)] }
+        await environment.catalog.followHome()
+        let answer = try await environment.catalog.updateWall(["groups": [["name": "Spots Salon", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        #expect(answer["appleHomeRefused"]?.arrayValue?.isEmpty == false)
+        #expect(environment.homeLink.home.groups.first { $0.id == "hk-users" }?.members == [])
+    }
+
     @Test(arguments: [false, true])
     func pendingGroupRenameSurvivesReadOnlyReconnect(deletedInHome: Bool) async throws {
         let environment = try await environment(bulbs: 2)

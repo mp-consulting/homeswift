@@ -123,7 +123,7 @@ struct StructureTests {
         #expect(await plugin.homeSnapshot()?.zones.first { $0.id == zone }?.rooms == ["room-bureau"])
         let group = try #require(try await plugin.applyHomeChange(.createGroup(name: "Lampes", members: ["Wingman:light-1", "Meross:plug"])))
         #expect(environment.wingman.edits.last == .init(path: "groups/create", body: ["name": "Lampes", "services": ["bulb-1", "switch-1"], "home": "home-1"]))
-        #expect(await plugin.homeSnapshot()?.groups == [.init(id: group, name: "Lampes", members: ["Wingman:light-1", "Meross:plug"])])
+        #expect(await plugin.homeSnapshot()?.groups == [.init(id: group, name: "Lampes", members: ["Wingman:light-1", "Meross:plug"], accessories: 2)])
         let error = await #expect(throws: HomeChangeError.self) { try await plugin.applyHomeChange(.moveAccessory(accessoryID: "Elgato:lamp", roomID: nil)) }
         #expect(error?.kind == .notFound)
         await host.stop()
