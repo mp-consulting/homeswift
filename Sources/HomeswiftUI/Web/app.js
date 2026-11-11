@@ -3396,7 +3396,7 @@
     const search = toolbar.querySelector(".search");
     if (!search) return bar;
     const toggle = el("button", { type: "button", class: "icon-button accessories-search-toggle", "aria-label": t("Search accessories"), title: t("Search accessories"),
-      "aria-expanded": "false" }, HomeswiftCommon.icon("search"));
+      "aria-expanded": "false" }, HomeswiftCommon.icon("search"), el("span", { class: "toolbar-label", text: t("Search") }));
     const open = (on) => {
       bar.classList.toggle("searching", on);
       toggle.classList.toggle("on", on);
@@ -3418,12 +3418,13 @@
       const fit = () => {
         if (!bar.isConnected) { view.removeEventListener("resize", fit); view.removeEventListener("scroll", fit); return; }
         const covered = document.activeElement === search ? Math.max(0, Math.round(window.innerHeight - view.height - view.offsetTop)) : 0;
-        bar.style.setProperty("--keyboard", `${covered}px`);
+        // On the page, so whatever sits on the bottom bar rises with it.
+        document.documentElement.style.setProperty("--keyboard", `${covered}px`);
       };
       view.addEventListener("resize", fit);
       view.addEventListener("scroll", fit);
       search.addEventListener("focus", fit);
-      search.addEventListener("blur", () => bar.style.setProperty("--keyboard", "0px"));
+      search.addEventListener("blur", () => document.documentElement.style.setProperty("--keyboard", "0px"));
     }
     return bar;
   };
@@ -4200,8 +4201,15 @@
         render();
       } }] : []),
       ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : []),
-      // A phone's bar has no room for Full screen's and Add accessories' own buttons: they are here.
-      ...(matchMedia("(max-width: 600px)").matches && all.length ? [{ separator: true }, { label: t("Full screen"), icon: "expand", onSelect: () => setFullScreen(true) },
+      // A phone floats only the search, Filters, Edit and this menu over its tab bar: the graph, Full screen and Add
+      // accessories are here.
+      ...(matchMedia("(max-width: 600px)").matches && all.length ? [{ separator: true },
+        { label: t("Graph"), icon: "chart", href: (() => {
+          const kept = new URLSearchParams();
+          for (const [key, value] of new URLSearchParams(location.search)) if (accessoryFilterKeys.includes(key)) kept.append(key, value);
+          return `/accessories/graph${kept.size ? `?${kept}` : ""}`;
+        })() },
+        { label: t("Full screen"), icon: "expand", onSelect: () => setFullScreen(true) },
         ...(addButton ? [{ label: t("Add accessories"), icon: "plus", href: "/setup" }] : [])] : []),
       // The Zones and where the rooms stand with Apple Home, without going through Edit.
       ...(isAdmin() && rooms.length ? [{ separator: true }, { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },

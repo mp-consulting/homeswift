@@ -1417,6 +1417,9 @@
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
   /// none). Hidden on wider windows, where the header holds them.
+  /// The sections a phone's tab bar shows as tabs; the others are under More.
+  const tabSections = new Set(["/status", "/accessories", "/automations"]);
+
   function tabBar({ active, parent = document.body } = {}) {
     const existing = document.querySelector("nav.tabbar");
     if (existing) return existing;
@@ -1424,7 +1427,25 @@
       el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
     const toggle = el("button", { type: "button", class: "mobile-nav-toggle", "aria-label": t("Sections"), "aria-expanded": "false", "aria-controls": "mobile-nav-panel" });
     toggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/></svg>';
-    const setOpen = (open) => { panel.hidden = !open; toggle.setAttribute("aria-expanded", String(open)); };
+    // A phone's tab bar: the sections used most as tabs, an icon over its name each, and More for the others (the
+    // panel, which also has Account and the Assistant).
+    const more = el("button", { type: "button", class: "tabbar-more", "aria-controls": "mobile-nav-panel", "aria-expanded": "false" }, icon("more"), el("span", { text: t("More") }));
+    const tabs = el("div", { class: "tabbar-tabs" },
+      sections.filter(([path]) => tabSections.has(path)).map(([path, text, glyph]) =>
+        el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))),
+      more);
+    const setOpen = (open) => {
+      panel.hidden = !open;
+      toggle.setAttribute("aria-expanded", String(open));
+      more.setAttribute("aria-expanded", String(open));
+    };
+    // The Assistant, when there is one: on a phone it has no button of its own over the page.
+    const assistant = el("button", { type: "button", class: "mobile-nav-account mobile-nav-assistant", hidden: true, onclick: (event) => {
+      event.stopPropagation();
+      setOpen(false);
+      window.HomeswiftChat?.open();
+    } }, sparkle(), el("span", { text: t("Assistant") }));
+    panel.append(assistant);
     panel.append(el("hr", { class: "mobile-nav-divider" }));
     panel.append(el("button", { type: "button", class: "mobile-nav-account", onclick: (event) => {
       event.stopPropagation();
@@ -1433,13 +1454,15 @@
     } }, icon("user"), el("span", { text: t("Account") })));
     // Homeswift's section under Account, as at the side menu's foot; the page draws it (`.side-about`).
     panel.append(el("details", { class: "side-about mobile-nav-about", hidden: true }));
-    toggle.addEventListener("click", () => setOpen(panel.hidden));
+    const openPanel = () => { assistant.hidden = !window.HomeswiftChat?.available(); setOpen(panel.hidden); };
+    toggle.addEventListener("click", openPanel);
+    more.addEventListener("click", openPanel);
     panel.addEventListener("click", (event) => { if (event.target.closest("a")) setOpen(false); });
-    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, toggle);
+    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, toggle, tabs);
     document.addEventListener("pointerdown", (event) => { if (!bar.contains(event.target)) setOpen(false); });
     bar.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") { setOpen(false); toggle.focus(); }
-      if (event.target === toggle && event.key === "ArrowUp") {
+      if (event.key === "Escape") { setOpen(false); (more.offsetParent ? more : toggle).focus(); }
+      if ((event.target === toggle || event.target === more) && event.key === "ArrowUp") {
         event.preventDefault(); setOpen(true); panel.querySelector("a:not(.hidden)")?.focus();
       }
     });

@@ -5774,7 +5774,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const search = toolbar.querySelector(".search");
     if (!search) return bar;
     const toggle = el("button", { type: "button", class: "icon-button accessories-search-toggle", "aria-label": t("Search accessories"), title: t("Search accessories"),
-      "aria-expanded": "false" }, HomeswiftCommon.icon("search"));
+      "aria-expanded": "false" }, HomeswiftCommon.icon("search"), el("span", { class: "toolbar-label", text: t("Search") }));
     const open = (on) => {
       bar.classList.toggle("searching", on);
       toggle.classList.toggle("on", on);
@@ -5796,12 +5796,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const fit = () => {
         if (!bar.isConnected) { view.removeEventListener("resize", fit); view.removeEventListener("scroll", fit); return; }
         const covered = document.activeElement === search ? Math.max(0, Math.round(window.innerHeight - view.height - view.offsetTop)) : 0;
-        bar.style.setProperty("--keyboard", `${covered}px`);
+        // On the page, so whatever sits on the bottom bar rises with it.
+        document.documentElement.style.setProperty("--keyboard", `${covered}px`);
       };
       view.addEventListener("resize", fit);
       view.addEventListener("scroll", fit);
       search.addEventListener("focus", fit);
-      search.addEventListener("blur", () => bar.style.setProperty("--keyboard", "0px"));
+      search.addEventListener("blur", () => document.documentElement.style.setProperty("--keyboard", "0px"));
     }
     return bar;
   };
@@ -6578,8 +6579,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         render();
       } }] : []),
       ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : []),
-      // A phone's bar has no room for Full screen's and Add accessories' own buttons: they are here.
-      ...(matchMedia("(max-width: 600px)").matches && all.length ? [{ separator: true }, { label: t("Full screen"), icon: "expand", onSelect: () => setFullScreen(true) },
+      // A phone floats only the search, Filters, Edit and this menu over its tab bar: the graph, Full screen and Add
+      // accessories are here.
+      ...(matchMedia("(max-width: 600px)").matches && all.length ? [{ separator: true },
+        { label: t("Graph"), icon: "chart", href: (() => {
+          const kept = new URLSearchParams();
+          for (const [key, value] of new URLSearchParams(location.search)) if (accessoryFilterKeys.includes(key)) kept.append(key, value);
+          return `/accessories/graph${kept.size ? `?${kept}` : ""}`;
+        })() },
+        { label: t("Full screen"), icon: "expand", onSelect: () => setFullScreen(true) },
         ...(addButton ? [{ label: t("Add accessories"), icon: "plus", href: "/setup" }] : [])] : []),
       // The Zones and where the rooms stand with Apple Home, without going through Edit.
       ...(isAdmin() && rooms.length ? [{ separator: true }, { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
@@ -12643,6 +12651,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
   /// none). Hidden on wider windows, where the header holds them.
+  /// The sections a phone's tab bar shows as tabs; the others are under More.
+  const tabSections = new Set(["/status", "/accessories", "/automations"]);
+
   function tabBar({ active, parent = document.body } = {}) {
     const existing = document.querySelector("nav.tabbar");
     if (existing) return existing;
@@ -12650,7 +12661,25 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
     const toggle = el("button", { type: "button", class: "mobile-nav-toggle", "aria-label": t("Sections"), "aria-expanded": "false", "aria-controls": "mobile-nav-panel" });
     toggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/></svg>';
-    const setOpen = (open) => { panel.hidden = !open; toggle.setAttribute("aria-expanded", String(open)); };
+    // A phone's tab bar: the sections used most as tabs, an icon over its name each, and More for the others (the
+    // panel, which also has Account and the Assistant).
+    const more = el("button", { type: "button", class: "tabbar-more", "aria-controls": "mobile-nav-panel", "aria-expanded": "false" }, icon("more"), el("span", { text: t("More") }));
+    const tabs = el("div", { class: "tabbar-tabs" },
+      sections.filter(([path]) => tabSections.has(path)).map(([path, text, glyph]) =>
+        el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))),
+      more);
+    const setOpen = (open) => {
+      panel.hidden = !open;
+      toggle.setAttribute("aria-expanded", String(open));
+      more.setAttribute("aria-expanded", String(open));
+    };
+    // The Assistant, when there is one: on a phone it has no button of its own over the page.
+    const assistant = el("button", { type: "button", class: "mobile-nav-account mobile-nav-assistant", hidden: true, onclick: (event) => {
+      event.stopPropagation();
+      setOpen(false);
+      window.HomeswiftChat?.open();
+    } }, sparkle(), el("span", { text: t("Assistant") }));
+    panel.append(assistant);
     panel.append(el("hr", { class: "mobile-nav-divider" }));
     panel.append(el("button", { type: "button", class: "mobile-nav-account", onclick: (event) => {
       event.stopPropagation();
@@ -12659,13 +12688,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     } }, icon("user"), el("span", { text: t("Account") })));
     // Homeswift's section under Account, as at the side menu's foot; the page draws it (`.side-about`).
     panel.append(el("details", { class: "side-about mobile-nav-about", hidden: true }));
-    toggle.addEventListener("click", () => setOpen(panel.hidden));
+    const openPanel = () => { assistant.hidden = !window.HomeswiftChat?.available(); setOpen(panel.hidden); };
+    toggle.addEventListener("click", openPanel);
+    more.addEventListener("click", openPanel);
     panel.addEventListener("click", (event) => { if (event.target.closest("a")) setOpen(false); });
-    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, toggle);
+    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, toggle, tabs);
     document.addEventListener("pointerdown", (event) => { if (!bar.contains(event.target)) setOpen(false); });
     bar.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") { setOpen(false); toggle.focus(); }
-      if (event.target === toggle && event.key === "ArrowUp") {
+      if (event.key === "Escape") { setOpen(false); (more.offsetParent ? more : toggle).focus(); }
+      if ((event.target === toggle || event.target === more) && event.key === "ArrowUp") {
         event.preventDefault(); setOpen(true); panel.querySelector("a:not(.hidden)")?.focus();
       }
     });
@@ -39735,62 +39766,57 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .accessories-bar { display: grid; row-gap: var(--space-14); margin: 0 0 var(--space-18); }
 .accessories-bar > .accessories-views { margin: 0; }
 .accessories-bar .accessories-search-toggle { display: none; }
-/* A phone: one bar of glass along the bottom, within the thumb's reach, beside the sections' button (54px at 14px from
-   the right): the views first, then round buttons (the search, Filters with its count, Edit, the options). Full screen and
-   Add are in the options' menu on the wall. The search opens over the row, and the bar rises with the keyboard. */
+/* A phone: the page's actions float over the tab bar at the thumb's right, each its own glass: Search as a labelled pill,
+   then Filters with its count, Edit and the options as circles (the wall's Graph, Full screen and Add accessories are in
+   the options' menu; on the graph, the wall's button takes you back). The search opens into a field across the width,
+   and rises with the keyboard. */
 @media (max-width: 600px) {
-  main:has(> .accessories-bar) { padding-bottom: calc(max(96px, var(--accessories-bar-height, 54px) + 30px) + env(safe-area-inset-bottom)); }
-  body:has(.chat-dock) main:has(> .accessories-bar) { padding-bottom: calc(max(150px, var(--accessories-bar-height, 54px) + 30px) + env(safe-area-inset-bottom)); }
+  main:has(> .accessories-bar) { padding-bottom: calc(var(--tab-bar-top) + var(--float-action) + 24px + env(safe-area-inset-bottom)); }
   .accessories-bar {
-    position: fixed; z-index: var(--layer-header); left: max(14px, env(safe-area-inset-left)); right: calc(max(14px, env(safe-area-inset-right)) + 62px);
-    bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--keyboard, 0px));
-    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); margin: 0; padding: var(--space-6);
-    border-radius: var(--radius-xl); background-color: var(--material-chrome); background-image: var(--sheen);
-    -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
-    border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
+    position: fixed; z-index: calc(var(--layer-tabbar) + 1); margin: 0; padding: 0; left: auto; right: max(14px, env(safe-area-inset-right));
+    bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--keyboard, 0px));
+    display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: var(--space-8); background: none; border: 0; box-shadow: none;
   }
+  .accessories-bar.searching { left: max(14px, env(safe-area-inset-left)); }
   .page-head:has(+ .accessories-bar) { margin-bottom: var(--space-16); }
   .accessories-bar > .accessories-toolbar, .accessories-bar > .accessories-views { display: contents; }
-  /* The views as two glyphs, their names for assistive technology. */
-  .accessories-bar .subnav { order: 0; flex: none; width: auto; margin: 0 auto 0 0; padding: 2px; display: flex; overflow: visible; mask-image: none; -webkit-mask-image: none; }
-  .accessories-bar .subnav a { display: grid; place-items: center; width: 40px; min-width: 40px; height: 36px; padding: 0; border-radius: var(--radius-pill); }
+  .accessories-bar .subnav { order: 0; flex: none; width: auto; margin: 0; padding: 0; display: flex; background: none; border: 0; box-shadow: none; overflow: visible; mask-image: none; -webkit-mask-image: none; }
+  .accessories-bar .subnav:has(> a:first-child.on), .accessories-bar .subnav > a.on { display: none; }
   .accessories-bar .subnav a span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .accessories-bar .subnav svg { width: 20px; height: 20px; }
-  /* Anything else of the toolbar (the Rooms button of Edit by room) after Edit. */
   .accessories-bar .accessories-toolbar > * { order: 4; }
-  .accessories-bar .accessories-search-toggle { display: grid; order: 1; }
+  .accessories-bar .accessories-search-toggle { order: 1; }
   .accessories-bar .accessories-filters { order: 2; }
   .accessories-bar .accessories-edit { order: 3; }
   .accessories-bar .accessory-options-button.menu-button { order: 5; }
-  .accessories-bar .accessories-full-screen { order: 6; }
-  .accessories-bar .accessories-add { order: 7; }
-  .accessories-bar .in-menu-on-phone { display: none; }
-  /* Every button a 40px circle, as round buttons are at phone width, its glyph in the middle; Filters keeps its count
-     as a badge. (Above the toolbar's own button rule, which lays a glyph and its words side by side.) */
-  .accessories-bar .accessories-toolbar > :is(button, a).accessories-search-toggle, .accessories-bar .accessories-toolbar > :is(button, a).accessories-filters,
-  .accessories-bar .accessories-toolbar > :is(button, a).accessories-edit, .accessories-bar .accessories-toolbar > :is(button, a)[aria-label],
-  .accessories-bar .accessories-toolbar > .accessory-options-button, .accessories-bar .accessories-views > :is(button, a):not(.subnav) {
-    position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; gap: 0; border-radius: 50%; font-size: 0; flex: none;
+  .accessories-bar :is(.accessories-views, .accessories-toolbar) > :is(button, a):is(.accessories-full-screen, .in-menu-on-phone),
+  .accessories-bar .accessories-toolbar > :is(button, a).hidden { display: none; }
+  /* Each action its own glass: a circle, the search a pill with its name. */
+  .accessories-bar .accessories-toolbar > :is(button, a), .accessories-bar .accessories-toolbar > .accessory-options-button, .accessories-bar .subnav a {
+    position: relative; display: flex; align-items: center; justify-content: center; width: var(--float-action); height: var(--float-action);
+    min-width: var(--float-action); min-height: var(--float-action); padding: 0; gap: 0; border-radius: 50%; font-size: 0; flex: none; color: var(--text);
+    background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
   }
-  .accessories-bar .accessories-toolbar > :is(button, a).hidden, .accessories-bar .accessories-views > :is(button, a).in-menu-on-phone { display: none; }
+  .accessories-bar .accessories-toolbar > .accessories-search-toggle { width: auto; padding: 0 var(--space-18) 0 var(--space-16); gap: var(--space-8); border-radius: var(--radius-pill);
+    font-size: var(--text-base); font-weight: var(--weight-semibold); }
+  .accessories-bar .accessories-search-toggle .toolbar-label { display: inline; }
+  .accessories-bar.searching .accessories-search-toggle { width: var(--float-action); padding: 0; border-radius: 50%; font-size: 0; }
+  .accessories-bar.searching .accessories-search-toggle .toolbar-label { display: none; }
+  .accessories-bar :is(.accessories-filters.on, .accessories-edit[aria-pressed="true"]) { color: var(--accent-ink); }
   .accessories-bar .accessories-filters .toolbar-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .accessories-bar .accessories-filters .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill); font-size: var(--text-2xs); }
-  .accessories-bar .accessories-toolbar button > svg, .accessories-bar .accessory-options-button svg { width: 18px; height: 18px; margin: 0; color: currentColor; opacity: 1; }
-  .accessories-bar .accessories-edit.action-with-icon::before, .accessories-bar .accessories-add.action-with-icon::before { width: 18px; height: 18px; margin: 0; }
-  .accessories-bar .search { order: -1; flex: 1 1 100%; width: 100%; display: none; }
-  /* The field rises out of the row it opens from, briefly; reduced motion shows it at once. */
+  .accessories-bar .accessories-toolbar button > svg, .accessories-bar .accessory-options-button svg, .accessories-bar .subnav svg { width: 21px; height: 21px; margin: 0; color: currentColor; opacity: 1; }
+  .accessories-bar .accessories-edit.action-with-icon::before { width: 21px; height: 21px; margin: 0; }
+  /* The search: a glass field across the width, its button left to close it. */
+  .accessories-bar .search { order: 0; flex: 1 1 auto; min-width: 0; height: var(--float-action); display: none; border-radius: var(--radius-pill);
+    background-color: var(--material-chrome); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
   .accessories-bar.searching .search { display: block; animation: accessories-search-in 180ms var(--ease-out); }
-  /* Its buttons are controls: a long press neither selects their names nor opens a callout. */
+  .accessories-bar.searching :is(.subnav, .accessories-filters, .accessories-edit, .accessory-options-button.menu-button) { display: none; }
   .accessories-bar :is(button, a) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
 }
 @keyframes accessories-search-in { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { .accessories-bar.searching .search { animation: none; } }
-/* A narrow phone: the buttons a little smaller, so the row still fits beside the sections' button. */
-@media (max-width: 359px) {
-  .accessories-bar { gap: var(--space-4); padding: var(--space-4); }
-  .accessories-bar .accessories-toolbar > :is(button, a, .accessory-options-button), .accessories-bar .accessories-views > :is(button, a):not(.subnav) { width: 36px; height: 36px; min-width: 36px; min-height: 36px; }
-  .accessories-bar .subnav a { width: 36px; min-width: 36px; }
-}
 /* Toolbar glyphs stay lighter than their labels. */
 .accessories-toolbar button > svg,
 .accessories-toolbar .accessory-options-button svg {
@@ -42370,6 +42396,42 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .widget-climate .climate-airflow > .w-row { box-sizing: border-box; height: var(--airflow-size); }
 .widget-climate .climate-airflow > .chips { align-items: stretch; }
 .widget-climate .climate-airflow .climate-swing.action-with-icon { width: var(--airflow-size); height: var(--airflow-size); min-height: var(--airflow-size); }
+
+/* A phone: a tab bar along the bottom, as iOS has it: the sections used most as tabs (an icon over its name, the current
+   one in a darker pill) and More for the others, Account and the Assistant. A page's own actions float just above its
+   right end (`--tab-bar-top`), each its own glass. */
+.tabbar-tabs { display: none; }
+:root { --tab-bar-top: calc(max(14px, env(safe-area-inset-bottom)) + 66px); --float-action: 48px; }
+@media (max-width: 640px) {
+  .tabbar { left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); }
+  .tabbar .mobile-nav-toggle { display: none; }
+  .tabbar-tabs { display: flex; gap: 2px; padding: 5px; border-radius: var(--radius-pill); background-color: var(--material-chrome); background-image: var(--sheen);
+    -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light); }
+  .tabbar .tabbar-tabs > :is(a, button) { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 54px;
+    padding: var(--space-6) 2px 5px; border: 0; border-radius: var(--radius-pill); background: none; box-shadow: none; color: var(--text); font-size: 11px; font-weight: var(--weight-semibold);
+    letter-spacing: 0.01em; text-decoration: none; transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out); }
+  .tabbar .tabbar-tabs > :is(a, button) span { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.1; }
+  .tabbar .tabbar-tabs svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .tabbar .tabbar-tabs > a.active, .tabbar .tabbar-more[aria-expanded="true"] { background: color-mix(in srgb, var(--text) 12%, transparent); color: var(--accent-ink); }
+  .tabbar .tabbar-tabs > :is(a, button):active { background: color-mix(in srgb, var(--text) 8%, transparent); }
+  .tabbar .mobile-nav-panel { right: 0; left: auto; bottom: 74px; }
+  /* More lists the sections that are not tabs. */
+  .tabbar .mobile-nav-panel a:is([href="/status"], [href="/accessories"], [href="/automations"]) { display: none; }
+  .tabbar .mobile-nav-assistant .sparkle { width: 21px; height: 21px; }
+  .chat-dock { display: none; }
+  #app > main { padding-bottom: calc(var(--tab-bar-top) + var(--space-24)); }
+  /* The Status page's button floats over the tab bar's end, as the Accessories page's actions do. */
+  .status-footer, body:has(.chat-dock) .status-footer { right: max(14px, env(safe-area-inset-right)); bottom: calc(var(--tab-bar-top) + var(--space-10)); }
+  .status-footer > .link { width: var(--float-action); height: var(--float-action); min-width: var(--float-action); min-height: var(--float-action);
+    background-color: var(--material-chrome); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); }
+  #app > main:has(> .status-footer)::after { height: calc(var(--float-action) + var(--space-10)); }
+  .dash-edit-bar { left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: calc(var(--tab-bar-top) + var(--space-10)); }
+  /* Room under the last card for the arranging bar and the tab bar both. */
+  .dash-editing { padding-bottom: calc(var(--tab-bar-top) + var(--space-10) + 64px); }
+}
+@media (prefers-reduced-motion: reduce) { .tabbar .tabbar-tabs > :is(a, button) { transition: none; } }
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
