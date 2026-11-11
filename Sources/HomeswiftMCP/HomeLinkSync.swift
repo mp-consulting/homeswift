@@ -481,7 +481,8 @@ extension HomeswiftCatalog {
                     return refused.map(\.json)
                 }
                 try home.homeLink.update { $0.pending += changes }
-                guard let link, link.state.canEdit else { return [] }
+                // A first link waiting to be confirmed: the changes wait with it, for the Home it confirms.
+                guard let link, link.state.canEdit, home.homeLink.value.comparison == nil else { return [] }
                 let refused = await replayPending(link: link)
                 if !refused.isEmpty, let snapshot = await link.plugin.homeSnapshot() {
                     do { try adoptGroups(snapshot) }
@@ -505,16 +506,18 @@ extension HomeswiftCatalog {
         }
     }
 
-    /// Drops the refusals about what `change` changes: Apple Home has it now, or no longer has it. A Zone or Group
-    /// removed (named by the Home's id) also settles the refusals of edits to the ones the bridge no longer has.
+    /// Drops the refusals about what `change` changes: Apple Home has it now, or no longer has it. A Group or Zone change
+    /// that reaches Apple Home also settles the refusals about Groups or Zones the bridge no longer has, such as a refused
+    /// creation, whose Group leaves the wall, or edits to one removed since (named by the Home's id once removed).
     private func settleRefusals(of change: HomeLinkFile.PendingChange) {
         let subjects = change.subjects
         let groups = Set(wallGroups.map(\.id)), zones = Set(home.homeLink.value.zones.map(\.id))
+        let groupChange = subjects.contains { $0.hasPrefix("group:") }, zoneChange = subjects.contains { $0.hasPrefix("zone:") }
         func settled(_ refused: HomeLinkFile.Refused) -> Bool {
             if !refused.change.subjects.isDisjoint(with: subjects) { return true }
-            switch (change, refused.change) {
-            case (.deleteGroup, .renameGroup(let id, _)), (.deleteGroup, .setGroupMembers(let id, _, _)): return !groups.contains(id)
-            case (.deleteZone, .renameZone(let id, _)), (.deleteZone, .setZoneRooms(let id, _, _)): return !zones.contains(id)
+            switch refused.change {
+            case .createGroup(let id), .renameGroup(let id, _), .setGroupMembers(let id, _, _): return groupChange && !groups.contains(id)
+            case .createZone(let id), .renameZone(let id, _), .setZoneRooms(let id, _, _): return zoneChange && !zones.contains(id)
             default: return false
             }
         }

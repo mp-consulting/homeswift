@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **Home Link waiting for confirmation**: while a first link waits to be confirmed, changes made here wait with it
+  instead of reaching a home not yet confirmed.
+- **Apple Home's Default Room**: an accessory in it is in no room here; the Default Room no longer becomes a room of the
+  bridge's.
+- **Accessories without a serial number**: one that is not on a bridge (a TV's own AirPlay entry) no longer holds the
+  Home Link down once every accessory Homeswift publishes on its own is found in Apple Home.
+- **Refused group creations**: a refusal whose group left the wall is settled by the next group change that reaches
+  Apple Home.
+- **Philips Hue serial numbers**: the device's Zigbee address as uppercase hex without separators (`001788010BC7A5E4`),
+  as every plugin spells a serial number.
 - **Home Link refusals**: the Accessories page no longer shows what Apple Home refused once there is no Home Link
   ("Pair Homeswift Wingman"); a refusal goes once a later change to the same room, zone, group or accessory reaches
   Apple Home, and names accessories rather than giving their ids.

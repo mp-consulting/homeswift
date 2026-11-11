@@ -78,6 +78,10 @@ struct Structure: Sendable {
         for accessory in homes.flatMap(\.accessories) {
             if let serial = accessory.serialNumber?.uppercased(), bridges.contains(serial) { homeswiftBridges[accessory.id] = serial }
         }
+        // Homeswift's accessories published on their own that Apple Home shows with their serial number: once all are,
+        // an accessory of no bridge whose serial is unread is someone else's (a TV's own AirPlay entry), not one of them.
+        let seenOwn = Set(homes.flatMap(\.accessories).filter { $0.bridge == nil }.compactMap { $0.serialNumber?.uppercased() })
+        let ownMissing = own.contains { !seenOwn.contains($0.uppercased()) }
         var devices: [String: Device] = [:]
         for home in homes {
             guard let homeID = home.id else { continue }
@@ -108,7 +112,7 @@ struct Structure: Sendable {
                     service.characteristics.contains { HAPUUID($0.type) == CharacteristicType.serialNumber.uuid }
                 }
                 let unknownBridge = accessory.bridge.map { $0.manufacturer == "Homeswift" || $0.model == "Homeswift" } == true
-                let possibleOwn = accessory.bridge == nil && !own.isEmpty && hasSerial
+                let possibleOwn = accessory.bridge == nil && ownMissing && hasSerial
                 let bridgeAccessory = accessory.manufacturer == "Homeswift" || accessory.model == "Homeswift"
                 if accessory.serialNumber?.isEmpty != false,
                    homeswift != nil || unknownBridge || possibleOwn || bridgeAccessory {

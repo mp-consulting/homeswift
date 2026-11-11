@@ -144,6 +144,15 @@ struct WingmanTests {
         #expect(disabled?.accessory.supportsIdentify == false)
     }
 
+    /// An accessory in Apple Home's Default Room is in no room here: the Default Room never becomes a Room of the bridge's.
+    @Test func theDefaultRoomIsNoRoom() async throws {
+        let host = try await environment.start()
+        #expect(try await accessory(host, "light-1").suggestedRoom == "Salon")
+        environment.wingman.deleteRoomInAppleHome("room-salon")
+        #expect(await eventually { (try? await accessory(host, "light-1"))?.suggestedRoom == nil })
+        await host.stop()
+    }
+
     @Test func aMinimalBlockDecodes() throws {
         let configuration = try JSONDecoder().decode(WingmanPlugin.Configuration.self, from: Data(#"{"platform":"Wingman"}"#.utf8))
         #expect(configuration.devices == nil)

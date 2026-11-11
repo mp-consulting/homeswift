@@ -170,6 +170,19 @@ struct StructureTests {
         #expect(structure.incompleteIdentityReason != nil)
     }
 
+    /// An accessory of no bridge whose serial number is unread (a TV's own AirPlay entry) does not hold the Home Link down
+    /// once every accessory Homeswift publishes on its own is found in Apple Home by its serial number.
+    @Test(arguments: [false, true])
+    func anotherAccessoryWithoutASerialDoesNotBlockTheLink(ownFound: Bool) throws {
+        let bridge = TestEnvironment.bridgeID
+        var accessories = [homeAccessory("main-bridge", serialNumber: bridge), homeAccessory("airplay-tv", serialNumber: "")]
+        if ownFound { accessories.append(homeAccessory("homeswift-tv", serialNumber: "tv")) }
+        let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": accessories]
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
+        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge], own: ["TV"])
+        #expect((structure.incompleteIdentityReason == nil) == ownFound)
+    }
+
     /// One of Homeswift's own accessories is found behind its bridge (the home's accessory whose Serial Number is the
     /// bridge's device ID), never a home's own accessory with the same serial number, such as the light a hub also brings
     /// to Apple Home; one published on its own is found among those that are not bridged.

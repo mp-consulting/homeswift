@@ -286,7 +286,11 @@ struct HueSnapshot: Sendable, Equatable {
                 guard let owner = resource["owner"]?["rid"]?.stringValue else { continue }
                 // A light the bridge cannot reach reports `connectivity_issue` on its device's connectivity.
                 if let status = resource["status"]?.stringValue, status != "connected" { unreachable.insert(owner) }
-                if let mac = resource["mac_address"]?.stringValue, !mac.isEmpty { macOfDevice[owner] = mac }
+                // The serial number is the address as uppercase hex without separators (the Zigbee EUI-64 the Hue
+                // Bridge gives, 00:17:88:01:0b:c7:a5:e4, is 001788010BC7A5E4), as every plugin spells it.
+                if let mac = resource["mac_address"]?.stringValue, !mac.isEmpty {
+                    macOfDevice[owner] = mac.allSatisfy({ $0.isHexDigit || ":-.".contains($0) }) ? mac.filter(\.isHexDigit).uppercased() : mac
+                }
             case "bridge": bridgeID = resource["bridge_id"]?.stringValue
             default: break
             }
