@@ -410,3 +410,13 @@ M-size colour lights place three circular shortcuts below brightness. They begin
 When supported, Adaptive Lighting always occupies the first shortcut, followed by the two most-used colour presets. The shortcut row and its container allow shadows and focus rings to paint outside their bounds.
 
 ![Full brightness with a visible handle and readable percentage in dark mode](images/widgets/light-medium-full-dark.png)
+
+### Liquid battery tiles
+
+Battery and power-station tiles use the whole card as a liquid charge meter in all four sizes.
+The fill height follows the reported percentage; the fill and percentage are red at 20% or below,
+amber through 50%, and green above 50%. A low-battery flag also turns them red.
+The wave stops when reduced motion is enabled; a bolt appears only while charging.
+Power stations keep their outlet controls in L and XL.
+
+![Power station tile sizes](images/widgets/battery-station.png)

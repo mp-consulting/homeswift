@@ -66,8 +66,17 @@ window.preview=(mode='wall')=>{
   const sizes=e('div',{class:'wall remote-sizes'});main.append(sizes);for(const size of ['small','medium','large'])add(remote,size,sizes);
  }else if(mode==='weather'){
   const wall=e('div',{class:'wall weather-sizes'});main.append(wall);for(const size of ['small','medium','large','xlarge'])add(weather,size,wall);
+ }else if(mode==='battery-levels'){
+  const wall=e('div',{class:'wall'});main.append(wall);
+  for(const percent of [10,25,50,75,100]){
+   const sample=A(`battery-${percent}`,`Battery · ${percent}%`,'other',[S('Battery',[C('Battery Level',percent),C('Charging State',0),C('Status Low Battery',0)])]);
+   add(sample,'medium',wall);
+  }
+ }else if(mode==='station'){
+  const station=A('station','Home Battery','other',[...battery.services,...['AC Output','USB Output'].map(name=>S('Outlet',[C('On',true,'bool')],{primary:false,name,subtype:name}))]);
+  for(const size of HomeswiftWidgets.sizes){const wall=e('div',{class:`wall battery-${size}`,style:'margin-bottom:24px'});main.append(wall);add(station,size,wall);}
  }else if(mode==='battery'){
-  for(const size of HomeswiftWidgets.sizes){const wall=e('div',{class:`wall battery-${size}`});main.append(wall);add(battery,size,wall);}
+  for(const size of HomeswiftWidgets.sizes){const wall=e('div',{class:`wall battery-${size}`,style:'margin-bottom:24px'});main.append(wall);add(battery,size,wall);}
  }else if(mode==='sizes'||mode==='sizes-more'){
   for(const a of mode==='sizes'?[accessories[5],climate,cover]:[purifier,valve,gate]){
    main.append(e('h2',{text:a.name}));const wall=e('div',{class:'wall'});main.append(wall);for(const size of HomeswiftWidgets.sizes)add(a,size,wall);

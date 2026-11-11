@@ -36546,6 +36546,9 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-body > * { flex-shrink: 0; }
 .widget:not(.widget-full) .seg > button { white-space: nowrap; padding-inline: 2px; }
 .size-large .w-body { padding-right: 26px; overflow: hidden; justify-content: safe center; }
+/* Balance the space above and below the shutter controls around the tile's centre. */
+.widget-cover.size-large:not(.widget-measuring) { display: grid; grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr); }
+.widget-cover.size-large > .w-head { align-self: start; }
 /* Brightness spans the card; the lower controls reserve space for the corner menu. */
 .widget-light.size-large .w-body { padding-right: 0; }
 .widget-light.size-large .w-body > .swatches { margin-right: 26px; }
@@ -40448,37 +40451,43 @@ select option:disabled { color: var(--muted); }
 @media (hover: hover) { .detail-item:hover .detail-item-name { color: var(--accent-ink); } }
 
 
-/* The battery widget at every size: the design's battery with its three bars, the level filling them, and a bolt
-   beside it while charging, which pulses while the bar being filled flickers. Low turns it amber. */
-.battery-gauge { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-6); flex: none; align-self: center; }
-.battery-gauge.low .battery-graphic { color: var(--warn); }
-.battery-graphic { position: relative; display: flex; align-items: center; justify-content: center; gap: var(--space-4); color: var(--ok); }
-.battery-graphic .bat-icon { width: 34px; height: 34px; overflow: visible; }
-.size-medium .battery-graphic .bat-icon { width: 28px; height: 28px; }
-.size-large .battery-graphic .bat-icon { width: 56px; height: 56px; }
-.size-xlarge .battery-graphic .bat-icon { width: 72px; height: 72px; }
-.battery-graphic rect.bat-body, .battery-graphic path.bat-terminal { fill: none; stroke: currentColor; stroke-width: 1.6; }
-.battery-graphic path.bat-terminal { stroke-linecap: round; }
-/* No stroke on the bars and the bolt: on small and medium tiles the graphic sits in .w-hero, whose svg rule strokes every
-   shape 2 units wide, which filled the gaps between the bars and thickened the bolt. */
-.battery-graphic .bat-bar, .battery-graphic .bat-bolt { stroke: none; }
-.battery-graphic .bat-bar { fill: currentColor; opacity: 0.2; transition: opacity var(--normal) var(--ease-out); }
-.battery-graphic .bat-bar.on { opacity: 1; }
-/* The bolt sits outside the battery's box, beside it, so the battery stays centred. */
-/* Its size is --bolt, and half of it is its offset from the middle, so it stays on the battery's centre line at every size. */
-.battery-graphic .bat-bolt { --bolt: 20px; display: none; position: absolute; left: calc(100% + 2px); top: 50%; margin-top: calc(var(--bolt) / -2); width: var(--bolt); height: var(--bolt); fill: currentColor; }
-.size-medium .battery-graphic .bat-bolt { --bolt: 16px; }
-.size-large .battery-graphic .bat-bolt { --bolt: 26px; }
-.size-xlarge .battery-graphic .bat-bolt { --bolt: 32px; }
-.battery-graphic.charging .bat-bolt { display: block; animation: bat-bolt 1.8s ease-in-out infinite; }
-/* Charging breathes rather than blinks: a hard on and off reads as a fault, and a wall is looked at all day, so the bolt
-   pulses its opacity only, without the scale that pulled the eye. */
-.battery-graphic.charging .bat-bar.live { animation: bat-breathe 1.6s ease-in-out infinite alternate; }
-@keyframes bat-breathe { from { opacity: 1; } to { opacity: 0.35; } }
-@keyframes bat-bolt { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+/* The tile is the liquid container. Keep text and controls above its translucent fill. */
+.battery-gauge { display: flex; align-items: center; justify-content: center; flex: none; align-self: center; }
+.battery-gauge, .battery-graphic { color: var(--ok); }
+:is(.battery-gauge, .battery-graphic)[data-charge="low"] { color: var(--error); }
+:is(.battery-gauge, .battery-graphic)[data-charge="medium"] { color: var(--warn); }
+:is(.battery-gauge, .battery-graphic)[data-charge="unknown"] { color: var(--muted); }
+.widget:has(> .battery-graphic) { isolation: isolate; }
+.widget > .battery-graphic { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; z-index: -1; }
+.battery-graphic .bat-icon, .battery-graphic .bat-window { position: absolute; inset: 0; display: block; }
+.battery-graphic .bat-liquid { position: absolute; inset: 0; opacity: 0.28; background: linear-gradient(180deg, currentColor, color-mix(in srgb, currentColor 55%, transparent)); transition: transform var(--normal) var(--ease-out); }
+.battery-graphic .bat-wave { position: absolute; width: 200%; height: 16px; max-width: none; left: 0; top: -15px; fill: currentColor; stroke: none; animation: battery-wave 3s linear infinite; }
+.battery-graphic .bat-wave path { fill: currentColor; stroke: none; }
+.battery-graphic .bat-wave-back { height: 20px; top: -19px; opacity: 0.55; animation-duration: 4.5s; animation-direction: reverse; }
+/* A vivid grass-green surface, with a darker readout that stays legible on the glass. */
+.battery-graphic[data-charge="high"] { color: #79cf32; }
+.battery-graphic[data-charge="high"] .bat-liquid { opacity: 0.85; background: linear-gradient(180deg, #79cf32, rgb(57 142 34 / 65%)); }
+.battery-graphic[data-charge="high"] .bat-wave { filter: drop-shadow(0 -2px 5px rgb(121 207 50 / 30%)); }
+.battery-graphic[data-charge="high"] .bat-wave-back { color: #9cdd55; }
+.battery-gauge[data-charge="high"] { color: color-mix(in srgb, var(--text) 75%, #65bc30); text-shadow: 0 0 10px rgb(121 207 50 / 15%); }
+.size-small .battery-graphic .bat-wave { height: 6px; top: -5px; }
+.size-small .battery-graphic .bat-wave-back { height: 8px; top: -7px; }
+.battery-graphic.empty .bat-liquid { visibility: hidden; }
+.battery-graphic.full .bat-wave { animation: none; }
+.battery-graphic .bat-bolt { display: none; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; fill: currentColor; stroke: none; filter: drop-shadow(0 1px 2px rgb(255 255 255 / 45%)); }
+.battery-graphic[data-charge="high"] .bat-bolt { color: #285f18; }
+.size-small .battery-graphic .bat-bolt { width: 24px; height: 24px; opacity: 0.35; }
+.size-large .battery-graphic .bat-bolt { width: 52px; height: 52px; }
+.size-xlarge .battery-graphic .bat-bolt { width: 64px; height: 64px; }
+.battery-graphic .bat-bolt path { fill: currentColor; stroke: none; }
+.battery-graphic.charging .bat-bolt { display: block; }
+@keyframes battery-wave { to { transform: translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) {
-  .battery-graphic.charging .bat-bar.live, .battery-graphic.charging .bat-bolt { animation: none; }
+  .battery-graphic .bat-wave { animation: none; }
+  .battery-graphic .bat-liquid { transition: none; }
 }
+.station-controls { display: flex; align-items: center; gap: var(--space-20); min-width: 0; }
+.station-controls > :last-child { flex: 1; min-width: 0; }
 .gauge-figure { font-size: 15px; font-weight: var(--weight-figure); font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .size-medium .gauge-figure { display: block; font-size: 16px; }
 .size-large .gauge-figure { font-size: 18px; letter-spacing: -0.01em; }
@@ -40490,24 +40499,18 @@ select option:disabled { color: var(--muted); }
 .widget.widget-battery:not(.widget-full) .menu-button svg { width: 18px; height: 18px; stroke-width: 2.2; }
 
 /* A small battery tile: the icon on the left, the name and status beside it, and the level as a subtitle under the
-   name, so the name is never cut; the graphic has a fixed box, the bolt in its right part while charging. */
-.widget-battery.size-small { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "icon bottom" "icon sub"; column-gap: var(--space-12); align-items: center; }
-.widget-battery.size-small .w-top { display: contents; }
-.widget-battery.size-small .w-top > .tile { grid-area: icon; }
-.widget-battery.size-small .w-top > .w-hero:has(> .battery-gauge) { grid-area: sub; display: flex; align-items: center; justify-self: start; min-width: 0; white-space: nowrap; }
-.widget-battery.size-small .w-bottom { grid-area: bottom; min-width: 0; position: static; }
-.widget-battery.size-small .w-bottom .menu-button { position: absolute; top: auto; left: auto; right: 6px; bottom: 6px; }
-.widget-battery.size-small .battery-gauge { flex-direction: row; gap: var(--space-6); }
-.widget-battery.size-small .battery-graphic { width: 42px; flex: none; justify-content: flex-start; }
-.widget-battery.size-small .battery-graphic .bat-icon { width: 20px; height: 20px; }
-.widget-battery.size-small .battery-graphic .bat-bolt { --bolt: 12px; left: 24px; }
-.widget-battery.size-small .gauge-figure { display: block; font-size: 13px; line-height: 1; white-space: nowrap; }
-.widget-battery.size-small .gauge-figure small { font-size: 0.8em; }
+   name, leaving the liquid background free to span the whole tile. */
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "icon bottom" "icon sub"; column-gap: var(--space-12); align-items: center; }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .w-top { display: contents; }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .w-top > .tile { grid-area: icon; }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .w-top > .w-hero:has(> .battery-gauge) { grid-area: sub; display: flex; align-items: center; justify-self: start; min-width: 0; white-space: nowrap; }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .w-bottom { grid-area: bottom; min-width: 0; position: static; }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .w-bottom .menu-button { position: absolute; top: auto; left: auto; right: 6px; bottom: 6px; }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .battery-gauge { flex-direction: row; gap: var(--space-6); }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .gauge-figure { display: block; font-size: 13px; line-height: 1; white-space: nowrap; }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .gauge-figure small { font-size: 0.8em; }
 
-/* A medium battery tile: the gauge centred on the card, not on the top row that holds the icon. */
-.widget-battery.size-medium { position: relative; }
-.widget-battery.size-medium .w-top { position: static; }
-.widget-battery.size-medium .w-top > .w-hero:has(> .battery-gauge) { position: absolute; left: 50%; top: 36%; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; }
+/* Larger battery tiles leave room for their percentage and output controls. */
 
 /* Shared photographic artwork for saved scenes and templates. */
 .scene-artwork { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: var(--radius-sm); }
@@ -43058,13 +43061,21 @@ self.addEventListener("notificationclick", (event) => {
       const count = () => ons.filter(isOn).length;
       const level = isStation(ctx) ? ctx.take(ctx.find("Battery"), "Battery Level") : null;
 
+      const battery = level ? ctx.find("Battery") : null;
+      const charging = battery ? ctx.take(battery, "Charging State") : null;
+      const low = battery ? ctx.take(battery, "Status Low Battery") : null;
+      const gauge = battery ? batteryGauge(t("Battery"), batteryGraphic()) : null;
+      if (gauge) ctx.watch(() => gauge.set(clamp(Math.round(numberOf(level)), 0, 100), charging?.value === 1, isOn(low)));
+
       const body = size === "large" || size === "full"
         ? [el("div", { class: "toggles" }, switches.map((s, i) => miniToggle(ctx, s, ons[i], shortName(ctx.accessory, s))))]
         : [chipRow(switches.map((s, i) => chipFor(ctx, s, ons[i], shortName(ctx.accessory, s))))];
       return {
         // A power station's figure is its battery; a group's, how many are on.
-        body, hero: () => level ? `${Math.round(numberOf(level))} %` : `${count()}/${ons.length}`,
-        status: () => [count() ? t("{n} of {total} on", { n: count(), total: ons.length }) : t("All off")],
+        background: gauge?.background,
+        body: gauge && size !== "small" ? [el("div", { class: "station-controls" }, gauge.node, ...body)] : body,
+        hero: () => gauge ? gauge.node : `${count()}/${ons.length}`,
+        status: () => gauge && size === "small" && !ctx.tall ? [""] : [count() ? t("{n} of {total} on", { n: count(), total: ons.length }) : t("All off")],
         on: () => count() > 0,
       };
     },
@@ -43689,26 +43700,20 @@ self.addEventListener("notificationclick", (event) => {
     },
   });
 
-  /// The battery graphic from the design: an outline with its terminal, three bars filled by the level, and a bolt
-  /// beside it while charging. While charging the bars sweep and the bolt pulses (style.css stops them under
-  /// reduced motion). Its colour comes from the tile's tone, and a low battery turns it amber.
+  /// Liquid height and colour follow the real charge; only the surface moves, never the reading.
   function batteryGraphic() {
     const node = el("span", { class: "battery-graphic", "aria-hidden": "true" });
-    node.innerHTML = '<svg class="bat-icon" viewBox="0 0 24 24"><rect class="bat-body" x="2" y="6.5" width="17" height="11" rx="2"/><path class="bat-terminal" d="M21.5 10.5v3"/>' +
-      // Three slim bars across the outline's inside (x 2.8 to 18.2): 1.4 to its edges and 2.4 between them, so the steps
-      // stay distinct on a small tile's 20 px battery.
-      '<rect class="bat-bar" x="4.2" y="8.7" width="2.6" height="6.6" rx="0.6"/><rect class="bat-bar" x="9.2" y="8.7" width="2.6" height="6.6" rx="0.6"/><rect class="bat-bar" x="14.2" y="8.7" width="2.6" height="6.6" rx="0.6"/></svg>' +
-      '<svg class="bat-bolt" viewBox="0 0 24 24"><path d="M13.6 2 5.5 13.2h5.6L9.6 22l8.9-11.6h-5.7z"/></svg>';
-    const bars = [...node.querySelectorAll(".bat-bar")];
+    node.innerHTML = '<span class="bat-icon"><span class="bat-window"><span class="bat-liquid">' +
+      '<svg class="bat-wave bat-wave-back" viewBox="0 0 200 12" preserveAspectRatio="none"><path d="M0 6 Q25 12 50 6 T100 6 T150 6 T200 6 V12 H0Z"/></svg>' +
+      '<svg class="bat-wave" viewBox="0 0 200 12" preserveAspectRatio="none"><path d="M0 6 Q25 0 50 6 T100 6 T150 6 T200 6 V12 H0Z"/></svg>' +
+      '</span></span></span><svg class="bat-bolt" viewBox="0 0 24 24"><path d="M13.6 2 5.5 13.2h5.6L9.6 22l8.9-11.6h-5.7z"/></svg>';
+    const liquid = node.querySelector(".bat-liquid");
     return {
       node,
       set(percent, charging) {
-        const filled = percent === null ? 0 : percent >= 67 ? 3 : percent >= 34 ? 2 : percent >= 10 ? 1 : 0;
-        // While charging, the bar being filled (the last one lit) flickers; the others hold still.
-        bars.forEach((bar, index) => {
-          bar.classList.toggle("on", index < filled);
-          bar.classList.toggle("live", charging && index === Math.max(filled - 1, 0));
-        });
+        liquid.style.transform = `translateY(${100 - (percent ?? 0)}%)`;
+        node.classList.toggle("empty", percent === null || percent === 0);
+        node.classList.toggle("full", percent === 100);
         node.classList.toggle("charging", charging);
       },
     };
@@ -43718,12 +43723,15 @@ self.addEventListener("notificationclick", (event) => {
   function batteryGauge(label, graphic) {
     const value = el("b"), unit = el("small", { text: " %" });
     const node = el("div", { class: "battery-gauge", role: "meter", "aria-label": label, "aria-valuemin": 0, "aria-valuemax": 100 },
-      graphic.node, el("span", { class: "gauge-figure" }, value, unit));
+      el("span", { class: "gauge-figure" }, value, unit));
     return {
-      node,
+      node, background: graphic.node,
       set(percent, charging, low) {
         value.textContent = percent === null ? "–" : String(percent);
         if (percent !== null) node.setAttribute("aria-valuenow", percent);
+        else node.removeAttribute("aria-valuenow");
+        node.dataset.charge = percent === null ? "unknown" : low || percent <= 20 ? "low" : percent <= 50 ? "medium" : "high";
+        graphic.node.dataset.charge = node.dataset.charge;
         graphic.set(percent, charging);
         node.classList.toggle("low", low || (percent !== null && percent < 10));
       },
@@ -43731,7 +43739,7 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   // A battery on its own accessory (a power station's state of charge): the gauge at every size, with the battery
-  // graphic (bars for the level, a bolt while charging). Read only, so a tap opens All controls.
+  // graphic (liquid for the level, a bolt while charging). Read only, so a tap opens All controls.
   register({
     name: "battery", types: ["Battery"], icon: "battery", tone: "green", size: "small",
     build(ctx, primary, size) {
@@ -43739,13 +43747,14 @@ self.addEventListener("notificationclick", (event) => {
       const charging = ctx.take(primary, "Charging State");
       const low = ctx.take(primary, "Status Low Battery");
       const percent = () => (level ? clamp(Math.round(numberOf(level)), 0, 100) : null);
-      const isCharging = () => !!(charging && isOn(charging));
+      const isCharging = () => charging?.value === 1;
       const isLow = () => !!(low && isOn(low));
       const graphic = batteryGraphic();
       const gauge = batteryGauge(t("Battery"), graphic);
       ctx.watch(() => gauge.set(percent(), isCharging(), isLow()));
       const built = {
-        on: () => isOn(charging),
+        background: gauge.background,
+        on: isCharging,
         // A summary tile (small, medium) shows the gauge as its figure; a larger tile has it in its body.
         hero: () => gauge.node,
         // The state is the status line, so a larger tile does not repeat it under the gauge.
@@ -44130,6 +44139,7 @@ self.addEventListener("notificationclick", (event) => {
     if (mark) glyph.append(mark);
     const menu = actionsButton(ctx, false);
     const node = el("article", { class: `card widget size-${size} widget-${widget.name}`, "data-search": searchText(accessory), "data-id": accessory.id });
+    if (built.background) node.append(built.background);
     if (size === "small" || size === "medium") {
       node.classList.add("widget-summary");
       const hero = el("span", { class: "w-hero" });
@@ -44235,6 +44245,11 @@ self.addEventListener("notificationclick", (event) => {
       node.append(el("div", { class: "w-head" }, glyph, who, powerToggle(ctx, built)),
         body.length ? el("div", { class: "w-body" }, body) : "",
         footerChips ? el("div", { class: "w-footer" }, footerChips, menu) : el("span", { class: "w-corner" }, menu));
+      // Keep the charge beside the heading, clear of the centred charging bolt and output controls.
+      if (built.background) {
+        const gauge = node.querySelector(".battery-gauge");
+        if (gauge) node.querySelector(".w-head").append(gauge);
+      }
       node.classList.toggle("head-only", !body.length && !footerChips);
       ctx.watch(() => node.classList.toggle("powered-off", !!built.power && !built.power.big && !isOn(built.power.characteristic)));
     }

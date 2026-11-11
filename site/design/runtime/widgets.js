@@ -1156,13 +1156,21 @@
       const count = () => ons.filter(isOn).length;
       const level = isStation(ctx) ? ctx.take(ctx.find("Battery"), "Battery Level") : null;
 
+      const battery = level ? ctx.find("Battery") : null;
+      const charging = battery ? ctx.take(battery, "Charging State") : null;
+      const low = battery ? ctx.take(battery, "Status Low Battery") : null;
+      const gauge = battery ? batteryGauge(t("Battery"), batteryGraphic()) : null;
+      if (gauge) ctx.watch(() => gauge.set(clamp(Math.round(numberOf(level)), 0, 100), charging?.value === 1, isOn(low)));
+
       const body = size === "large" || size === "full"
         ? [el("div", { class: "toggles" }, switches.map((s, i) => miniToggle(ctx, s, ons[i], shortName(ctx.accessory, s))))]
         : [chipRow(switches.map((s, i) => chipFor(ctx, s, ons[i], shortName(ctx.accessory, s))))];
       return {
         // A power station's figure is its battery; a group's, how many are on.
-        body, hero: () => level ? `${Math.round(numberOf(level))} %` : `${count()}/${ons.length}`,
-        status: () => [count() ? t("{n} of {total} on", { n: count(), total: ons.length }) : t("All off")],
+        background: gauge?.background,
+        body: gauge && size !== "small" ? [el("div", { class: "station-controls" }, gauge.node, ...body)] : body,
+        hero: () => gauge ? gauge.node : `${count()}/${ons.length}`,
+        status: () => gauge && size === "small" && !ctx.tall ? [""] : [count() ? t("{n} of {total} on", { n: count(), total: ons.length }) : t("All off")],
         on: () => count() > 0,
       };
     },
@@ -1787,26 +1795,20 @@
     },
   });
 
-  /// The battery graphic from the design: an outline with its terminal, three bars filled by the level, and a bolt
-  /// beside it while charging. While charging the bars sweep and the bolt pulses (style.css stops them under
-  /// reduced motion). Its colour comes from the tile's tone, and a low battery turns it amber.
+  /// Liquid height and colour follow the real charge; only the surface moves, never the reading.
   function batteryGraphic() {
     const node = el("span", { class: "battery-graphic", "aria-hidden": "true" });
-    node.innerHTML = '<svg class="bat-icon" viewBox="0 0 24 24"><rect class="bat-body" x="2" y="6.5" width="17" height="11" rx="2"/><path class="bat-terminal" d="M21.5 10.5v3"/>' +
-      // Three slim bars across the outline's inside (x 2.8 to 18.2): 1.4 to its edges and 2.4 between them, so the steps
-      // stay distinct on a small tile's 20 px battery.
-      '<rect class="bat-bar" x="4.2" y="8.7" width="2.6" height="6.6" rx="0.6"/><rect class="bat-bar" x="9.2" y="8.7" width="2.6" height="6.6" rx="0.6"/><rect class="bat-bar" x="14.2" y="8.7" width="2.6" height="6.6" rx="0.6"/></svg>' +
-      '<svg class="bat-bolt" viewBox="0 0 24 24"><path d="M13.6 2 5.5 13.2h5.6L9.6 22l8.9-11.6h-5.7z"/></svg>';
-    const bars = [...node.querySelectorAll(".bat-bar")];
+    node.innerHTML = '<span class="bat-icon"><span class="bat-window"><span class="bat-liquid">' +
+      '<svg class="bat-wave bat-wave-back" viewBox="0 0 200 12" preserveAspectRatio="none"><path d="M0 6 Q25 12 50 6 T100 6 T150 6 T200 6 V12 H0Z"/></svg>' +
+      '<svg class="bat-wave" viewBox="0 0 200 12" preserveAspectRatio="none"><path d="M0 6 Q25 0 50 6 T100 6 T150 6 T200 6 V12 H0Z"/></svg>' +
+      '</span></span></span><svg class="bat-bolt" viewBox="0 0 24 24"><path d="M13.6 2 5.5 13.2h5.6L9.6 22l8.9-11.6h-5.7z"/></svg>';
+    const liquid = node.querySelector(".bat-liquid");
     return {
       node,
       set(percent, charging) {
-        const filled = percent === null ? 0 : percent >= 67 ? 3 : percent >= 34 ? 2 : percent >= 10 ? 1 : 0;
-        // While charging, the bar being filled (the last one lit) flickers; the others hold still.
-        bars.forEach((bar, index) => {
-          bar.classList.toggle("on", index < filled);
-          bar.classList.toggle("live", charging && index === Math.max(filled - 1, 0));
-        });
+        liquid.style.transform = `translateY(${100 - (percent ?? 0)}%)`;
+        node.classList.toggle("empty", percent === null || percent === 0);
+        node.classList.toggle("full", percent === 100);
         node.classList.toggle("charging", charging);
       },
     };
@@ -1816,12 +1818,15 @@
   function batteryGauge(label, graphic) {
     const value = el("b"), unit = el("small", { text: " %" });
     const node = el("div", { class: "battery-gauge", role: "meter", "aria-label": label, "aria-valuemin": 0, "aria-valuemax": 100 },
-      graphic.node, el("span", { class: "gauge-figure" }, value, unit));
+      el("span", { class: "gauge-figure" }, value, unit));
     return {
-      node,
+      node, background: graphic.node,
       set(percent, charging, low) {
         value.textContent = percent === null ? "–" : String(percent);
         if (percent !== null) node.setAttribute("aria-valuenow", percent);
+        else node.removeAttribute("aria-valuenow");
+        node.dataset.charge = percent === null ? "unknown" : low || percent <= 20 ? "low" : percent <= 50 ? "medium" : "high";
+        graphic.node.dataset.charge = node.dataset.charge;
         graphic.set(percent, charging);
         node.classList.toggle("low", low || (percent !== null && percent < 10));
       },
@@ -1829,7 +1834,7 @@
   }
 
   // A battery on its own accessory (a power station's state of charge): the gauge at every size, with the battery
-  // graphic (bars for the level, a bolt while charging). Read only, so a tap opens All controls.
+  // graphic (liquid for the level, a bolt while charging). Read only, so a tap opens All controls.
   register({
     name: "battery", types: ["Battery"], icon: "battery", tone: "green", size: "small",
     build(ctx, primary, size) {
@@ -1837,13 +1842,14 @@
       const charging = ctx.take(primary, "Charging State");
       const low = ctx.take(primary, "Status Low Battery");
       const percent = () => (level ? clamp(Math.round(numberOf(level)), 0, 100) : null);
-      const isCharging = () => !!(charging && isOn(charging));
+      const isCharging = () => charging?.value === 1;
       const isLow = () => !!(low && isOn(low));
       const graphic = batteryGraphic();
       const gauge = batteryGauge(t("Battery"), graphic);
       ctx.watch(() => gauge.set(percent(), isCharging(), isLow()));
       const built = {
-        on: () => isOn(charging),
+        background: gauge.background,
+        on: isCharging,
         // A summary tile (small, medium) shows the gauge as its figure; a larger tile has it in its body.
         hero: () => gauge.node,
         // The state is the status line, so a larger tile does not repeat it under the gauge.
@@ -2228,6 +2234,7 @@
     if (mark) glyph.append(mark);
     const menu = actionsButton(ctx, false);
     const node = el("article", { class: `card widget size-${size} widget-${widget.name}`, "data-search": searchText(accessory), "data-id": accessory.id });
+    if (built.background) node.append(built.background);
     if (size === "small" || size === "medium") {
       node.classList.add("widget-summary");
       const hero = el("span", { class: "w-hero" });
@@ -2333,6 +2340,11 @@
       node.append(el("div", { class: "w-head" }, glyph, who, powerToggle(ctx, built)),
         body.length ? el("div", { class: "w-body" }, body) : "",
         footerChips ? el("div", { class: "w-footer" }, footerChips, menu) : el("span", { class: "w-corner" }, menu));
+      // Keep the charge beside the heading, clear of the centred charging bolt and output controls.
+      if (built.background) {
+        const gauge = node.querySelector(".battery-gauge");
+        if (gauge) node.querySelector(".w-head").append(gauge);
+      }
       node.classList.toggle("head-only", !body.length && !footerChips);
       ctx.watch(() => node.classList.toggle("powered-off", !!built.power && !built.power.big && !isOn(built.power.characteristic)));
     }

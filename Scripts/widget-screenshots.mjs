@@ -139,6 +139,23 @@ try {
     for (const size of ["small", "medium", "large", "xlarge"]) await shot(`battery-${size}${suffix}`, `.wall.battery-${size} .widget`);
   }
   await appearance("light");
+  // Power stations retain their output controls and share the liquid battery at every size.
+  for (const width of [375, 1272]) {
+    await open("station", width);
+    for (const [value, tone] of [[0, "low"], [25, "medium"], [72, "high"], [100, "high"]]) {
+      await evaluate(`HomeswiftWidgets.event({ id: "station", characteristic: "Battery Level", value: ${value} })`);
+      const readings = await evaluate(`[...document.querySelectorAll('.battery-gauge')].map(g => ({value: g.getAttribute('aria-valuenow'), tone: g.dataset.charge, transform: g.closest('.widget').querySelector('.bat-liquid').style.transform}))`);
+      if (readings.length !== 4 || readings.some(g => +g.value !== value || g.tone !== tone || g.transform !== `translateY(${100-value}%)`)) throw Error('Battery level/colour mismatch');
+    }
+    await evaluate(`HomeswiftWidgets.event({ id: "station", characteristic: "Charging State", value: 2 })`);
+    if (await evaluate(`!!document.querySelector('.battery-graphic.charging')`)) throw Error('Not chargeable shown as charging');
+    await evaluate(`HomeswiftWidgets.event({ id: "station", characteristic: "Battery Level", value: 25 })`);
+    const overflow = await evaluate(`[...document.querySelectorAll('.battery-gauge')].some(g => { const a=g.getBoundingClientRect(), b=g.closest('.widget').getBoundingClientRect(); return a.bottom > b.bottom || a.right > b.right; })`);
+    if (overflow) throw Error('Battery gauge exceeds tile');
+    if (await evaluate(`[...document.querySelectorAll('.bat-wave')].some(w => getComputedStyle(w).animationName !== 'none')`)) throw Error('Battery ignores reduced motion');
+    if (width === 375) await shot('battery-station');
+  }
+  console.log('PASS: battery fill, colour, charging state and station sizes');
   // Sensors and a remote: a press lights its key and names it in the status line, and pressed twice the same way it
   // counts twice (the event repeats its value).
   await open("sensors");
