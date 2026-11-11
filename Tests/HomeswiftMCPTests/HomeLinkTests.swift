@@ -239,6 +239,22 @@ import Testing
         #expect(environment.catalog.wallGroups.map(\.name) == ["Lampes"])
     }
 
+    /// A group Apple Home already has by that name, which the Home app hides with fewer than two accessories (an earlier
+    /// attempt can leave one), becomes the wall's group with its members, rather than a second one Apple Home refuses.
+    @Test func aHiddenGroupOfTheSameNameIsReused() async throws {
+        let environment = try await environment(bulbs: 2)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil])
+        environment.homeLink.set { $0.home.groups = [.init(id: "hk-leftover", name: "Spots Salon", members: ["Devices:bulb1"])] }
+        await environment.catalog.followHome()
+        let answer = try await environment.catalog.updateWall(["groups": [["name": "Spots Salon", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        #expect(answer["appleHomeRefused"] == nil)
+        #expect(environment.homeLink.home.groups.map(\.id) == ["hk-leftover"])
+        #expect(environment.homeLink.home.groups.first?.members == ["Devices:bulb1", "Devices:bulb2"])
+        #expect(environment.catalog.wallGroups.map(\.homeKitID) == ["hk-leftover"])
+        #expect(!environment.homeLink.applied.contains { if case .createGroup = $0 { true } else { false } })
+    }
+
     @Test(arguments: [false, true])
     func pendingGroupRenameSurvivesReadOnlyReconnect(deletedInHome: Bool) async throws {
         let environment = try await environment(bulbs: 2)

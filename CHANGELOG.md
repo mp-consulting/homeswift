@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Groups Apple Home already has**: a group made on the wall whose name Apple Home already has, often a group the Home
+  app hides because an earlier attempt left it with fewer than two accessories, is linked to that group and given the
+  wall's accessories, instead of being refused ("HMErrorDomain 13: Object already exists in the home") and dropped.
+
 ## [0.29.0] - 2026-11-11
 
 ### Added
