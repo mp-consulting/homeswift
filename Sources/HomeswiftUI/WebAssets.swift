@@ -36546,6 +36546,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-body > * { flex-shrink: 0; }
 .widget:not(.widget-full) .seg > button { white-space: nowrap; padding-inline: 2px; }
 .size-large .w-body { padding-right: 26px; overflow: hidden; justify-content: safe center; }
+/* Brightness spans the card; the lower controls reserve space for the corner menu. */
+.widget-light.size-large .w-body { padding-right: 0; }
+.widget-light.size-large .w-body > .swatches { margin-right: 26px; }
+.widget-light.size-large .w-body > .w-row { margin-right: 40px; }
 /* A large light's swatches on one line, as large as the line allows for the eight colours and the sun. */
 .size-large .swatches { gap: 5px; flex-wrap: nowrap; }
 .widget.size-large .swatch { width: min(28px, calc((100% - 40px) / 9)); height: auto; aspect-ratio: 1; }
@@ -36869,7 +36873,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* Adaptive Lighting: the day's whites, a sun on them; dimmed until the Home app has sent a schedule to resume. */
 .widget .swatch.adaptive { display: grid; place-items: center; color: #5c3b00; background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); }
 .widget .swatch.adaptive svg, .widget .round.adaptive svg, .adaptive-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.size-large .swatch.adaptive svg { width: 13px; height: 13px; }
+.widget.size-large .round.adaptive { width: 28px; height: 28px; min-height: 28px; padding: 0; }
+.size-large .swatch.adaptive svg, .size-large .round.adaptive svg { width: 13px; height: 13px; }
 .widget .round.adaptive[aria-pressed="true"] { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
 .widget .adaptive-chip { display: inline-flex; align-items: center; gap: var(--space-6); }
 .widget .adaptive.unset { opacity: 0.55; }
@@ -41798,9 +41803,10 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .widget-light.size-medium:has(.light-shortcuts) .w-top { min-height: 36px; align-items: center; }
 .widget-light.size-medium:has(.light-shortcuts) .w-bottom { position: absolute; top: 10px; left: 44px; right: 10px; min-height: 36px; align-items: center; }
 .widget-light.size-medium:has(.light-shortcuts) .w-bottom .who { padding-right: 0; }
-.widget-light.size-medium .light-shortcuts { display: grid; gap: var(--space-4); pointer-events: auto; }
-.widget-light.size-medium .light-shortcuts > .level { height: 40px; min-height: 40px; }
-.widget-light.size-medium .light-shortcuts .swatches { flex-wrap: nowrap; gap: var(--space-6); padding-right: 34px; overflow: visible; }
+.widget-light.size-medium:has(.light-shortcuts) .w-middle { position: absolute; inset: 10px; }
+.widget-light.size-medium .light-shortcuts { display: contents; }
+.widget-light.size-medium .light-shortcuts > .level { position: absolute; top: 50%; left: 0; right: 0; transform: translateY(-50%); height: 40px; min-height: 40px; pointer-events: auto; }
+.widget-light.size-medium .light-shortcuts .swatches { position: absolute; bottom: 0; left: 0; right: 0; flex-wrap: nowrap; gap: var(--space-6); padding-right: 34px; overflow: visible; pointer-events: auto; }
 .widget-light.size-medium .light-shortcuts .swatch { flex: 0 1 28px; width: 28px; height: 28px; min-height: 28px; }
 
 .widget-light.size-medium:has(.light-shortcuts) .w-middle { overflow: visible; }
