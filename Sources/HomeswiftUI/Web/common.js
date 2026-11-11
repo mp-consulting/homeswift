@@ -888,8 +888,18 @@
   }
 
   // The page follows the phone's keyboard once, for every bar that sits on the bottom (`--keyboard`): iOS covers the
-  // page rather than resizing it.
-  followKeyboard(document.documentElement);
+  // page rather than resizing it. Only while a field is typed in: zooming in shrinks the visual viewport too, and the
+  // bars would float up the page with it.
+  {
+    const root = document.documentElement, viewport = window.visualViewport;
+    const typing = () => document.activeElement?.matches?.("input:not([type=checkbox], [type=radio], [type=range], [type=button]), textarea, [contenteditable]");
+    const fit = () => root.style.setProperty("--keyboard",
+      viewport && typing() ? `${Math.max(0, Math.round(innerHeight - viewport.height - viewport.offsetTop))}px` : "0px");
+    viewport?.addEventListener("resize", fit);
+    viewport?.addEventListener("scroll", fit);
+    document.addEventListener("focusin", fit);
+    document.addEventListener("focusout", () => setTimeout(fit));
+  }
 
   /// A phone's Filters button for a page's bar (`.phone-bar`): it opens `sheet` over the bar (`.phone-sheet`, `open`),
   /// a badge counting the filters that are not the defaults (`count(n)`). A tap elsewhere, but not in a menu one of the
@@ -1496,12 +1506,12 @@
 
   const sections = [["/status", t("Status"), "bridge"], ["/energy", t("Energy"), "bolt"], ["/accessories", t("Accessories"), "bulb"], ["/automations", t("Automations"), "workflow"], ["/logbook", t("Logbook"), "history"], ["/plugins", t("Plugins"), "plugin"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
 
-  /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
-  /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
-  /// none). Hidden on wider windows, where the header holds them.
   /// The sections a phone's tab bar shows as tabs; the others are under More.
   const tabSections = new Set(["/status", "/accessories", "/automations"]);
 
+  /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
+  /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
+  /// none). Hidden on wider windows, where the header holds them.
   function tabBar({ active, parent = document.body } = {}) {
     const existing = document.querySelector("nav.tabbar");
     if (existing) return existing;

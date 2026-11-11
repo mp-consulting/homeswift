@@ -1312,6 +1312,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         body.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false.") })));
         return;
       }
+      // A refresh's count is not read out each time it changes, only one asked for.
+      count.setAttribute("aria-live", quiet ? "off" : "polite");
       count.textContent = t("{shown} of {total}", { shown: found.entries.length, total: found.total });
       // On a phone the newest is at the foot, by the bar, where new entries arrive (as the Logs page); elsewhere, first.
       const ordered = phone.matches ? [...found.entries].reverse() : found.entries;
@@ -1360,7 +1362,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     showCount();
     // While following, a phone reads the entries again every few seconds, unless the filters or a menu cover the page
     // or the tab is hidden. The timer goes with the page.
+    // A page still loading when another view was asked for never reaches the document: its timer stops at the first tick.
     const refresh = setInterval(() => {
+      if (!bar.isConnected) { clearInterval(refresh); return; }
       if (phone.matches && following && !document.hidden && !filters.isOpen() && !HomeswiftCommon.menuOpen()) load(true);
     }, 4000);
     HomeswiftCommon.viewSignal().addEventListener("abort", () => clearInterval(refresh));
@@ -1369,7 +1373,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (phone.matches) bar.prepend(search);
       else { searchLabel.append(search); filters.open(false); }
     };
-    phone.addEventListener("change", placeSearch, { signal: HomeswiftCommon.viewSignal() });
+    // Between a phone and a wider window the entries change order (the newest at the foot, or first): drawn again.
+    phone.addEventListener("change", () => { placeSearch(); load(true); }, { signal: HomeswiftCommon.viewSignal() });
     placeSearch();
     app().show(main,
       app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
@@ -8272,7 +8277,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Typing filters once it pauses: thousands of lines are not drawn again per key.
     let typing = null;
     filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { render(); keepAddress(); }, 120); });
-    follow.addEventListener("change", () => { if (follow.checked) toEnd(); });
+    // Following again: back to the end, on a phone scrolled there (the arrow, Play) rather than jumped to.
+    follow.addEventListener("change", () => {
+      if (!follow.checked) return;
+      if (phone.matches && followUI) followUI.toEnd(true); else toEnd();
+    });
 
     // A time range (HomeswiftCommon.rangeControl): the latest lines from memory, or a span from the log the bridge keeps on disk
     // (rotated, a week at most). A span that ends now keeps following; one in the past stays as it is.
@@ -12216,8 +12225,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   // The page follows the phone's keyboard once, for every bar that sits on the bottom (`--keyboard`): iOS covers the
-  // page rather than resizing it.
-  followKeyboard(document.documentElement);
+  // page rather than resizing it. Only while a field is typed in: zooming in shrinks the visual viewport too, and the
+  // bars would float up the page with it.
+  {
+    const root = document.documentElement, viewport = window.visualViewport;
+    const typing = () => document.activeElement?.matches?.("input:not([type=checkbox], [type=radio], [type=range], [type=button]), textarea, [contenteditable]");
+    const fit = () => root.style.setProperty("--keyboard",
+      viewport && typing() ? `${Math.max(0, Math.round(innerHeight - viewport.height - viewport.offsetTop))}px` : "0px");
+    viewport?.addEventListener("resize", fit);
+    viewport?.addEventListener("scroll", fit);
+    document.addEventListener("focusin", fit);
+    document.addEventListener("focusout", () => setTimeout(fit));
+  }
 
   /// A phone's Filters button for a page's bar (`.phone-bar`): it opens `sheet` over the bar (`.phone-sheet`, `open`),
   /// a badge counting the filters that are not the defaults (`count(n)`). A tap elsewhere, but not in a menu one of the
@@ -12824,12 +12843,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   const sections = [["/status", t("Status"), "bridge"], ["/energy", t("Energy"), "bolt"], ["/accessories", t("Accessories"), "bulb"], ["/automations", t("Automations"), "workflow"], ["/logbook", t("Logbook"), "history"], ["/plugins", t("Plugins"), "plugin"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
 
-  /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
-  /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
-  /// none). Hidden on wider windows, where the header holds them.
   /// The sections a phone's tab bar shows as tabs; the others are under More.
   const tabSections = new Set(["/status", "/accessories", "/automations"]);
 
+  /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
+  /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
+  /// none). Hidden on wider windows, where the header holds them.
   function tabBar({ active, parent = document.body } = {}) {
     const existing = document.querySelector("nav.tabbar");
     if (existing) return existing;
@@ -39916,16 +39935,16 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .accessories-bar > .accessories-toolbar, .accessories-bar > .accessories-views { display: contents; }
   .accessories-bar .subnav { order: 1; flex: none; width: auto; margin: 0; padding: 0; display: flex; background: none; border: 0; box-shadow: none; overflow: visible; mask-image: none; -webkit-mask-image: none; }
-  .accessories-bar .subnav:has(> a:first-child.on), .accessories-bar .subnav > a.on { display: none; }
+  #app .accessories-bar .subnav:has(> a:first-child.on), #app .accessories-bar .subnav > a.on { display: none; }
   .accessories-bar .subnav a span, .accessories-bar .accessories-filters .toolbar-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  #app .accessories-bar .accessories-toolbar > * { order: 5; }
-  #app .accessories-bar .accessory-options-button.menu-button { order: 0; }
-  #app .accessories-bar .search { order: 2; }
-  #app .accessories-bar .accessories-filters { order: 3; }
-  #app .accessories-bar .accessories-edit { order: 4; }
-  #app .accessories-bar .accessories-ask { order: 6; }
-  .accessories-bar :is(.accessories-views, .accessories-toolbar) > :is(button, a):is(.accessories-full-screen, .in-menu-on-phone),
-  .accessories-bar .accessories-toolbar > :is(button, a).hidden, .accessories-bar .accessories-ask[hidden] { display: none; }
+  #app .accessories-bar.phone-bar .accessories-toolbar > * { order: 5; }
+  #app .accessories-bar.phone-bar .accessory-options-button.menu-button { order: 0; }
+  #app .accessories-bar.phone-bar .search { order: 2; }
+  #app .accessories-bar.phone-bar .accessories-filters { order: 3; }
+  #app .accessories-bar.phone-bar .accessories-edit { order: 4; }
+  #app .accessories-bar.phone-bar .accessories-ask { order: 6; }
+  #app .accessories-bar :is(.accessories-views, .accessories-toolbar) > :is(button, a):is(.accessories-full-screen, .in-menu-on-phone),
+  #app .accessories-bar .accessories-toolbar > :is(button, a).hidden, #app .accessories-bar .accessories-toolbar > .accessories-ask[hidden] { display: none; }
   /* Its buttons are the bar's round ones (`.bar-button`'s look), the Assistant's in the accent. */
   #app .accessories-bar .accessories-toolbar > :is(button, a), #app .accessories-bar .accessories-toolbar > .accessory-options-button, #app .accessories-bar .subnav a {
     position: relative; display: flex; align-items: center; justify-content: center; width: var(--bar-control); height: var(--bar-control);

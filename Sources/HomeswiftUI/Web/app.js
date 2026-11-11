@@ -5836,7 +5836,11 @@
     // Typing filters once it pauses: thousands of lines are not drawn again per key.
     let typing = null;
     filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { render(); keepAddress(); }, 120); });
-    follow.addEventListener("change", () => { if (follow.checked) toEnd(); });
+    // Following again: back to the end, on a phone scrolled there (the arrow, Play) rather than jumped to.
+    follow.addEventListener("change", () => {
+      if (!follow.checked) return;
+      if (phone.matches && followUI) followUI.toEnd(true); else toEnd();
+    });
 
     // A time range (HomeswiftCommon.rangeControl): the latest lines from memory, or a span from the log the bridge keeps on disk
     // (rotated, a week at most). A span that ends now keeps following; one in the past stays as it is.

@@ -3973,16 +3973,16 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .accessories-bar > .accessories-toolbar, .accessories-bar > .accessories-views { display: contents; }
   .accessories-bar .subnav { order: 1; flex: none; width: auto; margin: 0; padding: 0; display: flex; background: none; border: 0; box-shadow: none; overflow: visible; mask-image: none; -webkit-mask-image: none; }
-  .accessories-bar .subnav:has(> a:first-child.on), .accessories-bar .subnav > a.on { display: none; }
+  #app .accessories-bar .subnav:has(> a:first-child.on), #app .accessories-bar .subnav > a.on { display: none; }
   .accessories-bar .subnav a span, .accessories-bar .accessories-filters .toolbar-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  #app .accessories-bar .accessories-toolbar > * { order: 5; }
-  #app .accessories-bar .accessory-options-button.menu-button { order: 0; }
-  #app .accessories-bar .search { order: 2; }
-  #app .accessories-bar .accessories-filters { order: 3; }
-  #app .accessories-bar .accessories-edit { order: 4; }
-  #app .accessories-bar .accessories-ask { order: 6; }
-  .accessories-bar :is(.accessories-views, .accessories-toolbar) > :is(button, a):is(.accessories-full-screen, .in-menu-on-phone),
-  .accessories-bar .accessories-toolbar > :is(button, a).hidden, .accessories-bar .accessories-ask[hidden] { display: none; }
+  #app .accessories-bar.phone-bar .accessories-toolbar > * { order: 5; }
+  #app .accessories-bar.phone-bar .accessory-options-button.menu-button { order: 0; }
+  #app .accessories-bar.phone-bar .search { order: 2; }
+  #app .accessories-bar.phone-bar .accessories-filters { order: 3; }
+  #app .accessories-bar.phone-bar .accessories-edit { order: 4; }
+  #app .accessories-bar.phone-bar .accessories-ask { order: 6; }
+  #app .accessories-bar :is(.accessories-views, .accessories-toolbar) > :is(button, a):is(.accessories-full-screen, .in-menu-on-phone),
+  #app .accessories-bar .accessories-toolbar > :is(button, a).hidden, #app .accessories-bar .accessories-toolbar > .accessories-ask[hidden] { display: none; }
   /* Its buttons are the bar's round ones (`.bar-button`'s look), the Assistant's in the accent. */
   #app .accessories-bar .accessories-toolbar > :is(button, a), #app .accessories-bar .accessories-toolbar > .accessory-options-button, #app .accessories-bar .subnav a {
     position: relative; display: flex; align-items: center; justify-content: center; width: var(--bar-control); height: var(--bar-control);
