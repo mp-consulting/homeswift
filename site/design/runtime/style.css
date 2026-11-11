@@ -950,7 +950,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.size-medium:not(.widget-full) .who strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 /* Compact: icon and name in one row; tall: icon above the name, as in Apple Home. */
 .widget.widget-summary { border-radius: var(--radius); }
-.widget.size-small { flex-direction: row; align-items: center; padding: var(--space-10); gap: var(--space-10); }
+.widget.size-small { flex-direction: row; align-items: center; padding: var(--space-10) var(--space-12); gap: var(--space-10); }
 .size-small .w-top { flex: none; }
 .size-small .w-bottom { flex: 1; align-items: center; min-width: 0; }
 .size-small .w-hero { display: none; }
