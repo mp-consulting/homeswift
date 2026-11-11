@@ -1045,7 +1045,9 @@
     svg.setAttribute("viewBox", "0 0 200 200");
     svg.setAttribute("class", "thermometer-dial");
     svg.setAttribute("aria-hidden", "true");
-    svg.innerHTML = `<circle class="face" cx="100" cy="100" r="99"/>` + band + scale(outerUnit, true) + scale(innerUnit, false) +
+    // The band and scales drawn a little smaller than the face, for a margin of white between the numbers and its edge.
+    svg.innerHTML = `<circle class="face" cx="100" cy="100" r="99"/>` +
+      `<g transform="translate(100 100) scale(0.94) translate(-100 -100)">${band}${scale(outerUnit, true)}${scale(innerUnit, false)}</g>` +
       `<text class="unit inner" x="100" y="134" text-anchor="middle">${innerUnit === "f" ? "°F" : "°C"}</text>` +
       `<text class="unit" x="100" y="180" text-anchor="middle">${outerUnit === "f" ? "°F" : "°C"}</text>` +
       `<g class="needle"><line class="needle-tail" x1="100" y1="100" x2="${100 - 14}" y2="100"/><line class="needle-body" x1="100" y1="100" x2="${100 + 64}" y2="100"/></g>` +
