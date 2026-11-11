@@ -37049,7 +37049,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .valve-running-controls[hidden] { display: none !important; }
 .valve-countdown { display: flex; gap: var(--space-8); }
 .valve-countdown[hidden] { display: none; }
-.widget-valve.size-medium .w-middle { display: grid; place-items: center; pointer-events: none; }
+.widget-valve.size-medium .w-middle { display: grid; justify-items: start; align-items: center; pointer-events: none; }
 .widget-valve.size-medium .valve-flap { min-width: 52px; height: 54px; font-size: 34px; }
 .widget-valve.size-medium .valve-clock-part small { font-size: 9px; }
 .valve-clock-part { display: grid; justify-items: center; gap: var(--space-4); }
