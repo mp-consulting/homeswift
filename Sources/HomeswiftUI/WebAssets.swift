@@ -37040,10 +37040,12 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* Valve: a round run button whose ring empties as the time runs out. */
 .valve { display: grid; justify-items: center; gap: var(--space-14); }
 .valve .seg { width: 100%; }
-.valve-actions { display: grid; gap: var(--space-8); justify-items: stretch; }
+/* The countdown in the middle of the tile, Run and the duration side by side under it. */
+.valve-actions { display: flex; gap: var(--space-8); justify-content: center; align-items: center; }
 .valve-duration { width: auto; min-width: 7.5rem; }
-.valve-run-control { flex: none; }
-.valve-running-controls { display: flex; align-items: center; gap: var(--space-12); }
+.valve-run-control { flex: none; display: flex; justify-content: center; }
+.valve-running-controls { display: flex; flex-direction: column; align-items: center; gap: var(--space-10); }
+.widget-valve:not(.widget-full) > .w-body { padding-right: 0; }
 .valve-running-controls[hidden] { display: none !important; }
 .valve-countdown { display: flex; gap: var(--space-8); }
 .valve-countdown[hidden] { display: none; }
@@ -37055,7 +37057,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .valve-flap { position: relative; display: grid; place-items: center; min-width: 64px; height: 66px; padding-inline: var(--space-4); box-sizing: border-box; border-radius: var(--radius-sm); color: #f5f5f5; background: linear-gradient(#444 0%, #303030 49%, #1c1c1c 50%, #252525 100%); border: 1px solid #616161; box-shadow: inset 0 1px 0 #ffffff26, 0 3px 5px #0003; font-size: 40px; line-height: 1; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; letter-spacing: -2px; }
 .valve-flap::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #000b; box-shadow: 0 1px #ffffff18; }
 .widget-full .valve-flap { min-width: 90px; height: 96px; font-size: 60px; }
-.widget-full .valve-running-controls { flex-direction: column; }
+
 
 @media (prefers-reduced-motion: reduce) {
   .seg-thumb, .level-fill, .widget .tile, .widget.size-small, .w-shade { transition-duration: 0ms !important; }
