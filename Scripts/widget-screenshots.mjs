@@ -108,6 +108,46 @@ try {
   await send("Page.enable");
   await send("Runtime.enable");
   await appearance("light");
+  for (const width of [375, 1272]) {
+    await open("climate", width);
+    const failed = await evaluate(`(() => {
+      for (const tile of document.querySelectorAll('.widget-climate')) {
+        const box=tile.getBoundingClientRect();
+        const menu=tile.querySelector('.menu-button').getBoundingClientRect();
+        for (const control of tile.querySelectorAll('.climate-dial, .setpoint, .climate-modes, .climate-airflow')) {
+          const r=control.getBoundingClientRect(); if(!r.width || !r.height) continue;
+          if(r.left<box.left || r.right>box.right+1 || r.top<box.top || r.bottom>box.bottom+1) return tile.className+' '+control.classList+' outside tile '+JSON.stringify({box:box.toJSON(),r:r.toJSON()});
+          if(r.left<menu.right && r.right>menu.left && r.top<menu.bottom && r.bottom>menu.top) return tile.className+' '+control.classList+' overlaps menu '+JSON.stringify({r:r.toJSON(),menu:menu.toJSON()});
+        }
+        for(const button of tile.querySelectorAll('.round')) {
+          const r=button.getBoundingClientRect(); if(Math.abs(r.width-r.height)>1) return 'non-circular button';
+        }
+      }
+      return '';
+    })()`);
+    if(failed) throw Error(`Climate ${width}: ${failed}`);
+    await evaluate(`document.querySelector('.size-large .climate-modes button').click()`);
+    const targets = await evaluate(`document.querySelectorAll('.size-large .setpoint:not([hidden])').length`);
+    if(targets!==2) throw Error('Auto must show both temperature targets');
+    await evaluate(`document.querySelector('.size-medium .climate-dial').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))`);
+    const target = await evaluate(`document.querySelector('.size-medium .climate-dial').getAttribute('aria-valuenow')`);
+    if(Number(target)!==22) throw Error('Climate gauge keyboard target failed: '+target);
+    await shot(`climate-${width}`);
+  }
+  console.log('PASS: climate sizes, menu clearance, round buttons, Auto targets and keyboard gauge');
+  await evaluate(`document.querySelector('main').replaceChildren(HomeswiftWidgets.card(previewThermostat, {size:'medium'}))`);
+  if (!await evaluate(`document.querySelector('.climate-dial').getAttribute('role') === 'slider' && document.querySelector('.climate-power').getAttribute('aria-pressed') === 'false'`)) throw Error('Off thermostat must retain its target gauge and power button');
+  for (const value of [2, 0, 2]) {
+    const start = writes.length;
+    await evaluate(`document.querySelector('.climate-power').click()`);
+    for (let attempt = 0; writes.length === start && attempt < 50; attempt++) await sleep(20);
+    const written = writes.slice(start);
+    if (written.length !== 1 || written[0].body.characteristic !== 'Target Heating Cooling State' || written[0].body.value !== value) throw Error('Thermostat must toggle off and resume its supported cooling mode: '+JSON.stringify(written));
+    if (!await evaluate(`document.querySelector('.climate-power').getAttribute('aria-pressed') === '${value !== 0}' && document.querySelector('.widget').classList.contains('powered-off') === ${value === 0}`)) throw Error('Thermostat power appearance disagrees with its mode');
+  }
+  console.log('PASS: off thermostat gauge and power resume supported cooling mode');
+
+  writes.length = 0;
   await open("phone", 393);
   await shot("phone");
   const geometry = await evaluate(`[...document.querySelectorAll('.widget')].map(node => ({

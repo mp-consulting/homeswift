@@ -556,8 +556,8 @@
   }
 
   /// A secondary on/off service, pressed or not.
-  function chip(label, onChange) {
-    const node = el("button", { type: "button", class: "chip", text: label, "aria-pressed": "false" });
+  function chip(label, onChange, actionIcon) {
+    const node = el("button", { type: "button", class: "chip", text: label, actionIcon, "aria-pressed": "false" });
     node.addEventListener("click", () => {
       const on = node.getAttribute("aria-pressed") !== "true";
       node.setAttribute("aria-pressed", String(on));
@@ -693,11 +693,11 @@
   // ---- Shared pieces of widgets -----------------------------------------------------------------------
 
   /// A speed: bars when it has a few positions, else a level.
-  function speedControl(ctx, service, characteristic, color) {
-    const min = characteristic.minValue ?? 0, max = characteristic.maxValue ?? 100, count = positions(characteristic);
+  function speedControl(ctx, service, characteristic, color, preferSteps = false) {
+    const min = characteristic.minValue ?? 0, max = characteristic.maxValue ?? 100, count = preferSteps && positions(characteristic) > 6 ? 5 : positions(characteristic);
     if (count <= 6 && count >= 2) {
       const stepSize = (max - min) / count;
-      const control = steps({ label: t("Speed"), count }, (n) => ctx.write(service, characteristic, min + n * stepSize));
+      const control = steps({ label: t("Speed"), count }, (n) => ctx.write(service, characteristic, clamp(min + Math.round(n * stepSize / (characteristic.minStep || 1)) * (characteristic.minStep || 1), min, max)));
       if (color) control.node.style.setProperty("--steps", color);
       ctx.watch(() => control.set(Math.round((numberOf(characteristic) - min) / stepSize)));
       return el("div", { class: "w-row" }, el("span", { class: "w-label", text: t("Speed") }), control.node);
@@ -707,11 +707,22 @@
     return control.node;
   }
 
+  function swingChips(ctx, service) {
+    const axes = [["Vertical Swing", t("Vertical swing"), "swingVertical"], ["Horizontal Swing", t("Horizontal swing"), "swingHorizontal"]];
+    const supported = axes.filter(([name]) => canWrite(ctx.char(service, name)));
+    if (!supported.length) return [chipFor(ctx, service, ctx.char(service, "Swing Mode"), t("Swing"), "swingVertical")].filter(Boolean);
+    const combined = ctx.char(service, "Swing Mode");
+    if (combined) ctx.use(combined);
+    return supported.map(([name, label, icon]) => {
+      return chipFor(ctx, service, ctx.char(service, name), label, icon);
+    });
+  }
+
   /// A writable bool or 0/1 of a service as a chip (Swing, Child lock).
-  function chipFor(ctx, service, characteristic, label) {
+  function chipFor(ctx, service, characteristic, label, actionIcon) {
     if (!canWrite(characteristic)) return null;
     ctx.use(characteristic);
-    const control = chip(label, (on) => ctx.write(service, characteristic, onValue(characteristic, on)));
+    const control = chip(label, (on) => ctx.write(service, characteristic, onValue(characteristic, on)), actionIcon);
     ctx.watch(() => control.set(isOn(characteristic)));
     return control.node;
   }
@@ -953,7 +964,7 @@
     const body = el("div", { class: "w-block-body" },
       canWrite(speed) ? speedControl(ctx, service, speed) : null,
       canWrite(target) ? modeControl(ctx, service, target) : null,
-      el("div", { class: "chips" }, chipFor(ctx, service, ctx.char(service, "Swing Mode"), t("Swing")), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))));
+      el("div", { class: "chips" }, ...swingChips(ctx, service), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))));
     ctx.watch(() => { body.hidden = !isOn(power); });
     return el("div", { class: "w-block" }, el("div", { class: "w-row" }, el("span", { class: "w-label", text: name }), control.node), body);
   }
@@ -1040,6 +1051,58 @@
     return control.node;
   }
 
+  /// The current temperature stays in the centre; the handle writes the selected target.
+  function climateDial(ctx, parts, targets, current) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 200 200");
+    svg.setAttribute("class", "climate-dial");
+    const at = value => { const a = (135 + 270 * value) * Math.PI / 180; return [100 + 86 * Math.cos(a), 100 + 86 * Math.sin(a)]; };
+    const arc = value => { const a = at(0), b = at(Math.max(.0001, value)); return `M${a} A86 86 0 ${value > 2/3 ? 1 : 0} 1 ${b}`; };
+    svg.innerHTML = `<path class="gauge-track" d="${arc(1)}"/><path class="gauge-band"/><circle class="gauge-dot" r="7"/><text class="gauge-value" x="100" y="96" text-anchor="middle"></text><text class="gauge-caption" x="100" y="122" text-anchor="middle"></text><text class="climate-target-label gauge-caption" x="100" y="151" text-anchor="middle"></text>`;
+    const selected = () => targets().filter(canWrite).at(-1);
+    let pending = null;
+    const bounds = c => [c.minValue ?? 10, c.maxValue ?? 35, c.minStep || .5];
+    const paint = () => {
+      const c = selected(), value = current(), off = parts.mode() === "off";
+      svg.classList.toggle("is-off", off);
+      svg.querySelector(".gauge-value").textContent = value === null ? "–" : degrees(+value.toFixed(1));
+      svg.querySelector(".gauge-caption").textContent = t("Inside");
+      svg.querySelector(".climate-target-label").textContent = targets().map(c => degrees(numberOf(c))).join(" – ");
+      svg.setAttribute("role", c ? "slider" : "img");
+      svg.setAttribute("aria-label", c ? t("Target temperature") : t("Inside"));
+      svg.tabIndex = c ? 0 : -1;
+      svg.querySelector(".gauge-dot").style.display = c ? "" : "none";
+      if (!c) { svg.querySelector(".gauge-band").setAttribute("d", ""); return; }
+      const [min,max] = bounds(c), target = pending ?? numberOf(c), share = clamp((target-min)/(max-min),0,1);
+      for (const [key,v] of Object.entries({min,max,now:target})) svg.setAttribute(`aria-value${key}`,v);
+      const [x,y] = at(share), dot = svg.querySelector(".gauge-dot");
+      dot.setAttribute("cx",x); dot.setAttribute("cy",y);
+      svg.querySelector(".gauge-band").setAttribute("d",arc(share));
+    };
+    const commit = value => { const c = selected(); if (c) ctx.write(parts.service,c,value); };
+    const fromPointer = event => {
+      const c = selected(); if (!c) return;
+      const box = svg.getBoundingClientRect();
+      let angle = Math.atan2(event.clientY-box.top-box.height/2,event.clientX-box.left-box.width/2)*180/Math.PI;
+      angle = (angle-135+360)%360;
+      if (angle>270) angle = angle>315 ? 0 : 270;
+      const [min,max,step] = bounds(c);
+      pending = clamp(min+Math.round((max-min)*angle/270/step)*step,min,max); paint();
+    };
+    svg.addEventListener("pointerdown", e => { if(e.button!==0 || !selected()) return; e.preventDefault(); svg.setPointerCapture(e.pointerId); fromPointer(e); });
+    svg.addEventListener("pointermove", e => { if(svg.hasPointerCapture(e.pointerId)) fromPointer(e); });
+    svg.addEventListener("pointerup", e => { if(pending===null) return; const value=pending; pending=null; svg.releasePointerCapture(e.pointerId); commit(value); });
+    svg.addEventListener("pointercancel", () => { pending=null; paint(); });
+    svg.addEventListener("keydown", e => {
+      const c=selected(); if(!c) return; const [min,max,step]=bounds(c);
+      const delta={ArrowUp:step,ArrowRight:step,ArrowDown:-step,ArrowLeft:-step,PageUp:step*4,PageDown:-step*4}[e.key];
+      if(delta===undefined && e.key!=="Home" && e.key!=="End") return;
+      e.preventDefault(); commit(e.key==="Home"?min:e.key==="End"?max:clamp(numberOf(c)+delta,min,max));
+    });
+    ctx.watch(paint);
+    return svg;
+  }
+
   /// A thermostat inside another accessory's card (a purifier's heater): its modes and setpoint.
   function climateBlock(ctx, service, name) {
     const parts = climateParts(ctx, service);
@@ -1110,7 +1173,7 @@
   }
 
   /// Chips for the bools of a service a widget offers as options (Swing, Child lock).
-  const optionChips = (ctx, service) => [chipFor(ctx, service, ctx.char(service, "Swing Mode"), t("Swing")), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))].filter(Boolean);
+  const optionChips = (ctx, service) => [...swingChips(ctx, service), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))].filter(Boolean);
   const chipRow = (nodes) => nodes.length ? el("div", { class: "chips" }, nodes) : null;
   const row = (label, ...nodes) => el("div", { class: "w-row" }, label ? el("span", { class: "w-label", text: label }) : null, ...nodes);
 
@@ -1229,11 +1292,20 @@
     build(ctx, primary, size) {
       const parts = climateParts(ctx, primary);
       const now = () => typeof parts.current?.value === "number" ? parts.current.value : null;
+      const thermostatModes = parts.target?.validValues || [0, 1, 2, 3];
+      let resumeState = thermostatModes.find(value => value > 0);
       const mode = () => parts.mode();
-      const shownMode = () => mode() === "off" ? parts.lastMode() : mode();
+      ctx.watch(() => {
+        if (!parts.heaterCooler && numberOf(parts.target) > 0) resumeState = numberOf(parts.target);
+      });
+      const shownMode = () => mode() === "off"
+        ? parts.heaterCooler ? parts.lastMode() : ["off", "heat", "cool", "auto"][resumeState] ?? "off"
+        : mode();
       const modeWords = { off: t("off"), heat: t("heat"), cool: t("cool"), auto: t("auto") };
       const built = {
         power: canWrite(parts.active) ? { service: primary, characteristic: parts.active } : null,
+        thermostatPower: !parts.heaterCooler && canWrite(parts.target) && thermostatModes.includes(0) && resumeState !== undefined
+          ? () => ctx.write(primary, parts.target, mode() === "off" ? resumeState : 0) : null,
         tone: () => ({ heat: "heat", cool: "blue", auto: "green" })[shownMode()] ?? "teal",
         on: () => mode() !== "off",
         hero: () => now() === null ? "" : el("span", {}, degrees(+now().toFixed(1)), el("small", { text: modeWords[mode()] ?? mode() })),
@@ -1255,39 +1327,42 @@
           return [idle[mode()] ?? t("Idle · auto to {temperature}", { temperature: target })];
         },
       };
-      if (size === "small") return built;
       const points = setpointControls(ctx, parts);
-      if (size === "medium") {
-        // The temperature inside and one setpoint: the mode's own (Cool to in auto).
-        const big = el("b", { class: "w-big" });
+      const targets = () => parts.setpoints(shownMode());
+      if (size === "small") {
+        const current = el("b"), target = el("span");
         ctx.watch(() => {
-          const shown = parts.setpoints(shownMode());
-          points.show(shown.slice(-1));
-          big.textContent = now() === null ? "–" : degrees(+now().toFixed(1));
+          current.textContent = now() === null ? "–" : degrees(+now().toFixed(1));
+          target.textContent = targets().map(c => degrees(numberOf(c))).join(" – ");
         });
-        built.body = [el("div", { class: "w-row" }, el("div", { class: "w-figure" }, big, el("span", { text: t("Inside") })), el("div", { class: "setpoints" }, points.nodes))];
+        built.body = [el("div", { class: "climate-compact" }, current, target)];
         return built;
       }
-      const temps = [parts.heat, parts.cool, parts.single].filter(Boolean);
-      const min = Math.min(...temps.map((c) => c.minValue ?? 10), 10), max = Math.max(...temps.map((c) => c.maxValue ?? 35), 30);
-      const dial = gauge({ min, max });
-      const colors = { heat: "var(--heat)", cool: "var(--cool)", auto: "var(--auto)" };
-      ctx.watch(() => {
-        const shown = parts.setpoints(shownMode());
-        points.show(shown);
-        const caption = typeof parts.humidity?.value === "number" ? t("Inside · {humidity} %", { humidity: Math.round(parts.humidity.value) }) : t("Inside");
-        if (mode() === "off" || !shown.length) dial.update({ value: now(), caption });
-        else if (shown.length === 2) dial.update({ value: now(), from: numberOf(shown[0]), to: numberOf(shown[1]), color: colors.auto, caption });
-        else dial.update({ value: now(), from: now() ?? numberOf(shown[0]), to: numberOf(shown[0]), color: colors[mode()], caption });
-      });
-      const speed = ctx.take(primary, "Rotation Speed");
-      const chips = optionChips(ctx, primary);
-      built.body = [
-        el("div", { class: "climate-hero" }, dial.node, el("div", { class: "setpoints" }, points.nodes)),
-        climateModes(ctx, parts),
-        canWrite(speed) ? speedControl(ctx, primary, speed) : null,
-        chipRow(chips),
-      ].filter(Boolean);
+      const dial = climateDial(ctx, parts, targets, now);
+      ctx.watch(() => points.show(targets()));
+      const dashboard = el("div", { class: "climate-dashboard" },
+        size === "medium" ? null : el("div", { class: "setpoints" }, points.nodes), dial);
+      const modes = size === "medium" ? null : climateModes(ctx, parts);
+      if (modes) modes.classList.add("climate-modes");
+      if (size === "large" && modes) dashboard.append(modes);
+      built.body = [dashboard, size === "large" ? null : modes].filter(Boolean);
+      if (size === "large" || size === "xlarge" || size === "full") {
+        const speed = ctx.take(primary, "Rotation Speed");
+        const swings = swingChips(ctx, primary);
+        for (const button of swings) {
+          button.classList.add("climate-swing");
+          button.setAttribute("aria-label", button.textContent);
+          button.title = button.textContent;
+          // Direction remains available to assistive technology without a visible label.
+          if (button.classList.contains("action-with-icon")) for (const child of [...button.childNodes]) {
+            if (child.nodeType === Node.TEXT_NODE) child.remove();
+          }
+        }
+        const speedNode = canWrite(speed) ? speedControl(ctx, primary, speed, null, true) : null;
+        if (speedNode || swings.length) built.body.push(el("div", { class: "climate-airflow" }, speedNode, chipRow(swings)));
+        const lock = chipFor(ctx, primary, ctx.char(primary, "Lock Physical Controls"), t("Child lock"));
+        if (lock) built.body.push(chipRow([lock]));
+      }
       if (size === "full") built.facets = facets(ctx, [primary]);
       return built;
     },
@@ -1975,7 +2050,7 @@
       const size = sizes.includes(options.size) ? options.size : defaultOf(widget, ctx, primary);
       // Reuse the builders' compact, main-control and expanded variants at the four wall sizes; a builder tells the
       // tall tile from the compact one by `ctx.tall` (both draw its "small").
-      const contentSize = { small: "small", medium: "small", large: "medium", xlarge: "large" }[size];
+      const contentSize = widget.name === "climate" ? size : { small: "small", medium: "small", large: "medium", xlarge: "large" }[size];
       ctx.tall = size === "medium";
       node = frame(ctx, ...built(ctx, widget, primary, contentSize), primary, size);
     }
@@ -2098,6 +2173,18 @@
       if (tone) status.dataset.tone = tone; else delete status.dataset.tone;
     };
   }
+  function climatePower(ctx, built) {
+    if (!built.power && !built.thermostatPower) return null;
+    const togglePower = built.thermostatPower || (() => {
+      const { service, characteristic } = built.power;
+      ctx.write(service, characteristic, onValue(characteristic, !isOn(characteristic)));
+    });
+    const button = el("button", { type: "button", class: "round climate-power", "aria-label": t("{name}: power", { name: ctx.accessory.name }),
+      onclick: togglePower }, icon("power"));
+    ctx.watch(() => button.setAttribute("aria-pressed", String(built.on())));
+    return button;
+  }
+
   function powerToggle(ctx, built) {
     if (!built.power) return null;
     const { service, characteristic, big } = built.power;
@@ -2264,7 +2351,7 @@
     const menu = actionsButton(ctx, false);
     const node = el("article", { class: `card widget size-${size} widget-${widget.name}`, "data-search": searchText(accessory), "data-id": accessory.id });
     if (built.background) node.append(built.background);
-    if (size === "small" || size === "medium") {
+    if ((size === "small" || size === "medium") && widget.name !== "climate") {
       node.classList.add("widget-summary");
       const hero = el("span", { class: "w-hero" });
       const hit = el("button", { type: "button", class: "w-hit" });
@@ -2366,7 +2453,7 @@
       const body = (built.body || []).filter(Boolean);
       // Keep scrolling options beside the menu, with a dedicated, unobstructed hit target.
       const footerChips = size === "xlarge" && body.at(-1)?.classList?.contains("chips") ? body.pop() : null;
-      node.append(el("div", { class: "w-head" }, glyph, who, powerToggle(ctx, built)),
+      node.append(el("div", { class: "w-head" }, glyph, who, widget.name === "climate" ? climatePower(ctx, built) : powerToggle(ctx, built)),
         body.length ? el("div", { class: "w-body" }, body) : "",
         footerChips ? el("div", { class: "w-footer" }, footerChips, menu) : el("span", { class: "w-corner" }, menu));
       // Keep the charge beside the heading, clear of the centred charging bolt and output controls.
@@ -2375,7 +2462,7 @@
         if (gauge) node.querySelector(".w-head").append(gauge);
       }
       node.classList.toggle("head-only", !body.length && !footerChips);
-      ctx.watch(() => node.classList.toggle("powered-off", !!built.power && !built.power.big && !isOn(built.power.characteristic)));
+      ctx.watch(() => node.classList.toggle("powered-off", widget.name === "climate" ? !built.on() : !!built.power && !built.power.big && !isOn(built.power.characteristic)));
     }
     ctx.watch(paintGlyph);
     ctx.watch(statusPainter(ctx, built, status));

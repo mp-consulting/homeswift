@@ -68,6 +68,22 @@ final class AirConditionerV1: AirConditioner {
         try await thinq.thinq1DeviceControl(device, key: "WindStrength", value: .number(Double(ACFan.windStrength(percent: percent))))
     }
 
+    override var supportedSwingAxes: [ClimateSwing] {
+        ClimateSwing.allCases.filter { axis in
+            let key = axis == .vertical ? "WDirVStep" : "WDirHStep"
+            let options = device.deviceModel.value(key)?.options ?? [:]
+            return options["0"] != nil && options["100"] != nil
+        }
+    }
+
+    override func setSwingAxis(_ axis: ClimateSwing, enabled: Bool) async throws {
+        guard supportedSwingAxes.contains(axis), status.isPowerOn else { return }
+        let value: JSONValue = enabled ? "100" : "0"
+        try await thinq.thinq1DeviceControl(device, key: axis == .vertical ? "WDirVStep" : "WDirHStep", value: value)
+        setSnapshotValues([Self.swingKey(axis): value])
+        updateAccessoryCharacteristic(device)
+    }
+
     override func setSwingMode(_ value: HAPValue) async throws {
         guard status.isPowerOn else { return }
         let swing: JSONValue = Normalize.boolean(value) ? "100" : "0"

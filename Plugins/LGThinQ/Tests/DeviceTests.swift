@@ -30,6 +30,23 @@ struct AirConditionerTests {
         return (environment, host, accessory)
     }
 
+    @Test func independentSwingAxes() async throws {
+        let (environment, host, accessory) = try await start()
+        defer { Task { await host.stop() } }
+        let heater = try #require(accessory.service(.heaterCooler))
+        let vertical = try #require(heater[ClimateSwing.vertical.characteristic])
+        let horizontal = try #require(heater[ClimateSwing.horizontal.characteristic])
+        let previousHorizontal = horizontal.value
+        try await vertical.write(.bool(false))
+        #expect(environment.lg.commands.last?["dataKey"] == "airState.wDir.vStep")
+        #expect(environment.lg.commands.last?["dataValue"] == "0")
+        #expect(horizontal.value == previousHorizontal)
+        try await horizontal.write(.bool(true))
+        #expect(environment.lg.commands.last?["dataKey"] == "airState.wDir.hStep")
+        #expect(environment.lg.commands.last?["dataValue"] == "100")
+        #expect(vertical.value == .bool(false))
+    }
+
     @Test func mapsTheUnitToAHeaterCooler() async throws {
         let (_, host, accessory) = try await start(["ac_jet_control": true, "ac_temperature_sensor": true, "ac_humidity_sensor": true, "ac_led_control": true,
                                                     "ac_fan_control": true, "ac_buttons": [["name": "Dry", "op_mode": 1]], "serial_number": "SN-1"])

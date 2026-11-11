@@ -20,6 +20,29 @@ struct ServiceTests {
         return (service, device)
     }
 
+    @Test func independentSwingAxes() async throws {
+        let (climate, _) = climate(Fixture.json("dx4Airco"), ["showSeparateFanControl": true])
+        let vertical = try #require(climate.service[ClimateSwing.vertical.characteristic])
+        let horizontal = try #require(climate.service[ClimateSwing.horizontal.characteristic])
+        try await vertical.write(.bool(true))
+        #expect(api.recorded == [Write(cc, "fanControl", "swing", "/operationModes/heating/fanDirection/vertical/currentMode")])
+        #expect(vertical.value == .bool(true))
+        #expect(horizontal.value == .bool(false))
+        #expect(climate.separateFan?[ClimateSwing.vertical.characteristic]?.value == .bool(true))
+        api.reset()
+        try await horizontal.write(.bool(true))
+        #expect(api.recorded == [Write(cc, "fanControl", "swing", "/operationModes/heating/fanDirection/horizontal/currentMode")])
+        #expect(climate.service[.swingMode]?.value == 1)
+    }
+
+    @Test func declaresOnlySupportedSwingAxes() {
+        let (none, _) = climate(Fixture.json("dx23Airco"))
+        #expect(ClimateSwing.allCases.allSatisfy { none.service[$0.characteristic] == nil })
+        let (vertical, _) = climate(Fixture.json("dx23Airco2"))
+        #expect(vertical.service[ClimateSwing.vertical.characteristic] != nil)
+        #expect(vertical.service[ClimateSwing.horizontal.characteristic] == nil)
+    }
+
     // MARK: Building
 
     @Test func heaterCooler() throws {

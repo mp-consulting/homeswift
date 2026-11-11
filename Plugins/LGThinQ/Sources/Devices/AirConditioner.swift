@@ -213,6 +213,11 @@ class AirConditioner: BaseDevice {
         // Consumption: the bridge reads that as a kWh counter, and onCurrent is a power that rises and falls.
         service = addService(.heaterCooler, name: name, optional: heaterCoolerCharacteristics() + [.swingMode],
             extra: reportsPower ? [Characteristic(EveCharacteristic.currentConsumption)] : [])
+        for axis in supportedSwingAxes {
+            service.characteristic(adding: axis.characteristic).onSet { [weak self] value in
+                try await self?.setSwingAxis(axis, enabled: Normalize.boolean(value))
+            }
+        }
         configureHeaterCooler()
 
         if config.flag("ac_air_quality"), status.airQuality != nil {
@@ -516,7 +521,30 @@ class AirConditioner: BaseDevice {
         if state == 3 { update(.coolingThresholdTemperature) }
     }
 
+    static func swingKey(_ axis: ClimateSwing) -> String {
+        axis == .vertical ? "airState.wDir.vStep" : "airState.wDir.hStep"
+    }
+
+    var supportedSwingAxes: [ClimateSwing] {
+        ClimateSwing.allCases.filter { axis in
+            let options = device.deviceModel.value(Self.swingKey(axis))?.options ?? [:]
+            return options["0"] != nil && options["100"] != nil && device.snapshot[Self.swingKey(axis)] != nil
+        }
+    }
+
+    func setSwingAxis(_ axis: ClimateSwing, enabled: Bool) async throws {
+        guard supportedSwingAxes.contains(axis), status.isPowerOn else { return }
+        let key = Self.swingKey(axis)
+        let value: JSONValue = enabled ? "100" : "0"
+        try await sendCommand(["dataKey": .string(key), "dataValue": value], label: "\(axis.rawValue) swing")
+        setSnapshotValues([key: value])
+        updateAccessoryCharacteristic(device)
+    }
+
     func updateAccessoryFanStateCharacteristics() {
+        for axis in ClimateSwing.allCases {
+            service[axis.characteristic]?.value = .bool(JS.number(device.snapshot[Self.swingKey(axis)]) >= 100)
+        }
         service.set(.rotationSpeed, status.windStrength)
         service.set(.swingMode, status.isSwingOn ? 1 : 0)
     }

@@ -135,7 +135,7 @@ list below that it has):
 | Primary service | Widget | Small | Medium | Large | Extra large |
 |---|---|---|---|---|---|
 | Television | Television | power | power, status | input, volume, mute | remote, input |
-| HeaterCooler, Thermostat | Climate | temperature, mode by colour | temperature, setpoint status | inside and setpoint | gauge, setpoints, modes, fan speed, swing |
+| HeaterCooler, Thermostat | Climate | inside and target temperatures | interactive temperature gauge | gauge, setpoints, modes, fan speed, supported swing axes | expanded gauge, setpoints, modes, fan speed, supported swing axes |
 | AirPurifier | Air purifier | air quality | air quality, status | speed and readings | mode, speed, four readings, filter, switches |
 | SecuritySystem | Alarm | hold to turn off | state, hold to turn off | state and arm controls | the same, larger |
 | GarageDoorOpener | Gate | hold to open | state, hold to open | state, hold to open or close | with its locks and sensors |
@@ -420,3 +420,15 @@ The wave stops when reduced motion is enabled; a bolt appears only while chargin
 Power stations keep their outlet controls in L and XL.
 
 ![Power station tile sizes](images/widgets/battery-station.png)
+
+### Directional swing
+
+Climate widgets show independent **Vertical swing** and **Horizontal swing** controls when the
+plugin declares those writable axes. Otherwise they keep the standard **Swing** control; devices
+without swing have none. Daikin Cloud discovers axes for the current operation mode, LG ThinQ
+uses the model's swing options, and Xiaomi MIoT uses writable swing properties.
+
+Plugins can add `ClimateSwing.vertical.characteristic` and
+`ClimateSwing.horizontal.characteristic` to their climate service. These boolean characteristics
+must reflect device state and write only their own axis. Keep the standard `Swing Mode` for
+HomeKit compatibility: Apple Home does not provide native independent-axis controls.

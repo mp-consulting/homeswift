@@ -29,6 +29,7 @@ final class ClimateControlService: @unchecked Sendable {
     let setpoints: SetpointResolver
     let autoSync: AutoSetpointSync
     /// The fan speed range the RotationSpeed characteristic was built for; another one needs a rebuild.
+    let swingAxes: [ClimateSwing]
     let rotationShape: RotationShape
 
     /// RotationSpeed exists for the current mode's fixed speed, with a step of one unit step.
@@ -54,6 +55,7 @@ final class ClimateControlService: @unchecked Sendable {
         setpoints = SetpointResolver(device: device, managementPointID: managementPointID)
         autoSync = AutoSetpointSync(device: device, managementPointID: managementPointID, logger: context.logger, name: name)
         rotationShape = Self.rotationShape(fanSpeed)
+        swingAxes = ClimateSwing.allCases.filter { [swing] in swing.supports($0 == .vertical ? .vertical : .horizontal) }
 
         var extra: [Characteristic] = []
         let cooling = setpoints.read(Daikin.OperationMode.cooling.rawValue)
@@ -67,6 +69,7 @@ final class ClimateControlService: @unchecked Sendable {
             context.logger.debug("[\(name)] Device has SwingMode, add Characteristic")
             extra.append(Characteristic(.swingMode))
         }
+        extra += swingAxes.map { Characteristic($0.characteristic) }
         service = Service(.heaterCooler, name: name, extra: extra, isPrimary: true)
         features = FeatureSet(device: device, managementPointID: managementPointID, name: name, context: context, kinds: FeatureSet.climateControl)
 
@@ -81,6 +84,7 @@ final class ClimateControlService: @unchecked Sendable {
                 fanExtra.append(Characteristic(.rotationSpeed.with(minValue: 0, maxValue: 100, minStep: FanSpeed.percentStep(fanShape.fanSpeedMax))))
             }
             if fanShape.hasSwing { fanExtra.append(Characteristic(.swingMode)) }
+            fanExtra += swingAxes.map { Characteristic($0.characteristic) }
             separateFan = Service(.fanv2, name: fanName, subtype: "separate_fan", extra: fanExtra)
         } else {
             separateFan = nil
@@ -108,6 +112,17 @@ final class ClimateControlService: @unchecked Sendable {
     }
 
     private func bind() {
+        for axis in swingAxes {
+            for target in [service, separateFan].compactMap({ $0 }) {
+                target[axis.characteristic]?.onWrite { [weak self] value in
+                    guard let self else { return }
+                    try await context.write("[\(name)] \(axis.rawValue) swing") {
+                        try await self.swing.set(value.boolValue == true, axis: axis == .vertical ? .vertical : .horizontal)
+                    }
+                    refreshValues()
+                }
+            }
+        }
         service.characteristic(.active).onWrite { [weak self] value in try await self?.setActive(value.intValue == 1) }
         service.characteristic(.targetHeaterCoolerState).onWrite { [weak self] value in try await self?.setTargetState(value.intValue ?? 0) }
         service.characteristic(.coolingThresholdTemperature).onWrite { [weak self] value in try await self?.setThreshold(.cooling, value.doubleValue ?? 0) }
@@ -127,7 +142,7 @@ final class ClimateControlService: @unchecked Sendable {
     var isOn: Bool { device.data(managementPointID, "onOffMode").string == Daikin.on }
 
     /// Whether the current mode needs RotationSpeed built differently (present, absent, another step).
-    var needsRebuild: Bool { Self.rotationShape(fanSpeed) != rotationShape }
+    var needsRebuild: Bool { Self.rotationShape(fanSpeed) != rotationShape || swingAxes != ClimateSwing.allCases.filter { swing.supports($0 == .vertical ? .vertical : .horizontal) } }
 
     /// Pushes the device's state to every characteristic, after each poll, push and write: an accurate cache
     /// lets HomeKit filter redundant scene commands, and changes made in the Onecta app show at once.
@@ -156,6 +171,11 @@ final class ClimateControlService: @unchecked Sendable {
             let swinging = swing.isSwinging ? 1 : 0
             service[.swingMode]?.value = .int(swinging)
             separateFan?[.swingMode]?.value = .int(swinging)
+        }
+        for axis in swingAxes {
+            let on = swing.axisValue(axis == .vertical ? .vertical : .horizontal).map { $0 != Daikin.stop } ?? false
+            service[axis.characteristic]?.value = .bool(on)
+            separateFan?[axis.characteristic]?.value = .bool(on)
         }
         features.refreshAll()
     }

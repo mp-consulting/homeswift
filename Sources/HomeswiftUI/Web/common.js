@@ -76,6 +76,8 @@
     fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-4 1-7 4-7 2 0 3 2 2 4l-4 4M14 12c4 0 7 1 7 4 0 2-2 3-4 2l-4-4M12 14c0 4-1 7-4 7-2 0-3-2-2-4l4-4M10 12c-4 0-7-1-7-4 0-2 2-3 4-2l4 4"/>',
     speaker: '<rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M12 7h.01"/>',
     lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+    swingVertical: '<path stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter" d="M3 3h13v3h4v15 M4 7l8-1 M5 10l8-3 M7 13l7-5 M10 16l5-7 M13 19l3-9 M17 21l1-10"/>',
+    swingHorizontal: '<path stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter" d="M7 3v5h10V3 M9 5h6 M6 11l-3 6 M9 12l-2 8 M12 12v9 M15 12l2 8 M18 11l3 6"/>',
     thermo: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/>',
     door: '<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17M3 21h18M14 12h.01"/>',
     generic: '<rect x="4" y="4" width="16" height="16" rx="4"/>',

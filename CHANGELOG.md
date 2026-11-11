@@ -6,7 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-11
+
+### Added
+
+- **Climate controls**: responsive S, M, L and XL layouts with interactive temperature gauges, stepped fan speed,
+  and separate vertical and horizontal swing buttons for supported Daikin Cloud, LG ThinQ and Xiaomi MIoT devices.
+  Standard combined Swing Mode remains available to HomeKit controllers.
+- **Valve timers**: duration selection up to one hour and a live split-flap countdown, with tap-to-stop and reset.
+- **Battery tiles**: liquid level waves, charge-dependent colours and a centred charging indicator across all sizes.
+
+### Changed
+
+- **Accessory controls**: full-width light sliders, temperature controls for supported colour lights, consistent
+  Adaptive Lighting icons, centred shutter controls and accessory settings drawers opened without leaving the page.
+- **History and Logbook**: compact filters, scrollable lists, alternating rows and collapsible day groups; graphs
+  retain their original appearance. Dashboard plugin chips link to their pages and consumer sparklines show hover guides.
+
 ### Fixed
+
+- **Power stations**: confirm output shutdowns before switching off attached devices, including the EcoFlow page.
+- **Light capabilities**: avoid showing colour controls for lights that do not support colour.
+- **Climate controls**: keep menus clear of controls at phone widths, support thermostat power and target changes,
+  and show only the swing axes a device can operate.
+- **Design tokens**: use the shared spacing, corner and weight tokens for valve countdown digits.
+
 
 - **Home Link**: wait for Wingman to read missing accessory serial numbers before applying changes or adopting
   groups. Incomplete HomeKit identity data no longer treats present accessories as absent or drops group members;

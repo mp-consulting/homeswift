@@ -11284,6 +11284,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-4 1-7 4-7 2 0 3 2 2 4l-4 4M14 12c4 0 7 1 7 4 0 2-2 3-4 2l-4-4M12 14c0 4-1 7-4 7-2 0-3-2-2-4l4-4M10 12c-4 0-7-1-7-4 0-2 2-3 4-2l4 4"/>',
     speaker: '<rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M12 7h.01"/>',
     lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+    swingVertical: '<path stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter" d="M3 3h13v3h4v15 M4 7l8-1 M5 10l8-3 M7 13l7-5 M10 16l5-7 M13 19l3-9 M17 21l1-10"/>',
+    swingHorizontal: '<path stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter" d="M7 3v5h10V3 M9 5h6 M6 11l-3 6 M9 12l-2 8 M12 12v9 M15 12l2 8 M18 11l3 6"/>',
     thermo: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/>',
     door: '<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17M3 21h18M14 12h.01"/>',
     generic: '<rect x="4" y="4" width="16" height="16" rx="4"/>',
@@ -22442,6 +22444,10 @@ HomeswiftI18n.add("es", {
   "Sunset {days}": "Atardecer {days}",
   "Supported Asset Types": "Tipos de recursos compatibles",
   "Supported Diagnostics Modes": "Modos de diagnóstico compatibles",
+  "Vertical swing": "Oscilación vertical",
+  "Horizontal swing": "Oscilación horizontal",
+  "Vertical Swing": "Oscilación vertical",
+  "Horizontal Swing": "Oscilación horizontal",
   "Swing": "Oscilación",
   "Swing Mode": "Oscilación",
   "switch": "interruptor",
@@ -26176,6 +26182,10 @@ HomeswiftI18n.add("fr", {
   "Sunset {days}": "Coucher du soleil {days}",
   "Supported Asset Types": "Types de ressources pris en charge",
   "Supported Diagnostics Modes": "Modes de diagnostic pris en charge",
+  "Vertical swing": "Oscillation verticale",
+  "Horizontal swing": "Oscillation horizontale",
+  "Vertical Swing": "Oscillation verticale",
+  "Horizontal Swing": "Oscillation horizontale",
   "Swing": "Oscillation",
   "Swing Mode": "Oscillation",
   "switch": "interrupteur",
@@ -29910,6 +29920,10 @@ HomeswiftI18n.add("pt", {
   "Sunset {days}": "Pôr do sol {days}",
   "Supported Asset Types": "Tipos de recursos suportados",
   "Supported Diagnostics Modes": "Modos de diagnóstico suportados",
+  "Vertical swing": "Oscilação vertical",
+  "Horizontal swing": "Oscilação horizontal",
+  "Vertical Swing": "Oscilação vertical",
+  "Horizontal Swing": "Oscilação horizontal",
   "Swing": "Oscilação",
   "Swing Mode": "Oscilação",
   "switch": "interruptor",
@@ -36961,7 +36975,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget-valve.size-medium .valve-clock-part small { font-size: 9px; }
 .valve-clock-part { display: grid; justify-items: center; gap: var(--space-4); }
 .valve-clock-part small { font-size: 10px; font-weight: var(--weight-semibold); color: var(--accent-ink); text-transform: uppercase; letter-spacing: .04em; }
-.valve-flap { position: relative; display: grid; place-items: center; min-width: 64px; height: 66px; padding-inline: 4px; box-sizing: border-box; border-radius: 10px; color: #f5f5f5; background: linear-gradient(#444 0%, #303030 49%, #1c1c1c 50%, #252525 100%); border: 1px solid #616161; box-shadow: inset 0 1px 0 #ffffff26, 0 3px 5px #0003; font-size: 40px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -2px; }
+.valve-flap { position: relative; display: grid; place-items: center; min-width: 64px; height: 66px; padding-inline: var(--space-4); box-sizing: border-box; border-radius: var(--radius-sm); color: #f5f5f5; background: linear-gradient(#444 0%, #303030 49%, #1c1c1c 50%, #252525 100%); border: 1px solid #616161; box-shadow: inset 0 1px 0 #ffffff26, 0 3px 5px #0003; font-size: 40px; line-height: 1; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; letter-spacing: -2px; }
 .valve-flap::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #000b; box-shadow: 0 1px #ffffff18; }
 .widget-full .valve-flap { min-width: 90px; height: 96px; font-size: 60px; }
 .widget-full .valve-running-controls { flex-direction: column; }
@@ -37783,7 +37797,7 @@ button.menu-filter[aria-pressed="true"] { background: var(--accent-fill); border
 button.menu-filter:active { transform: scale(0.96); }
 .menu-filter-count { opacity: 0.7; font-variant-numeric: tabular-nums; }
 button.menu-filter.action-with-icon::before { width: 12px; height: 12px; }
-.menu-group-heading { padding: var(--space-8) var(--space-12) var(--space-2); font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.menu-group-heading { padding: var(--space-8) var(--space-12) calc(var(--space-4) / 2); font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 /* A finger's pill: taller, as every button on a touch screen, without crowding the menu's first row. */
 @media (pointer: coarse) { button.menu-filter { min-height: 36px; padding-inline: var(--space-12); } }
 @media (prefers-reduced-motion: reduce) { button.menu-filter:active { transform: none; } }
@@ -41749,7 +41763,7 @@ button.plugins-name { padding: 0; min-height: 40px; border: 0; border-radius: 4p
 .plugins-panel-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-16); margin-bottom: 22px; }
 .plugins-panel h2 { margin: 0; }
 button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; flex-shrink: 0; border-radius: 50%; }
-.plugins-tabs { display: flex; gap: var(--space-2); padding: 5px; border: 1px solid var(--line); border-radius: calc(var(--radius-xl) + 2px); background: color-mix(in srgb, var(--text) 5%, transparent); overflow-x: auto; }
+.plugins-tabs { display: flex; gap: calc(var(--space-4) / 2); padding: 5px; border: 1px solid var(--line); border-radius: calc(var(--radius-xl) + 2px); background: color-mix(in srgb, var(--text) 5%, transparent); overflow-x: auto; }
 .plugins-tabs button { flex: 1 0 auto; padding: var(--space-10) var(--space-12); border: 0; box-shadow: none; background: none; font-size: 13px; white-space: nowrap; }
 .plugins-tabs [aria-selected="true"] { background: var(--material-solid); box-shadow: var(--shadow-control); }
 .plugins-tabs .icon { width: 14px; height: 14px; }
@@ -41793,7 +41807,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .plugins-accessory > .tile { flex-shrink: 0; }
 @media (max-width: 640px) {
   .plugins-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-radius: var(--radius-lg); overflow: visible; }
-  .plugins-tabs button { flex-direction: column; gap: var(--space-4); min-width: 0; padding: var(--space-8) var(--space-2); font-size: 11px; border-radius: var(--radius-md); }
+  .plugins-tabs button { flex-direction: column; gap: var(--space-4); min-width: 0; padding: var(--space-8) calc(var(--space-4) / 2); font-size: 11px; border-radius: var(--radius-md); }
 }
 
 /* Management actions form one aligned list; removal stays visually separate. */
@@ -41936,6 +41950,113 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 
 .logbook-card .logbook-day > summary::marker { color: currentColor; }
 .logbook-card .logbook-day > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Climate: fixed-size dashboard cells, with independent space for the menu. */
+.widget-climate:not(.widget-full) { container-type: inline-size; }
+.widget-climate.size-small { flex-direction: column; align-items: stretch; gap: var(--space-4); }
+.widget-climate.size-small .status, .widget-climate.size-small .toggle { display: none; }
+.widget-climate.size-small .tile { width: 24px; height: 24px; border-radius: var(--radius-sm); }
+.widget-climate .who { gap: calc(var(--space-4) / 2); line-height: 1.15; }
+.climate-compact { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-8); padding-right: calc(var(--space-16) * 2); }
+.climate-compact b { font-size: var(--text-2xl); font-variant-numeric: tabular-nums; }
+.climate-compact span { font-size: var(--text-xs); color: var(--muted); }
+.widget-climate .w-body { padding: 0; overflow: visible; gap: var(--space-10); }
+.climate-dashboard { display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: var(--space-10); align-items: center; min-height: 0; }
+.climate-dial { width: 112px; height: 112px; display: block; touch-action: none; user-select: none; overflow: visible; }
+.climate-dial[role=slider] { cursor: pointer; }
+.climate-dial:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 50%; }
+.climate-dial .gauge-band { stroke: var(--accent); }
+.climate-dial .gauge-dot { stroke: var(--accent); stroke-width: 3; }
+.climate-dial .gauge-track, .climate-dial .gauge-band { stroke-width: 9; stroke-linecap: butt; }
+.climate-dial.is-off .gauge-band, .climate-dial.is-off .gauge-dot { stroke: var(--muted); }
+.climate-target-label { display: none; }
+.widget-climate.size-medium .climate-dashboard { display: flex; justify-content: center; padding-bottom: var(--space-20); }
+.widget-climate.size-medium .climate-target-label { display: block; }
+.widget-climate .setpoints { min-width: 0; width: 100%; gap: var(--space-4); }
+.widget-climate .setpoint { width: 100%; min-width: 0; grid-template-columns: 32px minmax(0,1fr) 32px; gap: var(--space-4); padding: var(--space-8); border-radius: var(--radius-md); background: var(--material-thin); }
+.widget-climate .sp-value { min-width: 0; }
+.widget-climate .sp-value b { font-size: var(--text-2xl); }
+.widget-climate .round { width: 32px; height: 32px; min-height: 32px; }
+.widget-climate .climate-modes { border-radius: var(--radius-md); min-width: 0; }
+.widget-climate .climate-modes > button { border-radius: inherit; min-width: 0; min-height: 28px; font-size: var(--text-xs); }
+.widget-climate.size-large .climate-dashboard { grid-template-rows: minmax(0,1fr) auto; }
+.widget-climate.size-large .climate-dial { grid-column: 2; grid-row: 1 / 3; align-self: start; width: 88px; height: 88px; justify-self: center; }
+.widget-climate.size-large .climate-modes { grid-column: 1; }
+.widget-climate.size-xlarge .w-body { justify-content: space-between; }
+.widget-climate.size-xlarge .w-body > .climate-modes { margin-block: var(--space-4); }
+.climate-airflow { display: flex; align-items: center; gap: var(--space-10); margin-right: calc(var(--space-16) * 2); }
+.climate-airflow > .w-row { padding: var(--space-8); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--material-thin); display: grid; grid-template-columns: minmax(0,1fr); flex: 1; gap: var(--space-4); min-width: 0; }
+.climate-airflow > .level { flex: 1; min-width: 0; }
+.climate-airflow .steps { width: 100%; height: 24px; }
+.climate-airflow .w-label { font-size: var(--text-xs); }
+.climate-airflow .chips { flex: none; gap: var(--space-4); }
+.widget-climate .climate-swing.action-with-icon { display: grid; place-items: center; width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: var(--radius-sm); }
+.widget-climate .climate-swing.action-with-icon::before { width: 30px; height: 30px; margin: 0; }
+.widget-climate.size-large .climate-swing.action-with-icon::before { width: 24px; height: 24px; }
+.widget-climate .climate-swing svg path { stroke-width: 1.5; stroke-linecap: square; stroke-linejoin: miter; }
+@container (max-width: 330px) {
+  .climate-dashboard { grid-template-columns: minmax(0,1fr) 88px; gap: var(--space-6); }
+  .climate-dial { width: 88px; height: 88px; }
+  .widget-climate .setpoint { padding: var(--space-4); grid-template-columns: 28px minmax(0,1fr) 28px; }
+  .widget-climate .round { width: 28px; height: 28px; min-height: 28px; }
+  .widget-climate .sp-value b { font-size: var(--text-xl); }
+}
+
+.widget-climate.size-small .w-head > .switch { display: none; }
+.widget-climate .climate-dashboard { grid-template-columns: minmax(0,1fr) 128px; }
+.widget-climate .climate-dial { width: 128px; height: 128px; }
+.widget-climate.size-large .climate-dial { width: 108px; height: 108px; }
+.widget-climate .climate-airflow { gap: var(--space-8); }
+.widget-climate .climate-airflow .chips { flex-wrap: nowrap; gap: var(--space-8); }
+@container (max-width: 330px) {
+  .widget-climate .climate-dashboard { grid-template-columns: minmax(0,1fr) 96px; }
+  .widget-climate .climate-dial { width: 96px; height: 96px; }
+}
+
+.widget-climate .climate-power { flex: none; }
+.widget-climate .climate-power[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: transparent; }
+.widget-climate.size-small .climate-power { display: none; }
+.widget-climate.size-medium .w-head { flex: none; gap: var(--space-6); }
+.widget-climate.size-medium .tile { width: 28px; height: 28px; border-radius: var(--radius-sm); }
+.widget-climate.size-medium:not(.widget-full) .who strong { display: block; white-space: nowrap; }
+.widget-climate.size-medium .w-body { justify-content: center; }
+.widget-climate.size-medium .climate-dashboard { padding-bottom: var(--space-12); }
+.widget-climate.size-medium .climate-dial { width: 104px; height: 104px; }
+.climate-dial .gauge-caption { font-size: var(--text-base); }
+.widget-climate.size-xlarge .w-body { display: flex; flex-direction: column; justify-content: space-between; align-items: stretch; }
+.widget-climate.size-xlarge .climate-dashboard { align-self: stretch; }
+.widget-climate.size-xlarge:has(> .w-corner) .w-body > .climate-airflow { align-self: stretch; margin-right: calc(var(--space-16) * 2); }
+.widget-climate.size-xlarge .climate-modes { margin-block: 0; transform: translateY(-20px); }
+.widget-climate .climate-modes .seg-thumb { border-radius: calc(var(--radius-md) - 3px); }
+.widget-climate.size-medium .w-body { justify-content: flex-start; padding-top: var(--space-4); }
+.widget-climate.size-medium .climate-dashboard { padding: 0 var(--space-20) 0 0; }
+.widget-climate.size-medium .climate-dial { width: 96px; height: 96px; }
+.climate-dial .gauge-value { font-size: calc(var(--text-3xl) * 2); }
+.widget-climate.size-medium .climate-dial { width: min(104px, calc(var(--tile-row) * 2 + var(--unit-gap) - 70px)); height: auto; aspect-ratio: 1; }
+.widget-climate.size-medium .climate-dial .gauge-value { font-size: calc(var(--text-3xl) * 2); }
+
+.widget-climate.size-large .setpoint { padding: var(--space-4); }
+.widget-climate.size-xlarge:has(.setpoint:not([hidden]) ~ .setpoint:not([hidden])) .climate-modes { transform: translateY(-6px); }
+@container (max-width: 330px) { .widget-climate.size-xlarge .climate-modes { transform: translateY(-12px); } }
+.widget-climate.size-large .climate-dashboard { padding-right: var(--space-24); }
+.widget-climate .climate-airflow { align-items: flex-end; }
+.widget-climate.size-large .climate-dial { transform: translateY(-16px); }
+
+.widget-climate.size-large .w-body { justify-content: space-between; gap: var(--space-6); }
+.widget-climate.size-large .climate-dashboard { padding-right: 0; gap: var(--space-4) var(--space-10); }
+.widget-climate.size-large .climate-dial { width: 88px; height: 88px; transform: none; }
+.widget-climate.size-large .climate-airflow > .w-row { padding: var(--space-4) var(--space-6); }
+.widget-climate.size-large .climate-airflow .steps { height: 18px; }
+.widget-climate.size-large .climate-airflow .w-row { gap: calc(var(--space-4) / 2); }
+.widget-climate.size-large .climate-modes > button { min-height: 24px; }
+.widget-climate.size-large .w-body { justify-content: center; gap: var(--space-10); }
+.widget-climate.size-large .climate-dashboard { row-gap: var(--space-10); }
+
+.widget-climate .climate-airflow { --airflow-size: 60px; align-items: stretch; }
+.widget-climate.size-large .climate-airflow { --airflow-size: 48px; }
+.widget-climate .climate-airflow > .w-row { box-sizing: border-box; height: var(--airflow-size); }
+.widget-climate .climate-airflow > .chips { align-items: stretch; }
+.widget-climate .climate-airflow .climate-swing.action-with-icon { width: var(--airflow-size); height: var(--airflow-size); min-height: var(--airflow-size); }
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
@@ -42565,8 +42686,8 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   /// A secondary on/off service, pressed or not.
-  function chip(label, onChange) {
-    const node = el("button", { type: "button", class: "chip", text: label, "aria-pressed": "false" });
+  function chip(label, onChange, actionIcon) {
+    const node = el("button", { type: "button", class: "chip", text: label, actionIcon, "aria-pressed": "false" });
     node.addEventListener("click", () => {
       const on = node.getAttribute("aria-pressed") !== "true";
       node.setAttribute("aria-pressed", String(on));
@@ -42702,11 +42823,11 @@ self.addEventListener("notificationclick", (event) => {
   // ---- Shared pieces of widgets -----------------------------------------------------------------------
 
   /// A speed: bars when it has a few positions, else a level.
-  function speedControl(ctx, service, characteristic, color) {
-    const min = characteristic.minValue ?? 0, max = characteristic.maxValue ?? 100, count = positions(characteristic);
+  function speedControl(ctx, service, characteristic, color, preferSteps = false) {
+    const min = characteristic.minValue ?? 0, max = characteristic.maxValue ?? 100, count = preferSteps && positions(characteristic) > 6 ? 5 : positions(characteristic);
     if (count <= 6 && count >= 2) {
       const stepSize = (max - min) / count;
-      const control = steps({ label: t("Speed"), count }, (n) => ctx.write(service, characteristic, min + n * stepSize));
+      const control = steps({ label: t("Speed"), count }, (n) => ctx.write(service, characteristic, clamp(min + Math.round(n * stepSize / (characteristic.minStep || 1)) * (characteristic.minStep || 1), min, max)));
       if (color) control.node.style.setProperty("--steps", color);
       ctx.watch(() => control.set(Math.round((numberOf(characteristic) - min) / stepSize)));
       return el("div", { class: "w-row" }, el("span", { class: "w-label", text: t("Speed") }), control.node);
@@ -42716,11 +42837,22 @@ self.addEventListener("notificationclick", (event) => {
     return control.node;
   }
 
+  function swingChips(ctx, service) {
+    const axes = [["Vertical Swing", t("Vertical swing"), "swingVertical"], ["Horizontal Swing", t("Horizontal swing"), "swingHorizontal"]];
+    const supported = axes.filter(([name]) => canWrite(ctx.char(service, name)));
+    if (!supported.length) return [chipFor(ctx, service, ctx.char(service, "Swing Mode"), t("Swing"), "swingVertical")].filter(Boolean);
+    const combined = ctx.char(service, "Swing Mode");
+    if (combined) ctx.use(combined);
+    return supported.map(([name, label, icon]) => {
+      return chipFor(ctx, service, ctx.char(service, name), label, icon);
+    });
+  }
+
   /// A writable bool or 0/1 of a service as a chip (Swing, Child lock).
-  function chipFor(ctx, service, characteristic, label) {
+  function chipFor(ctx, service, characteristic, label, actionIcon) {
     if (!canWrite(characteristic)) return null;
     ctx.use(characteristic);
-    const control = chip(label, (on) => ctx.write(service, characteristic, onValue(characteristic, on)));
+    const control = chip(label, (on) => ctx.write(service, characteristic, onValue(characteristic, on)), actionIcon);
     ctx.watch(() => control.set(isOn(characteristic)));
     return control.node;
   }
@@ -42962,7 +43094,7 @@ self.addEventListener("notificationclick", (event) => {
     const body = el("div", { class: "w-block-body" },
       canWrite(speed) ? speedControl(ctx, service, speed) : null,
       canWrite(target) ? modeControl(ctx, service, target) : null,
-      el("div", { class: "chips" }, chipFor(ctx, service, ctx.char(service, "Swing Mode"), t("Swing")), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))));
+      el("div", { class: "chips" }, ...swingChips(ctx, service), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))));
     ctx.watch(() => { body.hidden = !isOn(power); });
     return el("div", { class: "w-block" }, el("div", { class: "w-row" }, el("span", { class: "w-label", text: name }), control.node), body);
   }
@@ -43049,6 +43181,58 @@ self.addEventListener("notificationclick", (event) => {
     return control.node;
   }
 
+  /// The current temperature stays in the centre; the handle writes the selected target.
+  function climateDial(ctx, parts, targets, current) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 200 200");
+    svg.setAttribute("class", "climate-dial");
+    const at = value => { const a = (135 + 270 * value) * Math.PI / 180; return [100 + 86 * Math.cos(a), 100 + 86 * Math.sin(a)]; };
+    const arc = value => { const a = at(0), b = at(Math.max(.0001, value)); return `M${a} A86 86 0 ${value > 2/3 ? 1 : 0} 1 ${b}`; };
+    svg.innerHTML = `<path class="gauge-track" d="${arc(1)}"/><path class="gauge-band"/><circle class="gauge-dot" r="7"/><text class="gauge-value" x="100" y="96" text-anchor="middle"></text><text class="gauge-caption" x="100" y="122" text-anchor="middle"></text><text class="climate-target-label gauge-caption" x="100" y="151" text-anchor="middle"></text>`;
+    const selected = () => targets().filter(canWrite).at(-1);
+    let pending = null;
+    const bounds = c => [c.minValue ?? 10, c.maxValue ?? 35, c.minStep || .5];
+    const paint = () => {
+      const c = selected(), value = current(), off = parts.mode() === "off";
+      svg.classList.toggle("is-off", off);
+      svg.querySelector(".gauge-value").textContent = value === null ? "–" : degrees(+value.toFixed(1));
+      svg.querySelector(".gauge-caption").textContent = t("Inside");
+      svg.querySelector(".climate-target-label").textContent = targets().map(c => degrees(numberOf(c))).join(" – ");
+      svg.setAttribute("role", c ? "slider" : "img");
+      svg.setAttribute("aria-label", c ? t("Target temperature") : t("Inside"));
+      svg.tabIndex = c ? 0 : -1;
+      svg.querySelector(".gauge-dot").style.display = c ? "" : "none";
+      if (!c) { svg.querySelector(".gauge-band").setAttribute("d", ""); return; }
+      const [min,max] = bounds(c), target = pending ?? numberOf(c), share = clamp((target-min)/(max-min),0,1);
+      for (const [key,v] of Object.entries({min,max,now:target})) svg.setAttribute(`aria-value${key}`,v);
+      const [x,y] = at(share), dot = svg.querySelector(".gauge-dot");
+      dot.setAttribute("cx",x); dot.setAttribute("cy",y);
+      svg.querySelector(".gauge-band").setAttribute("d",arc(share));
+    };
+    const commit = value => { const c = selected(); if (c) ctx.write(parts.service,c,value); };
+    const fromPointer = event => {
+      const c = selected(); if (!c) return;
+      const box = svg.getBoundingClientRect();
+      let angle = Math.atan2(event.clientY-box.top-box.height/2,event.clientX-box.left-box.width/2)*180/Math.PI;
+      angle = (angle-135+360)%360;
+      if (angle>270) angle = angle>315 ? 0 : 270;
+      const [min,max,step] = bounds(c);
+      pending = clamp(min+Math.round((max-min)*angle/270/step)*step,min,max); paint();
+    };
+    svg.addEventListener("pointerdown", e => { if(e.button!==0 || !selected()) return; e.preventDefault(); svg.setPointerCapture(e.pointerId); fromPointer(e); });
+    svg.addEventListener("pointermove", e => { if(svg.hasPointerCapture(e.pointerId)) fromPointer(e); });
+    svg.addEventListener("pointerup", e => { if(pending===null) return; const value=pending; pending=null; svg.releasePointerCapture(e.pointerId); commit(value); });
+    svg.addEventListener("pointercancel", () => { pending=null; paint(); });
+    svg.addEventListener("keydown", e => {
+      const c=selected(); if(!c) return; const [min,max,step]=bounds(c);
+      const delta={ArrowUp:step,ArrowRight:step,ArrowDown:-step,ArrowLeft:-step,PageUp:step*4,PageDown:-step*4}[e.key];
+      if(delta===undefined && e.key!=="Home" && e.key!=="End") return;
+      e.preventDefault(); commit(e.key==="Home"?min:e.key==="End"?max:clamp(numberOf(c)+delta,min,max));
+    });
+    ctx.watch(paint);
+    return svg;
+  }
+
   /// A thermostat inside another accessory's card (a purifier's heater): its modes and setpoint.
   function climateBlock(ctx, service, name) {
     const parts = climateParts(ctx, service);
@@ -43119,7 +43303,7 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   /// Chips for the bools of a service a widget offers as options (Swing, Child lock).
-  const optionChips = (ctx, service) => [chipFor(ctx, service, ctx.char(service, "Swing Mode"), t("Swing")), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))].filter(Boolean);
+  const optionChips = (ctx, service) => [...swingChips(ctx, service), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))].filter(Boolean);
   const chipRow = (nodes) => nodes.length ? el("div", { class: "chips" }, nodes) : null;
   const row = (label, ...nodes) => el("div", { class: "w-row" }, label ? el("span", { class: "w-label", text: label }) : null, ...nodes);
 
@@ -43238,11 +43422,20 @@ self.addEventListener("notificationclick", (event) => {
     build(ctx, primary, size) {
       const parts = climateParts(ctx, primary);
       const now = () => typeof parts.current?.value === "number" ? parts.current.value : null;
+      const thermostatModes = parts.target?.validValues || [0, 1, 2, 3];
+      let resumeState = thermostatModes.find(value => value > 0);
       const mode = () => parts.mode();
-      const shownMode = () => mode() === "off" ? parts.lastMode() : mode();
+      ctx.watch(() => {
+        if (!parts.heaterCooler && numberOf(parts.target) > 0) resumeState = numberOf(parts.target);
+      });
+      const shownMode = () => mode() === "off"
+        ? parts.heaterCooler ? parts.lastMode() : ["off", "heat", "cool", "auto"][resumeState] ?? "off"
+        : mode();
       const modeWords = { off: t("off"), heat: t("heat"), cool: t("cool"), auto: t("auto") };
       const built = {
         power: canWrite(parts.active) ? { service: primary, characteristic: parts.active } : null,
+        thermostatPower: !parts.heaterCooler && canWrite(parts.target) && thermostatModes.includes(0) && resumeState !== undefined
+          ? () => ctx.write(primary, parts.target, mode() === "off" ? resumeState : 0) : null,
         tone: () => ({ heat: "heat", cool: "blue", auto: "green" })[shownMode()] ?? "teal",
         on: () => mode() !== "off",
         hero: () => now() === null ? "" : el("span", {}, degrees(+now().toFixed(1)), el("small", { text: modeWords[mode()] ?? mode() })),
@@ -43264,39 +43457,42 @@ self.addEventListener("notificationclick", (event) => {
           return [idle[mode()] ?? t("Idle · auto to {temperature}", { temperature: target })];
         },
       };
-      if (size === "small") return built;
       const points = setpointControls(ctx, parts);
-      if (size === "medium") {
-        // The temperature inside and one setpoint: the mode's own (Cool to in auto).
-        const big = el("b", { class: "w-big" });
+      const targets = () => parts.setpoints(shownMode());
+      if (size === "small") {
+        const current = el("b"), target = el("span");
         ctx.watch(() => {
-          const shown = parts.setpoints(shownMode());
-          points.show(shown.slice(-1));
-          big.textContent = now() === null ? "–" : degrees(+now().toFixed(1));
+          current.textContent = now() === null ? "–" : degrees(+now().toFixed(1));
+          target.textContent = targets().map(c => degrees(numberOf(c))).join(" – ");
         });
-        built.body = [el("div", { class: "w-row" }, el("div", { class: "w-figure" }, big, el("span", { text: t("Inside") })), el("div", { class: "setpoints" }, points.nodes))];
+        built.body = [el("div", { class: "climate-compact" }, current, target)];
         return built;
       }
-      const temps = [parts.heat, parts.cool, parts.single].filter(Boolean);
-      const min = Math.min(...temps.map((c) => c.minValue ?? 10), 10), max = Math.max(...temps.map((c) => c.maxValue ?? 35), 30);
-      const dial = gauge({ min, max });
-      const colors = { heat: "var(--heat)", cool: "var(--cool)", auto: "var(--auto)" };
-      ctx.watch(() => {
-        const shown = parts.setpoints(shownMode());
-        points.show(shown);
-        const caption = typeof parts.humidity?.value === "number" ? t("Inside · {humidity} %", { humidity: Math.round(parts.humidity.value) }) : t("Inside");
-        if (mode() === "off" || !shown.length) dial.update({ value: now(), caption });
-        else if (shown.length === 2) dial.update({ value: now(), from: numberOf(shown[0]), to: numberOf(shown[1]), color: colors.auto, caption });
-        else dial.update({ value: now(), from: now() ?? numberOf(shown[0]), to: numberOf(shown[0]), color: colors[mode()], caption });
-      });
-      const speed = ctx.take(primary, "Rotation Speed");
-      const chips = optionChips(ctx, primary);
-      built.body = [
-        el("div", { class: "climate-hero" }, dial.node, el("div", { class: "setpoints" }, points.nodes)),
-        climateModes(ctx, parts),
-        canWrite(speed) ? speedControl(ctx, primary, speed) : null,
-        chipRow(chips),
-      ].filter(Boolean);
+      const dial = climateDial(ctx, parts, targets, now);
+      ctx.watch(() => points.show(targets()));
+      const dashboard = el("div", { class: "climate-dashboard" },
+        size === "medium" ? null : el("div", { class: "setpoints" }, points.nodes), dial);
+      const modes = size === "medium" ? null : climateModes(ctx, parts);
+      if (modes) modes.classList.add("climate-modes");
+      if (size === "large" && modes) dashboard.append(modes);
+      built.body = [dashboard, size === "large" ? null : modes].filter(Boolean);
+      if (size === "large" || size === "xlarge" || size === "full") {
+        const speed = ctx.take(primary, "Rotation Speed");
+        const swings = swingChips(ctx, primary);
+        for (const button of swings) {
+          button.classList.add("climate-swing");
+          button.setAttribute("aria-label", button.textContent);
+          button.title = button.textContent;
+          // Direction remains available to assistive technology without a visible label.
+          if (button.classList.contains("action-with-icon")) for (const child of [...button.childNodes]) {
+            if (child.nodeType === Node.TEXT_NODE) child.remove();
+          }
+        }
+        const speedNode = canWrite(speed) ? speedControl(ctx, primary, speed, null, true) : null;
+        if (speedNode || swings.length) built.body.push(el("div", { class: "climate-airflow" }, speedNode, chipRow(swings)));
+        const lock = chipFor(ctx, primary, ctx.char(primary, "Lock Physical Controls"), t("Child lock"));
+        if (lock) built.body.push(chipRow([lock]));
+      }
       if (size === "full") built.facets = facets(ctx, [primary]);
       return built;
     },
@@ -43984,7 +44180,7 @@ self.addEventListener("notificationclick", (event) => {
       const size = sizes.includes(options.size) ? options.size : defaultOf(widget, ctx, primary);
       // Reuse the builders' compact, main-control and expanded variants at the four wall sizes; a builder tells the
       // tall tile from the compact one by `ctx.tall` (both draw its "small").
-      const contentSize = { small: "small", medium: "small", large: "medium", xlarge: "large" }[size];
+      const contentSize = widget.name === "climate" ? size : { small: "small", medium: "small", large: "medium", xlarge: "large" }[size];
       ctx.tall = size === "medium";
       node = frame(ctx, ...built(ctx, widget, primary, contentSize), primary, size);
     }
@@ -44107,6 +44303,18 @@ self.addEventListener("notificationclick", (event) => {
       if (tone) status.dataset.tone = tone; else delete status.dataset.tone;
     };
   }
+  function climatePower(ctx, built) {
+    if (!built.power && !built.thermostatPower) return null;
+    const togglePower = built.thermostatPower || (() => {
+      const { service, characteristic } = built.power;
+      ctx.write(service, characteristic, onValue(characteristic, !isOn(characteristic)));
+    });
+    const button = el("button", { type: "button", class: "round climate-power", "aria-label": t("{name}: power", { name: ctx.accessory.name }),
+      onclick: togglePower }, icon("power"));
+    ctx.watch(() => button.setAttribute("aria-pressed", String(built.on())));
+    return button;
+  }
+
   function powerToggle(ctx, built) {
     if (!built.power) return null;
     const { service, characteristic, big } = built.power;
@@ -44273,7 +44481,7 @@ self.addEventListener("notificationclick", (event) => {
     const menu = actionsButton(ctx, false);
     const node = el("article", { class: `card widget size-${size} widget-${widget.name}`, "data-search": searchText(accessory), "data-id": accessory.id });
     if (built.background) node.append(built.background);
-    if (size === "small" || size === "medium") {
+    if ((size === "small" || size === "medium") && widget.name !== "climate") {
       node.classList.add("widget-summary");
       const hero = el("span", { class: "w-hero" });
       const hit = el("button", { type: "button", class: "w-hit" });
@@ -44375,7 +44583,7 @@ self.addEventListener("notificationclick", (event) => {
       const body = (built.body || []).filter(Boolean);
       // Keep scrolling options beside the menu, with a dedicated, unobstructed hit target.
       const footerChips = size === "xlarge" && body.at(-1)?.classList?.contains("chips") ? body.pop() : null;
-      node.append(el("div", { class: "w-head" }, glyph, who, powerToggle(ctx, built)),
+      node.append(el("div", { class: "w-head" }, glyph, who, widget.name === "climate" ? climatePower(ctx, built) : powerToggle(ctx, built)),
         body.length ? el("div", { class: "w-body" }, body) : "",
         footerChips ? el("div", { class: "w-footer" }, footerChips, menu) : el("span", { class: "w-corner" }, menu));
       // Keep the charge beside the heading, clear of the centred charging bolt and output controls.
@@ -44384,7 +44592,7 @@ self.addEventListener("notificationclick", (event) => {
         if (gauge) node.querySelector(".w-head").append(gauge);
       }
       node.classList.toggle("head-only", !body.length && !footerChips);
-      ctx.watch(() => node.classList.toggle("powered-off", !!built.power && !built.power.big && !isOn(built.power.characteristic)));
+      ctx.watch(() => node.classList.toggle("powered-off", widget.name === "climate" ? !built.on() : !!built.power && !built.power.big && !isOn(built.power.characteristic)));
     }
     ctx.watch(paintGlyph);
     ctx.watch(statusPainter(ctx, built, status));
