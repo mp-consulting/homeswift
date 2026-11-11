@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Home Link refusals**: the Accessories page no longer shows what Apple Home refused once there is no Home Link
+  ("Pair Homeswift Wingman"); a refusal goes once a later change to the same room, zone, group or accessory reaches
+  Apple Home, and names accessories rather than giving their ids.
+
 ## [0.29.0] - 2026-11-11
 
 ### Added
