@@ -481,8 +481,7 @@ extension HomeswiftCatalog {
                     return refused.map(\.json)
                 }
                 try home.homeLink.update { $0.pending += changes }
-                // A first link waiting to be confirmed: the changes wait with it, for the Home it confirms.
-                guard let link, link.state.canEdit, home.homeLink.value.comparison == nil else { return [] }
+                guard let link, link.state.canEdit else { return [] }
                 let refused = await replayPending(link: link)
                 if !refused.isEmpty, let snapshot = await link.plugin.homeSnapshot() {
                     do { try adoptGroups(snapshot) }
@@ -510,6 +509,7 @@ extension HomeswiftCatalog {
     /// that reaches Apple Home also settles the refusals about Groups or Zones the bridge no longer has, such as a refused
     /// creation, whose Group leaves the wall, or edits to one removed since (named by the Home's id once removed).
     private func settleRefusals(of change: HomeLinkFile.PendingChange) {
+        guard !home.homeLink.value.refused.isEmpty else { return }
         let subjects = change.subjects
         let groups = Set(wallGroups.map(\.id)), zones = Set(home.homeLink.value.zones.map(\.id))
         let groupChange = subjects.contains { $0.hasPrefix("group:") }, zoneChange = subjects.contains { $0.hasPrefix("zone:") }
@@ -541,6 +541,8 @@ extension HomeswiftCatalog {
     /// Makes the Pending Changes in the Home, in order, until one finds the link down: that one and the rest stay.
     @discardableResult
     private func replayPending(link: HomeLinkPlugin) async -> [HomeLinkFile.Refused] {
+        // A first link waiting to be confirmed: the changes wait with it, for the Home it confirms.
+        guard home.homeLink.value.comparison == nil else { return [] }
         var refused: [HomeLinkFile.Refused] = []
         while let change = home.homeLink.value.pending.first {
             do {
@@ -613,12 +615,14 @@ extension HomeswiftCatalog {
             guard let local = file.zones.first(where: { $0.id == zone }), local.homeKitID == nil else { return }
             let id = try await plugin.applyHomeChange(.createZone(name: local.name))
             guard let id else { throw HomeChangeError(.refused, "Apple Home did not create the zone \(local.name)") }
-            var rooms: [String] = []
-            for name in local.rooms.compactMap(roomName) { rooms.append(try await roomID(name)) }
-            if !rooms.isEmpty { _ = try await plugin.applyHomeChange(.setZoneRooms(id: id, add: rooms, remove: [])) }
+            // Linked at once: should its rooms fail, the zone is Apple Home's already, never made a second time (which
+            // Apple Home refuses, HMErrorDomain 13).
             try home.homeLink.update { file in
                 if let index = file.zones.firstIndex(where: { $0.id == local.id }) { file.zones[index].homeKitID = id }
             }
+            var rooms: [String] = []
+            for name in local.rooms.compactMap(roomName) { rooms.append(try await roomID(name)) }
+            if !rooms.isEmpty { _ = try await plugin.applyHomeChange(.setZoneRooms(id: id, add: rooms, remove: [])) }
         case .renameZone(let zone, let name):
             guard let id = zoneHomeKitID(zone) else { return }
             _ = try await plugin.applyHomeChange(.renameZone(id: id, name: name))

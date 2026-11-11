@@ -367,11 +367,7 @@ actor Link {
         var leftOut = 0
         var candidates: [WingmanAPI.Accessory] = []
         for home in homes {
-            for var accessory in home.accessories {
-                // Apple Home's Default Room is No Room, never a Room of the bridge's: it is the one not among the rooms.
-                if let defaultRoom = home.defaultRoom, accessory.roomID == defaultRoom.id || (accessory.roomID == nil && accessory.room == defaultRoom.name) {
-                    accessory.room = nil
-                }
+            for accessory in home.accessories {
                 if plugin.isCandidate(accessory, home: home, homeswift: homeswift) { candidates.append(accessory) }
                 guard plugin.includes(accessory, home: home, homeswift: homeswift) else {
                     leftOut += 1
@@ -514,7 +510,7 @@ actor Link {
             applied = reads
             structure?.devices[moved.accessory]?.roomID = moved.roomID
             let home = structure?.devices[moved.accessory].flatMap { structure?.home($0.home) }
-            structure?.devices[moved.accessory]?.room = moved.roomID.flatMap { id in home?.rooms.first { $0.id == id }?.name } ?? home?.defaultRoom?.name
+            structure?.devices[moved.accessory]?.room = moved.roomID.flatMap { id in home?.rooms.first { $0.id == id }?.name }
             lastHome = plugin.flatMap { structure?.homeSnapshot(in: $0.context) }
         } else {
             do { try await refresh(scenes: false) } catch { lost(error) }
