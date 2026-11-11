@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-11-11
+
 ### Fixed
 
 - **Home Link identity**: keep cached, read-only Accessory Information readable when a device is unavailable, so
@@ -17,6 +19,18 @@ All notable changes to this project are documented here. The format follows
   A rejected new Group is removed locally; Wingman selects the control service and rejects members of another Home.
   Primary lights can group while retaining their associated controls in the Group menu. The picker explains Apple
   Home’s separate-tiles display setting; group commands leave associated effect switches unchanged.
+
+- **Imou**: the siren switch's reset remains off when its timer finishes before the write returns.
+
+- **Web UI setup**: saves the first account's Home Language before returning, so an immediate config import
+  does not race that save and fail with “config.json changed”.
+- **Reolink**: a momentary switch's reset remains off even when it finishes before its write returns.
+
+- An accessory's History named a Meter with an Energy Role by its key: a STREAM's showed "Consumption · home" and
+  "Consumption · grid", which read as the STREAM's own use when they are the whole home's. Such a Meter is now named by
+  its role (Home use, Grid, Solar, Battery), the home's use and the grid's said to be the whole home's.
+- A year of days on an accessory's History was labelled by day numbers alone (25, 30, 3, 10…), with nothing to say which
+  month they were in; it is now labelled by month, a January by its year.
 
 ### Changed
 
@@ -39,20 +53,6 @@ All notable changes to this project are documented here. The format follows
   interface enumeration while retaining all rounds and separate routing tests.
   macOS debug builds use two compiler batches per target to reduce clean-build time;
   `HOMESWIFT_BUILD_BATCHES=0` restores automatic batching, and release/Linux defaults are unchanged.
-
-### Fixed
-
-- **Imou**: the siren switch's reset remains off when its timer finishes before the write returns.
-
-- **Web UI setup**: saves the first account's Home Language before returning, so an immediate config import
-  does not race that save and fail with “config.json changed”.
-- **Reolink**: a momentary switch's reset remains off even when it finishes before its write returns.
-
-- An accessory's History named a Meter with an Energy Role by its key: a STREAM's showed "Consumption · home" and
-  "Consumption · grid", which read as the STREAM's own use when they are the whole home's. Such a Meter is now named by
-  its role (Home use, Grid, Solar, Battery), the home's use and the grid's said to be the whole home's.
-- A year of days on an accessory's History was labelled by day numbers alone (25, 30, 3, 10…), with nothing to say which
-  month they were in; it is now labelled by month, a January by its year.
 
 ## [0.28.0] - 2026-11-09
 
@@ -2517,7 +2517,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.28.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.28.1...HEAD
+[0.28.1]: https://github.com/mp-consulting/homeswift/compare/v0.28.0...v0.28.1
 [0.28.0]: https://github.com/mp-consulting/homeswift/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/mp-consulting/homeswift/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/mp-consulting/homeswift/compare/v0.25.0...v0.26.0
