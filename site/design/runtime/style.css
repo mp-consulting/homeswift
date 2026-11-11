@@ -3976,53 +3976,49 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .accessories-bar { display: grid; row-gap: var(--space-14); margin: 0 0 var(--space-18); }
 .accessories-bar > .accessories-views { margin: 0; }
 .accessories-bar .accessories-search-toggle { display: none; }
-/* A phone: the page's actions float over the tab bar at the thumb's right, each its own glass: Search as a labelled pill,
-   then Filters with its count, Edit and the options as circles (the wall's Graph, Full screen and Add accessories are in
-   the options' menu; on the graph, the wall's button takes you back). The search opens into a field across the width,
-   and rises with the keyboard. */
+/* A phone: the page's own bar, a glass capsule just above the tab bar, as a chat app puts its field: the options at its
+   start, the search across the middle, always there, then Filters with its count and Edit, and at its end the Assistant
+   (when there is one) in the accent, asked what is typed. The wall's Graph, Full screen and Add accessories are in the
+   options' menu; on the graph, the wall's button takes you back. It rises with the keyboard. */
+.accessories-ask { display: none; }
 @media (max-width: 600px) {
-  main:has(> .accessories-bar) { padding-bottom: calc(var(--tab-bar-top) + var(--float-action) + 24px + env(safe-area-inset-bottom)); }
+  main:has(> .accessories-bar) { padding-bottom: calc(var(--tab-bar-top) + 56px + var(--space-24) + env(safe-area-inset-bottom)); }
   .accessories-bar {
-    position: fixed; z-index: calc(var(--layer-tabbar) + 1); margin: 0; padding: 0; left: auto; right: max(14px, env(safe-area-inset-right));
+    position: fixed; z-index: calc(var(--layer-tabbar) + 1); margin: 0; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
     bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--keyboard, 0px));
-    display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: var(--space-8); background: none; border: 0; box-shadow: none;
-  }
-  .accessories-bar.searching { left: max(14px, env(safe-area-inset-left)); }
-  .page-head:has(+ .accessories-bar) { margin-bottom: var(--space-16); }
-  .accessories-bar > .accessories-toolbar, .accessories-bar > .accessories-views { display: contents; }
-  .accessories-bar .subnav { order: 0; flex: none; width: auto; margin: 0; padding: 0; display: flex; background: none; border: 0; box-shadow: none; overflow: visible; mask-image: none; -webkit-mask-image: none; }
-  .accessories-bar .subnav:has(> a:first-child.on), .accessories-bar .subnav > a.on { display: none; }
-  .accessories-bar .subnav a span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .accessories-bar .accessories-toolbar > * { order: 4; }
-  .accessories-bar .accessories-search-toggle { order: 1; }
-  .accessories-bar .accessories-filters { order: 2; }
-  .accessories-bar .accessories-edit { order: 3; }
-  .accessories-bar .accessory-options-button.menu-button { order: 5; }
-  .accessories-bar :is(.accessories-views, .accessories-toolbar) > :is(button, a):is(.accessories-full-screen, .in-menu-on-phone),
-  .accessories-bar .accessories-toolbar > :is(button, a).hidden { display: none; }
-  /* Each action its own glass: a circle, the search a pill with its name. */
-  .accessories-bar .accessories-toolbar > :is(button, a), .accessories-bar .accessories-toolbar > .accessory-options-button, .accessories-bar .subnav a {
-    position: relative; display: flex; align-items: center; justify-content: center; width: var(--float-action); height: var(--float-action);
-    min-width: var(--float-action); min-height: var(--float-action); padding: 0; gap: 0; border-radius: 50%; font-size: 0; flex: none; color: var(--text);
+    display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-6); padding: 5px; border-radius: var(--radius-pill);
     background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
   }
-  .accessories-bar .accessories-toolbar > .accessories-search-toggle { width: auto; padding: 0 var(--space-18) 0 var(--space-16); gap: var(--space-8); border-radius: var(--radius-pill);
-    font-size: var(--text-base); font-weight: var(--weight-semibold); }
-  .accessories-bar .accessories-search-toggle .toolbar-label { display: inline; }
-  .accessories-bar.searching .accessories-search-toggle { width: var(--float-action); padding: 0; border-radius: 50%; font-size: 0; }
-  .accessories-bar.searching .accessories-search-toggle .toolbar-label { display: none; }
-  .accessories-bar :is(.accessories-filters.on, .accessories-edit[aria-pressed="true"]) { color: var(--accent-ink); }
+  .page-head:has(+ .accessories-bar) { margin-bottom: var(--space-16); }
+  .accessories-bar > .accessories-toolbar, .accessories-bar > .accessories-views { display: contents; }
+  .accessories-bar .subnav { order: 1; flex: none; width: auto; margin: 0; padding: 0; display: flex; background: none; border: 0; box-shadow: none; overflow: visible; mask-image: none; -webkit-mask-image: none; }
+  .accessories-bar .subnav:has(> a:first-child.on), .accessories-bar .subnav > a.on { display: none; }
+  .accessories-bar .subnav a span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .accessories-bar .accessories-toolbar > * { order: 5; }
+  .accessories-bar .accessory-options-button.menu-button { order: 0; }
+  .accessories-bar .search { order: 2; }
+  .accessories-bar .accessories-filters { order: 3; }
+  .accessories-bar .accessories-edit { order: 4; }
+  .accessories-bar .accessories-ask { order: 6; }
+  .accessories-bar :is(.accessories-views, .accessories-toolbar) > :is(button, a):is(.accessories-full-screen, .in-menu-on-phone, .accessories-search-toggle),
+  .accessories-bar .accessories-toolbar > :is(button, a).hidden, .accessories-bar .accessories-ask[hidden] { display: none; }
+  /* The buttons: circles of a lighter tint inside the bar, the Assistant's in the accent. */
+  .accessories-bar .accessories-toolbar > :is(button, a), .accessories-bar .accessories-toolbar > .accessory-options-button, .accessories-bar .subnav a {
+    position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
+    border-radius: 50%; font-size: 0; flex: none; color: var(--text); border: 0; box-shadow: none; background: color-mix(in srgb, var(--text) 9%, transparent);
+  }
+  .accessories-bar .accessories-toolbar > .accessories-ask { display: flex; background: var(--accent-fill); color: var(--accent-text); }
+  .accessories-bar .accessories-ask .sparkle { width: 22px; height: 22px; }
+  .accessories-bar :is(.accessories-filters.on, .accessories-edit[aria-pressed="true"]) { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
   .accessories-bar .accessories-filters .toolbar-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .accessories-bar .accessories-filters .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill); font-size: var(--text-2xs); }
   .accessories-bar .accessories-toolbar button > svg, .accessories-bar .accessory-options-button svg, .accessories-bar .subnav svg { width: 21px; height: 21px; margin: 0; color: currentColor; opacity: 1; }
   .accessories-bar .accessories-edit.action-with-icon::before { width: 21px; height: 21px; margin: 0; }
-  /* The search: a glass field across the width, its button left to close it. */
-  .accessories-bar .search { order: 0; flex: 1 1 auto; min-width: 0; height: var(--float-action); display: none; border-radius: var(--radius-pill);
-    background-color: var(--material-chrome); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
-    border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
-  .accessories-bar.searching .search { display: block; animation: accessories-search-in 180ms var(--ease-out); }
-  .accessories-bar.searching :is(.subnav, .accessories-filters, .accessories-edit, .accessory-options-button.menu-button) { display: none; }
+  /* The search: always there, the bar's field, without a box of its own. */
+  .accessories-bar .search { display: block; flex: 1 1 auto; min-width: 0; height: 44px; margin: 0; padding: 0 var(--space-8); border: 0; border-radius: var(--radius-pill);
+    background: none; box-shadow: none; font-size: var(--text-md); color: var(--text); }
+  .accessories-bar .search:focus { outline: none; box-shadow: none; }
   .accessories-bar :is(button, a) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
 }
 @keyframes accessories-search-in { from { opacity: 0; transform: translateY(6px); } }

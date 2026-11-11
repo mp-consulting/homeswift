@@ -3411,6 +3411,14 @@
     search.addEventListener("blur", () => { if (!search.value.trim()) open(false); });
     open(Boolean(search.value.trim()));
     search.after(toggle);
+    // A phone's bar ends with the Assistant, when there is one: what is typed in the search becomes the question.
+    const ask = el("button", { type: "button", class: "icon-button accessories-ask", "aria-label": t("Ask the Assistant"), title: t("Ask the Assistant"),
+      onclick: () => window.HomeswiftChat?.ask(search.value.trim()) }, HomeswiftCommon.sparkle());
+    const showAsk = () => { ask.hidden = !window.HomeswiftChat?.available(); };
+    showAsk();
+    setTimeout(showAsk, 1500);
+    search.addEventListener("focus", showAsk);
+    toolbar.append(ask);
     // Safari keeps a fixed bar's bottom under the on-screen keyboard: the bar sits on the keyboard while the search is
     // typed in (`--keyboard`, what it covers), as the chat's sheet does.
     const view = window.visualViewport;
