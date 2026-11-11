@@ -53,7 +53,8 @@ struct Structure: Sendable {
     var bridgeHome: String?
     var homes: [Home]
     var devices: [String: Device]
-    private var unresolvedIdentityHomes: Set<String> = []
+    /// By home id, the accessories whose Serial Number Wingman has not read yet, as the Home app names them.
+    private var unresolvedIdentities: [String: [String]] = [:]
     /// The accessories Homeswift mirrors, by HomeKit id.
     var mirrored: Set<String>
     var scenes: [WingmanAPI.Scene] = []
@@ -112,7 +113,7 @@ struct Structure: Sendable {
                 let bridgeAccessory = accessory.manufacturer == "Homeswift" || accessory.model == "Homeswift"
                 if accessory.serialNumber?.isEmpty != false,
                    homeswift != nil || unknownBridge || possibleOwn || bridgeAccessory {
-                    unresolvedIdentityHomes.insert(homeID)
+                    unresolvedIdentities[homeID, default: []].append(accessory.room.map { "\(accessory.name) (\($0))" } ?? accessory.name)
                 }
                 let information = ServiceType.accessoryInformation.uuid
                 let main = accessory.services.filter { HAPUUID($0.type) != information }.sorted { ($0.primary == true ? 0 : 1) < ($1.primary == true ? 0 : 1) }
@@ -141,8 +142,11 @@ struct Structure: Sendable {
     /// partial groups or consume Pending Changes until Wingman has read the bridge's accessory identities.
     var incompleteIdentityReason: String? {
         guard let bridgeHome else { return nil }
-        guard unresolvedIdentityHomes.contains(bridgeHome) else { return nil }
-        return "Waiting for Homeswift Wingman to read Accessory Information (Serial Number) in Apple Home"
+        guard let names = unresolvedIdentities[bridgeHome]?.sorted(), !names.isEmpty else { return nil }
+        // Named, so a person can find the accessory in the Home app: usually one that shows No Response there.
+        let shown = names.prefix(5).joined(separator: ", ")
+        let more = names.count > 5 ? " and \(names.count - 5) more" : ""
+        return "Waiting for Homeswift Wingman to read the Serial Number of \(shown)\(more) in Apple Home"
     }
 
     // MARK: The Home Link

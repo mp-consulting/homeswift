@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Home Link waiting for serial numbers**: the reason now names the accessories (and their rooms) whose Serial Number
+  Homeswift Wingman has not read, so the one holding the link down can be found in the Home app.
+
 ## [0.29.0] - 2026-11-11
 
 ### Added

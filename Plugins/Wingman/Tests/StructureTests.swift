@@ -167,7 +167,24 @@ struct StructureTests {
         let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": accessories]
         let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
         let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge, "CHILD"], own: childBridge ? [] : ["TV"])
-        #expect(structure.incompleteIdentityReason != nil)
+        #expect(structure.incompleteIdentityReason?.contains("Serial Number of unresolved") == true)
+    }
+
+    /// The reason names the accessories without a Serial Number, with their room, five at most.
+    @Test func incompleteIdentitiesAreNamed() throws {
+        let bridge = TestEnvironment.bridgeID
+        var accessories = [homeAccessory("main-bridge", serialNumber: bridge)]
+        for index in 1...7 {
+            var light = homeAccessory("light-\(index)", serialNumber: "", bridge: ["id": "main-bridge", "name": "Homeswift"])
+            light["name"] = "Spot \(index)"
+            if index == 1 { light["room"] = "Salon" }
+            accessories.append(light)
+        }
+        let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": accessories]
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
+        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge])
+        #expect(structure.incompleteIdentityReason
+            == "Waiting for Homeswift Wingman to read the Serial Number of Spot 1 (Salon), Spot 2, Spot 3, Spot 4, Spot 5 and 2 more in Apple Home")
     }
 
     /// One of Homeswift's own accessories is found behind its bridge (the home's accessory whose Serial Number is the
