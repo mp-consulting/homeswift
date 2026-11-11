@@ -66,6 +66,21 @@ public struct HomeLinkFile: Codable, Sendable, Equatable {
             }
         }
 
+        /// What it is about: the Rooms (by name), Zones, Groups or accessories it changes. A change that reaches Apple
+        /// Home settles an earlier refusal about the same.
+        var subjects: Set<String> {
+            switch self {
+            case .createRoom(let name): ["room:\(name)"]
+            case .renameRoom(let from, let to): ["room:\(from)", "room:\(to)"]
+            case .deleteRoom(let name, _): ["room:\(name)"]
+            case .moveAccessory(let accessory, _): ["accessory:\(accessory)"]
+            case .createZone(let zone), .renameZone(let zone, _), .setZoneRooms(let zone, _, _): ["zone:\(zone)"]
+            case .deleteZone(let homeKitID): ["zone:\(homeKitID)"]
+            case .createGroup(let group), .renameGroup(let group, _), .setGroupMembers(let group, _, _): ["group:\(group)"]
+            case .deleteGroup(let homeKitID): ["group:\(homeKitID)"]
+            }
+        }
+
         /// What it does, for the log and the pages.
         var described: String {
             switch self {
@@ -154,16 +169,18 @@ extension HomeswiftCatalog {
         var object = homeLinkStatus(state: link?.state, via: link?.instance.name)
         let file = home.homeLink.value
         if let comparison = file.comparison, let json = try? JSONValue(encoding: comparison) { object["comparison"] = json }
-        if !file.refused.isEmpty { object["refused"] = .array(file.refused.suffix(10).map(\.json)) }
+        if link != nil, !file.refused.isEmpty { object["refused"] = .array(file.refused.suffix(10).map(\.json)) }
         return .object(object)
     }
 
     /// `homeLinkJSON()` without asking the link: its state as it last said (the room layout's `homeLink`).
     func homeLinkSummary() -> JSONValue {
-        var object = homeLinkStatus(state: home.lastHome.withLockedValue { $0?.state }, via: nil)
+        let state = home.lastHome.withLockedValue { $0?.state }
+        var object = homeLinkStatus(state: state, via: nil)
         if home.homeLink.value.comparison != nil { object["waiting"] = true }
+        // Without a Home Link, what Apple Home once refused is no longer the pages' concern.
         let refused = home.homeLink.value.refused
-        if !refused.isEmpty { object["refused"] = .array(refused.suffix(10).map(\.json)) }
+        if state != nil, !refused.isEmpty { object["refused"] = .array(refused.suffix(10).map(\.json)) }
         return .object(object)
     }
 
@@ -220,7 +237,10 @@ extension HomeswiftCatalog {
     }
 
     private func followHomeNow() async throws {
-        guard let link = await host.homeLink() else { return }
+        guard let link = await host.homeLink() else {
+            home.lastHome.withLockedValue { $0 = nil }
+            return
+        }
         let snapshot = await link.plugin.homeSnapshot()
         home.lastHome.withLockedValue { $0 = LastHome(state: link.state, snapshot: snapshot) }
         guard link.state.isUp, var snapshot else { home.layoutChanged(); return }
@@ -454,7 +474,7 @@ extension HomeswiftCatalog {
             return try await home.homeLinkWork.run { [self] in
                 let link = await host.homeLink()
                 if let link, let refusal = Self.refusal(link.state) {
-                    let refused = changes.map { HomeLinkFile.Refused(change: $0, reason: refusal) }
+                    let refused = changes.map { HomeLinkFile.Refused(change: $0, reason: named(refusal)) }
                     try keepRefused(refused)
                     return refused.map(\.json)
                 }
@@ -475,9 +495,30 @@ extension HomeswiftCatalog {
 
     private func keepRefused(_ refused: [HomeLinkFile.Refused]) throws {
         try home.homeLink.update { file in
+            // The newest refusal about a thing replaces the earlier ones.
+            let subjects = refused.reduce(into: Set<String>()) { $0.formUnion($1.change.subjects) }
+            file.refused.removeAll { !$0.change.subjects.isDisjoint(with: subjects) }
             file.refused += refused
             if file.refused.count > 20 { file.refused.removeFirst(file.refused.count - 20) }
         }
+    }
+
+    /// Drops the refusals about what `change` changes: Apple Home has it now, or no longer has it.
+    private func settleRefusals(of change: HomeLinkFile.PendingChange) {
+        let subjects = change.subjects
+        guard home.homeLink.value.refused.contains(where: { !$0.change.subjects.isDisjoint(with: subjects) }) else { return }
+        try? home.homeLink.update { file in file.refused.removeAll { !$0.change.subjects.isDisjoint(with: subjects) } }
+    }
+
+    /// `reason` with the accessories it names by id (`PhilipsHue:5ecd…`) named as the pages name them.
+    func named(_ reason: String) -> String {
+        guard let pattern = try? NSRegularExpression(pattern: #"[A-Za-z][A-Za-z0-9_-]*:[^\s,;()]+"#) else { return reason }
+        var result = reason
+        for match in pattern.matches(in: reason, range: NSRange(reason.startIndex..., in: reason)).reversed() {
+            guard let range = Range(match.range, in: reason), let located = find(id: String(reason[range])) else { continue }
+            result.replaceSubrange(range, with: located.accessory.name)
+        }
+        return result
     }
 
     /// Makes the Pending Changes in the Home, in order, until one finds the link down: that one and the rest stay.
@@ -487,15 +528,17 @@ extension HomeswiftCatalog {
         while let change = home.homeLink.value.pending.first {
             do {
                 try await push(change, plugin: link.plugin)
+                settleRefusals(of: change)
             } catch let error as HomeChangeError where error.kind == .unreachable {
                 logger.info("Apple Home is not reachable: \(home.homeLink.value.pending.count) changes wait for it")
                 return refused
             } catch let error as HomeChangeError where error.kind == .notFound && !change.isGroupChange {
                 // A move of an accessory Apple Home does not have (Not in Home), a room or zone already gone there.
                 logger.debug("\(change.described): no longer in Apple Home")
+                settleRefusals(of: change)
             } catch {
                 logger.warning("Apple Home refused: \(change.described): \(error)")
-                let failure = HomeLinkFile.Refused(change: change, reason: "\(error)")
+                let failure = HomeLinkFile.Refused(change: change, reason: named("\(error)"))
                 refused.append(failure)
                 try? keepRefused([failure])
                 if case .createGroup(let id) = change {
@@ -675,6 +718,7 @@ extension HomeswiftCatalog {
             }
         }
         try home.homeLink.update { file in
+            if file.homeID != snapshot.homeID { file.refused = [] }
             file.homeID = snapshot.homeID
             file.homeName = snapshot.homeName
             file.comparison = nil

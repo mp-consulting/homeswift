@@ -463,6 +463,8 @@ final class FakeHomeLink: @unchecked Sendable {
         var home = HomeSnapshot(homeID: "home-1", homeName: "Maison", rooms: [], placements: [:])
         var applied: [HomeChange] = []
         var next = 0
+        /// Accessories Apple Home does not have, as Wingman says when it cannot find one: by Homeswift's id.
+        var missing: Set<String> = []
     }
 
     let box = NIOLockedValueBox(State())
@@ -490,6 +492,9 @@ final class FakeHomeLink: @unchecked Sendable {
                 return "hk-\(kind)-\(state.next)"
             }
             func refuse(_ name: String) throws { if name == "Attic" { throw HomeChangeError(.refused, "that name is taken") } }
+            func have(_ members: [String]) throws {
+                if let id = members.first(where: state.missing.contains) { throw HomeChangeError(.notFound, "\(id) is not in \(state.home.homeName)") }
+            }
             state.applied.append(change)
             switch change {
             case .createRoom(let name):
@@ -523,6 +528,7 @@ final class FakeHomeLink: @unchecked Sendable {
                 state.home.zones[index].rooms = state.home.zones[index].rooms.filter { !remove.contains($0) } + add
             case .createGroup(let name, let members):
                 try refuse(name)
+                try have(members)
                 let id = newID("group")
                 state.home.groups.append(.init(id: id, name: name, members: members))
                 return id
@@ -532,6 +538,7 @@ final class FakeHomeLink: @unchecked Sendable {
             case .deleteGroup(let id):
                 state.home.groups.removeAll { $0.id == id }
             case .setGroupMembers(let id, let add, let remove):
+                try have(add)
                 guard let index = state.home.groups.firstIndex(where: { $0.id == id }) else { throw HomeChangeError(.notFound, "no group") }
                 state.home.groups[index].members = state.home.groups[index].members.filter { !remove.contains($0) } + add
             }
