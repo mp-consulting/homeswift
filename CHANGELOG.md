@@ -11,6 +11,12 @@ All notable changes to this project are documented here. The format follows
 - **Remove a room**: in Edit, a red bin beside each room's name removes it once confirmed; its accessories go to No room,
   and with the Home Link it goes from Apple Home too.
 
+### Fixed
+
+- **Home Link refusals**: the Accessories page no longer shows what Apple Home refused once there is no Home Link
+  ("Pair Homeswift Wingman"); a refusal goes once a later change to the same room, zone, group or accessory reaches
+  Apple Home, and names accessories rather than giving their ids.
+
 ## [0.29.0] - 2026-11-11
 
 ### Added
