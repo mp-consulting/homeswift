@@ -161,6 +161,12 @@ at once and fades out. Under reduced motion only the colour changes.
 
 The Weather plugin's accessory is a Temperature sensor with Eve's weather characteristics, drawn by the Weather widget: the
 temperature and the sky's icon, the condition in words, then its humidity, wind, rain, pressure and UV index as it grows.
+Behind them the tile draws the sky: clear, cloudy, fog, rain, storm or snow, by day or by night (night by the hour on
+the viewing device, unless the UV index says the sun is up). Its clouds, rain, snow, stars and the sun's rays loop
+without end; reduced motion stills them.
+
+![Every condition's sky by day](images/widgets/skies-day.png)
+![Every condition's sky by night](images/widgets/skies-night.png)
 
 ![The weather at its four sizes](images/widgets/weather.png)
 

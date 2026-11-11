@@ -5346,13 +5346,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       make("path", { class: "spark-baseline", d: "M3,29 H157" }), make("path", { d: path }));
     const guide = make("path", { class: "spark-guide", visibility: "hidden" });
     svg.append(guide);
-    const hideGuide = () => guide.setAttribute("visibility", "hidden");
+    let rect = null, shownIndex = null;
+    const hideGuide = () => { guide.setAttribute("visibility", "hidden"); rect = null; shownIndex = null; };
     box.addEventListener("pointermove", (event) => {
-      const rect = svg.getBoundingClientRect();
+      rect ??= svg.getBoundingClientRect();
       if (!rect.width) return;
       const fraction = Math.max(0, Math.min(1, (160 * (event.clientX - rect.left) / rect.width - 3) / 154));
       const index = Math.round(fraction * (values.length - 1));
-      if (values[index] == null) { hideGuide(); return; }
+      if (index === shownIndex) return;
+      shownIndex = index;
+      if (values[index] == null) { guide.setAttribute("visibility", "hidden"); return; }
       const x = values.length === 1 ? 80 : 3 + index / (values.length - 1) * 154;
       guide.setAttribute("d", `M${x},1 V31`);
       guide.setAttribute("visibility", "visible");
@@ -11358,6 +11361,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     flame: '<path d="M12 3c.5 3 4.5 5.5 4.5 10a4.5 4.5 0 0 1-9 0c0-2 1-3.4 2-4.5.2 1.8 1 2.8 2 3.3 0-3.2-.6-5.8.5-8.8z"/>',
     cloud: '<path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 9.1 4.5 4.5 0 0 0 7 18z"/>',
     rain: '<path d="M7 14h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 5.1 4.5 4.5 0 0 0 7 14zM8 17l-1 3M12 17l-1 3M16 17l-1 3"/>',
+    moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
     snow: '<path d="M7 14h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 5.1 4.5 4.5 0 0 0 7 14zM8 18h.01M12 18h.01M16 18h.01M10 21h.01M14 21h.01"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
     house: '<path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/>',
@@ -13250,7 +13254,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   window.HomeswiftCommon = {
     foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
     openSheet, confirmAction,
-    $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
 })();
@@ -21588,6 +21592,8 @@ HomeswiftI18n.add("es", {
   "Hold to turn off": "Mantén para desactivar",
   "hold to turn on": "mantén para encender",
   "Hold to turn on": "Mantén para encender",
+  "Hold to turn off {output}": "Mantén para apagar {output}",
+  "Turn on {output}": "Encender {output}",
   "hold to unlock": "mantén para desbloquear",
   "Hold to unlock": "Mantén para desbloquear",
   "Home": "Inicio",
@@ -25326,6 +25332,8 @@ HomeswiftI18n.add("fr", {
   "Hold to turn off": "Maintenir pour désactiver",
   "hold to turn on": "maintenir pour allumer",
   "Hold to turn on": "Maintenir pour allumer",
+  "Hold to turn off {output}": "Maintenir pour éteindre {output}",
+  "Turn on {output}": "Allumer {output}",
   "hold to unlock": "maintenir pour déverrouiller",
   "Hold to unlock": "Maintenir pour déverrouiller",
   "Home": "Accueil",
@@ -29064,6 +29072,8 @@ HomeswiftI18n.add("pt", {
   "Hold to turn off": "Manter para desativar",
   "hold to turn on": "manter para ligar",
   "Hold to turn on": "Manter para ligar",
+  "Hold to turn off {output}": "Manter para desligar {output}",
+  "Turn on {output}": "Ligar {output}",
   "hold to unlock": "manter para destrancar",
   "Hold to unlock": "Manter para destrancar",
   "Home": "Início",
@@ -36610,7 +36620,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget:not(.widget-full) .seg > button { white-space: nowrap; padding-inline: 2px; }
 .size-large .w-body { padding-right: 26px; overflow: hidden; justify-content: safe center; }
 /* Balance the space above and below the shutter controls around the tile's centre. */
-.widget-cover.size-large:not(.widget-measuring) { display: grid; grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr); }
+.widget-cover.size-large:not(.widget-measuring) { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.widget-cover.size-large > .w-body { align-self: center; }
 .widget-cover.size-large > .w-head { align-self: start; }
 /* Brightness spans the card; the lower controls reserve space for the corner menu. */
 .widget-light.size-large .w-body { padding-right: 0; }
@@ -36718,6 +36729,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* A shutter's tile: its closed part drawn from the top. */
 .w-shade { position: absolute; inset: 0 0 auto 0; z-index: 0; height: var(--closed, 0%); pointer-events: none;
   background: repeating-linear-gradient(180deg, rgba(120, 128, 142, 0.16) 0 7px, rgba(120, 128, 142, 0.26) 7px 8px); transition: height 300ms var(--ease-out); }
+.widget:not(.widget-summary):has(> .w-shade) { isolation: isolate; }
+.widget:not(.widget-summary) > .w-shade { z-index: -1; border-radius: inherit; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 /* Held to confirm: a fill crosses the tile; let go early and it goes back. */
 .w-veil { position: absolute; inset: 0; z-index: 0; pointer-events: none; background: color-mix(in srgb, var(--warn) 30%, transparent); clip-path: inset(0 100% 0 0); transition: clip-path 200ms var(--ease-out); }
 .holding > .w-veil { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
@@ -36740,9 +36753,6 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-grow { flex: 1; min-width: 0; }
 .w-keys { display: flex; align-items: center; gap: var(--space-6); }
 .w-actions { display: grid; min-width: 130px; }
-.w-figure { display: grid; line-height: 1.1; }
-.w-big { font-size: 2.125rem; font-weight: var(--weight-semibold); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-.w-figure span { font-size: var(--text-xs); color: var(--muted); }
 .w-state { font-size: 1.625rem; font-weight: var(--weight-bold); letter-spacing: -0.02em; line-height: 1.1; }
 .w-line { font-size: var(--text-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .big-state { display: flex; align-items: center; gap: var(--space-10); flex-wrap: wrap; }
@@ -36758,8 +36768,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .light-tall > .level { flex: 1; }
 .light-tall > .adaptive-chip { justify-content: center; }
 .light-colours { flex: 1; display: grid; align-content: center; gap: var(--space-12); min-width: 0; }
-.cover-large > .level.vertical { width: 112px; flex: none; border-radius: var(--radius-md); }
-.cover-buttons { display: grid; align-content: center; gap: var(--space-10); flex: 1; min-width: 0; }
+/* The shutter fills the tile like the window it covers; its buttons stand in a column beside it. */
+.cover-large > .level.vertical { flex: 1; min-width: 112px; border-radius: var(--radius-md); }
+.cover-buttons { display: grid; align-content: center; gap: var(--space-10); flex: none; min-width: 0; }
+.widget-cover.size-xlarge .cover-large { padding-right: 40px; }
 .cover-buttons .level { width: 100%; }
 .toggles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-8); }
 .widget .mini-toggle { display: grid; gap: 1px; text-align: left; border-radius: var(--radius-md); padding: 9px 11px; background: var(--material-thin); transition: background-color var(--normal) var(--ease-out); }
@@ -36888,8 +36900,6 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .sp-value span { font-size: var(--text-xs); color: var(--muted); }
 .widget .round { width: 36px; height: 36px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
 .widget .round svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
-.climate-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-12); }
-@container widgets (max-width: 400px) { .climate-hero { grid-template-columns: minmax(0, 1fr); } }
 .gauge { width: 100%; max-width: 230px; height: auto; display: block; margin: 0 auto; overflow: visible; }
 .gauge-track, .gauge-band { fill: none; stroke-width: 12; stroke-linecap: round; }
 .gauge-track { stroke: var(--track); }
@@ -36959,7 +36969,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* Hold to confirm: the fill runs while held and snaps back when let go early. */
 .widget .hold { position: relative; overflow: hidden; width: 100%; border-radius: var(--radius-md); padding: var(--space-10) var(--space-16); font-weight: var(--weight-semibold); touch-action: none; user-select: none; -webkit-user-select: none; }
 .hold-fill { position: absolute; inset: 0; display: grid; place-items: center; background: var(--warn); color: #fff; clip-path: inset(0 100% 0 0); transition: clip-path 200ms var(--ease-out); }
-.hold.holding .hold-fill { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
+.hold.holding .hold-fill, .hold-chip.holding .hold-fill { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
+/* A power station's output: a chip that fills while held. */
+.hold-chip { position: relative; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.hold-chip .hold-fill { border-radius: inherit; font-weight: var(--weight-semibold); }
 
 /* Valve: a round run button whose ring empties as the time runs out. */
 .valve { display: grid; justify-items: center; gap: var(--space-14); }
@@ -36967,7 +36980,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .valve-duration { width: 100%; min-width: 0; }
 .valve-run-control { flex: none; }
 .valve-running-controls { display: flex; align-items: center; gap: var(--space-12); }
-.valve-running-controls[hidden], .valve-button[hidden] { display: none !important; }
+.valve-running-controls[hidden] { display: none !important; }
 .valve-countdown { display: flex; gap: var(--space-8); }
 .valve-countdown[hidden] { display: none; }
 .widget-valve.size-medium .w-middle { display: grid; place-items: center; pointer-events: none; }
@@ -36979,17 +36992,9 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .valve-flap::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #000b; box-shadow: 0 1px #ffffff18; }
 .widget-full .valve-flap { min-width: 90px; height: 96px; font-size: 60px; }
 .widget-full .valve-running-controls { flex-direction: column; }
-.widget .valve-button { position: relative; width: 128px; height: 128px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
-.valve-button svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
-.valve-button .ring-track, .valve-button .ring { fill: none; stroke-width: 6; }
-.valve-button .ring-track { stroke: var(--track); }
-.valve-button .ring { stroke: var(--cool); stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
-.valve-text { display: grid; justify-items: center; gap: var(--space-4); line-height: 1.2; }
-.valve-text b { font-size: 1.125rem; }
-.valve-text span { font-size: var(--text-sm); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 @media (prefers-reduced-motion: reduce) {
-  .seg-thumb, .level-fill, .widget .tile, .widget.size-small, .w-shade, .valve-button .ring { transition-duration: 0ms !important; }
+  .seg-thumb, .level-fill, .widget .tile, .widget.size-small, .w-shade { transition-duration: 0ms !important; }
   .widget-summary:has(> .w-hit:active) { transform: none; }
   .widget-sheet[open] { animation-name: fade; }
 }
@@ -40568,10 +40573,107 @@ select option:disabled { color: var(--muted); }
   .battery-graphic .bat-wave { animation: none; }
   .battery-graphic .bat-liquid { transition: none; }
 }
+/* The weather tile's sky, behind its content: a gradient for the condition by day or night, and layers that loop
+   forever. Each moves exactly one tile of its pattern per cycle, so a loop never jumps; near layers move faster than
+   far ones, for depth. Stars twinkle on a clear night; the sun turns its rays in the top-right corner (the moon glows
+   there at night); clouds drift at two depths; fog rolls; rain falls at two depths; snow sways as it falls; a storm's
+   lightning lights the whole sky. White text reads on every sky; reduced motion stills them all. */
+.widget:has(> .weather-sky) { isolation: isolate; --text: #fff; --muted: rgb(255 255 255 / 80%); color: var(--text); border-color: rgb(255 255 255 / 22%); text-shadow: 0 1px 3px rgb(0 0 0 / 22%); }
+.widget:has(> .weather-sky) .tile { background: rgb(255 255 255 / 22%); color: #fff; box-shadow: none; }
+.widget:has(> .weather-sky) .readout { background: rgb(255 255 255 / 16%); border-color: rgb(255 255 255 / 22%); }
+.widget:has(> .weather-sky) .menu-button { background: rgb(255 255 255 / 18%); color: #fff; }
+.widget > .weather-sky { position: absolute; inset: 0; z-index: -1; overflow: hidden; border-radius: inherit; pointer-events: none;
+  --sky-top: #6fb2f2; --sky-bottom: #3478cf; background: linear-gradient(160deg, var(--sky-top), var(--sky-bottom)); }
+.weather-sky > span { position: absolute; inset: 0; display: none; }
+.weather-sky[data-sky="clear"][data-time="day"] { --sky-top: #ffb547; --sky-bottom: #ee5f38; }
+.weather-sky[data-sky="clear"][data-time="night"] { --sky-top: #233a78; --sky-bottom: #0d1a40; }
+.weather-sky[data-sky="cloudy"][data-time="day"] { --sky-top: #6fb2f2; --sky-bottom: #3478cf; }
+.weather-sky[data-sky="cloudy"][data-time="night"] { --sky-top: #34446a; --sky-bottom: #182039; }
+.weather-sky[data-sky="fog"][data-time="day"] { --sky-top: #a3afbc; --sky-bottom: #6f7c8a; }
+.weather-sky[data-sky="fog"][data-time="night"] { --sky-top: #48525f; --sky-bottom: #262c37; }
+.weather-sky[data-sky="rain"][data-time="day"] { --sky-top: #5d7591; --sky-bottom: #33455c; }
+.weather-sky[data-sky="rain"][data-time="night"] { --sky-top: #263449; --sky-bottom: #101826; }
+.weather-sky[data-sky="storm"] { --sky-top: #48415f; --sky-bottom: #1a1628; }
+.weather-sky[data-sky="snow"][data-time="day"] { --sky-top: #8db4dc; --sky-bottom: #4f78ad; }
+.weather-sky[data-sky="snow"][data-time="night"] { --sky-top: #22325a; --sky-bottom: #0d162e; }
+
+/* Stars: two fields of points on a 60 px grid, twinkling; on a clear night, fainter behind a cloudy one. */
+.weather-sky[data-time="night"]:is([data-sky="clear"], [data-sky="cloudy"]) .sky-stars { display: block;
+  background-image: radial-gradient(circle, rgb(255 255 255 / 85%) 0 1px, transparent 1.5px), radial-gradient(circle, rgb(255 255 255 / 55%) 0 0.8px, transparent 1.3px);
+  background-size: 60px 60px; background-position: 7px 9px, 37px 41px; animation: sky-twinkle 3.2s ease-in-out infinite alternate; }
+.weather-sky[data-sky="cloudy"] .sky-stars { opacity: 0.5; }
+
+/* The light in the top-right corner: by day a sun whose rays turn slowly, by night a moon; faint behind clouds. */
+.weather-sky:is([data-sky="clear"], [data-sky="cloudy"]) .sky-light { display: block; transform-origin: calc(100% - 6px) 6px; animation: sky-breathe 5s ease-in-out infinite alternate;
+  background: radial-gradient(circle at calc(100% - 6px) 6px, rgb(255 236 150 / 85%) 0 30px, rgb(255 214 120 / 34%) 31px 54px, rgb(255 200 110 / 14%) 55px 88px, transparent 89px); }
+.weather-sky .sky-light::after { content: ""; position: absolute; width: 260px; height: 260px; right: -124px; top: -124px; border-radius: 50%;
+  background: repeating-conic-gradient(rgb(255 240 180 / 22%) 0 6deg, transparent 6deg 30deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 36px, #000 40px, transparent 128px); mask: radial-gradient(circle, transparent 0 36px, #000 40px, transparent 128px);
+  animation: sky-turn 40s linear infinite; }
+.weather-sky[data-time="night"] .sky-light { background: radial-gradient(circle at calc(100% - 14px) 14px, rgb(255 246 220 / 80%) 0 18px, rgb(255 246 220 / 14%) 19px 40px, transparent 41px); }
+.weather-sky[data-time="night"] .sky-light::after, .weather-sky[data-sky="cloudy"] .sky-light::after { display: none; }
+.weather-sky[data-sky="cloudy"] .sky-light { opacity: 0.45; }
+
+/* Clouds at two depths: strips twice the tile's width whose halves are alike, sliding left one half per cycle, the
+   near one faster and brighter. */
+.weather-sky:is([data-sky="cloudy"], [data-sky="fog"], [data-sky="rain"], [data-sky="storm"], [data-sky="snow"]) .sky-clouds {
+  display: block; inset: 0 auto 0 0; width: 200%; background-repeat: repeat-x; background-size: 50% 100%;
+  background-image: radial-gradient(ellipse 22% 26% at 22% 10%, rgb(255 255 255 / 26%), transparent 70%),
+    radial-gradient(ellipse 18% 20% at 58% 18%, rgb(255 255 255 / 20%), transparent 70%),
+    radial-gradient(ellipse 24% 24% at 88% 4%, rgb(255 255 255 / 22%), transparent 70%);
+  animation: sky-drift 48s linear infinite; }
+.weather-sky .sky-clouds.near { background-image: radial-gradient(ellipse 26% 30% at 36% -2%, rgb(255 255 255 / 34%), transparent 70%),
+    radial-gradient(ellipse 18% 22% at 80% 20%, rgb(255 255 255 / 26%), transparent 70%); animation-duration: 26s; }
+.weather-sky[data-sky="cloudy"] .sky-clouds { filter: brightness(1.25); }
+.weather-sky:is([data-sky="rain"], [data-sky="storm"]) .sky-clouds { filter: brightness(0.75); }
+/* Fog: wide soft banks rolling across at two depths, the near one the other way. */
+.weather-sky[data-sky="fog"] .sky-clouds { background-image: radial-gradient(ellipse 40% 12% at 30% 40%, rgb(255 255 255 / 30%), transparent 70%),
+    radial-gradient(ellipse 36% 10% at 75% 68%, rgb(255 255 255 / 26%), transparent 70%), radial-gradient(ellipse 30% 9% at 50% 88%, rgb(255 255 255 / 22%), transparent 70%); animation-duration: 30s; }
+.weather-sky[data-sky="fog"] .sky-clouds.near { background-image: radial-gradient(ellipse 34% 9% at 60% 25%, rgb(255 255 255 / 22%), transparent 70%),
+    radial-gradient(ellipse 30% 8% at 15% 58%, rgb(255 255 255 / 20%), transparent 70%); animation-duration: 16s; animation-direction: reverse; }
+
+/* Rain at two depths: short slanted dashes on a grid, falling one tile per cycle; the far rain finer and slower, the
+   storm's harder. */
+.weather-sky:is([data-sky="rain"], [data-sky="storm"]) .sky-fx { display: block; inset: -30px -20% 0;
+  background-image: radial-gradient(ellipse 1px 8px, rgb(255 255 255 / 50%) 0 99%, transparent 100%);
+  background-size: 26px 30px; transform: skewX(-14deg); animation: sky-rain 0.55s linear infinite; }
+.weather-sky:is([data-sky="rain"], [data-sky="storm"]) .sky-fx.far { inset: -20px -20% 0;
+  background-image: radial-gradient(ellipse 0.8px 5px, rgb(255 255 255 / 30%) 0 99%, transparent 100%);
+  background-size: 14px 20px; background-position: 7px 0; animation: sky-rain-far 0.8s linear infinite; }
+.weather-sky[data-sky="storm"] .sky-fx { animation-duration: 0.4s; }
+.weather-sky[data-sky="storm"] .sky-fx.far { animation-duration: 0.6s; }
+/* Lightning: now and then the whole sky flashes, twice in quick succession. */
+.weather-sky[data-sky="storm"] .sky-light { display: block; background: radial-gradient(ellipse 90% 70% at 65% 0%, rgb(225 215 255 / 70%), rgb(200 190 255 / 20%) 60%, transparent 80%);
+  opacity: 0; animation: sky-flash 7s linear infinite; }
+.weather-sky[data-sky="storm"] .sky-light::after { display: none; }
+
+/* Snow at two depths: flakes on a grid drifting down one tile per cycle and swaying side to side on the way. */
+.weather-sky[data-sky="snow"] .sky-fx { display: block; inset: -40px -10px 0;
+  background-image: radial-gradient(circle, rgb(255 255 255 / 92%) 0 2.2px, transparent 2.7px), radial-gradient(circle, rgb(255 255 255 / 70%) 0 1.6px, transparent 2.1px);
+  background-size: 40px 40px; background-position: 0 0, 20px 22px; animation: sky-snow 4s linear infinite; }
+.weather-sky[data-sky="snow"] .sky-fx.far { inset: -24px -10px 0;
+  background-image: radial-gradient(circle, rgb(255 255 255 / 55%) 0 1.1px, transparent 1.6px);
+  background-size: 24px 24px; background-position: 9px 5px; animation: sky-snow-far 6s linear infinite; }
+
+/* A small tile is one line of text across the sky: its weather is lighter, and the sun or moon leaves the menu alone. */
+.size-small > .weather-sky .sky-fx { opacity: 0.55; }
+.size-small > .weather-sky:not([data-sky="storm"]) .sky-light { display: none; }
+@keyframes sky-drift { to { transform: translateX(-50%); } }
+@keyframes sky-rain { from { transform: skewX(-14deg) translateY(0); } to { transform: skewX(-14deg) translateY(30px); } }
+@keyframes sky-rain-far { from { transform: skewX(-14deg) translateY(0); } to { transform: skewX(-14deg) translateY(20px); } }
+@keyframes sky-snow { 0% { transform: translate(0, 0); } 25% { transform: translate(5px, 10px); } 50% { transform: translate(0, 20px); } 75% { transform: translate(-5px, 30px); } 100% { transform: translate(0, 40px); } }
+@keyframes sky-snow-far { 0% { transform: translate(0, 0); } 25% { transform: translate(-3px, 6px); } 50% { transform: translate(0, 12px); } 75% { transform: translate(3px, 18px); } 100% { transform: translate(0, 24px); } }
+@keyframes sky-twinkle { from { opacity: 0.45; } to { opacity: 1; } }
+@keyframes sky-breathe { from { transform: scale(1); } to { transform: scale(1.08); } }
+@keyframes sky-turn { to { transform: rotate(360deg); } }
+@keyframes sky-flash { 0%, 86% { opacity: 0; } 87% { opacity: 1; } 89% { opacity: 0.15; } 91% { opacity: 0.85; } 96%, 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .weather-sky > span, .weather-sky .sky-light::after { animation: none !important; } }
 .station-controls { display: flex; align-items: center; gap: var(--space-20); min-width: 0; }
 .station-controls > :last-child { flex: 1; min-width: 0; }
-.widget-switch-group:is(.size-large, .size-xlarge):has(> .battery-graphic) > .w-body { position: absolute; top: calc(50% + 32px); bottom: 12px; left: 12px; right: 12px; padding: 0 36px 0 0; justify-content: safe flex-end; overflow-y: auto; }
-.widget-switch-group.size-xlarge:has(> .battery-graphic) > .w-body { top: calc(50% + 40px); }
+/* A power station's outputs sit along the bottom at their own height, left of the menu; the bolt moves to the right,
+   clear of them. */
+.widget-switch-group:is(.size-large, .size-xlarge):has(> .battery-graphic) > .w-body { position: absolute; bottom: var(--space-12); left: var(--space-12); right: 56px; padding: 0; }
+.widget-switch-group:is(.size-large, .size-xlarge) > .battery-graphic .bat-bolt { left: auto; right: var(--space-20); transform: translateY(-50%); width: 40px; height: 40px; }
 .gauge-figure { font-size: 15px; font-weight: var(--weight-figure); font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .size-medium .gauge-figure { display: block; font-size: 16px; }
 .size-large .gauge-figure { font-size: 18px; letter-spacing: -0.01em; }
@@ -42013,9 +42115,11 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .widget-climate .climate-dial { width: 96px; height: 96px; }
 }
 
-.widget-climate .climate-power { flex: none; }
-.widget-climate .climate-power[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: transparent; }
-.widget-climate.size-small .climate-power { display: none; }
+/* A compact switch on the medium tile leaves its name room at phone width. */
+.widget-climate.size-medium .w-head > .switch { width: 40px; height: 24px; }
+.widget-climate.size-medium .w-head > .switch span::before { width: 18px; height: 18px; }
+.widget-climate.size-medium .w-head > .switch input:checked + span::before { transform: translateX(16px); }
+.widget-climate.size-medium .w-head > .switch input:checked:active + span::before { transform: translateX(12px); }
 .widget-climate.size-medium .w-head { flex: none; gap: var(--space-6); }
 .widget-climate.size-medium .tile { width: 28px; height: 28px; border-radius: var(--radius-sm); }
 .widget-climate.size-medium:not(.widget-full) .who strong { display: block; white-space: nowrap; }
@@ -42227,6 +42331,8 @@ self.addEventListener("notificationclick", (event) => {
   const degrees = (celsius) => { const { value } = HomeswiftCommon.temperature(celsius); return `${Number.isInteger(value) ? value : value.toFixed(1).replace(".", decimal)}°`; };
   const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.max(0, Math.round(seconds % 60))).padStart(2, "0")}`;
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  /// A value on its control's grid: `min` plus whole steps, within the bounds.
+  const snap = (value, min, max, step) => clamp(min + Math.round((value - min) / step) * step, min, max);
   /// Whether an accessory answers: its device responds and its plugin is not paused (the Accessories page's Online;
   /// No Response is the rest).
   const answers = (accessory) => !accessory.unavailable && !accessory.paused;
@@ -42340,7 +42446,7 @@ self.addEventListener("notificationclick", (event) => {
       }
       const turnsOffOutput = isStation(ctx) && ["Outlet", "Switch"].includes(service.type)
         && characteristic.type === "On" && (value === false || value === 0);
-      if (turnsOffOutput) {
+      if (turnsOffOutput && !held) {
         if (!await HomeswiftCommon.confirmDialog(t("Turn off {output} on {name}? Connected devices will lose power.", {
           output: shortName(accessory, service), name: accessory.name,
         }))) { ctx.paint(); return; }
@@ -42686,8 +42792,10 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   /// A secondary on/off service, pressed or not.
-  function chip(label, onChange, actionIcon) {
-    const node = el("button", { type: "button", class: "chip", text: label, actionIcon, "aria-pressed": "false" });
+  /// `iconOnly`: the icon alone, the label read out and shown on hover.
+  function chip(label, onChange, actionIcon, iconOnly = false) {
+    const node = el("button", iconOnly ? { type: "button", class: "chip", actionIcon, "aria-label": label, title: label, "aria-pressed": "false" }
+      : { type: "button", class: "chip", text: label, actionIcon, "aria-pressed": "false" });
     node.addEventListener("click", () => {
       const on = node.getAttribute("aria-pressed") !== "true";
       node.setAttribute("aria-pressed", String(on));
@@ -42698,24 +42806,31 @@ self.addEventListener("notificationclick", (event) => {
 
   /// A security write (unlock, open, disarm): held for a moment, the fill running across; let go early and
   /// nothing happens. Space and Enter hold it from the keyboard. The fill's transition in style.css lasts as long.
+  /// `armed`: whether a hold is needed now; when it is not, a tap calls `onTap` (a lock's safe side, an output off).
   const HOLD_MS = 900;
-  function hold(label, onConfirm) {
+  function hold(label, onConfirm, { armed = () => true, onTap = null, className = "hold", actionIcon } = {}) {
     const text = el("span", { text: label });
     const fillText = el("span", { class: "hold-fill", "aria-hidden": "true", text: label });
-    const node = el("button", { type: "button", class: "hold" }, text, fillText);
+    const node = el("button", { type: "button", class: className, actionIcon }, text, fillText);
     // A timer decides, the fill only shows it: a transition does not run in a hidden tab.
-    let timer = null;
+    let timer = null, confirmed = false;
     const start = () => {
-      if (timer) return;
+      if (timer || !armed()) return;
       node.classList.add("holding");
-      timer = setTimeout(() => { cancel(); onConfirm(); }, HOLD_MS);
+      timer = setTimeout(() => { cancel(); confirmed = true; onConfirm(); }, HOLD_MS);
     };
     const cancel = () => { clearTimeout(timer); timer = null; node.classList.remove("holding"); };
-    node.addEventListener("pointerdown", (event) => { if (event.button === 0) { node.setPointerCapture(event.pointerId); start(); } });
+    node.addEventListener("pointerdown", (event) => { if (event.button === 0 && armed()) { node.setPointerCapture(event.pointerId); start(); } });
     for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) node.addEventListener(type, cancel);
-    node.addEventListener("keydown", (event) => { if ((event.key === " " || event.key === "Enter") && !event.repeat) { event.preventDefault(); start(); } });
+    // Unarmed, Space and Enter click as on any button (the tap).
+    node.addEventListener("keydown", (event) => { if ((event.key === " " || event.key === "Enter") && !event.repeat && armed()) { event.preventDefault(); start(); } });
     node.addEventListener("keyup", (event) => { if (event.key === " " || event.key === "Enter") cancel(); });
-    node.addEventListener("click", (event) => event.preventDefault());
+    // The click ending a confirmed hold is not a tap: the state it confirmed has already changed.
+    node.addEventListener("click", (event) => {
+      event.preventDefault();
+      if (confirmed) { confirmed = false; return; }
+      if (!armed()) onTap?.();
+    });
     const name = (next) => { text.textContent = next; fillText.textContent = next; node.setAttribute("aria-label", t("{action} (press and hold)", { action: next })); };
     name(label);
     return { node, label: name };
@@ -42827,7 +42942,7 @@ self.addEventListener("notificationclick", (event) => {
     const min = characteristic.minValue ?? 0, max = characteristic.maxValue ?? 100, count = preferSteps && positions(characteristic) > 6 ? 5 : positions(characteristic);
     if (count <= 6 && count >= 2) {
       const stepSize = (max - min) / count;
-      const control = steps({ label: t("Speed"), count }, (n) => ctx.write(service, characteristic, clamp(min + Math.round(n * stepSize / (characteristic.minStep || 1)) * (characteristic.minStep || 1), min, max)));
+      const control = steps({ label: t("Speed"), count }, (n) => ctx.write(service, characteristic, snap(min + n * stepSize, min, max, characteristic.minStep || 1)));
       if (color) control.node.style.setProperty("--steps", color);
       ctx.watch(() => control.set(Math.round((numberOf(characteristic) - min) / stepSize)));
       return el("div", { class: "w-row" }, el("span", { class: "w-label", text: t("Speed") }), control.node);
@@ -42837,22 +42952,21 @@ self.addEventListener("notificationclick", (event) => {
     return control.node;
   }
 
-  function swingChips(ctx, service) {
+  /// Swing as chips: one per axis the device swings separately (Swing Mode then stays for HomeKit), else Swing Mode.
+  function swingChips(ctx, service, iconOnly = false) {
     const axes = [["Vertical Swing", t("Vertical swing"), "swingVertical"], ["Horizontal Swing", t("Horizontal swing"), "swingHorizontal"]];
     const supported = axes.filter(([name]) => canWrite(ctx.char(service, name)));
-    if (!supported.length) return [chipFor(ctx, service, ctx.char(service, "Swing Mode"), t("Swing"), "swingVertical")].filter(Boolean);
+    if (!supported.length) return [chipFor(ctx, service, ctx.char(service, "Swing Mode"), t("Swing"), "swingVertical", iconOnly)].filter(Boolean);
     const combined = ctx.char(service, "Swing Mode");
     if (combined) ctx.use(combined);
-    return supported.map(([name, label, icon]) => {
-      return chipFor(ctx, service, ctx.char(service, name), label, icon);
-    });
+    return supported.map(([name, label, icon]) => chipFor(ctx, service, ctx.char(service, name), label, icon, iconOnly));
   }
 
   /// A writable bool or 0/1 of a service as a chip (Swing, Child lock).
-  function chipFor(ctx, service, characteristic, label, actionIcon) {
+  function chipFor(ctx, service, characteristic, label, actionIcon, iconOnly = false) {
     if (!canWrite(characteristic)) return null;
     ctx.use(characteristic);
-    const control = chip(label, (on) => ctx.write(service, characteristic, onValue(characteristic, on)), actionIcon);
+    const control = chip(label, (on) => ctx.write(service, characteristic, onValue(characteristic, on)), actionIcon, iconOnly);
     ctx.watch(() => control.set(isOn(characteristic)));
     return control.node;
   }
@@ -43189,37 +43303,41 @@ self.addEventListener("notificationclick", (event) => {
     const at = value => { const a = (135 + 270 * value) * Math.PI / 180; return [100 + 86 * Math.cos(a), 100 + 86 * Math.sin(a)]; };
     const arc = value => { const a = at(0), b = at(Math.max(.0001, value)); return `M${a} A86 86 0 ${value > 2/3 ? 1 : 0} 1 ${b}`; };
     svg.innerHTML = `<path class="gauge-track" d="${arc(1)}"/><path class="gauge-band"/><circle class="gauge-dot" r="7"/><text class="gauge-value" x="100" y="96" text-anchor="middle"></text><text class="gauge-caption" x="100" y="122" text-anchor="middle"></text><text class="climate-target-label gauge-caption" x="100" y="151" text-anchor="middle"></text>`;
+    const [band, dot, valueText, caption, targetText] = [".gauge-band", ".gauge-dot", ".gauge-value", ".gauge-caption", ".climate-target-label"].map(s => svg.querySelector(s));
+    caption.textContent = t("Inside");
     const selected = () => targets().filter(canWrite).at(-1);
-    let pending = null;
+    let pending = null, box = null;
     const bounds = c => [c.minValue ?? 10, c.maxValue ?? 35, c.minStep || .5];
+    /// The handle and band only: what a drag moves.
+    const paintHandle = (c) => {
+      const [min,max] = bounds(c), target = pending ?? numberOf(c), share = clamp((target-min)/(max-min),0,1);
+      for (const [key,v] of Object.entries({min,max,now:target})) svg.setAttribute(`aria-value${key}`,v);
+      const [x,y] = at(share);
+      dot.setAttribute("cx",x); dot.setAttribute("cy",y);
+      band.setAttribute("d",arc(share));
+    };
     const paint = () => {
-      const c = selected(), value = current(), off = parts.mode() === "off";
-      svg.classList.toggle("is-off", off);
-      svg.querySelector(".gauge-value").textContent = value === null ? "–" : degrees(+value.toFixed(1));
-      svg.querySelector(".gauge-caption").textContent = t("Inside");
-      svg.querySelector(".climate-target-label").textContent = targets().map(c => degrees(numberOf(c))).join(" – ");
+      const shown = targets(), c = shown.filter(canWrite).at(-1), value = current();
+      svg.classList.toggle("is-off", parts.mode() === "off");
+      valueText.textContent = value === null ? "–" : degrees(+value.toFixed(1));
+      targetText.textContent = shown.map(c => degrees(numberOf(c))).join(" – ");
       svg.setAttribute("role", c ? "slider" : "img");
       svg.setAttribute("aria-label", c ? t("Target temperature") : t("Inside"));
       svg.tabIndex = c ? 0 : -1;
-      svg.querySelector(".gauge-dot").style.display = c ? "" : "none";
-      if (!c) { svg.querySelector(".gauge-band").setAttribute("d", ""); return; }
-      const [min,max] = bounds(c), target = pending ?? numberOf(c), share = clamp((target-min)/(max-min),0,1);
-      for (const [key,v] of Object.entries({min,max,now:target})) svg.setAttribute(`aria-value${key}`,v);
-      const [x,y] = at(share), dot = svg.querySelector(".gauge-dot");
-      dot.setAttribute("cx",x); dot.setAttribute("cy",y);
-      svg.querySelector(".gauge-band").setAttribute("d",arc(share));
+      dot.style.display = c ? "" : "none";
+      if (c) paintHandle(c); else band.setAttribute("d", "");
     };
     const commit = value => { const c = selected(); if (c) ctx.write(parts.service,c,value); };
     const fromPointer = event => {
-      const c = selected(); if (!c) return;
-      const box = svg.getBoundingClientRect();
+      const c = selected(); if (!c || !box) return;
       let angle = Math.atan2(event.clientY-box.top-box.height/2,event.clientX-box.left-box.width/2)*180/Math.PI;
       angle = (angle-135+360)%360;
       if (angle>270) angle = angle>315 ? 0 : 270;
       const [min,max,step] = bounds(c);
-      pending = clamp(min+Math.round((max-min)*angle/270/step)*step,min,max); paint();
+      const next = snap(min+(max-min)*angle/270,min,max,step);
+      if (next !== pending) { pending = next; paintHandle(c); }
     };
-    svg.addEventListener("pointerdown", e => { if(e.button!==0 || !selected()) return; e.preventDefault(); svg.setPointerCapture(e.pointerId); fromPointer(e); });
+    svg.addEventListener("pointerdown", e => { if(e.button!==0 || !selected()) return; e.preventDefault(); svg.setPointerCapture(e.pointerId); box = svg.getBoundingClientRect(); fromPointer(e); });
     svg.addEventListener("pointermove", e => { if(svg.hasPointerCapture(e.pointerId)) fromPointer(e); });
     svg.addEventListener("pointerup", e => { if(pending===null) return; const value=pending; pending=null; svg.releasePointerCapture(e.pointerId); commit(value); });
     svg.addEventListener("pointercancel", () => { pending=null; paint(); });
@@ -43227,10 +43345,24 @@ self.addEventListener("notificationclick", (event) => {
       const c=selected(); if(!c) return; const [min,max,step]=bounds(c);
       const delta={ArrowUp:step,ArrowRight:step,ArrowDown:-step,ArrowLeft:-step,PageUp:step*4,PageDown:-step*4}[e.key];
       if(delta===undefined && e.key!=="Home" && e.key!=="End") return;
-      e.preventDefault(); commit(e.key==="Home"?min:e.key==="End"?max:clamp(numberOf(c)+delta,min,max));
+      e.preventDefault(); commit(e.key==="Home"?min:e.key==="End"?max:snap(numberOf(c)+delta,min,max,step));
     });
     ctx.watch(paint);
     return svg;
+  }
+
+  /// A power station's output as a chip: held to turn off (what it powers goes dark), a tap to turn on.
+  function outputChip(ctx, service, characteristic, name) {
+    ctx.use(characteristic);
+    const turn = (on) => ctx.write(service, characteristic, onValue(characteristic, on), { held: true });
+    const control = hold(name, () => turn(false), { armed: () => isOn(characteristic), onTap: () => turn(true), className: "chip hold-chip", actionIcon: "power" });
+    ctx.watch(() => {
+      const on = isOn(characteristic);
+      control.node.setAttribute("aria-pressed", String(on));
+      control.node.setAttribute("aria-label", on ? t("Hold to turn off {output}", { output: name }) : t("Turn on {output}", { output: name }));
+      control.node.title = control.node.getAttribute("aria-label");
+    });
+    return control.node;
   }
 
   /// A thermostat inside another accessory's card (a purifier's heater): its modes and setpoint.
@@ -43363,7 +43495,7 @@ self.addEventListener("notificationclick", (event) => {
 
       const body = size === "full" || (size === "large" && !gauge)
         ? [el("div", { class: "toggles" }, switches.map((s, i) => miniToggle(ctx, s, ons[i], shortName(ctx.accessory, s))))]
-        : [chipRow(switches.map((s, i) => chipFor(ctx, s, ons[i], shortName(ctx.accessory, s))))];
+        : [chipRow(switches.map((s, i) => gauge ? outputChip(ctx, s, ons[i], shortName(ctx.accessory, s)) : chipFor(ctx, s, ons[i], shortName(ctx.accessory, s), "power")))];
       return {
         // A power station's figure is its battery; a group's, how many are on.
         background: gauge?.background,
@@ -43418,12 +43550,14 @@ self.addEventListener("notificationclick", (event) => {
   });
 
   register({
-    name: "climate", types: ["HeaterCooler", "Thermostat"], icon: "thermo", size: "xlarge",
+    // Drawn at the wall's own four sizes (`wallSizes`), with no summary layout: a climate tile keeps its dial.
+    name: "climate", types: ["HeaterCooler", "Thermostat"], icon: "thermo", size: "xlarge", wallSizes: true,
     build(ctx, primary, size) {
       const parts = climateParts(ctx, primary);
       const now = () => typeof parts.current?.value === "number" ? parts.current.value : null;
       const thermostatModes = parts.target?.validValues || [0, 1, 2, 3];
-      let resumeState = thermostatModes.find(value => value > 0);
+      // Off at load, the last mode is unknown: resume in Auto where the thermostat has it, never forcing heat or cool.
+      let resumeState = thermostatModes.includes(3) ? 3 : thermostatModes.find(value => value > 0);
       const mode = () => parts.mode();
       ctx.watch(() => {
         if (!parts.heaterCooler && numberOf(parts.target) > 0) resumeState = numberOf(parts.target);
@@ -43433,9 +43567,10 @@ self.addEventListener("notificationclick", (event) => {
         : mode();
       const modeWords = { off: t("off"), heat: t("heat"), cool: t("cool"), auto: t("auto") };
       const built = {
-        power: canWrite(parts.active) ? { service: primary, characteristic: parts.active } : null,
-        thermostatPower: !parts.heaterCooler && canWrite(parts.target) && thermostatModes.includes(0) && resumeState !== undefined
-          ? () => ctx.write(primary, parts.target, mode() === "off" ? resumeState : 0) : null,
+        // On is the mode, not Active alone; a thermostat without Active turns off and back on through its target state.
+        power: canWrite(parts.active) ? { service: primary, characteristic: parts.active, isOn: () => mode() !== "off" }
+          : !parts.heaterCooler && canWrite(parts.target) && thermostatModes.includes(0) && resumeState !== undefined
+            ? { isOn: () => mode() !== "off", write: (on) => ctx.write(primary, parts.target, on ? resumeState : 0) } : null,
         tone: () => ({ heat: "heat", cool: "blue", auto: "green" })[shownMode()] ?? "teal",
         on: () => mode() !== "off",
         hero: () => now() === null ? "" : el("span", {}, degrees(+now().toFixed(1)), el("small", { text: modeWords[mode()] ?? mode() })),
@@ -43478,16 +43613,8 @@ self.addEventListener("notificationclick", (event) => {
       built.body = [dashboard, size === "large" ? null : modes].filter(Boolean);
       if (size === "large" || size === "xlarge" || size === "full") {
         const speed = ctx.take(primary, "Rotation Speed");
-        const swings = swingChips(ctx, primary);
-        for (const button of swings) {
-          button.classList.add("climate-swing");
-          button.setAttribute("aria-label", button.textContent);
-          button.title = button.textContent;
-          // Direction remains available to assistive technology without a visible label.
-          if (button.classList.contains("action-with-icon")) for (const child of [...button.childNodes]) {
-            if (child.nodeType === Node.TEXT_NODE) child.remove();
-          }
-        }
+        const swings = swingChips(ctx, primary, true);
+        for (const button of swings) button.classList.add("climate-swing");
         const speedNode = canWrite(speed) ? speedControl(ctx, primary, speed, null, true) : null;
         if (speedNode || swings.length) built.body.push(el("div", { class: "climate-airflow" }, speedNode, chipRow(swings)));
         const lock = chipFor(ctx, primary, ctx.char(primary, "Lock Physical Controls"), t("Child lock"));
@@ -43780,9 +43907,11 @@ self.addEventListener("notificationclick", (event) => {
       const left = () => endsAt ? Math.max(0, Math.round((endsAt - Date.now()) / 1000)) : numberOf(remaining);
       ctx.watch(() => {
         const on = running();
-        if (on && (!wasRunning || (remaining && remaining.value !== lastRemaining))) {
-          endsAt = Date.now() + numberOf(remaining, numberOf(set)) * 1000;
-        }
+        // A start counts down the chosen Set Duration: Remaining Duration still holds the last run's figure until the
+        // device reports a new one, which then takes over (as on a page opened mid-run).
+        const reported = remaining && remaining.value !== lastRemaining && numberOf(remaining) > 0;
+        if (on && reported) endsAt = Date.now() + numberOf(remaining) * 1000;
+        else if (on && !wasRunning) endsAt = Date.now() + numberOf(set, numberOf(remaining)) * 1000;
         lastRemaining = remaining?.value;
         wasRunning = on;
         if (!on) endsAt = null;
@@ -43815,10 +43944,15 @@ self.addEventListener("notificationclick", (event) => {
       const action = el("button", { type: "button", actionIcon: "play", onclick: toggleRun }, actionLabel);
       const runningControls = el("div", { class: "valve-running-controls" }, countdown, action);
       const runControl = el("div", { class: "valve-run-control" }, runningControls);
+      let shownOn;
       ctx.watch(() => {
         const on = isOn(active);
+        // The ticker repaints every second: only a change of state touches the button.
+        if (on === shownOn) return;
+        shownOn = on;
         actionLabel.textContent = on ? t("Stop") : t("Run [valve]");
-        action.querySelector("svg").replaceWith(HomeswiftCommon.icon(on ? "stop" : "play"));
+        // The icon is a CSS mask (`actionIcon`): swap it by redecorating, as there is no SVG child to replace.
+        HomeswiftCommon.decorateAction(action, on ? "stop" : "play");
         action.setAttribute("aria-label", on ? t("Stop {name}", { name: ctx.accessory.name }) : t("Run {name} [valve]", { name: ctx.accessory.name }));
       });
       let durations = null;
@@ -43910,9 +44044,27 @@ self.addEventListener("notificationclick", (event) => {
     "Snow showers": [t("Snow showers"), "snow"], Thunderstorm: [t("Thunderstorm"), "rain"], "Thunderstorm with hail": [t("Thunderstorm with hail"), "rain"],
   };
   const weatherOf = (value) => weatherConditions[value] ?? [typeof value === "string" && value !== "Unknown" ? value : "", "cloud"];
+  /// The sky a condition draws behind the tile: clear, cloudy, fog, rain, storm or snow.
+  const skyOf = (value) => typeof value === "string" && value.startsWith("Thunderstorm") ? "storm" : value === "Fog" ? "fog"
+    : ({ sun: "clear", cloud: "cloudy", rain: "rain", snow: "snow" })[weatherOf(value)[1]];
+  /// Night by the hour on this device, unless the sun still gives a UV index.
+  const weatherNight = (uv) => {
+    if (typeof uv?.value === "number" && uv.value > 0) return false;
+    const hour = new Date().getHours();
+    return hour < 7 || hour >= 20;
+  };
+  /// The tile's sky (style.css draws each with its light and weather): a layer behind the content, as a battery's liquid.
+  function weatherSky() {
+    return el("span", { class: "weather-sky", "aria-hidden": "true" },
+      el("span", { class: "sky-stars" }), el("span", { class: "sky-light" }), el("span", { class: "sky-clouds" }),
+      el("span", { class: "sky-fx far" }), el("span", { class: "sky-clouds near" }), el("span", { class: "sky-fx" }));
+  }
   register({
     name: "weather", types: ["TemperatureSensor"], tone: "blue", size: "large",
-    icon: (ctx, primary) => weatherOf(ctx.char(primary, "Condition")?.value)[1],
+    icon: (ctx, primary) => {
+      const glyph = weatherOf(ctx.char(primary, "Condition")?.value)[1];
+      return glyph === "sun" && weatherNight(ctx.char(primary, "UV Index")) ? "moon" : glyph;
+    },
     match: (ctx, primary) => !!ctx.char(primary, "Condition"),
     build(ctx, primary, size) {
       const condition = ctx.take(primary, "Condition");
@@ -43927,7 +44079,13 @@ self.addEventListener("notificationclick", (event) => {
       const number = (c, digits = 0) => typeof c?.value === "number" ? c.value.toFixed(digits).replace(".", decimal) : "–";
       const degrees = () => temperature?.value() ?? { text: "–", unit: "" };
       const words = () => weatherOf(condition?.value)[0] || (raining?.value === 1 ? t("Raining") : "");
+      const sky = size === "full" ? null : weatherSky();
+      if (sky) ctx.watch(() => {
+        sky.dataset.sky = raining?.value === 1 && skyOf(condition?.value) !== "storm" && skyOf(condition?.value) !== "snow" ? "rain" : skyOf(condition?.value);
+        sky.dataset.time = weatherNight(uv) ? "night" : "day";
+      });
       const built = {
+        background: sky,
         on: () => false,
         hero: () => el("span", {}, degrees().text, el("small", { text: degrees().unit })),
         // A compact tile has no hero: the temperature goes before the condition.
@@ -44180,7 +44338,7 @@ self.addEventListener("notificationclick", (event) => {
       const size = sizes.includes(options.size) ? options.size : defaultOf(widget, ctx, primary);
       // Reuse the builders' compact, main-control and expanded variants at the four wall sizes; a builder tells the
       // tall tile from the compact one by `ctx.tall` (both draw its "small").
-      const contentSize = widget.name === "climate" ? size : { small: "small", medium: "small", large: "medium", xlarge: "large" }[size];
+      const contentSize = widget.wallSizes ? size : { small: "small", medium: "small", large: "medium", xlarge: "large" }[size];
       ctx.tall = size === "medium";
       node = frame(ctx, ...built(ctx, widget, primary, contentSize), primary, size);
     }
@@ -44303,24 +44461,15 @@ self.addEventListener("notificationclick", (event) => {
       if (tone) status.dataset.tone = tone; else delete status.dataset.tone;
     };
   }
-  function climatePower(ctx, built) {
-    if (!built.power && !built.thermostatPower) return null;
-    const togglePower = built.thermostatPower || (() => {
-      const { service, characteristic } = built.power;
-      ctx.write(service, characteristic, onValue(characteristic, !isOn(characteristic)));
-    });
-    const button = el("button", { type: "button", class: "round climate-power", "aria-label": t("{name}: power", { name: ctx.accessory.name }),
-      onclick: togglePower }, icon("power"));
-    ctx.watch(() => button.setAttribute("aria-pressed", String(built.on())));
-    return button;
-  }
+  /// Whether a widget's power is on, and switching it: its characteristic, unless the widget gives its own (`isOn`, `write`).
+  const powerIsOn = (power) => power.isOn ? power.isOn() : isOn(power.characteristic);
+  const writePower = (ctx, power, on) => power.write ? power.write(on) : ctx.write(power.service, power.characteristic, onValue(power.characteristic, on));
 
   function powerToggle(ctx, built) {
     if (!built.power) return null;
-    const { service, characteristic, big } = built.power;
-    const control = toggle(t("{name}: power", { name: ctx.accessory.name }), (on) => ctx.write(service, characteristic, onValue(characteristic, on)));
-    if (big) control.node.classList.add("big");
-    ctx.watch(() => control.set(isOn(characteristic)));
+    const control = toggle(t("{name}: power", { name: ctx.accessory.name }), (on) => writePower(ctx, built.power, on));
+    if (built.power.big) control.node.classList.add("big");
+    ctx.watch(() => control.set(powerIsOn(built.power)));
     return control.node;
   }
 
@@ -44481,7 +44630,7 @@ self.addEventListener("notificationclick", (event) => {
     const menu = actionsButton(ctx, false);
     const node = el("article", { class: `card widget size-${size} widget-${widget.name}`, "data-search": searchText(accessory), "data-id": accessory.id });
     if (built.background) node.append(built.background);
-    if ((size === "small" || size === "medium") && widget.name !== "climate") {
+    if ((size === "small" || size === "medium") && !widget.wallSizes) {
       node.classList.add("widget-summary");
       const hero = el("span", { class: "w-hero" });
       const hit = el("button", { type: "button", class: "w-hit" });
@@ -44583,7 +44732,7 @@ self.addEventListener("notificationclick", (event) => {
       const body = (built.body || []).filter(Boolean);
       // Keep scrolling options beside the menu, with a dedicated, unobstructed hit target.
       const footerChips = size === "xlarge" && body.at(-1)?.classList?.contains("chips") ? body.pop() : null;
-      node.append(el("div", { class: "w-head" }, glyph, who, widget.name === "climate" ? climatePower(ctx, built) : powerToggle(ctx, built)),
+      node.append(el("div", { class: "w-head" }, glyph, who, powerToggle(ctx, built)),
         body.length ? el("div", { class: "w-body" }, body) : "",
         footerChips ? el("div", { class: "w-footer" }, footerChips, menu) : el("span", { class: "w-corner" }, menu));
       // Keep the charge beside the heading, clear of the centred charging bolt and output controls.
@@ -44591,8 +44740,14 @@ self.addEventListener("notificationclick", (event) => {
         const gauge = node.querySelector(".battery-gauge");
         if (gauge) node.querySelector(".w-head").append(gauge);
       }
+      // A shutter's larger tile is its window as the small one is: the slats come down over its closed share.
+      if (built.shade) {
+        const shade = el("span", { class: "w-shade", "aria-hidden": "true" });
+        node.prepend(shade);
+        ctx.watch(() => shade.style.setProperty("--closed", `${built.shade()}%`));
+      }
       node.classList.toggle("head-only", !body.length && !footerChips);
-      ctx.watch(() => node.classList.toggle("powered-off", widget.name === "climate" ? !built.on() : !!built.power && !built.power.big && !isOn(built.power.characteristic)));
+      ctx.watch(() => node.classList.toggle("powered-off", !!built.power && !built.power.big && !powerIsOn(built.power)));
     }
     ctx.watch(paintGlyph);
     ctx.watch(statusPainter(ctx, built, status));
@@ -44633,7 +44788,7 @@ self.addEventListener("notificationclick", (event) => {
         el("summary", { text: names.length > 3 ? t("{names} and {n} more", { names: names.slice(0, 2).join(", "), n: names.length - 2 }) : names.join(", ") }),
         el("div", { class: "controls" }, rest)) : null,
       el("div", { class: "card-foot" }, el("span", { class: "muted", text: [describeModel(accessory), accessory.bridge].filter(Boolean).join(" · ") }), actionsButton(ctx, true)));
-    if (built.power && !built.power.big) ctx.watch(() => node.classList.toggle("powered-off", !isOn(built.power.characteristic)));
+    if (built.power && !built.power.big) ctx.watch(() => node.classList.toggle("powered-off", !powerIsOn(built.power)));
     ctx.watch(paintGlyph);
     ctx.watch(statusPainter(ctx, built, status));
     paused(node, ctx);

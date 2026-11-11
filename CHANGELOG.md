@@ -15,20 +15,31 @@ All notable changes to this project are documented here. The format follows
   Standard combined Swing Mode remains available to HomeKit controllers.
 - **Valve timers**: duration selection up to one hour and a live split-flap countdown, with tap-to-stop and reset.
 - **Battery tiles**: liquid level waves, charge-dependent colours and a centred charging indicator across all sizes.
+- **Weather skies**: the Weather tile draws its condition by day and by night (sun and rays, moon and stars, clouds,
+  fog, rain, snow, lightning), with looping motion that stops under reduced motion.
 
 ### Changed
 
 - **Accessory controls**: full-width light sliders, temperature controls for supported colour lights, consistent
   Adaptive Lighting icons, centred shutter controls and accessory settings drawers opened without leaving the page.
+  A shutter's large and extra-large tiles draw its slats as the small ones do, and the extra-large tile's position
+  fills its width.
 - **History and Logbook**: compact filters, scrollable lists, alternating rows and collapsible day groups; graphs
   retain their original appearance. Dashboard plugin chips link to their pages and consumer sparklines show hover guides.
 
 ### Fixed
 
-- **Power stations**: confirm output shutdowns before switching off attached devices, including the EcoFlow page.
+- **Power stations**: an output on a station tile is held to turn off, as a lock is held to unlock (a tap turns it on);
+  the sheet's switches and the EcoFlow page confirm before switching off attached devices. The large tile's outputs
+  no longer clip.
 - **Light capabilities**: avoid showing colour controls for lights that do not support colour.
 - **Climate controls**: keep menus clear of controls at phone widths, support thermostat power and target changes,
-  and show only the swing axes a device can operate.
+  and show only the swing axes a device can operate. Power is a switch, as on other tiles; a thermostat that was off
+  resumes in Auto; the dial's keys keep to its steps. LG ThinQ shows the device's swing again after a write ignored
+  while off, and Daikin Cloud no longer rebuilds the accessory when a mode lacks a swing axis.
+- **Valve timers**: the large tiles and the sheet draw again, and a run counts down from the chosen duration rather
+  than the last run's.
+- **IKEA DIRIGERA**: every TRADFRI constant-voltage driver dims only, without colour controls.
 - **Design tokens**: use the shared spacing, corner and weight tokens for valve countdown digits.
 
 - **Home Link**: wait for Wingman to read missing accessory serial numbers before applying changes or adopting

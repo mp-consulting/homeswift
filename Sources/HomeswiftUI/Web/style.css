@@ -977,7 +977,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget:not(.widget-full) .seg > button { white-space: nowrap; padding-inline: 2px; }
 .size-large .w-body { padding-right: 26px; overflow: hidden; justify-content: safe center; }
 /* Balance the space above and below the shutter controls around the tile's centre. */
-.widget-cover.size-large:not(.widget-measuring) { display: grid; grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr); }
+.widget-cover.size-large:not(.widget-measuring) { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.widget-cover.size-large > .w-body { align-self: center; }
 .widget-cover.size-large > .w-head { align-self: start; }
 /* Brightness spans the card; the lower controls reserve space for the corner menu. */
 .widget-light.size-large .w-body { padding-right: 0; }
@@ -1085,6 +1086,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* A shutter's tile: its closed part drawn from the top. */
 .w-shade { position: absolute; inset: 0 0 auto 0; z-index: 0; height: var(--closed, 0%); pointer-events: none;
   background: repeating-linear-gradient(180deg, rgba(120, 128, 142, 0.16) 0 7px, rgba(120, 128, 142, 0.26) 7px 8px); transition: height 300ms var(--ease-out); }
+.widget:not(.widget-summary):has(> .w-shade) { isolation: isolate; }
+.widget:not(.widget-summary) > .w-shade { z-index: -1; border-radius: inherit; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 /* Held to confirm: a fill crosses the tile; let go early and it goes back. */
 .w-veil { position: absolute; inset: 0; z-index: 0; pointer-events: none; background: color-mix(in srgb, var(--warn) 30%, transparent); clip-path: inset(0 100% 0 0); transition: clip-path 200ms var(--ease-out); }
 .holding > .w-veil { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
@@ -1107,9 +1110,6 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-grow { flex: 1; min-width: 0; }
 .w-keys { display: flex; align-items: center; gap: var(--space-6); }
 .w-actions { display: grid; min-width: 130px; }
-.w-figure { display: grid; line-height: 1.1; }
-.w-big { font-size: 2.125rem; font-weight: var(--weight-semibold); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-.w-figure span { font-size: var(--text-xs); color: var(--muted); }
 .w-state { font-size: 1.625rem; font-weight: var(--weight-bold); letter-spacing: -0.02em; line-height: 1.1; }
 .w-line { font-size: var(--text-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .big-state { display: flex; align-items: center; gap: var(--space-10); flex-wrap: wrap; }
@@ -1125,8 +1125,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .light-tall > .level { flex: 1; }
 .light-tall > .adaptive-chip { justify-content: center; }
 .light-colours { flex: 1; display: grid; align-content: center; gap: var(--space-12); min-width: 0; }
-.cover-large > .level.vertical { width: 112px; flex: none; border-radius: var(--radius-md); }
-.cover-buttons { display: grid; align-content: center; gap: var(--space-10); flex: 1; min-width: 0; }
+/* The shutter fills the tile like the window it covers; its buttons stand in a column beside it. */
+.cover-large > .level.vertical { flex: 1; min-width: 112px; border-radius: var(--radius-md); }
+.cover-buttons { display: grid; align-content: center; gap: var(--space-10); flex: none; min-width: 0; }
+.widget-cover.size-xlarge .cover-large { padding-right: 40px; }
 .cover-buttons .level { width: 100%; }
 .toggles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-8); }
 .widget .mini-toggle { display: grid; gap: 1px; text-align: left; border-radius: var(--radius-md); padding: 9px 11px; background: var(--material-thin); transition: background-color var(--normal) var(--ease-out); }
@@ -1255,8 +1257,6 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .sp-value span { font-size: var(--text-xs); color: var(--muted); }
 .widget .round { width: 36px; height: 36px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
 .widget .round svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
-.climate-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-12); }
-@container widgets (max-width: 400px) { .climate-hero { grid-template-columns: minmax(0, 1fr); } }
 .gauge { width: 100%; max-width: 230px; height: auto; display: block; margin: 0 auto; overflow: visible; }
 .gauge-track, .gauge-band { fill: none; stroke-width: 12; stroke-linecap: round; }
 .gauge-track { stroke: var(--track); }
@@ -1326,7 +1326,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* Hold to confirm: the fill runs while held and snaps back when let go early. */
 .widget .hold { position: relative; overflow: hidden; width: 100%; border-radius: var(--radius-md); padding: var(--space-10) var(--space-16); font-weight: var(--weight-semibold); touch-action: none; user-select: none; -webkit-user-select: none; }
 .hold-fill { position: absolute; inset: 0; display: grid; place-items: center; background: var(--warn); color: #fff; clip-path: inset(0 100% 0 0); transition: clip-path 200ms var(--ease-out); }
-.hold.holding .hold-fill { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
+.hold.holding .hold-fill, .hold-chip.holding .hold-fill { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
+/* A power station's output: a chip that fills while held. */
+.hold-chip { position: relative; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.hold-chip .hold-fill { border-radius: inherit; font-weight: var(--weight-semibold); }
 
 /* Valve: a round run button whose ring empties as the time runs out. */
 .valve { display: grid; justify-items: center; gap: var(--space-14); }
@@ -1334,7 +1337,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .valve-duration { width: 100%; min-width: 0; }
 .valve-run-control { flex: none; }
 .valve-running-controls { display: flex; align-items: center; gap: var(--space-12); }
-.valve-running-controls[hidden], .valve-button[hidden] { display: none !important; }
+.valve-running-controls[hidden] { display: none !important; }
 .valve-countdown { display: flex; gap: var(--space-8); }
 .valve-countdown[hidden] { display: none; }
 .widget-valve.size-medium .w-middle { display: grid; place-items: center; pointer-events: none; }
@@ -1346,17 +1349,9 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .valve-flap::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #000b; box-shadow: 0 1px #ffffff18; }
 .widget-full .valve-flap { min-width: 90px; height: 96px; font-size: 60px; }
 .widget-full .valve-running-controls { flex-direction: column; }
-.widget .valve-button { position: relative; width: 128px; height: 128px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
-.valve-button svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
-.valve-button .ring-track, .valve-button .ring { fill: none; stroke-width: 6; }
-.valve-button .ring-track { stroke: var(--track); }
-.valve-button .ring { stroke: var(--cool); stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
-.valve-text { display: grid; justify-items: center; gap: var(--space-4); line-height: 1.2; }
-.valve-text b { font-size: 1.125rem; }
-.valve-text span { font-size: var(--text-sm); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 @media (prefers-reduced-motion: reduce) {
-  .seg-thumb, .level-fill, .widget .tile, .widget.size-small, .w-shade, .valve-button .ring { transition-duration: 0ms !important; }
+  .seg-thumb, .level-fill, .widget .tile, .widget.size-small, .w-shade { transition-duration: 0ms !important; }
   .widget-summary:has(> .w-hit:active) { transform: none; }
   .widget-sheet[open] { animation-name: fade; }
 }
@@ -4935,10 +4930,107 @@ select option:disabled { color: var(--muted); }
   .battery-graphic .bat-wave { animation: none; }
   .battery-graphic .bat-liquid { transition: none; }
 }
+/* The weather tile's sky, behind its content: a gradient for the condition by day or night, and layers that loop
+   forever. Each moves exactly one tile of its pattern per cycle, so a loop never jumps; near layers move faster than
+   far ones, for depth. Stars twinkle on a clear night; the sun turns its rays in the top-right corner (the moon glows
+   there at night); clouds drift at two depths; fog rolls; rain falls at two depths; snow sways as it falls; a storm's
+   lightning lights the whole sky. White text reads on every sky; reduced motion stills them all. */
+.widget:has(> .weather-sky) { isolation: isolate; --text: #fff; --muted: rgb(255 255 255 / 80%); color: var(--text); border-color: rgb(255 255 255 / 22%); text-shadow: 0 1px 3px rgb(0 0 0 / 22%); }
+.widget:has(> .weather-sky) .tile { background: rgb(255 255 255 / 22%); color: #fff; box-shadow: none; }
+.widget:has(> .weather-sky) .readout { background: rgb(255 255 255 / 16%); border-color: rgb(255 255 255 / 22%); }
+.widget:has(> .weather-sky) .menu-button { background: rgb(255 255 255 / 18%); color: #fff; }
+.widget > .weather-sky { position: absolute; inset: 0; z-index: -1; overflow: hidden; border-radius: inherit; pointer-events: none;
+  --sky-top: #6fb2f2; --sky-bottom: #3478cf; background: linear-gradient(160deg, var(--sky-top), var(--sky-bottom)); }
+.weather-sky > span { position: absolute; inset: 0; display: none; }
+.weather-sky[data-sky="clear"][data-time="day"] { --sky-top: #ffb547; --sky-bottom: #ee5f38; }
+.weather-sky[data-sky="clear"][data-time="night"] { --sky-top: #233a78; --sky-bottom: #0d1a40; }
+.weather-sky[data-sky="cloudy"][data-time="day"] { --sky-top: #6fb2f2; --sky-bottom: #3478cf; }
+.weather-sky[data-sky="cloudy"][data-time="night"] { --sky-top: #34446a; --sky-bottom: #182039; }
+.weather-sky[data-sky="fog"][data-time="day"] { --sky-top: #a3afbc; --sky-bottom: #6f7c8a; }
+.weather-sky[data-sky="fog"][data-time="night"] { --sky-top: #48525f; --sky-bottom: #262c37; }
+.weather-sky[data-sky="rain"][data-time="day"] { --sky-top: #5d7591; --sky-bottom: #33455c; }
+.weather-sky[data-sky="rain"][data-time="night"] { --sky-top: #263449; --sky-bottom: #101826; }
+.weather-sky[data-sky="storm"] { --sky-top: #48415f; --sky-bottom: #1a1628; }
+.weather-sky[data-sky="snow"][data-time="day"] { --sky-top: #8db4dc; --sky-bottom: #4f78ad; }
+.weather-sky[data-sky="snow"][data-time="night"] { --sky-top: #22325a; --sky-bottom: #0d162e; }
+
+/* Stars: two fields of points on a 60 px grid, twinkling; on a clear night, fainter behind a cloudy one. */
+.weather-sky[data-time="night"]:is([data-sky="clear"], [data-sky="cloudy"]) .sky-stars { display: block;
+  background-image: radial-gradient(circle, rgb(255 255 255 / 85%) 0 1px, transparent 1.5px), radial-gradient(circle, rgb(255 255 255 / 55%) 0 0.8px, transparent 1.3px);
+  background-size: 60px 60px; background-position: 7px 9px, 37px 41px; animation: sky-twinkle 3.2s ease-in-out infinite alternate; }
+.weather-sky[data-sky="cloudy"] .sky-stars { opacity: 0.5; }
+
+/* The light in the top-right corner: by day a sun whose rays turn slowly, by night a moon; faint behind clouds. */
+.weather-sky:is([data-sky="clear"], [data-sky="cloudy"]) .sky-light { display: block; transform-origin: calc(100% - 6px) 6px; animation: sky-breathe 5s ease-in-out infinite alternate;
+  background: radial-gradient(circle at calc(100% - 6px) 6px, rgb(255 236 150 / 85%) 0 30px, rgb(255 214 120 / 34%) 31px 54px, rgb(255 200 110 / 14%) 55px 88px, transparent 89px); }
+.weather-sky .sky-light::after { content: ""; position: absolute; width: 260px; height: 260px; right: -124px; top: -124px; border-radius: 50%;
+  background: repeating-conic-gradient(rgb(255 240 180 / 22%) 0 6deg, transparent 6deg 30deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 36px, #000 40px, transparent 128px); mask: radial-gradient(circle, transparent 0 36px, #000 40px, transparent 128px);
+  animation: sky-turn 40s linear infinite; }
+.weather-sky[data-time="night"] .sky-light { background: radial-gradient(circle at calc(100% - 14px) 14px, rgb(255 246 220 / 80%) 0 18px, rgb(255 246 220 / 14%) 19px 40px, transparent 41px); }
+.weather-sky[data-time="night"] .sky-light::after, .weather-sky[data-sky="cloudy"] .sky-light::after { display: none; }
+.weather-sky[data-sky="cloudy"] .sky-light { opacity: 0.45; }
+
+/* Clouds at two depths: strips twice the tile's width whose halves are alike, sliding left one half per cycle, the
+   near one faster and brighter. */
+.weather-sky:is([data-sky="cloudy"], [data-sky="fog"], [data-sky="rain"], [data-sky="storm"], [data-sky="snow"]) .sky-clouds {
+  display: block; inset: 0 auto 0 0; width: 200%; background-repeat: repeat-x; background-size: 50% 100%;
+  background-image: radial-gradient(ellipse 22% 26% at 22% 10%, rgb(255 255 255 / 26%), transparent 70%),
+    radial-gradient(ellipse 18% 20% at 58% 18%, rgb(255 255 255 / 20%), transparent 70%),
+    radial-gradient(ellipse 24% 24% at 88% 4%, rgb(255 255 255 / 22%), transparent 70%);
+  animation: sky-drift 48s linear infinite; }
+.weather-sky .sky-clouds.near { background-image: radial-gradient(ellipse 26% 30% at 36% -2%, rgb(255 255 255 / 34%), transparent 70%),
+    radial-gradient(ellipse 18% 22% at 80% 20%, rgb(255 255 255 / 26%), transparent 70%); animation-duration: 26s; }
+.weather-sky[data-sky="cloudy"] .sky-clouds { filter: brightness(1.25); }
+.weather-sky:is([data-sky="rain"], [data-sky="storm"]) .sky-clouds { filter: brightness(0.75); }
+/* Fog: wide soft banks rolling across at two depths, the near one the other way. */
+.weather-sky[data-sky="fog"] .sky-clouds { background-image: radial-gradient(ellipse 40% 12% at 30% 40%, rgb(255 255 255 / 30%), transparent 70%),
+    radial-gradient(ellipse 36% 10% at 75% 68%, rgb(255 255 255 / 26%), transparent 70%), radial-gradient(ellipse 30% 9% at 50% 88%, rgb(255 255 255 / 22%), transparent 70%); animation-duration: 30s; }
+.weather-sky[data-sky="fog"] .sky-clouds.near { background-image: radial-gradient(ellipse 34% 9% at 60% 25%, rgb(255 255 255 / 22%), transparent 70%),
+    radial-gradient(ellipse 30% 8% at 15% 58%, rgb(255 255 255 / 20%), transparent 70%); animation-duration: 16s; animation-direction: reverse; }
+
+/* Rain at two depths: short slanted dashes on a grid, falling one tile per cycle; the far rain finer and slower, the
+   storm's harder. */
+.weather-sky:is([data-sky="rain"], [data-sky="storm"]) .sky-fx { display: block; inset: -30px -20% 0;
+  background-image: radial-gradient(ellipse 1px 8px, rgb(255 255 255 / 50%) 0 99%, transparent 100%);
+  background-size: 26px 30px; transform: skewX(-14deg); animation: sky-rain 0.55s linear infinite; }
+.weather-sky:is([data-sky="rain"], [data-sky="storm"]) .sky-fx.far { inset: -20px -20% 0;
+  background-image: radial-gradient(ellipse 0.8px 5px, rgb(255 255 255 / 30%) 0 99%, transparent 100%);
+  background-size: 14px 20px; background-position: 7px 0; animation: sky-rain-far 0.8s linear infinite; }
+.weather-sky[data-sky="storm"] .sky-fx { animation-duration: 0.4s; }
+.weather-sky[data-sky="storm"] .sky-fx.far { animation-duration: 0.6s; }
+/* Lightning: now and then the whole sky flashes, twice in quick succession. */
+.weather-sky[data-sky="storm"] .sky-light { display: block; background: radial-gradient(ellipse 90% 70% at 65% 0%, rgb(225 215 255 / 70%), rgb(200 190 255 / 20%) 60%, transparent 80%);
+  opacity: 0; animation: sky-flash 7s linear infinite; }
+.weather-sky[data-sky="storm"] .sky-light::after { display: none; }
+
+/* Snow at two depths: flakes on a grid drifting down one tile per cycle and swaying side to side on the way. */
+.weather-sky[data-sky="snow"] .sky-fx { display: block; inset: -40px -10px 0;
+  background-image: radial-gradient(circle, rgb(255 255 255 / 92%) 0 2.2px, transparent 2.7px), radial-gradient(circle, rgb(255 255 255 / 70%) 0 1.6px, transparent 2.1px);
+  background-size: 40px 40px; background-position: 0 0, 20px 22px; animation: sky-snow 4s linear infinite; }
+.weather-sky[data-sky="snow"] .sky-fx.far { inset: -24px -10px 0;
+  background-image: radial-gradient(circle, rgb(255 255 255 / 55%) 0 1.1px, transparent 1.6px);
+  background-size: 24px 24px; background-position: 9px 5px; animation: sky-snow-far 6s linear infinite; }
+
+/* A small tile is one line of text across the sky: its weather is lighter, and the sun or moon leaves the menu alone. */
+.size-small > .weather-sky .sky-fx { opacity: 0.55; }
+.size-small > .weather-sky:not([data-sky="storm"]) .sky-light { display: none; }
+@keyframes sky-drift { to { transform: translateX(-50%); } }
+@keyframes sky-rain { from { transform: skewX(-14deg) translateY(0); } to { transform: skewX(-14deg) translateY(30px); } }
+@keyframes sky-rain-far { from { transform: skewX(-14deg) translateY(0); } to { transform: skewX(-14deg) translateY(20px); } }
+@keyframes sky-snow { 0% { transform: translate(0, 0); } 25% { transform: translate(5px, 10px); } 50% { transform: translate(0, 20px); } 75% { transform: translate(-5px, 30px); } 100% { transform: translate(0, 40px); } }
+@keyframes sky-snow-far { 0% { transform: translate(0, 0); } 25% { transform: translate(-3px, 6px); } 50% { transform: translate(0, 12px); } 75% { transform: translate(3px, 18px); } 100% { transform: translate(0, 24px); } }
+@keyframes sky-twinkle { from { opacity: 0.45; } to { opacity: 1; } }
+@keyframes sky-breathe { from { transform: scale(1); } to { transform: scale(1.08); } }
+@keyframes sky-turn { to { transform: rotate(360deg); } }
+@keyframes sky-flash { 0%, 86% { opacity: 0; } 87% { opacity: 1; } 89% { opacity: 0.15; } 91% { opacity: 0.85; } 96%, 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .weather-sky > span, .weather-sky .sky-light::after { animation: none !important; } }
 .station-controls { display: flex; align-items: center; gap: var(--space-20); min-width: 0; }
 .station-controls > :last-child { flex: 1; min-width: 0; }
-.widget-switch-group:is(.size-large, .size-xlarge):has(> .battery-graphic) > .w-body { position: absolute; top: calc(50% + 32px); bottom: 12px; left: 12px; right: 12px; padding: 0 36px 0 0; justify-content: safe flex-end; overflow-y: auto; }
-.widget-switch-group.size-xlarge:has(> .battery-graphic) > .w-body { top: calc(50% + 40px); }
+/* A power station's outputs sit along the bottom at their own height, left of the menu; the bolt moves to the right,
+   clear of them. */
+.widget-switch-group:is(.size-large, .size-xlarge):has(> .battery-graphic) > .w-body { position: absolute; bottom: var(--space-12); left: var(--space-12); right: 56px; padding: 0; }
+.widget-switch-group:is(.size-large, .size-xlarge) > .battery-graphic .bat-bolt { left: auto; right: var(--space-20); transform: translateY(-50%); width: 40px; height: 40px; }
 .gauge-figure { font-size: 15px; font-weight: var(--weight-figure); font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .size-medium .gauge-figure { display: block; font-size: 16px; }
 .size-large .gauge-figure { font-size: 18px; letter-spacing: -0.01em; }
@@ -6380,9 +6472,11 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .widget-climate .climate-dial { width: 96px; height: 96px; }
 }
 
-.widget-climate .climate-power { flex: none; }
-.widget-climate .climate-power[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: transparent; }
-.widget-climate.size-small .climate-power { display: none; }
+/* A compact switch on the medium tile leaves its name room at phone width. */
+.widget-climate.size-medium .w-head > .switch { width: 40px; height: 24px; }
+.widget-climate.size-medium .w-head > .switch span::before { width: 18px; height: 18px; }
+.widget-climate.size-medium .w-head > .switch input:checked + span::before { transform: translateX(16px); }
+.widget-climate.size-medium .w-head > .switch input:checked:active + span::before { transform: translateX(12px); }
 .widget-climate.size-medium .w-head { flex: none; gap: var(--space-6); }
 .widget-climate.size-medium .tile { width: 28px; height: 28px; border-radius: var(--radius-sm); }
 .widget-climate.size-medium:not(.widget-full) .who strong { display: block; white-space: nowrap; }

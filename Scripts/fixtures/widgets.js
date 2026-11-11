@@ -76,6 +76,27 @@ window.preview=(mode='wall')=>{
   // Each at its default size, then the remote at each size; ?press= presses a button (its number) for the shot.
   const wall=e('div',{class:'wall sensors'});main.append(wall);for(const a of [motion,leak,air,remote])add(a,undefined,wall);
   const sizes=e('div',{class:'wall remote-sizes'});main.append(sizes);for(const size of ['small','medium','large'])add(remote,size,sizes);
+ }else if(mode==='skies'){
+  // Each sky at the four sizes by day (a UV index) and by night (none, the hour pinned to 22:00 while the tiles are
+  // built), then every condition the Weather plugin reports, small.
+  const hours=Date.prototype.getHours;
+  const sample=(condition,time)=>{
+   const a=structuredClone(weather);a.id=`weather-${time}-${condition}`;a.name=condition;
+   for(const c of a.services[0].characteristics){if(c.type==='Condition')c.value=condition;if(c.type==='UV Index')c.value=time==='day'?3:0;}
+   return a;
+  };
+  for(const time of ['day','night']){
+   if(time==='night')Date.prototype.getHours=()=>22;
+   main.append(e('h2',{text:time==='day'?'By day':'By night'}));
+   for(const condition of ['Clear sky','Partly cloudy','Fog','Rain showers','Thunderstorm','Snow']){
+    const wall=e('div',{class:'wall',style:'margin-bottom:16px'});main.append(wall);
+    for(const size of HomeswiftWidgets.sizes)add(sample(condition,time),size,wall);
+   }
+   main.append(e('h3',{text:'Every condition'}));
+   const all=e('div',{class:`wall skies-${time}`,style:'margin-bottom:32px'});main.append(all);
+   for(const condition of ['Clear sky','Mainly clear','Partly cloudy','Overcast','Fog','Drizzle','Freezing drizzle','Rain','Freezing rain','Rain showers','Snow','Snow showers','Thunderstorm','Thunderstorm with hail'])add(sample(condition,time),'small',all);
+   Date.prototype.getHours=hours;
+  }
  }else if(mode==='weather'){
   const wall=e('div',{class:'wall weather-sizes'});main.append(wall);for(const size of ['small','medium','large','xlarge'])add(weather,size,wall);
  }else if(mode==='battery-levels'){

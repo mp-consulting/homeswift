@@ -136,14 +136,16 @@ try {
   }
   console.log('PASS: climate sizes, menu clearance, round buttons, Auto targets and keyboard gauge');
   await evaluate(`document.querySelector('main').replaceChildren(HomeswiftWidgets.card(previewThermostat, {size:'medium'}))`);
-  if (!await evaluate(`document.querySelector('.climate-dial').getAttribute('role') === 'slider' && document.querySelector('.climate-power').getAttribute('aria-pressed') === 'false'`)) throw Error('Off thermostat must retain its target gauge and power button');
+  // Its power is the head's switch, as on other tiles.
+  const power = `document.querySelector('.w-head > .switch input')`;
+  if (!await evaluate(`document.querySelector('.climate-dial').getAttribute('role') === 'slider' && ${power}.checked === false`)) throw Error('Off thermostat must retain its target gauge and power switch');
   for (const value of [2, 0, 2]) {
     const start = writes.length;
-    await evaluate(`document.querySelector('.climate-power').click()`);
+    await evaluate(`${power}.click()`);
     for (let attempt = 0; writes.length === start && attempt < 50; attempt++) await sleep(20);
     const written = writes.slice(start);
     if (written.length !== 1 || written[0].body.characteristic !== 'Target Heating Cooling State' || written[0].body.value !== value) throw Error('Thermostat must toggle off and resume its supported cooling mode: '+JSON.stringify(written));
-    if (!await evaluate(`document.querySelector('.climate-power').getAttribute('aria-pressed') === '${value !== 0}' && document.querySelector('.widget').classList.contains('powered-off') === ${value === 0}`)) throw Error('Thermostat power appearance disagrees with its mode');
+    if (!await evaluate(`${power}.checked === ${value !== 0} && document.querySelector('.widget').classList.contains('powered-off') === ${value === 0}`)) throw Error('Thermostat power appearance disagrees with its mode');
   }
   console.log('PASS: off thermostat gauge and power resume supported cooling mode');
 
@@ -209,6 +211,10 @@ try {
   // The Weather plugin's accessory at small, medium and large.
   await open("weather");
   await shot("weather", ".wall.weather-sizes");
+  // Every condition the Weather plugin reports, its sky by day and by night.
+  await open("skies");
+  await shot("skies-day", ".wall.skies-day");
+  await shot("skies-night", ".wall.skies-night");
   console.log('PASS: XL fits its contents and grows/shrinks with optional controls');
   if (process.argv[2]) { await open("sizes", 1272); await shot("s-m-l-xl", ".wall"); }
   await open("wall");

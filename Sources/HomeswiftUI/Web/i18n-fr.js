@@ -1160,6 +1160,8 @@ HomeswiftI18n.add("fr", {
   "Hold to turn off": "Maintenir pour désactiver",
   "hold to turn on": "maintenir pour allumer",
   "Hold to turn on": "Maintenir pour allumer",
+  "Hold to turn off {output}": "Maintenir pour éteindre {output}",
+  "Turn on {output}": "Allumer {output}",
   "hold to unlock": "maintenir pour déverrouiller",
   "Hold to unlock": "Maintenir pour déverrouiller",
   "Home": "Accueil",

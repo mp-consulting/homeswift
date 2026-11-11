@@ -28,8 +28,10 @@ final class ClimateControlService: @unchecked Sendable {
     let fanSpeed: FanSpeedController
     let setpoints: SetpointResolver
     let autoSync: AutoSetpointSync
-    /// The fan speed range the RotationSpeed characteristic was built for; another one needs a rebuild.
+    /// The swing axes the service was built with: an axis the current mode adds needs a rebuild, one it lacks does not
+    /// (its writes fail), so switching modes back and forth never rebuilds the service.
     let swingAxes: [ClimateSwing]
+    /// The fan speed range the RotationSpeed characteristic was built for; another one needs a rebuild.
     let rotationShape: RotationShape
 
     /// RotationSpeed exists for the current mode's fixed speed, with a step of one unit step.
@@ -55,7 +57,7 @@ final class ClimateControlService: @unchecked Sendable {
         setpoints = SetpointResolver(device: device, managementPointID: managementPointID)
         autoSync = AutoSetpointSync(device: device, managementPointID: managementPointID, logger: context.logger, name: name)
         rotationShape = Self.rotationShape(fanSpeed)
-        swingAxes = ClimateSwing.allCases.filter { [swing] in swing.supports($0 == .vertical ? .vertical : .horizontal) }
+        swingAxes = swing.supportedAxes
 
         var extra: [Characteristic] = []
         let cooling = setpoints.read(Daikin.OperationMode.cooling.rawValue)
@@ -117,7 +119,7 @@ final class ClimateControlService: @unchecked Sendable {
                 target[axis.characteristic]?.onWrite { [weak self] value in
                     guard let self else { return }
                     try await context.write("[\(name)] \(axis.rawValue) swing") {
-                        try await self.swing.set(value.boolValue == true, axis: axis == .vertical ? .vertical : .horizontal)
+                        try await self.swing.set(value.boolValue == true, axis: axis.fanAxis)
                     }
                     refreshValues()
                 }
@@ -142,7 +144,7 @@ final class ClimateControlService: @unchecked Sendable {
     var isOn: Bool { device.data(managementPointID, "onOffMode").string == Daikin.on }
 
     /// Whether the current mode needs RotationSpeed built differently (present, absent, another step).
-    var needsRebuild: Bool { Self.rotationShape(fanSpeed) != rotationShape || swingAxes != ClimateSwing.allCases.filter { swing.supports($0 == .vertical ? .vertical : .horizontal) } }
+    var needsRebuild: Bool { Self.rotationShape(fanSpeed) != rotationShape || !Set(swing.supportedAxes).isSubset(of: swingAxes) }
 
     /// Pushes the device's state to every characteristic, after each poll, push and write: an accurate cache
     /// lets HomeKit filter redundant scene commands, and changes made in the Onecta app show at once.
@@ -173,7 +175,7 @@ final class ClimateControlService: @unchecked Sendable {
             separateFan?[.swingMode]?.value = .int(swinging)
         }
         for axis in swingAxes {
-            let on = swing.axisValue(axis == .vertical ? .vertical : .horizontal).map { $0 != Daikin.stop } ?? false
+            let on = swing.axisValue(axis.fanAxis).map { $0 != Daikin.stop } ?? false
             service[axis.characteristic]?.value = .bool(on)
             separateFan?[axis.characteristic]?.value = .bool(on)
         }

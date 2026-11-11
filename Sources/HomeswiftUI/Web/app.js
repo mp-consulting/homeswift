@@ -2968,13 +2968,16 @@
       make("path", { class: "spark-baseline", d: "M3,29 H157" }), make("path", { d: path }));
     const guide = make("path", { class: "spark-guide", visibility: "hidden" });
     svg.append(guide);
-    const hideGuide = () => guide.setAttribute("visibility", "hidden");
+    let rect = null, shownIndex = null;
+    const hideGuide = () => { guide.setAttribute("visibility", "hidden"); rect = null; shownIndex = null; };
     box.addEventListener("pointermove", (event) => {
-      const rect = svg.getBoundingClientRect();
+      rect ??= svg.getBoundingClientRect();
       if (!rect.width) return;
       const fraction = Math.max(0, Math.min(1, (160 * (event.clientX - rect.left) / rect.width - 3) / 154));
       const index = Math.round(fraction * (values.length - 1));
-      if (values[index] == null) { hideGuide(); return; }
+      if (index === shownIndex) return;
+      shownIndex = index;
+      if (values[index] == null) { guide.setAttribute("visibility", "hidden"); return; }
       const x = values.length === 1 ? 80 : 3 + index / (values.length - 1) * 154;
       guide.setAttribute("d", `M${x},1 V31`);
       guide.setAttribute("visibility", "visible");

@@ -98,8 +98,8 @@ struct DirigeraDevice: Sendable, Equatable {
         applySensors(attributes)
         // Plugs list lightLevel too, though they only switch: a level is a light's.
         if kind == .light, writable.contains("lightLevel"), let level = attributes?["lightLevel"]?.doubleValue { brightness = Int(level.rounded()) }
-        // This constant-voltage driver only dims. Colour fields advertised for it must not become HAP controls.
-        let dimmableDriver = model == "TRADFRI Driver 30W"
+        // TRADFRI constant-voltage drivers (10 W, 30 W) only dim. Colour fields advertised for them must not become HAP controls.
+        let dimmableDriver = model.hasPrefix("TRADFRI Driver")
         if !dimmableDriver, writable.contains("colorHue"), let hue = attributes?["colorHue"]?.doubleValue {
             self.hue = hue
             saturation = (attributes?["colorSaturation"]?.doubleValue ?? 0) * 100

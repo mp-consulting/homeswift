@@ -1160,6 +1160,8 @@ HomeswiftI18n.add("pt", {
   "Hold to turn off": "Manter para desativar",
   "hold to turn on": "manter para ligar",
   "Hold to turn on": "Manter para ligar",
+  "Hold to turn off {output}": "Manter para desligar {output}",
+  "Turn on {output}": "Ligar {output}",
   "hold to unlock": "manter para destrancar",
   "Hold to unlock": "Manter para destrancar",
   "Home": "Início",
