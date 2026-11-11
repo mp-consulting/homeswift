@@ -1569,18 +1569,36 @@
       const set = ctx.take(primary, "Set Duration"), remaining = ctx.take(primary, "Remaining Duration");
       ctx.take(primary, "Valve Type");
       // Remaining Duration is sent when the valve opens; the page counts down from there.
-      let endsAt = null, lastRemaining;
-      const running = () => isOn(inUse) || (isOn(active) && !inUse);
+      let endsAt = null, lastRemaining, wasRunning = false;
+      // Active reflects a stop immediately; In Use may arrive later from the device.
+      const running = () => isOn(active) && (!inUse || isOn(inUse));
       const left = () => endsAt ? Math.max(0, Math.round((endsAt - Date.now()) / 1000)) : numberOf(remaining);
       ctx.watch(() => {
-        if (remaining && remaining.value !== lastRemaining) { lastRemaining = remaining.value; endsAt = running() ? Date.now() + numberOf(remaining) * 1000 : null; }
-        if (!running()) endsAt = null;
+        const on = running();
+        if (on && (!wasRunning || (remaining && remaining.value !== lastRemaining))) {
+          endsAt = Date.now() + numberOf(remaining, numberOf(set)) * 1000;
+        }
+        lastRemaining = remaining?.value;
+        wasRunning = on;
+        if (!on) endsAt = null;
+      });
+      const minuteDigits = el("b", { class: "valve-flap" });
+      const secondDigits = el("b", { class: "valve-flap" });
+      const countdown = el("div", { class: "valve-countdown", role: "timer" },
+        el("span", { class: "valve-clock-part" }, minuteDigits, el("small", { text: t("Minutes") })),
+        el("span", { class: "valve-clock-part" }, secondDigits, el("small", { text: t("Seconds") })));
+      ctx.watch(() => {
+        const seconds = Math.max(0, Math.floor(running() ? left() : numberOf(set)));
+        minuteDigits.textContent = String(Math.floor(seconds / 60)).padStart(2, "0");
+        secondDigits.textContent = String(seconds % 60).padStart(2, "0");
+        countdown.setAttribute("aria-label", running() ? t("{time} left", { time: clock(seconds) }) : t("for {time}", { time: clock(seconds) }));
       });
       const toggleRun = () => ctx.write(primary, active, isOn(active) ? 0 : 1);
       const built = {
         on: () => running(), tap: toggleRun, tapLabel: () => isOn(active) ? t("stop") : t("run"),
-        hero: () => running() ? clock(left()) : "",
-        status: () => running() ? [t("Running · {time} left", { time: clock(left()) }), "cool"] : isOn(active) ? [t("Starting…")] : [t("Off")],
+        hero: () => !ctx.tall && running() ? clock(left()) : "",
+        middle: ctx.tall ? countdown : null,
+        status: () => running() ? [t("Running"), "cool"] : isOn(active) ? [t("Starting…")] : [t("Off")],
       };
       // The figures move each second while it runs.
       const ticker = setInterval(() => {
@@ -1588,33 +1606,38 @@
         if (running()) ctx.paint();
       }, 1000);
       if (size === "small") return built;
-      const px = size === "medium" ? 84 : 140, radius = px / 2 - 6, circumference = 2 * Math.PI * radius;
-      const ring = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      ring.setAttribute("viewBox", `0 0 ${px} ${px}`);
-      ring.setAttribute("aria-hidden", "true");
-      ring.innerHTML = `<circle class="ring-track" cx="${px / 2}" cy="${px / 2}" r="${radius}"/><circle class="ring" cx="${px / 2}" cy="${px / 2}" r="${radius}" stroke-dasharray="${circumference.toFixed(1)}"/>`;
-      const title = el("b"), detail = el("span");
-      const button = el("button", { type: "button", class: "valve-button", onclick: toggleRun }, ring, el("span", { class: "valve-text" }, title, detail));
-      button.style.width = button.style.height = `${px}px`;
-      const total = () => numberOf(set, numberOf(remaining, 0)) || 1;
+      const actionLabel = el("span");
+      const action = el("button", { type: "button", actionIcon: "play", onclick: toggleRun }, actionLabel);
+      const runningControls = el("div", { class: "valve-running-controls" }, countdown, action);
+      const runControl = el("div", { class: "valve-run-control" }, runningControls);
       ctx.watch(() => {
-        const on = running();
-        title.textContent = isOn(active) ? t("Stop") : t("Run [valve]");
-        detail.textContent = on ? t("{time} left", { time: clock(left()) }) : t("for {time}", { time: clock(numberOf(set, 0)) });
-        ring.querySelector(".ring").style.strokeDashoffset = String(on ? circumference * (1 - clamp(left() / total(), 0, 1)) : circumference);
-        button.setAttribute("aria-label", isOn(active) ? t("Stop {name}", { name: ctx.accessory.name }) : t("Run {name} [valve]", { name: ctx.accessory.name }));
+        const on = isOn(active);
+        actionLabel.textContent = on ? t("Stop") : t("Run [valve]");
+        action.querySelector("svg").replaceWith(HomeswiftCommon.icon(on ? "stop" : "play"));
+        action.setAttribute("aria-label", on ? t("Stop {name}", { name: ctx.accessory.name }) : t("Run {name} [valve]", { name: ctx.accessory.name }));
       });
       let durations = null;
       if (canWrite(set)) {
-        const choices = [60, 120, 300, 600, 900, 1800].filter((s) => s >= (set.minValue ?? 0) && s <= (set.maxValue ?? 3600));
-        if (!choices.includes(numberOf(set)) && numberOf(set) > 0) choices.push(numberOf(set));
-        choices.sort((a, b) => a - b);
-        const shown = choices.slice(0, 4).includes(numberOf(set)) ? choices.slice(0, 4) : [...choices.slice(0, 3), numberOf(set)];
-        const control = segmented(shown.map((s) => ({ value: s, label: s % 60 ? clock(s) : t("{n} min", { n: s / 60 }) })), t("Duration"), (v) => ctx.write(primary, set, v));
-        ctx.watch(() => control.set(numberOf(set)));
-        durations = control.node;
+        const choices = [120, ...Array.from({ length: 12 }, (_, i) => (i + 1) * 300)]
+          .filter((seconds) => seconds >= (set.minValue ?? 0) && seconds <= (set.maxValue ?? 3600));
+        const durationLabel = (seconds) => seconds > 0 && seconds % 3600 === 0
+          ? t("{n} h", { n: seconds / 3600 })
+          : seconds % 60 ? clock(seconds) : t("{n} min", { n: seconds / 60 });
+        const control = el("select", { class: "popup valve-duration", "aria-label": t("Duration"),
+          onchange: (event) => ctx.write(primary, set, Number(event.target.value)) });
+        let displayedDuration;
+        ctx.watch(() => {
+          const current = numberOf(set);
+          if (current === displayedDuration) return;
+          displayedDuration = current;
+          const available = choices.includes(current) ? choices : [...choices, current].sort((a, b) => a - b);
+          control.replaceChildren(...available.map((seconds) => el("option", {
+            value: String(seconds), text: durationLabel(seconds), selected: seconds === current,
+          })));
+        });
+        durations = control;
       }
-      built.body = size === "medium" ? [el("div", { class: "w-row" }, button, el("div", { class: "w-grow" }, durations))] : [el("div", { class: "valve" }, button, durations)];
+      built.body = size === "medium" ? [el("div", { class: "w-row" }, runControl, el("div", { class: "w-grow" }, durations))] : [el("div", { class: "valve" }, runControl, durations)];
       if (size === "full") built.facets = facets(ctx, [primary]);
       return built;
     },

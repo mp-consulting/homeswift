@@ -1,5 +1,6 @@
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Seconds": "Segundos",
   "Turn off {output} on {name}? Connected devices will lose power.": "Desligar {output} em {name}? Os dispositivos ligados ficarão sem energia.",
   "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Apenas as luzes são agrupadas. Os outros controlos continuam disponíveis no menu do grupo. Na app Casa, escolha « Mostrar como mosaicos separados » para cada dispositivo se o grupo não aparecer.",
   "Controls for {name}": "Controlos de {name}",

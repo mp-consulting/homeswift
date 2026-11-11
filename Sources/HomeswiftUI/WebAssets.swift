@@ -20426,6 +20426,7 @@ window.HomeswiftHouseEditor = function ({ preferences, api, scaledImage, saved }
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Seconds": "Segundos",
   "Turn off {output} on {name}? Connected devices will lose power.": "¿Apagar {output} de {name}? Los dispositivos conectados perderán la alimentación.",
   "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Solo se agrupan las luces. Los demás controles siguen disponibles en el menú del grupo. En Casa, elige « Mostrar como mosaicos separados » para cada dispositivo si el grupo no aparece.",
   "Controls for {name}": "Controles de {name}",
@@ -24159,6 +24160,7 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Seconds": "Secondes",
   "Turn off {output} on {name}? Connected devices will lose power.": "Éteindre {output} sur {name} ? Les appareils connectés ne seront plus alimentés.",
   "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Seules les lumières sont regroupées. Les autres commandes restent accessibles dans le menu du groupe. Dans Maison, choisissez « Afficher en tant que vignettes séparées » pour chaque appareil si le groupe n’apparaît pas.",
   "Controls for {name}": "Commandes de {name}",
@@ -27892,6 +27894,7 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Seconds": "Segundos",
   "Turn off {output} on {name}? Connected devices will lose power.": "Desligar {output} em {name}? Os dispositivos ligados ficarão sem energia.",
   "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Apenas as luzes são agrupadas. Os outros controlos continuam disponíveis no menu do grupo. Na app Casa, escolha « Mostrar como mosaicos separados » para cada dispositivo se o grupo não aparecer.",
   "Controls for {name}": "Controlos de {name}",
@@ -36947,14 +36950,29 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* Valve: a round run button whose ring empties as the time runs out. */
 .valve { display: grid; justify-items: center; gap: var(--space-14); }
 .valve .seg { width: 100%; }
+.valve-duration { width: 100%; min-width: 0; }
+.valve-run-control { flex: none; }
+.valve-running-controls { display: flex; align-items: center; gap: var(--space-12); }
+.valve-running-controls[hidden], .valve-button[hidden] { display: none !important; }
+.valve-countdown { display: flex; gap: var(--space-8); }
+.valve-countdown[hidden] { display: none; }
+.widget-valve.size-medium .w-middle { display: grid; place-items: center; pointer-events: none; }
+.widget-valve.size-medium .valve-flap { min-width: 52px; height: 54px; font-size: 34px; }
+.widget-valve.size-medium .valve-clock-part small { font-size: 9px; }
+.valve-clock-part { display: grid; justify-items: center; gap: var(--space-4); }
+.valve-clock-part small { font-size: 10px; font-weight: var(--weight-semibold); color: var(--accent-ink); text-transform: uppercase; letter-spacing: .04em; }
+.valve-flap { position: relative; display: grid; place-items: center; min-width: 64px; height: 66px; padding-inline: 4px; box-sizing: border-box; border-radius: 10px; color: #f5f5f5; background: linear-gradient(#444 0%, #303030 49%, #1c1c1c 50%, #252525 100%); border: 1px solid #616161; box-shadow: inset 0 1px 0 #ffffff26, 0 3px 5px #0003; font-size: 40px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -2px; }
+.valve-flap::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #000b; box-shadow: 0 1px #ffffff18; }
+.widget-full .valve-flap { min-width: 90px; height: 96px; font-size: 60px; }
+.widget-full .valve-running-controls { flex-direction: column; }
 .widget .valve-button { position: relative; width: 128px; height: 128px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
 .valve-button svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
 .valve-button .ring-track, .valve-button .ring { fill: none; stroke-width: 6; }
 .valve-button .ring-track { stroke: var(--track); }
 .valve-button .ring { stroke: var(--cool); stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
-.valve-text { display: grid; justify-items: center; line-height: 1.2; }
+.valve-text { display: grid; justify-items: center; gap: var(--space-4); line-height: 1.2; }
 .valve-text b { font-size: 1.125rem; }
-.valve-text span { font-size: var(--text-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.valve-text span { font-size: var(--text-sm); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 @media (prefers-reduced-motion: reduce) {
   .seg-thumb, .level-fill, .widget .tile, .widget.size-small, .w-shade, .valve-button .ring { transition-duration: 0ms !important; }
@@ -43560,18 +43578,36 @@ self.addEventListener("notificationclick", (event) => {
       const set = ctx.take(primary, "Set Duration"), remaining = ctx.take(primary, "Remaining Duration");
       ctx.take(primary, "Valve Type");
       // Remaining Duration is sent when the valve opens; the page counts down from there.
-      let endsAt = null, lastRemaining;
-      const running = () => isOn(inUse) || (isOn(active) && !inUse);
+      let endsAt = null, lastRemaining, wasRunning = false;
+      // Active reflects a stop immediately; In Use may arrive later from the device.
+      const running = () => isOn(active) && (!inUse || isOn(inUse));
       const left = () => endsAt ? Math.max(0, Math.round((endsAt - Date.now()) / 1000)) : numberOf(remaining);
       ctx.watch(() => {
-        if (remaining && remaining.value !== lastRemaining) { lastRemaining = remaining.value; endsAt = running() ? Date.now() + numberOf(remaining) * 1000 : null; }
-        if (!running()) endsAt = null;
+        const on = running();
+        if (on && (!wasRunning || (remaining && remaining.value !== lastRemaining))) {
+          endsAt = Date.now() + numberOf(remaining, numberOf(set)) * 1000;
+        }
+        lastRemaining = remaining?.value;
+        wasRunning = on;
+        if (!on) endsAt = null;
+      });
+      const minuteDigits = el("b", { class: "valve-flap" });
+      const secondDigits = el("b", { class: "valve-flap" });
+      const countdown = el("div", { class: "valve-countdown", role: "timer" },
+        el("span", { class: "valve-clock-part" }, minuteDigits, el("small", { text: t("Minutes") })),
+        el("span", { class: "valve-clock-part" }, secondDigits, el("small", { text: t("Seconds") })));
+      ctx.watch(() => {
+        const seconds = Math.max(0, Math.floor(running() ? left() : numberOf(set)));
+        minuteDigits.textContent = String(Math.floor(seconds / 60)).padStart(2, "0");
+        secondDigits.textContent = String(seconds % 60).padStart(2, "0");
+        countdown.setAttribute("aria-label", running() ? t("{time} left", { time: clock(seconds) }) : t("for {time}", { time: clock(seconds) }));
       });
       const toggleRun = () => ctx.write(primary, active, isOn(active) ? 0 : 1);
       const built = {
         on: () => running(), tap: toggleRun, tapLabel: () => isOn(active) ? t("stop") : t("run"),
-        hero: () => running() ? clock(left()) : "",
-        status: () => running() ? [t("Running · {time} left", { time: clock(left()) }), "cool"] : isOn(active) ? [t("Starting…")] : [t("Off")],
+        hero: () => !ctx.tall && running() ? clock(left()) : "",
+        middle: ctx.tall ? countdown : null,
+        status: () => running() ? [t("Running"), "cool"] : isOn(active) ? [t("Starting…")] : [t("Off")],
       };
       // The figures move each second while it runs.
       const ticker = setInterval(() => {
@@ -43579,33 +43615,38 @@ self.addEventListener("notificationclick", (event) => {
         if (running()) ctx.paint();
       }, 1000);
       if (size === "small") return built;
-      const px = size === "medium" ? 84 : 140, radius = px / 2 - 6, circumference = 2 * Math.PI * radius;
-      const ring = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      ring.setAttribute("viewBox", `0 0 ${px} ${px}`);
-      ring.setAttribute("aria-hidden", "true");
-      ring.innerHTML = `<circle class="ring-track" cx="${px / 2}" cy="${px / 2}" r="${radius}"/><circle class="ring" cx="${px / 2}" cy="${px / 2}" r="${radius}" stroke-dasharray="${circumference.toFixed(1)}"/>`;
-      const title = el("b"), detail = el("span");
-      const button = el("button", { type: "button", class: "valve-button", onclick: toggleRun }, ring, el("span", { class: "valve-text" }, title, detail));
-      button.style.width = button.style.height = `${px}px`;
-      const total = () => numberOf(set, numberOf(remaining, 0)) || 1;
+      const actionLabel = el("span");
+      const action = el("button", { type: "button", actionIcon: "play", onclick: toggleRun }, actionLabel);
+      const runningControls = el("div", { class: "valve-running-controls" }, countdown, action);
+      const runControl = el("div", { class: "valve-run-control" }, runningControls);
       ctx.watch(() => {
-        const on = running();
-        title.textContent = isOn(active) ? t("Stop") : t("Run [valve]");
-        detail.textContent = on ? t("{time} left", { time: clock(left()) }) : t("for {time}", { time: clock(numberOf(set, 0)) });
-        ring.querySelector(".ring").style.strokeDashoffset = String(on ? circumference * (1 - clamp(left() / total(), 0, 1)) : circumference);
-        button.setAttribute("aria-label", isOn(active) ? t("Stop {name}", { name: ctx.accessory.name }) : t("Run {name} [valve]", { name: ctx.accessory.name }));
+        const on = isOn(active);
+        actionLabel.textContent = on ? t("Stop") : t("Run [valve]");
+        action.querySelector("svg").replaceWith(HomeswiftCommon.icon(on ? "stop" : "play"));
+        action.setAttribute("aria-label", on ? t("Stop {name}", { name: ctx.accessory.name }) : t("Run {name} [valve]", { name: ctx.accessory.name }));
       });
       let durations = null;
       if (canWrite(set)) {
-        const choices = [60, 120, 300, 600, 900, 1800].filter((s) => s >= (set.minValue ?? 0) && s <= (set.maxValue ?? 3600));
-        if (!choices.includes(numberOf(set)) && numberOf(set) > 0) choices.push(numberOf(set));
-        choices.sort((a, b) => a - b);
-        const shown = choices.slice(0, 4).includes(numberOf(set)) ? choices.slice(0, 4) : [...choices.slice(0, 3), numberOf(set)];
-        const control = segmented(shown.map((s) => ({ value: s, label: s % 60 ? clock(s) : t("{n} min", { n: s / 60 }) })), t("Duration"), (v) => ctx.write(primary, set, v));
-        ctx.watch(() => control.set(numberOf(set)));
-        durations = control.node;
+        const choices = [120, ...Array.from({ length: 12 }, (_, i) => (i + 1) * 300)]
+          .filter((seconds) => seconds >= (set.minValue ?? 0) && seconds <= (set.maxValue ?? 3600));
+        const durationLabel = (seconds) => seconds > 0 && seconds % 3600 === 0
+          ? t("{n} h", { n: seconds / 3600 })
+          : seconds % 60 ? clock(seconds) : t("{n} min", { n: seconds / 60 });
+        const control = el("select", { class: "popup valve-duration", "aria-label": t("Duration"),
+          onchange: (event) => ctx.write(primary, set, Number(event.target.value)) });
+        let displayedDuration;
+        ctx.watch(() => {
+          const current = numberOf(set);
+          if (current === displayedDuration) return;
+          displayedDuration = current;
+          const available = choices.includes(current) ? choices : [...choices, current].sort((a, b) => a - b);
+          control.replaceChildren(...available.map((seconds) => el("option", {
+            value: String(seconds), text: durationLabel(seconds), selected: seconds === current,
+          })));
+        });
+        durations = control;
       }
-      built.body = size === "medium" ? [el("div", { class: "w-row" }, button, el("div", { class: "w-grow" }, durations))] : [el("div", { class: "valve" }, button, durations)];
+      built.body = size === "medium" ? [el("div", { class: "w-row" }, runControl, el("div", { class: "w-grow" }, durations))] : [el("div", { class: "valve" }, runControl, durations)];
       if (size === "full") built.facets = facets(ctx, [primary]);
       return built;
     },

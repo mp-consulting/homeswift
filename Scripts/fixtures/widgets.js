@@ -54,6 +54,7 @@ const add=(a,size,wall)=>{
  return node;
 };
 window.preview=(mode='wall')=>{
+  if(mode==='valve-running')for(const c of valve.services[0].characteristics){if(c.type==='Active'||c.type==='In Use')c.value=1;if(c.type==='Set Duration')c.value=3600;if(c.type==='Remaining Duration')c.value=3590;}
  main.replaceChildren();
  const head=e('div',{class:'page-head'},e('h1',{text:mode==='sizes'?'Four sizes':mode==='sizes-more'?'More accessories':'Accessories'}));main.append(head);
  if(mode==='adaptive'||mode==='slide'){
@@ -90,5 +91,8 @@ window.preview=(mode='wall')=>{
   for(const node of wall.children)node.append(e('div',{class:'edit-bar'},['‹','S','M','L','XL','›'].map(label=>e('button',{type:'button',text:label,'aria-pressed':label==='S'?node.classList.contains('size-small'):label==='M'?node.classList.contains('size-medium'):label==='L'?node.classList.contains('size-large'):label==='XL'?node.classList.contains('size-xlarge'):null}))));
  }
  if(mode==='sheet')HomeswiftWidgets.open(climate,{actions:()=>[]});
+ if(mode==='valve'||mode==='valve-running'){
+  HomeswiftWidgets.open(valve,{actions:()=>[]});
+ }
 };
 preview(new URLSearchParams(location.search).get('mode')||'wall');

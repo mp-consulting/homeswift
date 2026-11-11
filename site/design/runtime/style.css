@@ -1331,14 +1331,29 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* Valve: a round run button whose ring empties as the time runs out. */
 .valve { display: grid; justify-items: center; gap: var(--space-14); }
 .valve .seg { width: 100%; }
+.valve-duration { width: 100%; min-width: 0; }
+.valve-run-control { flex: none; }
+.valve-running-controls { display: flex; align-items: center; gap: var(--space-12); }
+.valve-running-controls[hidden], .valve-button[hidden] { display: none !important; }
+.valve-countdown { display: flex; gap: var(--space-8); }
+.valve-countdown[hidden] { display: none; }
+.widget-valve.size-medium .w-middle { display: grid; place-items: center; pointer-events: none; }
+.widget-valve.size-medium .valve-flap { min-width: 52px; height: 54px; font-size: 34px; }
+.widget-valve.size-medium .valve-clock-part small { font-size: 9px; }
+.valve-clock-part { display: grid; justify-items: center; gap: var(--space-4); }
+.valve-clock-part small { font-size: 10px; font-weight: var(--weight-semibold); color: var(--accent-ink); text-transform: uppercase; letter-spacing: .04em; }
+.valve-flap { position: relative; display: grid; place-items: center; min-width: 64px; height: 66px; padding-inline: 4px; box-sizing: border-box; border-radius: 10px; color: #f5f5f5; background: linear-gradient(#444 0%, #303030 49%, #1c1c1c 50%, #252525 100%); border: 1px solid #616161; box-shadow: inset 0 1px 0 #ffffff26, 0 3px 5px #0003; font-size: 40px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -2px; }
+.valve-flap::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #000b; box-shadow: 0 1px #ffffff18; }
+.widget-full .valve-flap { min-width: 90px; height: 96px; font-size: 60px; }
+.widget-full .valve-running-controls { flex-direction: column; }
 .widget .valve-button { position: relative; width: 128px; height: 128px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
 .valve-button svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
 .valve-button .ring-track, .valve-button .ring { fill: none; stroke-width: 6; }
 .valve-button .ring-track { stroke: var(--track); }
 .valve-button .ring { stroke: var(--cool); stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
-.valve-text { display: grid; justify-items: center; line-height: 1.2; }
+.valve-text { display: grid; justify-items: center; gap: var(--space-4); line-height: 1.2; }
 .valve-text b { font-size: 1.125rem; }
-.valve-text span { font-size: var(--text-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.valve-text span { font-size: var(--text-sm); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 @media (prefers-reduced-motion: reduce) {
   .seg-thumb, .level-fill, .widget .tile, .widget.size-small, .w-shade, .valve-button .ring { transition-duration: 0ms !important; }

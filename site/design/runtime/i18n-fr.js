@@ -1,5 +1,6 @@
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Seconds": "Secondes",
   "Turn off {output} on {name}? Connected devices will lose power.": "Éteindre {output} sur {name} ? Les appareils connectés ne seront plus alimentés.",
   "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Seules les lumières sont regroupées. Les autres commandes restent accessibles dans le menu du groupe. Dans Maison, choisissez « Afficher en tant que vignettes séparées » pour chaque appareil si le groupe n’apparaît pas.",
   "Controls for {name}": "Commandes de {name}",
