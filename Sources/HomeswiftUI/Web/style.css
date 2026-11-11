@@ -271,7 +271,8 @@ header nav a svg { display: none; }
 .user-button:has(.user-name:empty) { padding: 3px; }
 .menu-heading { display: grid; gap: 2px; padding: var(--space-8) var(--space-12) var(--space-10); margin-bottom: var(--space-4); border-bottom: 1px solid var(--line); }
 .menu-heading strong { font-size: var(--text-base); }
-.menu-heading span { color: var(--muted); font-size: var(--text-sm); }
+/* A long detail (the Home Link's refusals) wraps instead of widening the menu across the page. */
+.menu-heading span { color: var(--muted); font-size: var(--text-sm); max-width: 340px; overflow-wrap: anywhere; }
 /* A plugin's settings page: the form in a card, a save bar that floats at the bottom of the window while the
    form scrolls (a thick material, like the header), and removal set apart at the end. */
 .settings-head { align-items: center; }
@@ -1463,7 +1464,7 @@ textarea.short { min-height: 220px; }
 }
 .menu .menu-search { width: 100%; margin-bottom: var(--space-4); }
 .menu .menu-empty { margin: 0; padding: var(--space-8) var(--space-10); font-size: var(--text-sm); }
-.menu { max-height: min(480px, calc(100dvh - 24px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; grid-auto-rows: max-content; touch-action: pan-y; }
+.menu { max-width: calc(100vw - 24px); max-height: min(480px, calc(100dvh - 24px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; grid-auto-rows: max-content; touch-action: pan-y; }
 .menu:focus { outline: none; }
 .menu.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
 @keyframes menu-in { from { opacity: 0; transform: scale(0.92); } }
