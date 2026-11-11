@@ -6447,7 +6447,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
         ...(homeLink.waiting ? [{ label: t("Link with Apple Home…"), icon: "link", onSelect: () => HomeswiftHomeLink.review(() => route()) }] : []),
         { separator: true },
-        { heading: t("Apple Home"), detail: HomeswiftHomeLink.status(homeLink).text },
+        { heading: t("Apple Home"), detail: HomeswiftHomeLink.status(homeLink).text, callout: true, tone: HomeswiftHomeLink.status(homeLink).tone, icon: "house" },
       ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Rooms") }));
 
     function render() {
@@ -6587,7 +6587,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // The Zones and where the rooms stand with Apple Home, without going through Edit.
       ...(isAdmin() && rooms.length ? [{ separator: true }, { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
         ...(homeLink.waiting ? [{ label: t("Link with Apple Home…"), icon: "link", onSelect: () => HomeswiftHomeLink.review(() => route()) }] : []),
-        { heading: t("Apple Home"), detail: HomeswiftHomeLink.status(homeLink).text }] : []),
+        { heading: t("Apple Home"), detail: HomeswiftHomeLink.status(homeLink).text, callout: true, tone: HomeswiftHomeLink.status(homeLink).tone, icon: "house" }] : []),
     ]);
     more.replaceChildren(HomeswiftCommon.icon("sliders"));
     more.classList.add("accessory-options-button");
@@ -11653,6 +11653,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("span", { class: "menu-choice-label", text: item.label }), el("div", { class: "menu-choice-row" }, choices));
       }
       // Who the menu is about (the header's account menu): a name and a line under it, not an action.
+      // `callout`: a notice set apart in a tinted box (the Home Link's state), `tone` "warn" or "error" colouring it.
+      if (item.heading !== undefined && item.callout) {
+        return el("div", { class: `menu-heading menu-callout${item.tone ? ` ${item.tone}` : ""}`, role: "note" },
+          item.icon ? icon(item.icon) : null, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
+      }
       if (item.heading !== undefined) return el("div", { class: "menu-heading" }, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
       // `checked` may be a function, asked again after each choice of a menu that stays open (a Group's row follows
@@ -20200,7 +20205,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (link?.refused?.length) details.push(...link.refused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })));
     if (!details.length) return result;
     // A reachable link is not proof that queued writes succeeded.
-    return { text: [...(link.state === "up" ? [] : [result.text]), ...details].join(" "), tone: link.refused?.length ? "error" : "warn" };
+    // One line per message: the pages show them with `white-space: pre-line`.
+    return { text: [...(link.state === "up" ? [] : [result.text]), ...details].join("\n"), tone: link.refused?.length ? "error" : "warn" };
   }
 
   function dialogShell(title, ...content) {
@@ -35992,6 +35998,15 @@ header nav a svg { display: none; }
 .user-button:has(.user-name:empty) { padding: 3px; }
 .menu-heading { display: grid; gap: 2px; padding: var(--space-8) var(--space-12) var(--space-10); margin-bottom: var(--space-4); border-bottom: 1px solid var(--line); }
 .menu-heading strong { font-size: var(--text-base); }
+/* A notice in a menu (the Home Link's state): a tinted box, its icon beside the title, in the colour of its tone. */
+.menu-callout { --callout: var(--accent); grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-8); align-items: start;
+  margin: var(--space-4) 0 0; padding: var(--space-10) var(--space-12); border: 1px solid color-mix(in srgb, var(--callout) 35%, transparent);
+  border-radius: var(--radius-sm); background: color-mix(in srgb, var(--callout) 12%, transparent); }
+.menu-callout.warn { --callout: var(--warn); }
+.menu-callout.error { --callout: var(--error); }
+.menu-callout > svg { grid-row: 1 / span 2; width: 18px; height: 18px; margin-top: 1px; color: var(--callout); }
+.menu-callout > strong, .menu-callout > span { grid-column: 2; }
+.menu-callout > span { color: var(--text); opacity: .82; white-space: pre-line; }
 /* A long detail (the Home Link's refusals) wraps instead of widening the menu across the page. */
 .menu-heading span { color: var(--muted); font-size: var(--text-sm); max-width: 340px; overflow-wrap: anywhere; }
 /* A plugin's settings page: the form in a card, a save bar that floats at the bottom of the window while the
@@ -41040,6 +41055,7 @@ select option:disabled { color: var(--muted); }
   padding: var(--space-10) var(--space-14); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--text);
   animation: materialize var(--normal) var(--ease-out); }
 .home-link-banner > span { flex: 1 1 16rem; min-width: 0; }
+.home-link-banner { white-space: pre-line; }
 @media (prefers-reduced-motion: reduce) { .home-link-banner { animation: none; } }
 .home-link-list ul { max-height: 12rem; overflow: auto; }
 .dialog-message { white-space: pre-wrap; overflow-wrap: anywhere; }

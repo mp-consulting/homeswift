@@ -29,7 +29,8 @@
     if (link?.refused?.length) details.push(...link.refused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })));
     if (!details.length) return result;
     // A reachable link is not proof that queued writes succeeded.
-    return { text: [...(link.state === "up" ? [] : [result.text]), ...details].join(" "), tone: link.refused?.length ? "error" : "warn" };
+    // One line per message: the pages show them with `white-space: pre-line`.
+    return { text: [...(link.state === "up" ? [] : [result.text]), ...details].join("\n"), tone: link.refused?.length ? "error" : "warn" };
   }
 
   function dialogShell(title, ...content) {

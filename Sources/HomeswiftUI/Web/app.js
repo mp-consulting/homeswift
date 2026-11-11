@@ -4069,7 +4069,7 @@
         { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
         ...(homeLink.waiting ? [{ label: t("Link with Apple Home…"), icon: "link", onSelect: () => HomeswiftHomeLink.review(() => route()) }] : []),
         { separator: true },
-        { heading: t("Apple Home"), detail: HomeswiftHomeLink.status(homeLink).text },
+        { heading: t("Apple Home"), detail: HomeswiftHomeLink.status(homeLink).text, callout: true, tone: HomeswiftHomeLink.status(homeLink).tone, icon: "house" },
       ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Rooms") }));
 
     function render() {
@@ -4209,7 +4209,7 @@
       // The Zones and where the rooms stand with Apple Home, without going through Edit.
       ...(isAdmin() && rooms.length ? [{ separator: true }, { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
         ...(homeLink.waiting ? [{ label: t("Link with Apple Home…"), icon: "link", onSelect: () => HomeswiftHomeLink.review(() => route()) }] : []),
-        { heading: t("Apple Home"), detail: HomeswiftHomeLink.status(homeLink).text }] : []),
+        { heading: t("Apple Home"), detail: HomeswiftHomeLink.status(homeLink).text, callout: true, tone: HomeswiftHomeLink.status(homeLink).tone, icon: "house" }] : []),
     ]);
     more.replaceChildren(HomeswiftCommon.icon("sliders"));
     more.classList.add("accessory-options-button");
