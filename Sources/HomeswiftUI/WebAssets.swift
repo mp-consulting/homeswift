@@ -39813,9 +39813,9 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
   .accessories-bar .accessories-filters .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill); font-size: var(--text-2xs); }
   .accessories-bar .accessories-toolbar button > svg, .accessories-bar .accessory-options-button svg, .accessories-bar .subnav svg { width: 21px; height: 21px; margin: 0; color: currentColor; opacity: 1; }
   .accessories-bar .accessories-edit.action-with-icon::before { width: 21px; height: 21px; margin: 0; }
-  /* The search: always there, the bar's field, without a box of its own. */
+  /* The search: always there, the bar's field, without a box of its own; 16px, or iOS zooms the page in on focus. */
   .accessories-bar .search { display: block; flex: 1 1 auto; min-width: 0; height: 44px; margin: 0; padding: 0 var(--space-8); border: 0; border-radius: var(--radius-pill);
-    background: none; box-shadow: none; font-size: var(--text-md); color: var(--text); }
+    background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
   .accessories-bar .search:focus { outline: none; box-shadow: none; }
   .accessories-bar :is(button, a) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
 }
