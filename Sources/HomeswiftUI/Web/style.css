@@ -4324,7 +4324,12 @@ select option:disabled { color: var(--muted); }
 .edit-caption > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .edit-grip { flex: none; color: var(--muted); font-size: 19px; line-height: 1; }
 /* Arranging: the size bar sits in the middle of every tile, as wide as its buttons (never wider than the tile). */
-.wall.editing .edit-bar { left: 50%; right: auto; top: 50%; bottom: auto; transform: translate(-50%, -50%); width: max-content; max-width: calc(100% - 16px); padding: 3px; border-radius: var(--radius-sm); background: var(--material-solid); box-shadow: var(--shadow-control); }
+.wall.editing .edit-bar { left: 50%; right: auto; top: 50%; bottom: auto; transform: translate(-50%, -50%); width: max-content; max-width: calc(100% - 16px); padding: 3px; border-radius: var(--radius-sm);
+  /* Dark glass in either appearance: it stands out over the dimmed tile under it. */
+  background: rgb(24 26 32 / 86%); border-color: rgb(255 255 255 / 12%); box-shadow: 0 6px 18px rgb(0 0 0 / 28%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%); backdrop-filter: blur(10px) saturate(140%); }
+.wall.editing .edit-bar button:not([aria-pressed="true"]) { color: rgb(255 255 255 / 78%); }
+@media (hover: hover) and (pointer: fine) { .wall.editing .edit-bar button:not([aria-pressed="true"]):hover { color: #fff; background: rgb(255 255 255 / 10%); } }
 .wall.editing .edit-bar button { width: 30px; height: 26px; flex: 0 1 30px; border-radius: var(--radius-xs); font-size: var(--text-2xs); }
 .wall.editing .edit-bar button[data-step] { width: 24px; flex: 0 1 24px; font-size: 18px; }
 .wall.editing .edit-bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

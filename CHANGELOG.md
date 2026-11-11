@@ -29,7 +29,7 @@ All notable changes to this project are documented here. The format follows
   icon on a large tile opens its colour wheel, which stays open for a press (a long press on a small tile too), and a
   colour picked on the wheel is kept among the swatches. A long press on a colour swatch opens the wheel to change that
   swatch, kept in this browser. Small and medium climate tiles read "19.5° → 21.5°", the target in the mode's colour;
-  the medium tile gives its name two lines and its dial the room it has. Arranging the wall, each tile's size bar sits in its middle.
+  the medium tile gives its name two lines and its dial the room it has. Arranging the wall, each tile's size bar sits in its middle, on dark glass.
 - **History and Logbook**: compact filters, scrollable lists, alternating rows and collapsible day groups; graphs
   retain their original appearance. Dashboard plugin chips link to their pages and consumer sparklines show hover guides.
 
