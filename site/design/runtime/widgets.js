@@ -1369,7 +1369,12 @@
         const colours = light.swatches?.({ compact: true });
         built.middle = colours ? el("div", { class: "light-shortcuts" }, brightness, colours) : brightness;
       }
-      if (size === "medium") built.body = [light.brightness?.(), light.swatches?.() ?? whiteRow({ thin: true })].filter(Boolean);
+      if (size === "medium") {
+        const white = light.swatches
+          ? light.white?.({ thin: true })
+          : whiteRow({ thin: true });
+        built.body = [light.brightness?.(), white, light.swatches?.()].filter(Boolean);
+      }
       if (size === "large") {
         // A tall brightness beside the colours, or beside a tall white (and the Adaptive chip under it).
         const tall = light.brightness?.({ vertical: true });
