@@ -8,8 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- **Apple Home's empty groups**: Wingman's tools `list_empty_groups` and `remove_empty_groups` (confirmed first) find and
-  remove the groups of fewer than two accessories that the Home app does not show, counted in Apple Home.
+- **Apple Home's hidden groups**: the Wingman page lists the groups of fewer than two accessories that the Home app does
+  not show (counted in Apple Home), with a bin to remove one and Remove all, each confirmed first; the Assistant and MCP
+  clients have them as `list_empty_groups` and `remove_empty_groups`.
 
 ### Fixed
 

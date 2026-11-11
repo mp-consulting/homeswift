@@ -15,6 +15,12 @@
   #setup { margin-bottom: 16px; }
   .facts.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .fact.warn b { color: var(--warn); }
+  /* Apple Home's groups the Home app does not show (fewer than two accessories): a row each, a red bin to remove it. */
+  .hidden-groups { display: grid; gap: 12px; }
+  .hidden-groups .note { margin: 0; }
+  .hidden-groups .rows { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .hidden-groups .row .icon-button { width: 32px; min-width: 32px; height: 32px; min-height: 32px; color: var(--error); }
+  @media (pointer: coarse) { .hidden-groups .row .icon-button { width: 40px; min-width: 40px; height: 40px; min-height: 40px; } }
   .hint { margin: 14px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); font-size: 0.8125rem; }
   @media (prefers-reduced-motion: reduce) { .wingman { animation: none; } }
 </style>
@@ -32,6 +38,8 @@
   <div id="setup"></div>
   <div class="section-head"><h2 data-i18n>Your Wingmen</h2></div>
   <div id="wingmen" class="grid"></div>
+  <div class="section-head"><h2 data-i18n>Hidden groups in Apple Home</h2></div>
+  <div id="hidden-groups"></div>
   <p id="assistant-hint" class="hint hidden"></p>
 </main>
 <script src="/common.js"></script>

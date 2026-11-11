@@ -4,7 +4,7 @@
 // a Wingman's Settings sheet Excludes or Forgets it, and the plugin's Settings list the mirrored accessories and bridges.
 (() => {
   "use strict";
-  const { t } = HomeswiftI18n;
+  const { t, tn } = HomeswiftI18n;
   const { $, el, tile, fact, request, explain, assistant, platform, poll, renderKeyed, setupCard, setupAddress } = homeswift;
   const { ago } = HomeswiftCommon;
 
@@ -80,6 +80,52 @@
       list.replaceChildren(el("p", { class: "error", text: e.message }));
     }
   }
+
+  // MARK: Apple Home's hidden groups: those of fewer than two accessories, which the Home app does not show. An
+  // interrupted creation can leave one: it keeps its name (a group of that name is refused) and counts towards HomeKit's
+  // limit. Each can be removed, or all of them, once confirmed.
+
+  const hidden = $("#hidden-groups");
+
+  async function loadHiddenGroups() {
+    let answer;
+    try { answer = await request("empty-groups"); } catch (e) {
+      hidden.replaceChildren(el("div", { class: "card hidden-groups" }, el("p", { class: "muted note", text: e.status === 409 ? t("Link this bridge to its home in Apple Home to see its hidden groups.") : e.message })));
+      return;
+    }
+    const groups = answer.groups || [];
+    const why = el("p", { class: "muted note", text: t("Groups of fewer than two accessories, which the Home app does not show. An interrupted group creation can leave one: it keeps the name, so a new group of that name is refused, and it counts towards Apple Home's limit.") });
+    if (!groups.length) {
+      hidden.replaceChildren(el("div", { class: "card hidden-groups" }, why, el("p", { class: "note", text: t("No hidden groups in {home}.", { home: answer.home }) })));
+      return;
+    }
+    hidden.replaceChildren(el("div", { class: "card hidden-groups" }, why,
+      el("div", { class: "rows" }, groups.map((group) => el("div", { class: "row" },
+        el("div", { class: "who" }, el("strong", { text: group.name }),
+          el("span", { class: "muted", text: group.accessories ? t("1 accessory") : t("No accessories") })),
+        el("button", { type: "button", class: "icon-button danger", "aria-label": t("Remove {name}", { name: group.name }), title: t("Remove {name}", { name: group.name }),
+          onclick: () => removeGroups([group], answer.home) }, HomeswiftCommon.icon("trash"))))),
+      el("div", { class: "actions" }, el("button", { type: "button", class: "danger", actionIcon: "trash", text: t("Remove all"),
+        onclick: () => removeGroups(groups, answer.home) }))));
+  }
+
+  async function removeGroups(groups, home) {
+    const one = groups.length === 1;
+    const confirmed = await HomeswiftCommon.confirmAction({
+      title: one ? t("Remove the group {name}?", { name: groups[0].name }) : tn("Remove {n} hidden group?", "Remove {n} hidden groups?", groups.length),
+      text: one ? t("It is removed from {home} in Apple Home. It holds no accessory there, so nothing else changes.", { home })
+        : t("They are removed from {home} in Apple Home. None holds an accessory there, so nothing else changes.", { home }),
+      confirmLabel: t("Remove"), confirmIcon: "trash" });
+    if (!confirmed) return;
+    try {
+      const result = await request("empty-groups/remove", { method: "POST", body: { ids: groups.map((group) => group.id) } });
+      const failed = (result.failed || []).map((group) => t("{name}: {error}", { name: group.name, error: group.error }));
+      if (failed.length) HomeswiftCommon.showAlert(failed.join("\n"));
+    } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    loadHiddenGroups();
+  }
+
+  loadHiddenGroups();
 
   // MARK: Pairing a Wingman: Add accessories finds it (or takes the address in the plugin's settings) and pairs it.
 
