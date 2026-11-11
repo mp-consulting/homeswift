@@ -1265,51 +1265,45 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       paint();
       return control;
     };
-    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
-    // A phone follows new entries as the Logs page does: a pause button beside Filters (play once paused), the page at its
-    // end, a round arrow back to it while scrolled away.
+    const phone = HomeswiftCommon.phone;
+    // A phone follows new entries as the Logs page does (HomeswiftCommon.followControls): a pause button beside Filters
+    // (play once paused), the page at its end, a round arrow back to it while scrolled away.
     let following = true;
-    const scroller = () => document.scrollingElement;
-    const atPageEnd = () => scroller().scrollHeight - scroller().scrollTop - innerHeight < 40;
-    const toEnd = (smooth = false) => scroller().scrollTo({ top: scroller().scrollHeight,
-      behavior: smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches ? "smooth" : "auto" });
-    const followButton = el("button", { type: "button", class: "audit-follow-button", "aria-label": t("Follow") });
-    const showFollow = () => {
-      followButton.setAttribute("aria-pressed", String(following));
-      followButton.title = following ? t("Pause") : t("Follow");
-      followButton.replaceChildren(HomeswiftCommon.icon(following ? "pause" : "play"));
-    };
-    followButton.addEventListener("click", () => { following = !following; showFollow(); if (following) { toEnd(true); load(true); } });
-    showFollow();
-    const latest = el("button", { type: "button", class: "audit-to-end", "aria-label": t("Go to the latest lines"), title: t("Go to the latest lines"),
-      onclick: () => { following = true; showFollow(); toEnd(true); } }, HomeswiftCommon.icon("arrowDown"));
-    const showLatest = () => latest.classList.toggle("shown", phone.matches && scroller().scrollHeight - scroller().scrollTop - innerHeight > 120);
+    const followUI = HomeswiftCommon.followControls({ following: () => following, setFollowing: (on) => {
+      following = on;
+      followUI.paint();
+      if (on) { followUI.toEnd(true); load(true); }
+    } });
     const outcome = select(outcomes, params.get("outcome") ?? "", t("Outcome"));
     const since = select(spans, params.has("since") ? params.get("since") : "7d", t("Time range"));
     const count = el("span", { class: "muted count", role: "status", "aria-live": "polite" });
     const body = el("div", {});
     let loads = 0;   // the answer drawn is the last request's, however they arrive
-    let drawn = "";
-    const rowsByKey = new Map();   // the rows drawn, by entry: kept across refreshes   // what the entries drawn were: a quiet refresh that finds the same leaves them (and an open Details) alone
-    // `quiet`: the phone's live refresh, without "Loading…" or the pickers' counts cleared.
+    let drawn = "";   // the entries drawn (their count and both ends): a refresh that finds the same draws nothing
+    const rowsByKey = new Map();   // the rows drawn, by entry, kept across refreshes
+    /// `quiet`: the phone's live refresh. It asks for no counts, leaves the address and the pickers as they are, and
+    /// draws only when the entries changed.
     async function load(quiet = false) {
       const own = ++loads;
       const query = new URLSearchParams();
       if (search.value.trim()) query.set(scope.value, search.value.trim());
       if (outcome.value) query.set("outcome", outcome.value);
       query.set("since", since.value);
-      window.history.replaceState(null, "", `/settings/audit?${query}`);
+      if (!quiet) window.history.replaceState(null, "", `/settings/audit?${query}`);
       if (!since.value) query.delete("since");
       if (!quiet) {
         count.textContent = t("Loading…");
         for (const control of [outcome, since]) { control.counts.clear(); control.paint(); }
+        // The server counts each alternative against the current text and the other selected filter, in the same pass.
+        query.set("spans", spans.map(([value]) => value).join(","));
       }
-      // The server counts each alternative against the current text and the other selected filter, in the same pass.
-      query.set("spans", spans.map(([value]) => value).join(","));
       let found;
-      try { found = await api(`/api/audit?${query}`); } catch (e) { if (own === loads) count.textContent = e.message; return; }
+      try { found = await api(`/api/audit?${query}`); } catch (e) { if (own === loads && !quiet) count.textContent = e.message; return; }
       if (own !== loads) return;
-      for (const [control, key] of [[outcome, "outcome"], [since, "since"]]) {
+      const shape = `${phone.matches}|${found.enabled}|${found.total}|${found.entries[0]?.ts ?? ""}|${found.entries.at(-1)?.ts ?? ""}|${found.entries.length}`;
+      if (quiet && shape === drawn) return;
+      drawn = shape;
+      if (!quiet) for (const [control, key] of [[outcome, "outcome"], [since, "since"]]) {
         control.counts = new Map(Object.entries(found.counts?.[key] ?? {}));
         control.paint();
       }
@@ -1321,13 +1315,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       count.textContent = t("{shown} of {total}", { shown: found.entries.length, total: found.total });
       // On a phone the newest is at the foot, by the bar, where new entries arrive (as the Logs page); elsewhere, first.
       const ordered = phone.matches ? [...found.entries].reverse() : found.entries;
-      const shape = `${phone.matches}|${found.total}|${found.entries[0]?.ts ?? ""}|${found.entries.length}`;
-      if (quiet && shape === drawn) return;
-      drawn = shape;
-      const atEnd = atPageEnd();
+      const atEnd = followUI.atEnd();
       // Each entry keeps its row from one draw to the next (by its time, who and what): a refresh adds the new ones and
       // drops those gone, so an open Details stays open and the entry being read stays where it is.
-      const keyOf = (entry) => [entry.ts, entry.principal, entry.client, entry.tool, entry.ok, entry.notConfirmed].join("|");
+      const keyOf = (entry) => `${entry.ts}|${entry.principal}|${entry.client}|${entry.tool}|${entry.ok}|${entry.notConfirmed}`;
       const kept = new Map(rowsByKey);
       rowsByKey.clear();
       const rows = ordered.map((entry) => {
@@ -1344,15 +1335,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("thead", {}, el("tr", {}, [t("Time"), t("Who"), t("What"), t("Outcome"), t("Details")].map((text) => el("th", { text })))),
         el("tbody", {}, rows))), el("p", { class: "muted note", text: found.path }))
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("shield")), el("p", { class: "muted", text: t("Nothing in this range matches.") })));
-      // Following, from the end (or a first draw), the page stays at the newest.
-      if (phone.matches && following && (!quiet || atEnd)) toEnd();
-      showLatest();
+      // Following, from the end (or a first draw), the page stays at the newest; there, the arrow back is not needed.
+      if (phone.matches && following && (!quiet || atEnd)) followUI.toEnd(); else followUI.showLatest();
     }
     let typing = null;
     search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
     for (const choice of [outcome, since, scope]) choice.addEventListener("change", () => { clearTimeout(typing); typing = setTimeout(load, 0); });
     const searchLabel = el("label", {}, el("span", { class: "visually-hidden", text: t("Search") }), search);
-    const filtersCard = el("div", { class: "card audit-filters", id: "audit-filters" },
+    const filtersCard = el("div", { class: "card audit-filters" },
       el("div", { class: "audit-filter-grid" },
         el("label", {}, el("span", { text: t("Time range") }), since),
         el("label", {}, el("span", { text: t("Outcome") }), outcome),
@@ -1361,47 +1351,29 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           searchLabel)),
       el("div", { class: "audit-filter-footer" }, count,
         HomeswiftCommon.clearFilters([[search, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) })));
-    // A phone (as the Logs and Plugins pages): one glass bar above the tab bar, the search and Filters, which opens the
-    // filters as a sheet over it, its badge counting the range and outcome that are not the defaults.
-    const filterCount = el("span", { class: "toolbar-count hidden" });
-    const filtersButton = el("button", { type: "button", class: "audit-filters-toggle", "aria-label": t("Filters"), title: t("Filters"),
-      "aria-controls": "audit-filters", "aria-expanded": "false" }, HomeswiftCommon.icon("filter"), filterCount);
-    const bar = el("div", { class: "audit-bar" }, filtersButton, followButton);
-    const showCount = () => {
-      const chosen = Number(outcome.value !== "") + Number(since.value !== "7d");
-      filterCount.textContent = String(chosen);
-      filterCount.classList.toggle("hidden", !chosen);
-      filtersButton.classList.toggle("on", chosen > 0);
-    };
+    // A phone (as the Logs and Plugins pages): one glass bar above the tab bar, the search, Filters (the filters card as
+    // a sheet over the bar, its badge counting the range and outcome that are not the defaults) and Follow.
+    const filters = HomeswiftCommon.filtersToggle(filtersCard);
+    const bar = el("div", { class: "audit-bar phone-bar" }, filters.button, followUI.button);
+    const showCount = () => filters.count(Number(outcome.value !== "") + Number(since.value !== "7d"));
     for (const choice of [outcome, since]) choice.addEventListener("change", showCount);
     showCount();
-    const openFilters = (open) => { filtersCard.classList.toggle("open", open); filtersButton.setAttribute("aria-expanded", String(open)); };
-    filtersButton.addEventListener("click", () => openFilters(!filtersCard.classList.contains("open")));
-    // A tap elsewhere closes it, though not one in the menu a picker opened from it; so does Escape. Its listeners go with the page.
     // While following, a phone reads the entries again every few seconds, unless the filters or a menu cover the page
-    // or the tab is hidden; the page's listeners and its timer go with it.
+    // or the tab is hidden. The timer goes with the page.
     const refresh = setInterval(() => {
-      if (!bar.isConnected) { clearInterval(refresh); return; }
-      if (phone.matches && following && !document.hidden && !filtersCard.classList.contains("open") && !document.querySelector('[role="menu"]')) load(true);
+      if (phone.matches && following && !document.hidden && !filters.isOpen() && !HomeswiftCommon.menuOpen()) load(true);
     }, 4000);
-    const onScroll = () => { if (bar.isConnected) showLatest(); else removeEventListener("scroll", onScroll); };
-    addEventListener("scroll", onScroll, { passive: true });
-    const outside = (event) => {
-      if (!bar.isConnected) { document.removeEventListener("pointerdown", outside); return; }
-      if (!filtersCard.contains(event.target) && !bar.contains(event.target) && !event.target.closest?.('[role="menu"], .menu-scrim')) openFilters(false);
-    };
-    document.addEventListener("pointerdown", outside);
-    filtersCard.addEventListener("keydown", (event) => { if (event.key === "Escape" && filtersCard.classList.contains("open")) { openFilters(false); filtersButton.focus(); } });
+    HomeswiftCommon.viewSignal().addEventListener("abort", () => clearInterval(refresh));
     // The search sits in the bar on a phone, with the filters elsewhere.
     const placeSearch = () => {
-      if (phone.matches) bar.prepend(search); else { searchLabel.append(search); openFilters(false); }
+      if (phone.matches) bar.prepend(search);
+      else { searchLabel.append(search); filters.open(false); }
     };
-    const onPhone = () => { if (bar.isConnected) placeSearch(); else phone.removeEventListener("change", onPhone); };
-    phone.addEventListener("change", onPhone);
+    phone.addEventListener("change", placeSearch, { signal: HomeswiftCommon.viewSignal() });
     placeSearch();
     app().show(main,
       app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
-      subnav("audit"), filtersCard, body, bar, latest);
+      subnav("audit"), filtersCard, body, bar, followUI.latest);
     await load();
   }
 
@@ -2039,7 +2011,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       detail.hidden = false;
       openNode = node;
       const frameBox = frame.getBoundingClientRect();
-      if (matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches) {
+      if (HomeswiftCommon.phone.matches) {
         // A phone: the card is docked under the graph at full width (CSS), so it is shown there, not beside the node.
         detail.scrollIntoView({ block: "nearest", behavior: "smooth" });
       } else if (!anchored) {
@@ -2728,10 +2700,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   document.addEventListener("homeswift-account-menu", (event) => openUserMenu(event.detail.trigger, event.detail.keyboard));
   function openUserMenu(trigger, keyboard = false) {
     const form = auth.mode === "form";
-    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches;
+    const phone = HomeswiftCommon.phone.matches;
     // Without the wide window's side menu, Homeswift's section is in this menu.
     // (A phone's ☰ panel has its own.)
-    const noSideMenu = matchMedia("(min-width: 641px) and (max-width: 1179.98px)").matches;
+    const noSideMenu = !phone && matchMedia("(max-width: 1179.98px)").matches;
     HomeswiftCommon.menu(trigger, [
       form ? { heading: shownName(), detail: isAdmin() ? t("{username} · Administrator", { username: auth.username }) : auth.username } : { heading: t("No sign-in"), detail: t("Anyone who opens this web UI uses it") },
       { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
@@ -3017,6 +2989,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   };
   let shownPath = null;
   function route() {
+    // The last view's listeners and timers go with it (HomeswiftCommon.viewSignal).
+    HomeswiftCommon.nextView();
     // A dialog belongs to the view it opened on (an accessory's sheet, whose menu links to its log): a new view closes
     // it, or it would stay over the next one. The restart overlay outlives views.
     for (const dialog of document.querySelectorAll("dialog[open]")) if (dialog !== restartOverlay) dialog.close();
@@ -5843,38 +5817,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return el("div", { class: "accessories-views" }, nav, ...extra.filter(Boolean));
   };
   /// The Accessories page's tools as one bar, the same in both views: `toolbar` (the search, Filters and the rest) over
-  /// `views` (the tabs, Full screen, Add). On a phone it is a row of round buttons at the bottom, beside the sections'
-  /// button and within the thumb's reach, the views first, so filtering, arranging and switching views stay at hand; the
-  /// search opens over the row from its own button, rises with the on-screen keyboard, and stays open while it holds a
-  /// search.
+  /// `views` (the tabs, Full screen, Add). On a phone it is the page's glass bar over the tab bar (`.phone-bar`): the
+  /// options, the search, Filters, Edit and the Assistant, risen with the on-screen keyboard.
   const accessoriesBar = (toolbar, views) => {
-    const bar = el("div", { class: "accessories-bar" }, toolbar, views);
-    // Reserve the bar's actual footprint, including its expanded search and wrapped buttons.
-    // The observer also runs when the bar is removed, so it does not retain departed views.
-    const clearance = new ResizeObserver(() => {
-      if (!bar.isConnected) { clearance.disconnect(); return; }
-      const height = bar.getBoundingClientRect().height;
-      bar.parentElement.style.setProperty("--accessories-bar-height", `${Math.ceil(height)}px`);
-    });
-    clearance.observe(bar);
+    const bar = el("div", { class: "accessories-bar phone-bar" }, toolbar, views);
     const search = toolbar.querySelector(".search");
     if (!search) return bar;
-    const toggle = el("button", { type: "button", class: "icon-button accessories-search-toggle", "aria-label": t("Search accessories"), title: t("Search accessories"),
-      "aria-expanded": "false" }, HomeswiftCommon.icon("search"), el("span", { class: "toolbar-label", text: t("Search") }));
-    const open = (on) => {
-      bar.classList.toggle("searching", on);
-      toggle.classList.toggle("on", on);
-      toggle.setAttribute("aria-expanded", String(on));
-    };
-    toggle.addEventListener("click", () => {
-      const on = !bar.classList.contains("searching");
-      open(on);
-      if (on) search.focus(); else if (search.value) { search.value = ""; search.dispatchEvent(new Event("input")); }
-    });
-    // Left empty, it folds away again.
-    search.addEventListener("blur", () => { if (!search.value.trim()) open(false); });
-    open(Boolean(search.value.trim()));
-    search.after(toggle);
     // A phone's bar ends with the Assistant, when there is one: what is typed in the search becomes the question.
     const ask = el("button", { type: "button", class: "icon-button accessories-ask", "aria-label": t("Ask the Assistant"), title: t("Ask the Assistant"),
       onclick: () => window.HomeswiftChat?.ask(search.value.trim()) }, HomeswiftCommon.sparkle());
@@ -5883,21 +5831,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     setTimeout(showAsk, 1500);
     search.addEventListener("focus", showAsk);
     toolbar.append(ask);
-    // Safari keeps a fixed bar's bottom under the on-screen keyboard: the bar sits on the keyboard while the search is
-    // typed in (`--keyboard`, what it covers), as the chat's sheet does.
-    const view = window.visualViewport;
-    if (view) {
-      const fit = () => {
-        if (!bar.isConnected) { view.removeEventListener("resize", fit); view.removeEventListener("scroll", fit); return; }
-        const covered = document.activeElement === search ? Math.max(0, Math.round(window.innerHeight - view.height - view.offsetTop)) : 0;
-        // On the page, so whatever sits on the bottom bar rises with it.
-        document.documentElement.style.setProperty("--keyboard", `${covered}px`);
-      };
-      view.addEventListener("resize", fit);
-      view.addEventListener("scroll", fit);
-      search.addEventListener("focus", fit);
-      search.addEventListener("blur", () => document.documentElement.style.setProperty("--keyboard", "0px"));
-    }
     return bar;
   };
   /// The address with `key` set to `value` (removed when empty), the page left as it is: what a search box types.
@@ -6675,7 +6608,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : []),
       // A phone floats only the search, Filters, Edit and this menu over its tab bar: the graph, Full screen and Add
       // accessories are here.
-      ...(matchMedia("(max-width: 600px), (max-height: 500px) and (pointer: coarse)").matches && all.length ? [{ separator: true },
+      ...(HomeswiftCommon.phone.matches && all.length ? [{ separator: true },
         { label: t("Graph"), icon: "chart", href: (() => {
           const kept = new URLSearchParams();
           for (const [key, value] of new URLSearchParams(location.search)) if (accessoryFilterKeys.includes(key)) kept.append(key, value);
@@ -6978,8 +6911,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       return order(a) - order(b) || blockTitle(a).localeCompare(blockTitle(b));
     });
     let filter = "all";
+    let sheet = null;   // the phone's Filters sheet (filtersToggle), made with the bar below
     const search = el("input", { type: "search", class: "search", placeholder: t("Search your plugins"), "aria-label": t("Search your plugins"), oninput: render });
-    const filters = el("div", { class: "group plugins-filters", id: "plugins-filters", role: "group", "aria-label": t("Status") });
+    const filters = el("div", { class: "group plugins-filters", role: "group", "aria-label": t("Status") });
     const matches = (block, value) => value === "all" || blockState(block, byPlatform.get(block.platform), running(block))[1] === value;
     [["all", "All", "plugin"], ["away", "Needs attention", "logs"], ["on", "Running", "play"], ["paused", "Paused", "pause"]].forEach(([value, label, icon]) => {
       filters.append(el("button", { actionIcon: icon, text: `${t(label)} · ${custom.filter((block) => matches(block, value)).length}`,
@@ -6993,8 +6927,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const selected = ["all", "away", "on", "paused"][i] === filter;
         button.setAttribute("aria-pressed", String(selected)); button.classList.toggle("on", selected);
       });
-      filterCount.classList.toggle("hidden", filter === "all");
-      filtersButton.classList.toggle("on", filter !== "all");
+      sheet?.count(filter === "all" ? 0 : 1);
     }
     const add = el("button", { class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: () => {
       const dialog = openSheet((dismiss) => el("div", { class: "plugins-panel" },
@@ -7005,32 +6938,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     } });
     // A phone (as the Logs page): one glass bar above the tab bar, the search, Filters (the states in a sheet over the
     // bar, a badge while one is chosen) and a round Add; the toolbar leaves the card for the page to be fixed there.
-    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
-    const filterCount = el("span", { class: "toolbar-count hidden", text: "1" });
-    const filtersButton = el("button", { type: "button", class: "plugins-filters-toggle", "aria-label": t("Filters"), title: t("Filters"),
-      "aria-controls": "plugins-filters", "aria-expanded": "false" }, HomeswiftCommon.icon("filter"), filterCount);
-    const addRound = el("button", { type: "button", class: "plugins-add-round", "aria-label": t("Add a plugin"), title: t("Add a plugin"), onclick: () => add.click() },
+    const phone = HomeswiftCommon.phone;
+    sheet = HomeswiftCommon.filtersToggle(filters);
+    const addRound = el("button", { type: "button", class: "bar-button bar-only accent", "aria-label": t("Add a plugin"), title: t("Add a plugin"), onclick: () => add.click() },
       HomeswiftCommon.icon("plus"));
-    const toolbar = el("div", { class: "plugins-toolbar" }, filters, search, HomeswiftCommon.clearFilters([[search, ""]], {
+    const toolbar = el("div", { class: "plugins-toolbar phone-bar" }, filters, search, HomeswiftCommon.clearFilters([[search, ""]], {
       active: () => filter !== "all", events: [[filters, "click"]], reset: () => { filter = "all"; render(); }
-    }), filtersButton, addRound);
+    }), sheet.button, addRound);
     const listCard = el("div", { class: "card plugins-card" }, toolbar, list);
-    const openFilters = (open) => { toolbar.classList.toggle("filters-open", open); filtersButton.setAttribute("aria-expanded", String(open)); };
-    filtersButton.addEventListener("click", () => openFilters(!toolbar.classList.contains("filters-open")));
-    // A state chosen closes the sheet; so do a tap elsewhere and Escape. The page's listeners go with it.
-    filters.addEventListener("click", () => setTimeout(() => openFilters(false)));
-    const outside = (event) => {
-      if (!toolbar.isConnected) { document.removeEventListener("pointerdown", outside); return; }
-      if (!toolbar.contains(event.target)) openFilters(false);
-    };
-    document.addEventListener("pointerdown", outside);
-    toolbar.addEventListener("keydown", (event) => { if (event.key === "Escape" && toolbar.classList.contains("filters-open")) { openFilters(false); filtersButton.focus(); } });
+    // A state chosen closes the sheet.
+    filters.addEventListener("click", () => setTimeout(() => sheet.open(false)));
     const placeToolbar = () => {
       if (phone.matches) main.append(toolbar);
-      else { listCard.prepend(toolbar); openFilters(false); }
+      else { listCard.prepend(toolbar); sheet.open(false); }
     };
-    const onPhone = () => { if (listCard.isConnected) placeToolbar(); else phone.removeEventListener("change", onPhone); };
-    phone.addEventListener("change", onPhone);
+    phone.addEventListener("change", placeToolbar, { signal: HomeswiftCommon.viewSignal() });
     const builtIn = plugins.blocks.filter((block) => block.system);
     show(main, el("div", { class: "plugins-heading" }, pageHead(t("Plugins"), t("Your connections, devices and services.")), add),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("{names}: no plugin compiled into this homeswift runs these blocks, so they are ignored.",
@@ -8267,7 +8189,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const follow = el("input", { type: "checkbox", checked: true });
     const count = el("span", { class: "muted count" });
     // A phone reads the log as the page: no box of its own to scroll, its bar of actions over the tab bar.
-    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
+    const phone = HomeswiftCommon.phone;
+    let filters = null, followUI = null;   // the phone's Filters sheet and Follow controls, made with the bar below
     // What the lines are about (sourceFilter): every line; the bridges' own lines (their servers': connections,
     // pairings, controllers), every bridge's or one's; or one accessory's (those of its own server and those naming
     // it, its id or its address). The server picks them before its limit (UIServer.logMatcher), so a week of one
@@ -8301,31 +8224,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Its end: the box's, or on a phone the page's. While a menu or the Filters sheet covers the page, a phone holds the
     // page where it is (scrolling it under their glass made them flicker with each line) and catches up once they close.
     let held = false;
-    const covered = () => phone.matches && Boolean(document.querySelector('[role="menu"]') || output.closest(".filters-open"));
-    const atEnd = () => {
-      if (held) return true;
-      const box = phone.matches ? document.scrollingElement : output;
-      return box.scrollHeight - box.scrollTop - (phone.matches ? innerHeight : box.clientHeight) < 40;
-    };
+    const covered = () => phone.matches && (HomeswiftCommon.menuOpen() || Boolean(filters?.isOpen()));
+    const atEnd = () => held || (phone.matches ? followUI.atEnd() : output.scrollHeight - output.scrollTop - output.clientHeight < 40);
     // On a phone, again once laid out: the page's height is only known after the lines are drawn.
     const toEnd = () => {
       if (!phone.matches) { output.scrollTop = output.scrollHeight; return; }
-      if (covered()) {
-        if (held) return;
-        held = true;
-        const release = new MutationObserver(() => {
-          if (covered()) return;
-          release.disconnect();
-          held = false;
-          if (follow.checked && output.isConnected) toEnd();
-        });
-        release.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
-        return;
-      }
-      const end = () => { document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight; };
-      end();
-      requestAnimationFrame(end);
+      if (covered()) { held = true; return; }
+      followUI.toEnd();
+      requestAnimationFrame(() => followUI.toEnd());
     };
+    document.addEventListener("homeswift-covering", () => {
+      if (!held || covered()) return;
+      held = false;
+      if (follow.checked) toEnd();
+    }, { signal: HomeswiftCommon.viewSignal() });
     logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false, atEnd, toEnd };
     choose();
     const levels = el("div", { class: "group", role: "group", "aria-label": t("Levels shown") }, levelChoices.map(([level, text]) =>
@@ -8498,70 +8410,38 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       },
     });
     const levelRow = el("div", { class: "log-level-row" }, levels, filter, clear);
-    const panel = el("div", { class: "log-filter-panel", id: "log-filter-panel" }, levelRow,
+    const panel = el("div", { class: "log-filter-panel" }, levelRow,
       // A div, not a label: a label would press the control's first choice when its text is clicked.
       el("div", { class: "log-scope-row" },
         el("div", { class: "log-time" }, el("span", { text: t("Time range") }), range.control),
         el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker)));
-    // On a phone the filters wait behind Filters, a sheet over the bar; its count says how many are not the defaults.
-    const filterCount = el("span", { class: "toolbar-count hidden" });
-    const filtersButton = el("button", { type: "button", class: "log-filters-toggle", "aria-label": t("Filters"), title: t("Filters"), "aria-controls": "log-filter-panel", "aria-expanded": "false" },
-      HomeswiftCommon.icon("filter"), filterCount);
+    // On a phone the filters wait behind Filters, a sheet over the bar, its badge counting those that are not the
+    // defaults; Follow is a pause button beside it (play once paused), on from the start, and a round arrow over the
+    // bar goes back to the latest lines while the page is away from them.
+    filters = HomeswiftCommon.filtersToggle(panel);
+    filters.button.classList.add("log-filters-toggle");
     function showFilterCount() {
-      const chosen = (logState.level !== "info") + Boolean(range.chosen()) + Boolean(sources.picker.value);
-      filterCount.textContent = String(chosen);
-      filterCount.classList.toggle("hidden", !chosen);
-      filtersButton.classList.toggle("on", chosen > 0);
+      filters?.count((logState.level !== "info") + Boolean(range.chosen()) + Boolean(sources.picker.value));
     }
-    // On a phone, Follow is a pause button beside Filters (play once paused): on from the start.
-    const followButton = el("button", { type: "button", class: "log-follow-button", "aria-label": t("Follow"), onclick: () => {
-      follow.checked = !follow.checked;
-      follow.dispatchEvent(new Event("change"));
-    } });
-    const showFollow = () => {
-      followButton.setAttribute("aria-pressed", String(follow.checked));
-      followButton.title = follow.checked ? t("Pause") : t("Follow");
-      followButton.replaceChildren(HomeswiftCommon.icon(follow.checked ? "pause" : "play"));
-    };
-    follow.addEventListener("change", showFollow);
-    showFollow();
-    const bar = el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), filtersButton, followButton, doctor.button, copy,
+    followUI = HomeswiftCommon.followControls({ following: () => follow.checked,
+      setFollowing: (on) => { follow.checked = on; follow.dispatchEvent(new Event("change")); } });
+    followUI.button.classList.add("log-follow-button");
+    follow.addEventListener("change", followUI.paint);
+    logState.showLatest = followUI.showLatest;
+    actions.classList.add("bar-button");
+    doctor.button.classList.add("bar-button", "accent");
+    const bar = el("div", { class: "editor-bar log-action-bar phone-bar" }, count, el("span", { class: "spacer" }), filters.button, followUI.button, doctor.button, copy,
       el("label", { class: "toggle compact log-follow" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
       saveToggle, actions);
-    // On a phone, a round button over the bar while the page is away from its end: back to the latest lines, following.
-    const latest = el("button", { type: "button", class: "log-to-end", "aria-label": t("Go to the latest lines"), title: t("Go to the latest lines"),
-      onclick: () => {
-        follow.checked = true;
-        follow.dispatchEvent(new Event("change"));
-        const scroller = document.scrollingElement;
-        scroller.scrollTo({ top: scroller.scrollHeight, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-      } }, HomeswiftCommon.icon("arrowDown"));
-    const card = el("div", { class: "card log-card" }, panel, bar, latest, output);
-    const showLatest = () => {
-      if (!card.isConnected) { removeEventListener("scroll", showLatest); return; }
-      const scroller = document.scrollingElement;
-      latest.classList.toggle("shown", phone.matches && scroller.scrollHeight - scroller.scrollTop - innerHeight > 120);
-    };
-    addEventListener("scroll", showLatest, { passive: true });
-    logState.showLatest = showLatest;
-    const openFilters = (open) => { card.classList.toggle("filters-open", open); filtersButton.setAttribute("aria-expanded", String(open)); };
-    filtersButton.addEventListener("click", () => openFilters(!card.classList.contains("filters-open")));
-    // The page's listeners go with it: each removes itself once the card has left.
-    const outside = (event) => {
-      if (!card.isConnected) { document.removeEventListener("pointerdown", outside); return; }
-      if (card.classList.contains("filters-open") && !panel.contains(event.target) && !filtersButton.contains(event.target)) openFilters(false);
-    };
-    document.addEventListener("pointerdown", outside);
-    panel.addEventListener("keydown", (event) => { if (event.key === "Escape") { openFilters(false); filtersButton.focus(); } });
+    const card = el("div", { class: "card log-card" }, panel, bar, followUI.latest, output);
     for (const [control, kind] of [[levels, "click"], [range.control, "change"], [sources.picker, "change"], [clear, "click"]]) control.addEventListener(kind, () => setTimeout(showFilterCount));
     // The text filter stays in reach: in the phone's bar, beside the levels elsewhere.
     const placeFilter = () => {
-      if (phone.matches) bar.prepend(filter); else levelRow.insertBefore(filter, clear);
-      if (!phone.matches) openFilters(false);
+      if (phone.matches) bar.prepend(filter);
+      else { levelRow.insertBefore(filter, clear); filters.open(false); }
     };
     placeFilter();
-    const onPhone = () => { if (card.isConnected) placeFilter(); else phone.removeEventListener("change", onPhone); };
-    phone.addEventListener("change", onPhone);
+    phone.addEventListener("change", placeFilter, { signal: HomeswiftCommon.viewSignal() });
     show(main,
       pageHead(t("Logs"), t("This homeswift's log, live, and up to a week back.")),
       card,
@@ -10542,7 +10422,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const { t, tn } = HomeswiftI18n;
 
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
-  const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
+  const phone = HomeswiftCommon.phone;
   const touch = matchMedia("(pointer: coarse)");
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -11842,6 +11722,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // It grows out of its button and goes back into it; the arrow keys move between items, Escape and a click
   // elsewhere close it, and focus returns to the button.
 
+  /// What the pages call a phone: a narrow window, or a short touch screen (a phone held sideways). style.css's phone
+  /// rules use the same query; this is the one the scripts read (`.matches`, and its `change` event).
+  const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
+
+  /// A view's lifetime: aborted when the next one is drawn (`nextView`, the router's), so a page's listeners and timers
+  /// given `{ signal: viewSignal() }` go with it rather than holding the page until they next fire.
+  let viewController = new AbortController();
+  const viewSignal = () => viewController.signal;
+  const nextView = () => { viewController.abort(); viewController = new AbortController(); };
+
+  /// Something now covers the page, or stops covering it (a menu, a phone's sheet of filters): `homeswift-covering` on the
+  /// document, so a page following its end holds still under it and catches up after (the Logs page).
+  const covering = () => document.dispatchEvent(new Event("homeswift-covering"));
+
   let openMenu = null;
 
   /// Text as searches compare it: without accents or case, so "salon" finds "Salón".
@@ -11857,6 +11751,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (openMenu?.trigger === trigger) { openMenu.close(); return; }
     openMenu?.close(true);
     let pending = false, cancelDrag = null;
+    const liveHeadings = [];   // the headings following a node's text (`live`), let go when the menu closes
     const refreshDisabled = [], refreshChecked = [];
     const searchable = [];
     const given = items.filter(Boolean);
@@ -11878,8 +11773,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // `live`: a node whose text the heading follows while the menu is open (the Logs page's count of lines).
         const strong = el("strong", { text: item.live ? item.live.textContent : item.heading });
         if (item.live) {
-          const follow = new MutationObserver(() => { if (strong.isConnected) strong.textContent = item.live.textContent; else follow.disconnect(); });
+          const follow = new MutationObserver(() => { strong.textContent = item.live.textContent; });
           follow.observe(item.live, { childList: true, characterData: true, subtree: true });
+          liveHeadings.push(follow);
         }
         return el("div", item.callout ? { class: `menu-heading menu-callout${item.tone ? ` ${item.tone}` : ""}`, role: "note" } : { class: "menu-heading" },
           item.callout && item.icon ? icon(item.icon) : null, strong, item.detail ? el("span", { text: item.detail }) : null);
@@ -12041,7 +11937,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
-    const sheet = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches && !trigger.closest("header");
+    const sheet = phone.matches && !trigger.closest("header");
     // The search and its pills stay above the items, which scroll on their own; a sheet whose items stay open as they
     // are chosen (several lights) ends with Done, within the thumb's reach.
     const head = field ? el("div", { class: "menu-head" }, field, pills) : null;
@@ -12102,6 +11998,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (openMenu?.list !== list) return;
       cancelDrag?.();
       openMenu = null;
+      covering();
+      liveHeadings.forEach((observer) => observer.disconnect());
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("pointerdown", onPointer, true);
       removeEventListener("resize", onResize);
@@ -12119,6 +12017,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     document.addEventListener("pointerdown", onPointer, true);
     addEventListener("resize", onResize);
     openMenu = { trigger, list, close };
+    covering();
     // A search field takes the focus, but not on a phone's sheet, where the keyboard would cover the items.
     if (field && !sheet) field.focus({ preventScroll: true });
     else if (keyboard) focusAt(0); else list.focus({ preventScroll: true });
@@ -12232,7 +12131,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function openSheet(build, labelledBy, { onClose = null, returnFocus = document.activeElement } = {}) {
     const dialog = el("dialog", { class: "admin-dialog card sheet", "aria-labelledby": labelledBy });
     const reduce = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const vertical = () => matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches;   // a phone: a sheet from the bottom edge
+    const vertical = () => phone.matches;   // a phone: a sheet from the bottom edge
     let result, leaving = false;
     // Out along the edge it came from, from wherever it is now (a drag may have moved it), faster than it came.
     const dismiss = (value) => {
@@ -12314,6 +12213,62 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     viewport.addEventListener("resize", fit);
     viewport.addEventListener("scroll", fit);
     return () => { viewport.removeEventListener("resize", fit); viewport.removeEventListener("scroll", fit); };
+  }
+
+  // The page follows the phone's keyboard once, for every bar that sits on the bottom (`--keyboard`): iOS covers the
+  // page rather than resizing it.
+  followKeyboard(document.documentElement);
+
+  /// A phone's Filters button for a page's bar (`.phone-bar`): it opens `sheet` over the bar (`.phone-sheet`, `open`),
+  /// a badge counting the filters that are not the defaults (`count(n)`). A tap elsewhere, but not in a menu one of the
+  /// sheet's pickers opened, or Escape closes it.
+  function filtersToggle(sheet) {
+    sheet.classList.add("phone-sheet");
+    sheet.id ||= `phone-sheet-${Math.random().toString(36).slice(2)}`;
+    const badge = el("span", { class: "toolbar-count hidden" });
+    const button = el("button", { type: "button", class: "bar-button bar-only", "aria-label": t("Filters"), title: t("Filters"),
+      "aria-controls": sheet.id, "aria-expanded": "false" }, icon("filter"), badge);
+    const isOpen = () => sheet.classList.contains("open");
+    const open = (state) => {
+      if (state === isOpen()) return;
+      sheet.classList.toggle("open", state);
+      button.setAttribute("aria-expanded", String(state));
+      covering();
+    };
+    button.addEventListener("click", () => open(!isOpen()));
+    document.addEventListener("pointerdown", (event) => {
+      if (isOpen() && !sheet.contains(event.target) && !button.contains(event.target) && !event.target.closest?.('[role="menu"], .menu-scrim')) open(false);
+    }, { signal: viewSignal() });
+    sheet.addEventListener("keydown", (event) => { if (event.key === "Escape" && isOpen()) { open(false); button.focus(); } });
+    const count = (n) => {
+      badge.textContent = String(n);
+      badge.classList.toggle("hidden", !n);
+      button.classList.toggle("on", n > 0);
+    };
+    return { button, open, isOpen, count };
+  }
+
+  /// A phone's way of following a page that grows at its foot (the Logs page, the Audit log), as a chat does: a pause
+  /// button for the page's bar (play once paused) and a round arrow over the bar while the page is away from its end,
+  /// back to it. `following()` and `setFollowing(on)` keep the state; `paint()` redraws the button after a change.
+  function followControls({ following, setFollowing }) {
+    const scroller = () => document.scrollingElement;
+    const away = () => scroller().scrollHeight - scroller().scrollTop - innerHeight;
+    const atEnd = () => away() < 40;
+    const toEnd = (smooth = false) => scroller().scrollTo({ top: scroller().scrollHeight,
+      behavior: smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches ? "smooth" : "auto" });
+    const button = el("button", { type: "button", class: "bar-button bar-only", "aria-label": t("Follow"), onclick: () => setFollowing(!following()) });
+    const paint = () => {
+      button.setAttribute("aria-pressed", String(following()));
+      button.title = following() ? t("Pause") : t("Follow");
+      button.replaceChildren(icon(following() ? "pause" : "play"));
+    };
+    const latest = el("button", { type: "button", class: "to-end", "aria-label": t("Go to the latest lines"), title: t("Go to the latest lines"),
+      onclick: () => { setFollowing(true); toEnd(true); } }, icon("arrowDown"));
+    const showLatest = () => latest.classList.toggle("shown", phone.matches && away() > 120);
+    addEventListener("scroll", () => { if (phone.matches) showLatest(); }, { passive: true, signal: viewSignal() });
+    paint();
+    return { button, latest, paint, atEnd, toEnd, showLatest };
   }
 
   /// Where floating UI opened from `anchor` goes: the open modal dialog it is in (an accessory's sheet), which is in the
@@ -12878,10 +12833,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function tabBar({ active, parent = document.body } = {}) {
     const existing = document.querySelector("nav.tabbar");
     if (existing) return existing;
+    // More lists the sections that are not tabs (`is-tab` hides the others there).
     const panel = el("div", { class: "mobile-nav-panel", id: "mobile-nav-panel", hidden: true }, sections.map(([path, text, glyph]) =>
-      el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
-    const toggle = el("button", { type: "button", class: "mobile-nav-toggle", "aria-label": t("Sections"), "aria-expanded": "false", "aria-controls": "mobile-nav-panel" });
-    toggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/></svg>';
+      el("a", { href: path, class: [path === active ? "active" : "", tabSections.has(path) ? "is-tab" : ""].filter(Boolean).join(" "),
+        "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
     // A phone's tab bar: the sections used most as tabs, an icon over its name each, and More for the others (the
     // panel, which also has Account and the Assistant).
     const more = el("button", { type: "button", class: "tabbar-more", "aria-controls": "mobile-nav-panel", "aria-expanded": "false" }, icon("more"), el("span", { text: t("More") }));
@@ -12891,7 +12846,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       more);
     const setOpen = (open) => {
       panel.hidden = !open;
-      toggle.setAttribute("aria-expanded", String(open));
       more.setAttribute("aria-expanded", String(open));
     };
     // The Assistant, when there is one: on a phone it has no button of its own over the page.
@@ -12905,19 +12859,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     panel.append(el("button", { type: "button", class: "mobile-nav-account", onclick: (event) => {
       event.stopPropagation();
       setOpen(false);
-      document.dispatchEvent(new CustomEvent("homeswift-account-menu", { detail: { trigger: toggle, keyboard: event.detail === 0 } }));
+      document.dispatchEvent(new CustomEvent("homeswift-account-menu", { detail: { trigger: more, keyboard: event.detail === 0 } }));
     } }, icon("user"), el("span", { text: t("Account") })));
     // Homeswift's section under Account, as at the side menu's foot; the page draws it (`.side-about`).
     panel.append(el("details", { class: "side-about mobile-nav-about", hidden: true }));
     const openPanel = () => { assistant.hidden = !window.HomeswiftChat?.available(); setOpen(panel.hidden); };
-    toggle.addEventListener("click", openPanel);
     more.addEventListener("click", openPanel);
     panel.addEventListener("click", (event) => { if (event.target.closest("a")) setOpen(false); });
-    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, toggle, tabs);
+    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, tabs);
     document.addEventListener("pointerdown", (event) => { if (!bar.contains(event.target)) setOpen(false); });
     bar.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") { setOpen(false); (more.offsetParent ? more : toggle).focus(); }
-      if ((event.target === toggle || event.target === more) && event.key === "ArrowUp") {
+      if (event.key === "Escape") { setOpen(false); more.focus(); }
+      if (event.target === more && event.key === "ArrowUp") {
         event.preventDefault(); setOpen(true); panel.querySelector("a:not(.hidden)")?.focus();
       }
     });
@@ -13104,31 +13057,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       event.preventDefault(); openSelectMenu(select, true);
     }
   });
-
-  // Reserve horizontal space only when a sticky save bar shares the floating menu's height.
-  let saveBarFrame = 0;
-  function updateSaveBarPosition() {
-    if (saveBarFrame) return;
-    saveBarFrame = requestAnimationFrame(() => {
-      saveBarFrame = 0;
-      const bars = document.querySelectorAll(".settings-bar");
-      if (!bars.length) return;
-      const toggle = document.querySelector(".mobile-nav-toggle");
-      const mobile = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches;
-      const menuRect = mobile && toggle ? toggle.getBoundingClientRect() : null;
-      bars.forEach((bar) => {
-        // Measured only beside a menu: a desktop page changing does not lay it out again.
-        if (!menuRect) { bar.classList.remove("beside-mobile-menu"); return; }
-        const rect = bar.getBoundingClientRect();
-        const beside = menuRect && menuRect.height > 0 && rect.bottom > menuRect.top && rect.top < menuRect.bottom;
-        bar.classList.toggle("beside-mobile-menu", Boolean(beside));
-      });
-    });
-  }
-  document.addEventListener("scroll", updateSaveBarPosition, { passive: true, capture: true });
-  window.addEventListener("resize", updateSaveBarPosition, { passive: true });
-  new MutationObserver(updateSaveBarPosition).observe(document.body, { childList: true, subtree: true });
-  updateSaveBarPosition();
 
   const decorateStaticActions = () => document.querySelectorAll("[data-action-icon]").forEach((node) => decorateAction(node, node.dataset.actionIcon));
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", decorateStaticActions);
@@ -13525,6 +13453,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   window.HomeswiftCommon = {
     foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
     openSheet, confirmAction,
+    phone, viewSignal, nextView, filtersToggle, followControls, menuOpen: () => Boolean(openMenu),
     $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -33197,7 +33126,7 @@ HomeswiftI18n.add("pt", {
         { label: t("Appearance"), icon: "sliders", href: "/appearance" },
         form && auth.admin ? { label: t("Users and tokens"), icon: "users", href: "/users" } : null,
         // Homeswift's health, version and updates, which the side menu holds on a wide window.
-        ...(matchMedia("(min-width: 641px) and (max-width: 1179.98px)").matches && aboutStatus ? [{ separator: true },
+        ...(!HomeswiftCommon.phone.matches && matchMedia("(max-width: 1179.98px)").matches && aboutStatus ? [{ separator: true },
           { heading: t("Homeswift {version}", { version: aboutStatus.version }), detail: healthOf(aboutStatus)[0] },
           auth.admin ? { label: aboutStatus.update?.available ? t("Update available") : t("Updates"), icon: "download", href: "/settings/updates" } : null,
           { label: t("Send feedback"), icon: "bug", onSelect: () => window.open("https://github.com/mp-consulting/homeswift/issues", "_blank", "noopener") }] : []),
@@ -36187,7 +36116,7 @@ header nav { min-width: 0; overflow-x: auto; scrollbar-width: none; }
 header nav::-webkit-scrollbar { display: none; }
 header nav a { flex: none; white-space: nowrap; }
 header .spacer { min-width: 0; }
-@media (min-width: 641px) and (max-width: 900px) {
+@media (min-width: 641px) and (max-width: 900px) and (min-height: 501px), (min-width: 641px) and (max-width: 900px) and (pointer: fine) {
   header { gap: var(--space-8); padding-left: var(--space-10); }
   header nav { flex: 1 1 auto; }
   header .spacer { display: none; }
@@ -37025,7 +36954,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.size-xlarge .w-footer > .chips { flex: 1; min-width: 0; margin: 0; padding: 2px var(--space-16) 2px 0; mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent); }
 .widget:not(.widget-full) .w-footer > .menu-button { flex: none; width: 36px; height: 36px; min-height: 36px; }
 .powered-off .w-footer > .chips { opacity: 0.55; }
-@media (max-width: 640px), (max-height: 500px) and (pointer: coarse), (pointer: coarse) {
+@media (max-width: 640px), (pointer: coarse) {
   .widget:not(.widget-full) .w-footer > .menu-button { width: 40px; height: 40px; min-height: 40px; }
 }
 .head-only { justify-content: center; }
@@ -37965,7 +37894,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumer-sparkline circle { fill: currentColor; }
 .consumer.nested .consumer-sparkline { color: color-mix(in srgb, var(--consumer-tone, var(--series-1)) 65%, var(--material-solid)); }
 .consumer.rest .consumer-sparkline { color: var(--muted); }
-@media (min-width: 641px) {
+@media (min-width: 641px) and (min-height: 501px), (min-width: 641px) and (pointer: fine) {
   .consumers { grid-template-columns: min(30%, var(--consumer-name-width, 11rem)) minmax(0, 1fr) min(8rem, var(--consumer-value-width, 8rem)) 16px 10px; column-gap: var(--space-8); padding-inline: var(--space-10); }
   .consumers > li { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; }
   .consumers .consumer { grid-column: 1 / -1; grid-template-columns: subgrid; padding-inline: 0; }
@@ -38668,7 +38597,6 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
     min-height: 54px; padding: var(--space-6) var(--space-8) var(--space-6) var(--space-16);
     flex-wrap: wrap; border-radius: var(--radius-xl);
   }
-  .settings-bar.beside-mobile-menu { margin-right: calc(70px + env(safe-area-inset-right)); }
   .settings-bar > span:first-child { flex-basis: 60px; }
   .settings-bar > button { flex-shrink: 0; }
   /* Revert as an icon, so the status, Revert and Save fit on one row beside the menu button. */
@@ -39080,8 +39008,8 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 .accessories-views > .subnav { margin: 0; min-width: 0; }
 /* Add accessories at the row's end; an icon alone at phone width, as in a toolbar. */
 .accessories-views .accessories-add { margin-left: auto; flex: none; min-height: 40px; }
-@media (max-width: 600px), (max-height: 500px) and (pointer: coarse) { .accessories-views > .subnav { flex: 1 1 0; width: auto; } }
-@media (max-width: 600px), (max-height: 500px) and (pointer: coarse) { .accessories-views .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .accessories-views > .subnav { flex: 1 1 0; width: auto; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .accessories-views .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; } }
 .accessories-views .accessory-options-button { display: grid; place-items: center; flex: none; width: 40px; height: 40px; min-height: 40px; padding: 0;
   color: var(--muted); background: var(--material-thin); box-shadow: none; }
 .accessories-views .accessory-options-button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; }
@@ -39526,7 +39454,7 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 .log-scope-row label > span, .log-scope-row .log-time > span { font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
 .log-scope-row select.popup { width: 100%; max-width: none; min-width: 0; }
 /* Intermediate widths use both columns instead of reserving a whole row for time. */
-@media (min-width: 641px) and (max-width: 1179px) {
+@media (min-width: 641px) and (max-width: 1179px) and (min-height: 501px), (min-width: 641px) and (max-width: 1179px) and (pointer: fine) {
   .log-filter-panel { gap: var(--space-12); padding: var(--space-16) var(--space-20); }
   .log-scope-row { grid-template-columns: minmax(0, 1fr) minmax(200px, .4fr); align-items: start; gap: var(--space-16); }
   .log-scope-row .log-time { grid-column: auto; }
@@ -39564,7 +39492,6 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 /* The count, Copy, Follow and the menu stay in reach while the page scrolls: under the floating header, solid so the
    lines do not show through. */
 .log-card > .log-action-bar { position: sticky; top: 76px; z-index: 2; background: var(--material-solid); }
-@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .log-card > .log-action-bar { top: calc(max(var(--space-8), env(safe-area-inset-top)) + 60px); } }
 .log-action-bar .count { font-variant-numeric: tabular-nums; font-size: var(--text-sm); }
 /* One line, whatever fits: the count gives way first, cut short, before a button would wrap under the others. */
 .log-card > .log-action-bar { flex-wrap: nowrap; }
@@ -39577,16 +39504,15 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 .log-level-row .log-level-count { margin-inline-start: var(--space-6); font-size: var(--text-sm); font-variant-numeric: tabular-nums; opacity: .6; }
 .log-level-row .group button.on .log-level-count { opacity: .85; }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
-  /* On a phone the filters take three short rows: the levels (the count under each name), the search with Clear
-     filters as an icon (only while there is something to clear), and the two menus side by side, named by their
-     aria-label rather than a caption. */
+  /* On a phone the filters are the bar's sheet (the text filter is in the bar): the levels (the count under each name),
+     what the lines are about with Clear filters as an icon beside it (only while there is something to clear), then the
+     time range; the menus named by their aria-label rather than a caption. */
   .log-filter-panel { padding: var(--space-12); gap: var(--space-10); }
   .log-level-row { gap: var(--space-8); }
   .log-level-row > .group { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex: 1 1 100%; border-radius: calc(var(--radius-md) + 3px); }
   .log-level-row > .group button { display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 0; padding: 5px var(--space-4); border-radius: var(--radius-md); line-height: 1.15; }
   .log-level-row .log-level-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
   .log-level-row .log-level-count { margin: 0; font-size: var(--text-2xs); }
-  .log-level-row .search { flex: 1 1 0; width: auto; max-width: none; min-width: 0; }
   .log-level-row .clear-filters { flex: none; width: 40px; height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; }
   .log-level-row .clear-filters:disabled { display: none; }
   /* The History sheet's periods and Clear filters on one row: the button round, its icon alone. */
@@ -39596,24 +39522,13 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .log-scope-row label { gap: 0; margin: 0; }
   .log-scope-row label > span, .log-scope-row .log-time > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .log-scope-row select.popup { margin: 0; padding-block: var(--space-8); }
-  /* Three rows rather than four, so the log starts higher: the levels, then the search and what the lines are about
-     side by side (Clear filters after them while there is something to clear), then the time range. */
-  .log-filter-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 9.5rem);
-    grid-template-areas: "levels levels" "search source" "range range"; column-gap: var(--space-8); }
-  .log-filter-panel:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) minmax(0, 9.5rem) auto;
-    grid-template-areas: "levels levels levels" "search source clear" "range range range"; }
+  .log-filter-panel { grid-template-columns: minmax(0, 1fr); grid-template-areas: "levels" "source" "range"; column-gap: var(--space-8); }
+  .log-filter-panel:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "levels levels" "source clear" "range range"; }
   .log-filter-panel > :is(.log-level-row, .log-scope-row) { display: contents; }
   .log-level-row > .group { grid-area: levels; }
-  .log-level-row .search { grid-area: search; }
   .log-level-row .clear-filters { grid-area: clear; }
   .log-scope-row > label { grid-area: source; min-width: 0; }
   .log-scope-row > .log-time { grid-area: range; min-width: 0; }
-  /* The action bar on one row: the count, then Copy as an icon, Follow and the menu (which has Save payloads). */
-  .log-card .log-action-bar { padding: var(--space-8) var(--space-12); gap: var(--space-8); }
-  .log-card .log-action-bar > .count { flex: 1 1 auto; }
-  /* The count may take two short lines rather than lose its end ("15 of 15 li…"). */
-  .log-card > .log-action-bar > .count { white-space: normal; overflow: visible; text-overflow: clip; font-size: var(--text-xs); line-height: 1.2; }
-  .log-card .log-action-bar > button.action-with-icon { width: 40px; height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; }
 }
 }
 
@@ -39985,63 +39900,44 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .accessories-toolbar .accessory-options-button { display: grid; place-items: center; width: 36px; height: 36px; color: var(--muted); background: var(--material-thin); box-shadow: none; }
 .accessories-toolbar .accessory-options-button svg { fill: none; stroke: currentColor; stroke-width: 1.6; width: 19px; height: 19px; }
 @media (max-width: 650px) { .group-picker-columns { grid-template-columns: 1fr; gap: var(--space-16); } .group-picker-columns .group-member-list { max-height: 25vh; } }
-@media (max-width: 600px), (max-height: 500px) and (pointer: coarse) { .accessories-toolbar { width: 100%; } .accessories-toolbar .search { flex: 1 1 100%; width: 100%; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .accessories-toolbar { width: 100%; } .accessories-toolbar .search { flex: 1 1 100%; width: 100%; } }
 /* Add accessories: its words where there is room, its plus alone beside the other round buttons on a phone. */
-@media (max-width: 600px), (max-height: 500px) and (pointer: coarse) { .accessories-toolbar .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .accessories-toolbar .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; } }
 
 /* The Accessories page's tools (accessoriesBar): the toolbar over the views, as far apart as when the toolbar sat in the
    page's head. Its search button is a phone's. */
 .page-head:has(+ .accessories-bar) { margin-bottom: var(--space-16); }
 .accessories-bar { display: grid; row-gap: var(--space-14); margin: 0 0 var(--space-18); }
 .accessories-bar > .accessories-views { margin: 0; }
-.accessories-bar .accessories-search-toggle { display: none; }
-/* A phone: the page's own bar, a glass capsule just above the tab bar, as a chat app puts its field: the options at its
-   start, the search across the middle, always there, then Filters with its count and Edit, and at its end the Assistant
-   (when there is one) in the accent, asked what is typed. The wall's Graph, Full screen and Add accessories are in the
-   options' menu; on the graph, the wall's button takes you back. It rises with the keyboard. */
+/* A phone: the page's bar (`.phone-bar`): the options at its start, the search across the middle, then Filters with its
+   count and Edit, and at its end the Assistant (when there is one) in the accent, asked what is typed. The wall's Graph,
+   Full screen and Add accessories are in the options' menu; on the graph, the wall's button takes you back. */
 .accessories-ask { display: none; }
-@media (max-width: 600px), (max-height: 500px) and (pointer: coarse) {
-  main:has(> .accessories-bar) { padding-bottom: calc(var(--tab-bar-top) + 56px + var(--space-24) + env(safe-area-inset-bottom)); }
-  .accessories-bar {
-    position: fixed; z-index: calc(var(--layer-tabbar) + 1); margin: 0; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
-    bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--keyboard, 0px));
-    display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-6); padding: 5px; border-radius: var(--radius-pill);
-    background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
-    border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
-  }
-  .page-head:has(+ .accessories-bar) { margin-bottom: var(--space-16); }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .accessories-bar > .accessories-toolbar, .accessories-bar > .accessories-views { display: contents; }
   .accessories-bar .subnav { order: 1; flex: none; width: auto; margin: 0; padding: 0; display: flex; background: none; border: 0; box-shadow: none; overflow: visible; mask-image: none; -webkit-mask-image: none; }
   .accessories-bar .subnav:has(> a:first-child.on), .accessories-bar .subnav > a.on { display: none; }
-  .accessories-bar .subnav a span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .accessories-bar .accessories-toolbar > * { order: 5; }
-  .accessories-bar .accessory-options-button.menu-button { order: 0; }
-  .accessories-bar .search { order: 2; }
-  .accessories-bar .accessories-filters { order: 3; }
-  .accessories-bar .accessories-edit { order: 4; }
-  .accessories-bar .accessories-ask { order: 6; }
-  .accessories-bar :is(.accessories-views, .accessories-toolbar) > :is(button, a):is(.accessories-full-screen, .in-menu-on-phone, .accessories-search-toggle),
+  .accessories-bar .subnav a span, .accessories-bar .accessories-filters .toolbar-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #app .accessories-bar .accessories-toolbar > * { order: 5; }
+  #app .accessories-bar .accessory-options-button.menu-button { order: 0; }
+  #app .accessories-bar .search { order: 2; }
+  #app .accessories-bar .accessories-filters { order: 3; }
+  #app .accessories-bar .accessories-edit { order: 4; }
+  #app .accessories-bar .accessories-ask { order: 6; }
+  .accessories-bar :is(.accessories-views, .accessories-toolbar) > :is(button, a):is(.accessories-full-screen, .in-menu-on-phone),
   .accessories-bar .accessories-toolbar > :is(button, a).hidden, .accessories-bar .accessories-ask[hidden] { display: none; }
-  /* The buttons: circles of a lighter tint inside the bar, the Assistant's in the accent. */
-  .accessories-bar .accessories-toolbar > :is(button, a), .accessories-bar .accessories-toolbar > .accessory-options-button, .accessories-bar .subnav a {
-    position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
-    border-radius: 50%; font-size: 0; flex: none; color: var(--text); border: 0; box-shadow: none; background: color-mix(in srgb, var(--text) 9%, transparent);
+  /* Its buttons are the bar's round ones (`.bar-button`'s look), the Assistant's in the accent. */
+  #app .accessories-bar .accessories-toolbar > :is(button, a), #app .accessories-bar .accessories-toolbar > .accessory-options-button, #app .accessories-bar .subnav a {
+    position: relative; display: flex; align-items: center; justify-content: center; width: var(--bar-control); height: var(--bar-control);
+    min-width: var(--bar-control); min-height: var(--bar-control); padding: 0; gap: 0; border-radius: 50%; font-size: 0; flex: none; color: var(--text); border: 0; box-shadow: none;
+    background: color-mix(in srgb, var(--text) 9%, transparent);
   }
-  .accessories-bar .accessories-toolbar > .accessories-ask { display: flex; background: var(--accent-fill); color: var(--accent-text); }
+  #app .accessories-bar .accessories-toolbar > .accessories-ask { display: flex; background: var(--accent-fill); color: var(--accent-text); }
   .accessories-bar .accessories-ask .sparkle { width: 22px; height: 22px; }
-  .accessories-bar :is(.accessories-filters.on, .accessories-edit[aria-pressed="true"]) { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
-  .accessories-bar .accessories-filters .toolbar-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .accessories-bar .accessories-filters .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill); font-size: var(--text-2xs); }
+  #app .accessories-bar :is(.accessories-filters.on, .accessories-edit[aria-pressed="true"]) { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
   .accessories-bar .accessories-toolbar button > svg, .accessories-bar .accessory-options-button svg, .accessories-bar .subnav svg { width: 21px; height: 21px; margin: 0; color: currentColor; opacity: 1; }
   .accessories-bar .accessories-edit.action-with-icon::before { width: 21px; height: 21px; margin: 0; }
-  /* The search: always there, the bar's field, without a box of its own; 16px, or iOS zooms the page in on focus. */
-  .accessories-bar .search { display: block; flex: 1 1 auto; min-width: 0; height: 44px; margin: 0; padding: 0 var(--space-8); border: 0; border-radius: var(--radius-pill);
-    background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
-  .accessories-bar .search:focus { outline: none; box-shadow: none; }
-  .accessories-bar :is(button, a) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
 }
-@keyframes accessories-search-in { from { opacity: 0; transform: translateY(6px); } }
-@media (prefers-reduced-motion: reduce) { .accessories-bar.searching .search { animation: none; } }
 /* Toolbar glyphs stay lighter than their labels. */
 .accessories-toolbar button > svg,
 .accessories-toolbar .accessory-options-button svg {
@@ -40110,22 +40006,11 @@ fieldset > .help { margin-bottom: var(--space-10); }
   .restart-overlay.restart-leaving, .restart-overlay.restart-leaving::backdrop { animation: none; }
 }
 
-/* A phone: the Assistant's button above the sections' button, the same 54px circle, in the thumb's reach (chat.js
-   moves it to this dock). Hidden while the app is (the sign-in screen). */
+/* A phone: chat.js keeps the Assistant's button out of the header in this dock; More's panel has the Assistant there. */
 .chat-dock { display: none; }
-@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
-  .chat-dock { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--float-button) + var(--space-10)); display: block; }
-  body:has(#app.hidden) .chat-dock { display: none; }
-  .chat-dock .chat-open { width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
-    -webkit-backdrop-filter: blur(20px) saturate(140%); backdrop-filter: blur(20px) saturate(140%); }
-  .chat-dock .chat-open .sparkle { width: 26px; height: 26px; }
-}
-/* Compact mobile navigation, anchored within thumb reach. */
+/* A phone's navigation (tabBar): More's panel, within thumb reach. */
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .tabbar { left: auto; right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); display: block; padding: 0; border: 0; background: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .mobile-nav-toggle { display: grid; place-items: center; width: var(--float-button); height: var(--float-button); min-height: var(--float-button); padding: 0; border-radius: 50%; color: var(--text); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
-  .mobile-nav-toggle svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-  .mobile-nav-toggle[aria-expanded="true"] { color: var(--accent-ink); }
   .mobile-nav-panel { position: absolute; bottom: 66px; right: 0; width: min(240px, calc(100vw - 28px)); max-height: calc(100dvh - 150px); overflow-y: auto; padding: var(--space-8); border-radius: var(--radius); background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
   .tabbar .mobile-nav-panel a { display: flex; align-items: center; justify-content: flex-start; gap: var(--space-12); min-height: 44px; padding: var(--space-10) var(--space-12); border-radius: var(--radius-md); font-size: var(--text-md); letter-spacing: normal; }
   .tabbar .mobile-nav-panel a.hidden { display: none; }
@@ -40134,8 +40019,6 @@ fieldset > .help { margin-bottom: var(--space-10); }
 }
 
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
-  .mobile-nav-toggle, .mobile-nav-toggle[aria-expanded="true"] { backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); background: linear-gradient(180deg, color-mix(in srgb, var(--accent-fill-top) 72%, transparent), color-mix(in srgb, var(--accent-fill) 72%, transparent)); color: var(--accent-text); border: 1px solid var(--edge-light); box-shadow: 0 6px 22px rgba(0,0,0,.28), 0 0 0 3px var(--material-solid); }
-  .mobile-nav-toggle svg { stroke-width: 2.2; }
   .mobile-nav-account { display: flex; align-items: center; gap: var(--space-12); width: 100%; min-height: 44px; padding: var(--space-10) var(--space-12); margin-top: 0; border-radius: var(--radius-md); color: var(--muted); background: transparent; border: 0; box-shadow: none; text-align: start; font-size: var(--text-md); font-weight: var(--weight-semibold); }
   .mobile-nav-account svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 }
@@ -40166,9 +40049,6 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .port-stepper-buttons button:hover { background: var(--material-regular); color: var(--accent-ink); }
 .port-stepper-buttons svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
-@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  .mobile-nav-toggle, .mobile-nav-toggle[aria-expanded="true"] { background: var(--accent-fill); backdrop-filter: none; -webkit-backdrop-filter: none; }
-}
 
 /* The Status page's Edit button: floating at the window's bottom right while the page scrolls; on a phone,
    at the page's end, clear of the menu button. */
@@ -40193,7 +40073,6 @@ fieldset > .help { margin-bottom: var(--space-10); }
    size, within thumb reach; its words stay its accessible name. */
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .status-footer { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--float-button) + var(--space-10)); margin: 0; }
-  body:has(.chat-dock) .status-footer { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 2 * (var(--float-button) + var(--space-10))); }
   .status-footer > .link { color: var(--text); box-shadow: var(--shadow-thick); }
   /* Room at the page's end, so its last card scrolls clear of the button. */
   #app > main:has(> .status-footer)::after { content: ""; display: block; height: calc(var(--float-button) + var(--space-10)); }
@@ -41422,16 +41301,13 @@ html.wall-full:not(.wall-awake) .wall-full-chrome button { opacity: 0.32; }
   -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
 }
 /* At the bottom right on every screen, in the thumb's reach and off the first widgets: Filters, then Leave full screen
-   above it; on a phone the Assistant's button at the bottom and these above it. The page dots sit centred on the
-   bottom button's line. */
+   above it. The page dots sit centred on the bottom button's line. */
 html.wall-full {
   --wall-edge: max(var(--space-16), env(safe-area-inset-right)); --wall-base: max(var(--space-16), env(safe-area-inset-bottom));
   --wall-stack: var(--wall-base);
 }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   html.wall-full { --wall-edge: max(14px, env(safe-area-inset-right)); --wall-base: max(14px, env(safe-area-inset-bottom)); }
-  html.wall-full .chat-dock { right: var(--wall-edge); bottom: var(--wall-base); }
-  html.wall-full:has(.chat-dock) { --wall-stack: calc(var(--wall-base) + var(--float-button) + var(--space-10)); }
 }
 .wall-full-options { right: var(--wall-edge); bottom: var(--wall-stack); }
 .wall-full-exit { right: var(--wall-edge); bottom: calc(var(--wall-stack) + var(--float-button) + var(--space-10)); }
@@ -41844,7 +41720,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
   min-height: 36px; padding: 0; border-radius: 50%; display: grid; place-items: center; color: var(--text);
   background: var(--material-thick, var(--material-solid)); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: var(--shadow-control); }
 .energy-values-toggle svg { width: 20px; height: 20px; }
-@media (pointer: coarse), (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .energy-values-toggle { width: 40px; height: 40px; min-width: 40px; min-height: 40px; } }
+@media (pointer: coarse), (max-width: 640px) { .energy-values-toggle { width: 40px; height: 40px; min-width: 40px; min-height: 40px; } }
 .energy-values-toggle.on { color: #fff; background: var(--accent); }
 .energy-house.diagram .energy-values-toggle, .energy-house:not(.photo):not(.simple) .energy-values-toggle { display: none; }
 
@@ -42372,26 +42248,17 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .plugins-settings-actions > .button > svg { flex: 0 0 18px; width: 18px; height: 18px; }
 @media (hover: hover) { .plugins-settings-actions > .button:hover { background: color-mix(in srgb, var(--accent) 8%, var(--material-solid)); } }
 
-@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
-  .plugins-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: var(--space-12); gap: var(--space-10); }
-  .plugins-toolbar .plugins-filters { grid-column: 1 / -1; }
-  .plugins-toolbar .search { width: 100%; min-width: 0; }
-  .plugins-toolbar .clear-filters { width: 40px; height: 40px; min-height: 40px; padding: 0; font-size: 0; gap: 0; }
-}
 /* Reset never creates an otherwise empty toolbar row. */
 .plugins-toolbar .clear-filters:disabled { display: none; }
 .plugins-toolbar .clear-filters { flex: 0 0 40px; width: 40px; height: 40px; min-height: 40px; padding: 0; margin: 0; gap: 0; font-size: 0; border-radius: 50%; }
-@media (min-width: 641px) and (max-width: 1100px) {
+@media (min-width: 641px) and (max-width: 1100px) and (min-height: 501px), (min-width: 641px) and (max-width: 1100px) and (pointer: fine) {
   .plugins-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: var(--space-10); }
   .plugins-toolbar .plugins-filters { grid-column: 1 / -1; }
   .plugins-toolbar .search { width: 100%; min-width: 0; }
   .plugins-toolbar:has(.clear-filters:disabled) .search { grid-column: 1 / -1; }
 }
-@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
-  .plugins-toolbar:has(.clear-filters:disabled) .search { grid-column: 1 / -1; }
-}
 /* Status and count occupy the middle of the list instead of stacking under names. */
-@media (min-width: 641px) {
+@media (min-width: 641px) and (min-height: 501px), (min-width: 641px) and (pointer: fine) {
   .plugins-row { grid-template-columns: 40px minmax(0, 1fr) minmax(90px, .35fr) minmax(90px, .35fr) auto; gap: var(--space-12); padding-block: var(--space-12); }
   .plugins-row > .tile { grid-column: 1; grid-row: 1; }
   .plugins-identity { grid-column: 2; grid-row: 1; }
@@ -42623,14 +42490,21 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .widget-climate .climate-airflow .climate-swing.action-with-icon { width: var(--airflow-size); height: var(--airflow-size); min-height: var(--airflow-size); }
 
 /* A phone: a tab bar along the bottom, as iOS has it: the sections used most as tabs (an icon over its name, the current
-   one in a darker pill) and More for the others, Account and the Assistant. A page's own actions float just above its
-   right end (`--tab-bar-top`), each its own glass. */
+   one in a darker pill) and More for the others, Account and the Assistant. */
 .tabbar-tabs { display: none; }
-.log-filters-toggle, .log-to-end, .log-follow-button, .audit-to-end, .audit-follow-button { display: none; }
-:root { --tab-bar-top: calc(max(14px, env(safe-area-inset-bottom)) + 66px); --float-action: 48px; }
+/* A page's bar on a phone (`.phone-bar`: HomeswiftCommon.filtersToggle, followControls) and what it alone shows. */
+.bar-only, .to-end { display: none; }
+:root {
+  --tab-bar-top: calc(max(14px, env(safe-area-inset-bottom)) + 66px); --float-action: 48px;
+  /* The page's bar over the tab bar: its round controls' size, its height (a control, its padding and border) and where
+     it sits; what it opens and the arrow back to the end sit over it (`--page-bar-top`). */
+  --bar-control: 44px; --page-bar-padding: 5px;
+  --page-bar-height: calc(var(--bar-control) + 2 * var(--page-bar-padding) + 2px);
+  --page-bar-bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--keyboard, 0px));
+  --page-bar-top: calc(var(--page-bar-bottom) + var(--page-bar-height));
+}
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .tabbar { left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); }
-  .tabbar .mobile-nav-toggle { display: none; }
   .tabbar-tabs { display: flex; gap: 2px; padding: 5px; border-radius: var(--radius-pill); background-color: var(--material-chrome); background-image: var(--sheen);
     -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light); }
@@ -42642,166 +42516,85 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .tabbar .tabbar-tabs > a.active, .tabbar .tabbar-more[aria-expanded="true"] { background: color-mix(in srgb, var(--text) 12%, transparent); color: var(--accent-ink); }
   .tabbar .tabbar-tabs > :is(a, button):active { background: color-mix(in srgb, var(--text) 8%, transparent); }
   .tabbar .mobile-nav-panel { right: 0; left: auto; bottom: 74px; }
-  /* The Logs page: the log is the page, scrolled as the page is, under its title alone; its actions are one glass bar
-     over the tab bar (the menu, the text filter, Filters, Follow as pause and play, the Assistant), and the other filters a sheet above it. */
-  main:has(> .log-card) .page-head p { display: none; }
-  #app > main:has(> .log-card) { padding-bottom: calc(var(--tab-bar-top) + 56px + var(--space-24)); }
-  .log-card { overflow: visible; padding: 0; background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
-  /* The newest line sits just above the bar, as in a chat: the log is at least the screen's height left under the title,
-     its lines at its foot, so a short log grows upwards from the bar and new lines arrive beside it. */
-  .log-card > .log { display: flex; flex-direction: column; justify-content: flex-end; height: auto; overflow: visible;
-    min-height: calc(100dvh - var(--tab-bar-top) - 56px - var(--space-24) - 150px); padding: var(--space-12) var(--space-14); border: 1px solid var(--edge); border-radius: var(--radius-lg); }
-  .log-card > .log > .log-loading { flex: 1; }
-  html .log-card > .log-action-bar {
+  /* Open, More's panel covers the page's bar rather than slipping under it; it lists the sections that are not tabs. */
+  .tabbar:has(> .mobile-nav-panel:not([hidden])) { z-index: var(--layer-panel); }
+  .tabbar .mobile-nav-panel a.is-tab { display: none; }
+  .tabbar .mobile-nav-assistant .sparkle { width: 21px; height: 21px; }
+  #app > main { padding-bottom: calc(var(--tab-bar-top) + var(--space-24)); }
+
+  /* A page's bar: one glass capsule over the tab bar, its search across it (16px, or iOS zooms the page in on focus),
+     its buttons tinted circles (the one that adds or asks in the accent, one switched on tinted with it), a badge on
+     Filters; it rises with the keyboard. #app outweighs the toolbars' own rules on wider windows. */
+  #app > main:has(.phone-bar) { padding-bottom: calc(var(--page-bar-top) + var(--space-24)); }
+  #app .phone-bar {
     position: fixed; z-index: calc(var(--layer-tabbar) + 1); top: auto; margin: 0; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
-    bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--keyboard, 0px));
-    display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-6); padding: 5px; border-radius: var(--radius-pill);
+    bottom: var(--page-bar-bottom); display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-6); padding: var(--page-bar-padding);
+    border: 1px solid var(--edge); border-radius: var(--radius-pill);
     background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
-    border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
+    box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
   }
-  .log-action-bar > .menu-button { order: 0; }
-  .log-action-bar > .search { order: 1; }
-  .log-action-bar > .log-filters-toggle { order: 2; }
-  .log-action-bar > .ai-button { order: 4; }
-  html .log-action-bar > :is(button, .menu-button) {
-    position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
-    border-radius: 50%; flex: none; color: var(--text); border: 0; box-shadow: none; background: color-mix(in srgb, var(--text) 9%, transparent);
+  #app .phone-bar .search { order: 1; display: block; flex: 1 1 0; width: auto; max-width: none; min-width: 0; height: var(--bar-control); margin: 0; padding: 0 var(--space-8) 0 var(--space-14);
+    border: 0; border-radius: var(--radius-pill); background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
+  #app .phone-bar .search:focus { outline: none; box-shadow: none; }
+  #app .phone-bar .bar-button {
+    order: 2; position: relative; display: flex; align-items: center; justify-content: center; width: var(--bar-control); height: var(--bar-control);
+    min-width: var(--bar-control); min-height: var(--bar-control); padding: 0; gap: 0; flex: none; font-size: 0; border: 0; border-radius: 50%; box-shadow: none;
+    color: var(--text); background: color-mix(in srgb, var(--text) 9%, transparent);
   }
-  html .log-action-bar > .ai-button { background: var(--accent-fill); color: var(--accent-text); }
-  html .log-action-bar > :is(.ai-button.hidden, .count, .spacer, .log-copy, .save-payloads, .log-follow) { display: none; }
-  .log-action-bar > .log-filters-toggle.on { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
-  .log-action-bar > :is(.log-filters-toggle, .log-follow-button) svg { width: 21px; height: 21px; }
-  .log-action-bar > .log-follow-button { order: 3; }
-  .log-action-bar > .log-follow-button[aria-pressed="true"] { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
-  .log-action-bar .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill);
-    display: grid; place-items: center; font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
-  .log-action-bar .toolbar-count.hidden { display: none; }
-  /* The search: the bar's field, without a box of its own; 16px, or iOS zooms the page in on focus. */
-  html .log-card > .log-action-bar > .search { display: block; flex: 1 1 0; width: auto; max-width: none; min-width: 0; height: 44px; margin: 0; padding: 0 var(--space-8); border: 0;
-    border-radius: var(--radius-pill); background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
-  .log-card > .log-action-bar > .search:focus { outline: none; box-shadow: none; }
-  /* Back to the latest lines: a round glass button centred over the bar, there only while the page is away from its end. */
-  :is(.log-card, main) > :is(.log-to-end, .audit-to-end) {
-    display: grid; place-items: center; position: fixed; z-index: calc(var(--layer-tabbar) + 1); left: 50%; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0;
-    bottom: calc(var(--tab-bar-top) + var(--space-10) + 56px + var(--space-12) + var(--keyboard, 0px)); border-radius: 50%; color: var(--text);
+  #app .phone-bar .bar-button:is(.on, [aria-pressed="true"]) { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  #app .phone-bar .bar-button.accent { color: var(--accent-text); background: var(--accent-fill); }
+  #app .phone-bar .bar-button svg { width: 21px; height: 21px; margin: 0; }
+  #app .phone-bar .toolbar-count { position: absolute; top: -3px; right: -3px; display: grid; place-items: center; min-width: 17px; height: 17px; padding: 0 var(--space-4);
+    border-radius: var(--radius-pill); font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
+  #app .phone-bar :is(button, a) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+  /* What Filters opens: a sheet over the bar, closed until then; within the bar itself (the Plugins page's states), just above it. */
+  #app .phone-sheet:not(.open) { display: none; }
+  #app .phone-sheet.open {
+    display: grid; position: fixed; z-index: calc(var(--layer-tabbar) + 2); margin: 0; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
+    bottom: calc(var(--page-bar-top) + var(--space-10)); max-height: calc(100dvh - var(--page-bar-top) - 100px); overflow-y: auto;
+    padding: var(--space-16); border: 1px solid var(--edge); border-radius: var(--radius-lg); background: var(--material-solid); box-shadow: var(--shadow-thick);
+  }
+  #app .phone-bar > .phone-sheet.open { position: absolute; left: 0; right: 0; bottom: calc(100% + var(--space-10)); padding: var(--space-8); }
+  /* Back to the end: a round glass button centred over the bar, there only while the page is away from it. */
+  #app .to-end {
+    display: grid; place-items: center; position: fixed; z-index: calc(var(--layer-tabbar) + 1); left: 50%; width: var(--bar-control); height: var(--bar-control);
+    min-width: var(--bar-control); min-height: var(--bar-control); padding: 0; bottom: calc(var(--page-bar-top) + var(--space-12)); border-radius: 50%; color: var(--text);
     background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
     opacity: 0; pointer-events: none; transform: translateX(-50%) scale(.85); transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out);
   }
-  :is(.log-card, main) > :is(.log-to-end, .audit-to-end).shown { opacity: 1; pointer-events: auto; transform: translateX(-50%); }
-  :is(.log-card, main) > :is(.log-to-end, .audit-to-end) svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .log-card.filters-open > .log-to-end { opacity: 0; pointer-events: none; }
-  main:has(> .audit-filters.open) > .audit-to-end { opacity: 0; pointer-events: none; }
-  @media (prefers-reduced-motion: reduce) { :is(.log-card, main) > :is(.log-to-end, .audit-to-end), :is(.log-card, main) > :is(.log-to-end, .audit-to-end).shown { transform: translateX(-50%); transition: opacity 160ms linear; } }
-  .log-card > .log-filter-panel { display: none; }
-  /* In the sheet, the text filter is in the bar: the levels, what the lines are about (Clear filters beside it while
-     there is something to clear), then the time range. */
-  html .log-card > .log-filter-panel { grid-template-columns: minmax(0, 1fr); grid-template-areas: "levels" "source" "range"; }
-  html .log-card > .log-filter-panel:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "levels levels" "source clear" "range range"; }
-  .log-card.filters-open > .log-filter-panel {
-    display: grid; position: fixed; z-index: calc(var(--layer-tabbar) + 2); left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
-    bottom: calc(var(--tab-bar-top) + var(--space-10) + 56px + var(--space-10) + var(--keyboard, 0px)); max-height: calc(100dvh - var(--tab-bar-top) - 180px); overflow-y: auto;
-    padding: var(--space-16); border-radius: var(--radius-lg); background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
-  }
-  /* Open, More's panel covers the page's bar of actions above the tabs rather than slipping under it. */
-  .tabbar:has(> .mobile-nav-panel:not([hidden])) { z-index: var(--layer-panel); }
-  /* More lists the sections that are not tabs. */
-  .tabbar .mobile-nav-panel a:is([href="/status"], [href="/accessories"], [href="/automations"]) { display: none; }
-  .tabbar .mobile-nav-assistant .sparkle { width: 21px; height: 21px; }
-  .chat-dock { display: none; }
-  #app > main { padding-bottom: calc(var(--tab-bar-top) + var(--space-24)); }
-  /* The Status page's button floats over the tab bar's end, as the Accessories page's actions do. */
-  .status-footer, body:has(.chat-dock) .status-footer { right: max(14px, env(safe-area-inset-right)); bottom: calc(var(--tab-bar-top) + var(--space-10)); }
-  .status-footer > .link { width: var(--float-action); height: var(--float-action); min-width: var(--float-action); min-height: var(--float-action);
-    background-color: var(--material-chrome); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
-    border: 1px solid var(--edge); }
-  #app > main:has(> .status-footer)::after { height: calc(var(--float-action) + var(--space-10)); }
-  .dash-edit-bar { left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: calc(var(--tab-bar-top) + var(--space-10)); }
-  /* Room under the last card for the arranging bar and the tab bar both. */
-  .dash-editing { padding-bottom: calc(var(--tab-bar-top) + var(--space-10) + 64px); }
-}
-@media (prefers-reduced-motion: reduce) { .tabbar .tabbar-tabs > :is(a, button) { transition: none; } }
+  #app .to-end.shown { opacity: 1; pointer-events: auto; transform: translateX(-50%); }
+  #app:has(.phone-sheet.open) .to-end { opacity: 0; pointer-events: none; }
+  #app .to-end svg, #app .phone-bar .bar-button[aria-pressed] svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  #app .to-end svg { width: 22px; height: 22px; }
 
-/* The Plugins page on a phone, as the Logs page: its title alone, one glass bar above the tab bar (the search, Filters with
-   the states in a sheet over it, a round Add), and each plugin's Open a round button. */
-.plugins-filters-toggle, .plugins-add-round { display: none; }
-@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  /* The Logs page: the log is the page, scrolled as the page is, under its title alone; its bar has the menu, the text
+     filter, Filters, Follow and the Assistant, and the other filters are its sheet. */
+  main:has(> .log-card) .page-head p { display: none; }
+  .log-card { overflow: visible; padding: 0; background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  /* The newest line sits just above the bar, as in a chat: the log is at least the screen's height left under the title,
+     its lines at its foot, so a short log grows upwards from the bar and new lines arrive beside it. */
+  .log-card > .log { display: flex; flex-direction: column; justify-content: flex-end; height: auto; overflow: visible;
+    min-height: calc(100dvh - var(--page-bar-top) - var(--space-24) - 150px); padding: var(--space-12) var(--space-14); border: 1px solid var(--edge); border-radius: var(--radius-lg); }
+  .log-card > .log > .log-loading { flex: 1; }
+  #app .log-action-bar > .menu-button { order: 0; }
+  #app .log-action-bar > .ai-button { order: 3; }
+  #app .log-action-bar > :is(.count, .spacer, .log-copy, .save-payloads, .log-follow, .ai-button.hidden) { display: none; }
+
+  /* The Plugins page: its title alone; the search, Filters (the states, one per line) and a round Add in its bar; each
+     plugin's Open a round button, its name kept for assistive technology. */
   main:has(> .plugins-toolbar) .page-head p, main:has(> .plugins-toolbar) .plugins-heading > .primary { display: none; }
-  #app > main:has(> .plugins-toolbar) { padding-bottom: calc(var(--tab-bar-top) + 56px + var(--space-24)); }
-  html main > .plugins-toolbar {
-    position: fixed; z-index: calc(var(--layer-tabbar) + 1); margin: 0; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
-    bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--keyboard, 0px));
-    display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-6); padding: 5px; border: 1px solid var(--edge); border-radius: var(--radius-pill);
-    background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
-    box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
-  }
-  html main > .plugins-toolbar > .search { order: 1; display: block; flex: 1 1 0; width: auto; max-width: none; min-width: 0; height: 44px; margin: 0; padding: 0 var(--space-8) 0 var(--space-14);
-    border: 0; border-radius: var(--radius-pill); background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
-  main > .plugins-toolbar > .search:focus { outline: none; box-shadow: none; }
-  html main > .plugins-toolbar > .clear-filters { display: none; }
-  html main > .plugins-toolbar > :is(.plugins-filters-toggle, .plugins-add-round) {
-    position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
-    flex: none; border: 0; border-radius: 50%; box-shadow: none; color: var(--text); background: color-mix(in srgb, var(--text) 9%, transparent);
-  }
-  main > .plugins-toolbar > .plugins-filters-toggle { order: 2; }
-  main > .plugins-toolbar > .plugins-filters-toggle.on { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
-  html main > .plugins-toolbar > .plugins-add-round { order: 3; background: var(--accent-fill); color: var(--accent-text); }
-  main > .plugins-toolbar svg { width: 21px; height: 21px; }
-  main > .plugins-toolbar .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill);
-    display: grid; place-items: center; font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
-  /* The states: a sheet over the bar while Filters is open, one per line. */
-  html main > .plugins-toolbar > .plugins-filters { display: none; }
-  html main > .plugins-toolbar.filters-open > .plugins-filters {
-    display: grid; grid-template-columns: minmax(0, 1fr); position: absolute; left: 0; right: 0; bottom: calc(100% + var(--space-10)); gap: 2px; padding: var(--space-8);
-    border: 1px solid var(--edge); border-radius: var(--radius-lg); background: var(--material-solid); box-shadow: var(--shadow-thick);
-  }
-  html main > .plugins-toolbar.filters-open > .plugins-filters button { justify-content: flex-start; gap: var(--space-12); min-height: 44px; padding: var(--space-10) var(--space-12);
+  #app main > .plugins-toolbar > .clear-filters { display: none; }
+  #app main > .plugins-toolbar > .plugins-filters { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  #app main > .plugins-toolbar > .plugins-filters button { justify-content: flex-start; gap: var(--space-12); min-height: 44px; padding: var(--space-10) var(--space-12);
     border-radius: var(--radius-md); font-size: var(--text-md); }
-  /* A plugin's Open: a round button, its name kept for assistive technology. */
   .plugins-row .plugins-open { width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; border-radius: 50%; justify-content: center; }
   .plugins-row .plugins-open.action-with-icon::before { margin: 0; }
-}
 
-/* The Audit log on a phone, as the Logs page: its title and the settings' tabs; the search and Filters in one glass bar
-   above the tab bar, Filters opening the filters card as a sheet over it; each entry a short card rather than a table row. */
-.audit-bar, .audit-filters-toggle { display: none; }
-@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  /* The Audit log: its title and the settings' tabs; the search, Filters (the filters card) and Follow in its bar; each
+     entry a short card rather than a table row: what was done and its outcome, who, when, then its details. */
   main:has(> .audit-bar) .page-head p { display: none; }
-  #app > main:has(> .audit-bar) { padding-bottom: calc(var(--tab-bar-top) + 56px + var(--space-24)); }
-  main > .audit-bar {
-    position: fixed; z-index: calc(var(--layer-tabbar) + 1); left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
-    bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--keyboard, 0px));
-    display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-6); padding: 5px; border: 1px solid var(--edge); border-radius: var(--radius-pill);
-    background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
-    box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
-  }
-  html main > .audit-bar > .search { order: 1; display: block; flex: 1 1 0; width: auto; max-width: none; min-width: 0; height: 44px; margin: 0; padding: 0 var(--space-8) 0 var(--space-14);
-    border: 0; border-radius: var(--radius-pill); background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
-  main > .audit-bar > .search:focus { outline: none; box-shadow: none; }
-  html main > .audit-bar > .audit-follow-button {
-    order: 3; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
-    flex: none; border: 0; border-radius: 50%; box-shadow: none; color: var(--text); background: color-mix(in srgb, var(--text) 9%, transparent);
-  }
-  main > .audit-bar > .audit-follow-button[aria-pressed="true"] { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
-  html main > .audit-bar > .audit-filters-toggle {
-    order: 2; position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
-    flex: none; border: 0; border-radius: 50%; box-shadow: none; color: var(--text); background: color-mix(in srgb, var(--text) 9%, transparent);
-  }
-  main > .audit-bar > .audit-filters-toggle.on { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
-  main > .audit-bar svg { width: 21px; height: 21px; }
-  main > .audit-bar > .audit-follow-button svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  main > .audit-bar .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill);
-    display: grid; place-items: center; font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
-  /* The filters: a sheet over the bar while Filters is open. */
-  main:has(> .audit-bar) > .audit-filters { display: none; }
-  main:has(> .audit-bar) > .audit-filters.open {
-    display: block; position: fixed; z-index: calc(var(--layer-tabbar) + 2); margin: 0; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
-    bottom: calc(var(--tab-bar-top) + var(--space-10) + 56px + var(--space-10) + var(--keyboard, 0px)); max-height: calc(100dvh - var(--tab-bar-top) - 180px); overflow-y: auto;
-    padding: var(--space-16); border: 1px solid var(--edge); border-radius: var(--radius-lg); background: var(--material-solid); box-shadow: var(--shadow-thick);
-  }
-  main:has(> .audit-bar) .audit-filter-grid { grid-template-columns: minmax(0, 1fr); }
-  main:has(> .audit-bar) .audit-search { grid-template-columns: minmax(0, 1fr); }
-  /* Each entry a short card: what was done and its outcome, who, when, then its details. */
+  main:has(> .audit-bar) .audit-filter-grid, main:has(> .audit-bar) .audit-search { grid-template-columns: minmax(0, 1fr); }
   main:has(> .audit-bar) .audit-results .data-table, main:has(> .audit-bar) .audit-results .data-table tbody { display: block; }
   main:has(> .audit-bar) .audit-results .data-table thead { display: none; }
   main:has(> .audit-bar) .audit-results .data-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "what outcome" "who who" "time time" "details details";
@@ -42814,37 +42607,39 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   main:has(> .audit-bar) .audit-results .data-table td:nth-child(4) { grid-area: outcome; align-self: start; }
   main:has(> .audit-bar) .audit-results .data-table td:nth-child(5) { grid-area: details; }
   main:has(> .audit-bar) .audit-results .data-table td:nth-child(5):empty { display: none; }
-  /* Its details' JSON across the card, not held to the table column's width. */
+  /* Its details' JSON across the card, not held to the table column's width; no box of its own to scroll. */
   main:has(> .audit-bar) .audit-results .data-table td.audit-details { max-width: none; }
   main:has(> .audit-bar) .audit-details pre.json { min-width: 0; max-width: none; width: 100%; box-sizing: border-box; }
   main:has(> .audit-bar) .audit-results .table-scroll { overflow: visible; max-height: none; }
+
+  /* The Status page's button floats over the tab bar's end, as the Accessories page's actions do. */
+  .status-footer { right: max(14px, env(safe-area-inset-right)); bottom: calc(var(--tab-bar-top) + var(--space-10)); }
+  .status-footer > .link { width: var(--float-action); height: var(--float-action); min-width: var(--float-action); min-height: var(--float-action);
+    background-color: var(--material-chrome); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); }
+  #app > main:has(> .status-footer)::after { height: calc(var(--float-action) + var(--space-10)); }
+  .dash-edit-bar { left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: calc(var(--tab-bar-top) + var(--space-10)); }
+  /* Room under the last card for the arranging bar and the tab bar both. */
+  .dash-editing { padding-bottom: calc(var(--tab-bar-top) + var(--space-10) + 64px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tabbar .tabbar-tabs > :is(a, button) { transition: none; }
+  #app .to-end, #app .to-end.shown { transform: translateX(-50%); transition: opacity 160ms linear; }
 }
 
 /* A phone held sideways keeps the phone's layout with less height to spend, as iOS does: a compact tab bar (each icon
-   beside its name), and the header scrolls away with the page rather than floating over it. */
+   beside its name), smaller controls in a page's bar, and the header scrolls away with the page rather than floating
+   over it. */
 @media (max-height: 500px) and (pointer: coarse) {
-  :root { --tab-bar-top: calc(max(8px, env(safe-area-inset-bottom)) + 46px); }
+  :root { --tab-bar-top: calc(max(8px, env(safe-area-inset-bottom)) + 46px); --bar-control: 40px; --page-bar-padding: 3px; }
   .tabbar { bottom: max(8px, env(safe-area-inset-bottom)); }
   .tabbar-tabs { padding: 3px; }
   .tabbar .tabbar-tabs > :is(a, button) { flex-direction: row; gap: var(--space-8); min-height: 38px; padding: var(--space-4) var(--space-8); font-size: var(--text-sm); }
   .tabbar .tabbar-tabs svg { width: 21px; height: 21px; }
   .tabbar .mobile-nav-panel { bottom: 52px; max-height: calc(100dvh - 80px); }
   header { position: relative; top: 0; }
-  html .log-card > .log-action-bar, .accessories-bar, html main > .plugins-toolbar, main > .audit-bar { padding: 3px; }
-  html main > .audit-bar > :is(.audit-filters-toggle, .audit-follow-button) { width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
-  html main > .audit-bar > .search { height: 40px; }
-  #app > main:has(> .audit-bar) { padding-bottom: calc(var(--tab-bar-top) + 48px + var(--space-24)); }
-  main:has(> .audit-bar) > .audit-filters.open { bottom: calc(var(--tab-bar-top) + var(--space-10) + 48px + var(--space-10)); max-height: calc(100dvh - var(--tab-bar-top) - 80px); }
-  html main > .plugins-toolbar > :is(.plugins-filters-toggle, .plugins-add-round) { width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
-  html main > .plugins-toolbar > .search { height: 40px; }
-  #app > main:has(> .plugins-toolbar) { padding-bottom: calc(var(--tab-bar-top) + 48px + var(--space-24)); }
-  html .log-action-bar > :is(button, .menu-button), .accessories-bar .accessories-toolbar > :is(button, a), .accessories-bar .accessories-toolbar > .accessory-options-button {
-    width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
-  html .log-card > .log-action-bar > .search, .accessories-bar .search { height: 40px; }
-  #app > main:has(> .log-card), main:has(> .accessories-bar) { padding-bottom: calc(var(--tab-bar-top) + 48px + var(--space-24)); }
-  .log-card > .log { min-height: calc(100dvh - var(--tab-bar-top) - 48px - var(--space-24) - 70px); }
-  :is(.log-card, main) > :is(.log-to-end, .audit-to-end) { bottom: calc(var(--tab-bar-top) + var(--space-10) + 48px + var(--space-10)); }
-  .log-card.filters-open > .log-filter-panel { bottom: calc(var(--tab-bar-top) + var(--space-10) + 48px + var(--space-10)); max-height: calc(100dvh - var(--tab-bar-top) - 80px); }
+  .log-card > .log { min-height: calc(100dvh - var(--page-bar-top) - var(--space-24) - 70px); }
+  #app .phone-sheet.open { max-height: calc(100dvh - var(--page-bar-top) - 20px); }
 }
 
 """#),
@@ -45313,7 +45108,7 @@ self.addEventListener("notificationclick", (event) => {
     if (options.tab === "history" && tabList) choose("history");
     done.addEventListener("click", () => dialog.close());
     // On a phone a swipe down from the grabber or the name puts the sheet away, from where the finger left it.
-    if (matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches) {
+    if (HomeswiftCommon.phone.matches) {
       node.prepend(el("div", { class: "sheet-grabber", "aria-hidden": "true" }));
       const dismiss = () => {
         const from = getComputedStyle(dialog).transform;
