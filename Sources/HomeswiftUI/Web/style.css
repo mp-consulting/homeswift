@@ -1296,9 +1296,9 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .thermometer-dial .band { fill: none; stroke-width: 11; stroke-linecap: butt; }
 .thermometer-dial line.minor { stroke: color-mix(in srgb, var(--text) 40%, transparent); stroke-width: 1; }
 .thermometer-dial line.major { stroke: color-mix(in srgb, var(--text) 80%, transparent); stroke-width: 1.8; }
-.thermometer-dial .mark-number { fill: var(--text); font-size: 12px; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
+.thermometer-dial .mark-number { fill: var(--text); font-size: 9.5px; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
 .thermometer-dial .inner-tick { stroke-width: 1.4; }
-.thermometer-dial .inner-number { font-size: 10px; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
+.thermometer-dial .inner-number { font-size: 9px; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
 .thermometer-dial .unit { fill: var(--text); font-size: 14px; font-weight: var(--weight-semibold); }
 .thermometer-dial .unit.inner { font-size: 13px; }
 .thermometer-dial .needle { transform-box: view-box; transform-origin: 100px 100px; transition: transform 600ms var(--ease-out), opacity var(--fast); }

@@ -36981,9 +36981,9 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .thermometer-dial .band { fill: none; stroke-width: 11; stroke-linecap: butt; }
 .thermometer-dial line.minor { stroke: color-mix(in srgb, var(--text) 40%, transparent); stroke-width: 1; }
 .thermometer-dial line.major { stroke: color-mix(in srgb, var(--text) 80%, transparent); stroke-width: 1.8; }
-.thermometer-dial .mark-number { fill: var(--text); font-size: 12px; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
+.thermometer-dial .mark-number { fill: var(--text); font-size: 9.5px; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
 .thermometer-dial .inner-tick { stroke-width: 1.4; }
-.thermometer-dial .inner-number { font-size: 10px; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
+.thermometer-dial .inner-number { font-size: 9px; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
 .thermometer-dial .unit { fill: var(--text); font-size: 14px; font-weight: var(--weight-semibold); }
 .thermometer-dial .unit.inner { font-size: 13px; }
 .thermometer-dial .needle { transform-box: view-box; transform-origin: 100px 100px; transition: transform 600ms var(--ease-out), opacity var(--fast); }
@@ -43366,7 +43366,7 @@ self.addEventListener("notificationclick", (event) => {
     const pieces = 60, span = maxC - minC;
     for (let i = 0; i < pieces; i++) {
       const from = minC + span * i / pieces, to = Math.min(maxC, minC + span * (i + 1) / pieces + span * 0.004);
-      band += `<path class="band" stroke="${colourAt(from + span / pieces / 2)}" d="${arc(from, to, 72)}"/>`;
+      band += `<path class="band" stroke="${colourAt(from + span / pieces / 2)}" d="${arc(from, to, 68)}"/>`;
     }
     // A scale in either unit, placed by the Celsius each mark is.
     const toC = { c: (v) => v, f: (v) => (v - 32) / 1.8 };
@@ -43377,13 +43377,13 @@ self.addEventListener("notificationclick", (event) => {
       for (let v = from; v <= to; v += minor) {
         const c = toC[unit](v), isMajor = (v - from) % major === 0;
         if (outer) {
-          const [x1, y1] = at(c, 79), [x2, y2] = at(c, isMajor ? 88 : 84);
+          const [x1, y1] = at(c, 75), [x2, y2] = at(c, isMajor ? 81 : 78);
           marks += `<line class="${isMajor ? "major" : "minor"}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
-          if (isMajor) { const [x, y] = at(c, 97); marks += `<text class="mark-number" x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central">${minus(v)}</text>`; }
+          if (isMajor) { const [x, y] = at(c, 87); marks += `<text class="mark-number" x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central">${minus(v)}</text>`; }
         } else {
-          const [x1, y1] = at(c, 65), [x2, y2] = at(c, isMajor ? 59 : 62);
+          const [x1, y1] = at(c, 61), [x2, y2] = at(c, isMajor ? 55 : 58);
           marks += `<line class="inner-tick" stroke="${colourAt(c)}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
-          if (isMajor) { const [x, y] = at(c, 49); marks += `<text class="inner-number" fill="${colourAt(c)}" x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central">${minus(v)}</text>`; }
+          if (isMajor) { const [x, y] = at(c, 46); marks += `<text class="inner-number" fill="${colourAt(c)}" x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central">${minus(v)}</text>`; }
         }
       }
       return marks;
@@ -43394,9 +43394,9 @@ self.addEventListener("notificationclick", (event) => {
     svg.setAttribute("class", "thermometer-dial");
     svg.setAttribute("aria-hidden", "true");
     svg.innerHTML = `<circle class="face" cx="100" cy="100" r="99"/>` + band + scale(outerUnit, true) + scale(innerUnit, false) +
-      `<text class="unit inner" x="100" y="138" text-anchor="middle">${innerUnit === "f" ? "°F" : "°C"}</text>` +
-      `<text class="unit" x="100" y="188" text-anchor="middle">${outerUnit === "f" ? "°F" : "°C"}</text>` +
-      `<g class="needle"><line class="needle-tail" x1="100" y1="100" x2="${100 - 14}" y2="100"/><line class="needle-body" x1="100" y1="100" x2="${100 + 70}" y2="100"/></g>` +
+      `<text class="unit inner" x="100" y="134" text-anchor="middle">${innerUnit === "f" ? "°F" : "°C"}</text>` +
+      `<text class="unit" x="100" y="180" text-anchor="middle">${outerUnit === "f" ? "°F" : "°C"}</text>` +
+      `<g class="needle"><line class="needle-tail" x1="100" y1="100" x2="${100 - 14}" y2="100"/><line class="needle-body" x1="100" y1="100" x2="${100 + 66}" y2="100"/></g>` +
       `<circle class="hub" cx="100" cy="100" r="8"/><circle class="hub-ring" cx="100" cy="100" r="3.5"/>`;
     const needle = svg.querySelector(".needle");
     return {
