@@ -8357,13 +8357,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const chosen = range.span();
       const query = new URLSearchParams();
       if (chosen) { query.set("from", chosen[0].toISOString()); if (chosen[1]) query.set("to", chosen[1].toISOString()); }
-      // A phone keeps its bar short: the count, Copy, Follow and Save payloads are here rather than in it.
+      // A phone keeps its bar short: the count, Copy and Save payloads are here rather than in it.
       const saving = phone.matches && !saveToggle.classList.contains("hidden");
       return [
         phone.matches ? { heading: count.textContent, live: count } : null,
         phone.matches ? { label: t("Copy the lines shown"), icon: "copy", onSelect: () => copyLines().catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
-        // Follow is on from the start; a phone turns it off here rather than in its bar.
-        phone.matches ? { label: t("Follow"), icon: "pulse", toggle: true, checkbox: true, checked: follow.checked, onSelect: () => { follow.checked = !follow.checked; follow.dispatchEvent(new Event("change")); } } : null,
         saving ? { label: t("Save payloads"), icon: "archive", toggle: true, checkbox: true, checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
         phone.matches ? { separator: true } : null,
         { label: chosen ? t("Download this range") : t("Download the whole log"), icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
@@ -8401,13 +8399,26 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       filterCount.classList.toggle("hidden", !chosen);
       filtersButton.classList.toggle("on", chosen > 0);
     }
-    const bar = el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), filtersButton, doctor.button, copy,
+    // On a phone, Follow is a pause button beside Filters (play once paused): on from the start.
+    const followButton = el("button", { type: "button", class: "log-follow-button", "aria-label": t("Follow"), onclick: () => {
+      follow.checked = !follow.checked;
+      follow.dispatchEvent(new Event("change"));
+    } });
+    const showFollow = () => {
+      followButton.setAttribute("aria-pressed", String(follow.checked));
+      followButton.title = follow.checked ? t("Pause") : t("Follow");
+      followButton.replaceChildren(HomeswiftCommon.icon(follow.checked ? "pause" : "play"));
+    };
+    follow.addEventListener("change", showFollow);
+    showFollow();
+    const bar = el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), filtersButton, followButton, doctor.button, copy,
       el("label", { class: "toggle compact log-follow" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
       saveToggle, actions);
     // On a phone, a round button over the bar while the page is away from its end: back to the latest lines, following.
     const latest = el("button", { type: "button", class: "log-to-end", "aria-label": t("Go to the latest lines"), title: t("Go to the latest lines"),
       onclick: () => {
         follow.checked = true;
+        follow.dispatchEvent(new Event("change"));
         const scroller = document.scrollingElement;
         scroller.scrollTo({ top: scroller.scrollHeight, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
       } }, HomeswiftCommon.icon("arrowDown"));
@@ -38098,6 +38109,9 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .log-line .log-details { grid-column: 1 / -1; margin: var(--space-4) 0 var(--space-6); max-height: 420px; overflow: auto; font-size: var(--text-xs); }
 /* Every other line a shade lighter, so a long line's wrap reads as one line and the eye keeps its row. */
 .log > .log-line:nth-child(even):not(.warning, .error, .critical) { background: rgba(255, 255, 255, 0.045); }
+/* Dark mode's console is darker: the shade has to be stronger to be seen. */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .log > .log-line:nth-child(even):not(.warning, .error, .critical) { background: rgba(255, 255, 255, 0.075); } }
+:root[data-theme="dark"] .log > .log-line:nth-child(even):not(.warning, .error, .critical) { background: rgba(255, 255, 255, 0.075); }
 .log-line.warning { background: rgba(201, 115, 26, 0.08); }
 .log-line.warning .text { color: var(--warn); }
 .log-line.error, .log-line.critical { background: rgba(208, 56, 59, 0.08); }
@@ -42498,7 +42512,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
    one in a darker pill) and More for the others, Account and the Assistant. A page's own actions float just above its
    right end (`--tab-bar-top`), each its own glass. */
 .tabbar-tabs { display: none; }
-.log-filters-toggle, .log-to-end { display: none; }
+.log-filters-toggle, .log-to-end, .log-follow-button { display: none; }
 :root { --tab-bar-top: calc(max(14px, env(safe-area-inset-bottom)) + 66px); --float-action: 48px; }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .tabbar { left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); }
@@ -42515,7 +42529,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .tabbar .tabbar-tabs > :is(a, button):active { background: color-mix(in srgb, var(--text) 8%, transparent); }
   .tabbar .mobile-nav-panel { right: 0; left: auto; bottom: 74px; }
   /* The Logs page: the log is the page, scrolled as the page is, under its title alone; its actions are one glass bar
-     over the tab bar (the menu, which has Follow, the text filter, Filters, the Assistant), and the other filters a sheet above it. */
+     over the tab bar (the menu, the text filter, Filters, Follow as pause and play, the Assistant), and the other filters a sheet above it. */
   main:has(> .log-card) .page-head p { display: none; }
   #app > main:has(> .log-card) { padding-bottom: calc(var(--tab-bar-top) + 56px + var(--space-24)); }
   .log-card { overflow: visible; padding: 0; background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
@@ -42534,7 +42548,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .log-action-bar > .menu-button { order: 0; }
   .log-action-bar > .search { order: 1; }
   .log-action-bar > .log-filters-toggle { order: 2; }
-  .log-action-bar > .ai-button { order: 3; }
+  .log-action-bar > .ai-button { order: 4; }
   html .log-action-bar > :is(button, .menu-button) {
     position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
     border-radius: 50%; flex: none; color: var(--text); border: 0; box-shadow: none; background: color-mix(in srgb, var(--text) 9%, transparent);
@@ -42542,7 +42556,9 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   html .log-action-bar > .ai-button { background: var(--accent-fill); color: var(--accent-text); }
   html .log-action-bar > :is(.ai-button.hidden, .count, .spacer, .log-copy, .save-payloads, .log-follow) { display: none; }
   .log-action-bar > .log-filters-toggle.on { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
-  .log-action-bar > .log-filters-toggle svg { width: 21px; height: 21px; }
+  .log-action-bar > :is(.log-filters-toggle, .log-follow-button) svg { width: 21px; height: 21px; }
+  .log-action-bar > .log-follow-button { order: 3; }
+  .log-action-bar > .log-follow-button[aria-pressed="true"] { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
   .log-action-bar .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill);
     display: grid; place-items: center; font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
   .log-action-bar .toolbar-count.hidden { display: none; }

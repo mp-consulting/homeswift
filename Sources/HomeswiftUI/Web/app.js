@@ -5979,13 +5979,11 @@
       const chosen = range.span();
       const query = new URLSearchParams();
       if (chosen) { query.set("from", chosen[0].toISOString()); if (chosen[1]) query.set("to", chosen[1].toISOString()); }
-      // A phone keeps its bar short: the count, Copy, Follow and Save payloads are here rather than in it.
+      // A phone keeps its bar short: the count, Copy and Save payloads are here rather than in it.
       const saving = phone.matches && !saveToggle.classList.contains("hidden");
       return [
         phone.matches ? { heading: count.textContent, live: count } : null,
         phone.matches ? { label: t("Copy the lines shown"), icon: "copy", onSelect: () => copyLines().catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
-        // Follow is on from the start; a phone turns it off here rather than in its bar.
-        phone.matches ? { label: t("Follow"), icon: "pulse", toggle: true, checkbox: true, checked: follow.checked, onSelect: () => { follow.checked = !follow.checked; follow.dispatchEvent(new Event("change")); } } : null,
         saving ? { label: t("Save payloads"), icon: "archive", toggle: true, checkbox: true, checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
         phone.matches ? { separator: true } : null,
         { label: chosen ? t("Download this range") : t("Download the whole log"), icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
@@ -6023,13 +6021,26 @@
       filterCount.classList.toggle("hidden", !chosen);
       filtersButton.classList.toggle("on", chosen > 0);
     }
-    const bar = el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), filtersButton, doctor.button, copy,
+    // On a phone, Follow is a pause button beside Filters (play once paused): on from the start.
+    const followButton = el("button", { type: "button", class: "log-follow-button", "aria-label": t("Follow"), onclick: () => {
+      follow.checked = !follow.checked;
+      follow.dispatchEvent(new Event("change"));
+    } });
+    const showFollow = () => {
+      followButton.setAttribute("aria-pressed", String(follow.checked));
+      followButton.title = follow.checked ? t("Pause") : t("Follow");
+      followButton.replaceChildren(HomeswiftCommon.icon(follow.checked ? "pause" : "play"));
+    };
+    follow.addEventListener("change", showFollow);
+    showFollow();
+    const bar = el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), filtersButton, followButton, doctor.button, copy,
       el("label", { class: "toggle compact log-follow" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
       saveToggle, actions);
     // On a phone, a round button over the bar while the page is away from its end: back to the latest lines, following.
     const latest = el("button", { type: "button", class: "log-to-end", "aria-label": t("Go to the latest lines"), title: t("Go to the latest lines"),
       onclick: () => {
         follow.checked = true;
+        follow.dispatchEvent(new Event("change"));
         const scroller = document.scrollingElement;
         scroller.scrollTo({ top: scroller.scrollHeight, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
       } }, HomeswiftCommon.icon("arrowDown"));
