@@ -1283,6 +1283,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .gauge-target { stroke: var(--text); stroke-width: 3; stroke-linecap: round; }
 
 /* Facets: readouts, meters, chips, swatches, pills */
+/* A sensor's own reading on its larger tiles: the figure large, its unit and what it measures beside it. */
+.sensor-figure { display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: var(--space-6); }
+.sensor-figure b { font-size: calc(var(--text-3xl) * 1.25); font-weight: var(--weight-semibold); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1; }
+.sensor-figure small { font-size: var(--text-md); color: var(--muted); font-weight: var(--weight-medium); }
+.sensor-figure span { grid-column: 1 / -1; font-size: var(--text-sm); color: var(--muted); margin-top: var(--space-4); }
+.sensor-figure[data-tone="warn"] b { color: var(--warn); }
+.widget.size-xlarge .sensor-figure b { font-size: calc(var(--text-3xl) * 2); }
+.widget.size-xlarge .sensor-figure small { font-size: var(--text-xl); }
 .readouts { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: var(--space-8); }
 .readouts.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .readouts.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }

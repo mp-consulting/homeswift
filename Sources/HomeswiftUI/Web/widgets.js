@@ -2021,12 +2021,24 @@
         status: () => {
           const others = ctx.services.filter((s) => s !== primary && readings[s.type]).map((s) => reading(ctx, s)?.value()).filter(Boolean);
           const v = value();
-          return others.length ? [others.map((o) => `${o.text}${o.unit ? ` ${o.unit}` : ""}`).join(" · ")] : [labelFor(one?.main.type ?? "", one?.main.value ?? ""), v.tone === "warn" ? "warn" : ""];
+          if (others.length) return [others.map((o) => `${o.text}${o.unit ? ` ${o.unit}` : ""}`).join(" · ")];
+          // A number says itself with its unit ("22.0 °C"); a state ("Leak detected") by its words.
+          const words = v.unit ? `${v.text} ${v.unit}` : labelFor(one?.main.type ?? "", one?.main.value ?? "");
+          return [words, v.tone === "warn" ? "warn" : ""];
         },
       };
       if (size === "small") return built;
       const f = facets(ctx, []);
-      built.body = [el("div", { class: `readouts${size === "medium" ? " three" : ""}` }, size === "medium" ? f.readouts.slice(0, 3) : f.readouts.slice(0, 6)), size !== "medium" ? f.meters[0] : null].filter(Boolean);
+      // A larger tile shows its own reading large (the hero only a summary tile has), then any others beside it.
+      const figure = el("div", { class: "sensor-figure" });
+      ctx.watch(() => {
+        const v = value();
+        figure.dataset.tone = v.tone || "";
+        figure.replaceChildren(el("b", { text: v.text }), v.unit ? el("small", { text: v.unit }) : "",
+          el("span", { text: typeName(one?.main.type ?? "") }));
+      });
+      const others = size === "medium" ? f.readouts.slice(0, 3) : f.readouts.slice(0, 6);
+      built.body = [figure, others.length ? el("div", { class: `readouts${size === "medium" ? " three" : ""}` }, others) : null, size !== "medium" ? f.meters[0] : null].filter(Boolean);
       if (size === "full") built.facets = { chips: f.chips, readouts: [], meters: f.meters.slice(1), blocks: f.blocks };
       return built;
     },
