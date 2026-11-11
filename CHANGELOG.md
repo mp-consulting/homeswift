@@ -31,7 +31,6 @@ All notable changes to this project are documented here. The format follows
   and show only the swing axes a device can operate.
 - **Design tokens**: use the shared spacing, corner and weight tokens for valve countdown digits.
 
-
 - **Home Link**: wait for Wingman to read missing accessory serial numbers before applying changes or adopting
   groups. Incomplete HomeKit identity data no longer treats present accessories as absent or drops group members;
   Pending Changes resume when the identities arrive.
