@@ -6793,6 +6793,9 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   main:has(> .audit-bar) .audit-results .data-table td:nth-child(4) { grid-area: outcome; align-self: start; }
   main:has(> .audit-bar) .audit-results .data-table td:nth-child(5) { grid-area: details; }
   main:has(> .audit-bar) .audit-results .data-table td:nth-child(5):empty { display: none; }
+  /* Its details' JSON across the card, not held to the table column's width. */
+  main:has(> .audit-bar) .audit-results .data-table td.audit-details { max-width: none; }
+  main:has(> .audit-bar) .audit-details pre.json { min-width: 0; max-width: none; width: 100%; box-sizing: border-box; }
   main:has(> .audit-bar) .audit-results .table-scroll { overflow: visible; }
 }
 
