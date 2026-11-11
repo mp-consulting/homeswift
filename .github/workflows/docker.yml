@@ -53,8 +53,6 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           platforms: ${{ matrix.platform }}
-          # Azure's Ubuntu mirror: from GitHub's runners, Ubuntu's own names have failed to resolve.
-          build-args: UBUNTU_MIRROR=azure
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           # The resolved dependencies' layer, per architecture, across runs.

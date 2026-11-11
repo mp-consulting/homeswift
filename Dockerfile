@@ -5,20 +5,13 @@
 
 ARG SWIFT_VERSION=6.2
 # ffmpeg-for-homeswift (FFmpeg/), for the camera plugins: a static FFmpeg of 30 MB where Ubuntu's takes 450.
-# Set to "azure" to take Ubuntu's packages from Azure's mirror (GitHub's runners: .github/workflows/docker.yml).
-ARG UBUNTU_MIRROR=
 ARG FFMPEG_IMAGE=ghcr.io/mp-consulting/ffmpeg-for-homeswift:8.1.3-2
 
 FROM ${FFMPEG_IMAGE} AS ffmpeg
 
 FROM swift:${SWIFT_VERSION}-noble AS build
-ARG UBUNTU_MIRROR
-RUN if [ "$UBUNTU_MIRROR" = azure ]; then sed -i -E \
-        -e 's#http://(archive|security)\.ubuntu\.com#http://azure.archive.ubuntu.com#' \
-        -e 's#http://ports\.ubuntu\.com#http://azure.ports.ubuntu.com#' /etc/apt/sources.list.d/ubuntu.sources; fi \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends libavahi-compat-libdnssd-dev \
-    && rm -rf /var/lib/apt/lists/*
+COPY Scripts/apt-install.sh /usr/local/bin/
+RUN apt-install.sh libavahi-compat-libdnssd-dev
 WORKDIR /src
 # The manifest first, so the dependencies are fetched again only when Package.resolved changes.
 COPY Package.swift Package.resolved ./
@@ -41,15 +34,11 @@ RUN sh /usr/local/bin/collect-licenses.sh .build/checkouts /out/doc
 FROM ubuntu:26.04
 # avahi-daemon and dbus: Bonjour, which Homeswift reaches through Avahi's dns_sd compatibility library.
 # avahi-utils: avahi-browse, for checking what is advertised.
-ARG UBUNTU_MIRROR
-RUN if [ "$UBUNTU_MIRROR" = azure ]; then sed -i -E \
-        -e 's#http://(archive|security)\.ubuntu\.com#http://azure.archive.ubuntu.com#' \
-        -e 's#http://ports\.ubuntu\.com#http://azure.ports.ubuntu.com#' /etc/apt/sources.list.d/ubuntu.sources; fi \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
+COPY Scripts/apt-install.sh /usr/local/bin/
+RUN apt-install.sh \
         avahi-daemon avahi-utils dbus libavahi-compat-libdnssd1 \
         ca-certificates tzdata libcurl4t64 tini \
-    && rm -rf /var/lib/apt/lists/*
+    && rm /usr/local/bin/apt-install.sh
 # FFmpeg is GPLv3: its licences, and where its sources are, go with it.
 COPY --from=ffmpeg /ffmpeg /usr/local/bin/ffmpeg
 COPY --from=ffmpeg /licenses /usr/share/doc/ffmpeg-for-homeswift

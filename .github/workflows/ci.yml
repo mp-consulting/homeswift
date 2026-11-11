@@ -145,11 +145,7 @@ jobs:
           filter: blob:none
 
       - name: Install Avahi's dns_sd
-        # From Azure's Ubuntu mirror, as the runner itself: from GitHub's containers, Ubuntu's own names have failed to resolve.
-        run: |
-          sed -i -E -e 's#http://(archive|security)\.ubuntu\.com#http://azure.archive.ubuntu.com#' \
-            -e 's#http://ports\.ubuntu\.com#http://azure.ports.ubuntu.com#' /etc/apt/sources.list.d/ubuntu.sources
-          apt-get update && apt-get install -y --no-install-recommends libavahi-compat-libdnssd-dev python3
+        run: Scripts/apt-install.sh libavahi-compat-libdnssd-dev python3
 
       - name: Date the files by their last commit
         # A checkout dates every file now, which would rebuild all of the package's own code over the cached build.
