@@ -29,7 +29,14 @@
     if (link?.refused?.length) details.push(...link.refused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })));
     if (!details.length) return result;
     // A reachable link is not proof that queued writes succeeded.
-    return { text: [...(link.state === "up" ? [] : [result.text]), ...details].join(" "), tone: link.refused?.length ? "error" : "warn" };
+    // One line per message: the pages show them with `white-space: pre-line`.
+    return { text: [...(link.state === "up" ? [] : [result.text]), ...details].join("\n"), tone: link.refused?.length ? "error" : "warn" };
+  }
+
+  /// The Home Link's state as a menu's last item: a callout in the colour of its tone.
+  function menuItem(link) {
+    const { text, tone } = status(link);
+    return { heading: t("Apple Home"), detail: text, callout: true, tone, icon: "house" };
   }
 
   function dialogShell(title, ...content) {
@@ -143,5 +150,5 @@
     dialog.showModal();
   }
 
-  window.HomeswiftHomeLink = { status, review, zones };
+  window.HomeswiftHomeLink = { status, menuItem, review, zones };
 })();

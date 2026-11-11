@@ -271,7 +271,17 @@ header nav a svg { display: none; }
 .user-button:has(.user-name:empty) { padding: 3px; }
 .menu-heading { display: grid; gap: 2px; padding: var(--space-8) var(--space-12) var(--space-10); margin-bottom: var(--space-4); border-bottom: 1px solid var(--line); }
 .menu-heading strong { font-size: var(--text-base); }
-.menu-heading span { color: var(--muted); font-size: var(--text-sm); }
+/* A notice in a menu (the Home Link's state): a tinted box, its icon beside the title, in the colour of its tone. */
+.menu-callout { --callout: var(--accent); grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-8); align-items: start;
+  margin: var(--space-4) 0 0; padding: var(--space-10) var(--space-12); border: 1px solid color-mix(in srgb, var(--callout) 35%, transparent);
+  border-radius: var(--radius-sm); background: color-mix(in srgb, var(--callout) 12%, transparent); }
+.menu-callout.warn { --callout: var(--warn); }
+.menu-callout.error { --callout: var(--error); }
+.menu-callout > svg { grid-row: 1 / span 2; width: 18px; height: 18px; margin-top: 1px; color: var(--callout); }
+.menu-callout > strong, .menu-callout > span { grid-column: 2; }
+.menu-callout > span { color: var(--text); opacity: .82; white-space: pre-line; }
+/* A long detail (the Home Link's refusals) wraps instead of widening the menu across the page. */
+.menu-heading span { color: var(--muted); font-size: var(--text-sm); max-width: 340px; overflow-wrap: anywhere; }
 /* A plugin's settings page: the form in a card, a save bar that floats at the bottom of the window while the
    form scrolls (a thick material, like the header), and removal set apart at the end. */
 .settings-head { align-items: center; }
@@ -710,6 +720,10 @@ label > input, label > select { margin-top: 5px; }
 @media (hover: hover) and (pointer: fine) { .room-name-input:hover { border-color: var(--muted); } }
 .room-name-input:focus { outline: none; border-style: solid; border-color: var(--accent); background: var(--field); }
 .room-name-input:disabled { opacity: .6; }
+.room-heading { display: flex; align-items: center; gap: var(--space-4); }
+/* Round in a section head: the touch screens' 40px min-height would make it an oval. */
+.room-heading .room-remove { width: 32px; min-width: 32px; height: 32px; min-height: 32px; color: var(--error); }
+@media (pointer: coarse) { .room-heading .room-remove { width: 40px; min-width: 40px; height: 40px; min-height: 40px; } }
 .section-head .muted { font-size: var(--text-sm); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--space-14); }
 .grid > .card { margin: 0; min-width: 0; }
@@ -1459,7 +1473,7 @@ textarea.short { min-height: 220px; }
 }
 .menu .menu-search { width: 100%; margin-bottom: var(--space-4); }
 .menu .menu-empty { margin: 0; padding: var(--space-8) var(--space-10); font-size: var(--text-sm); }
-.menu { max-height: min(480px, calc(100dvh - 24px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; grid-auto-rows: max-content; touch-action: pan-y; }
+.menu { max-width: calc(100vw - 24px); max-height: min(480px, calc(100dvh - 24px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; grid-auto-rows: max-content; touch-action: pan-y; }
 .menu:focus { outline: none; }
 .menu.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
 @keyframes menu-in { from { opacity: 0; transform: scale(0.92); } }
@@ -5310,7 +5324,7 @@ select option:disabled { color: var(--muted); }
 .home-link-zone-head { display: flex; gap: var(--space-8); align-items: center; padding: 0; width: 100%; }
 .home-link-zone-head input { min-width: 0; flex: 1; }
 .home-link-zone .choices { display: flex; flex-wrap: wrap; gap: var(--space-6) var(--space-14); }
-.home-link-banner { display: flex; flex-wrap: wrap; gap: var(--space-10); align-items: center; justify-content: space-between; margin: 0 0 var(--space-14);
+.home-link-banner { white-space: pre-line; display: flex; flex-wrap: wrap; gap: var(--space-10); align-items: center; justify-content: space-between; margin: 0 0 var(--space-14);
   padding: var(--space-10) var(--space-14); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--text);
   animation: materialize var(--normal) var(--ease-out); }
 .home-link-banner > span { flex: 1 1 16rem; min-width: 0; }
