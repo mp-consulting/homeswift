@@ -13,7 +13,7 @@ extension WingmanPlugin {
 // a Wingman's Settings sheet Excludes or Forgets it, and the plugin's Settings list the mirrored accessories and bridges.
 (() => {
   "use strict";
-  const { t } = HomeswiftI18n;
+  const { t, tn } = HomeswiftI18n;
   const { $, el, tile, fact, request, explain, assistant, platform, poll, renderKeyed, setupCard, setupAddress } = homeswift;
   const { ago } = HomeswiftCommon;
 
@@ -85,10 +85,65 @@ extension WingmanPlugin {
         return;
       }
       renderKeyed(list, wingmen, (wingman) => wingman.id, card);
+      // The hidden groups need the Home Link: read them again when a Wingman connects.
+      const connected = wingmen.some((wingman) => wingman.state === "connected");
+      if (waitingForLink && connected && !wasConnected) loadHiddenGroups();
+      wasConnected = connected;
     } catch (e) {
       list.replaceChildren(el("p", { class: "error", text: e.message }));
     }
   }
+
+  // MARK: Apple Home's hidden groups: those of fewer than two accessories, which the Home app does not show. An
+  // interrupted creation can leave one: it keeps its name (a group of that name is refused) and counts towards HomeKit's
+  // limit. Each can be removed, or all of them, once confirmed.
+
+  const hidden = $("#hidden-groups");
+  let waitingForLink = false, wasConnected = false;
+
+  async function loadHiddenGroups() {
+    let answer;
+    waitingForLink = false;
+    try { answer = await request("empty-groups"); } catch (e) {
+      waitingForLink = e.status === 409;
+      hidden.replaceChildren(el("div", { class: "card hidden-groups" }, el("p", { class: "muted note", text: e.status === 409 ? t("Link this bridge to its home in Apple Home to see its hidden groups.") : e.message })));
+      return;
+    }
+    const groups = answer.groups || [];
+    const show = (...children) => hidden.replaceChildren(el("div", { class: "card hidden-groups" }, ...children));
+    const why = el("p", { class: "muted note", text: t("Groups of fewer than two accessories, which the Home app does not show. An interrupted group creation can leave one: it keeps the name, so a new group of that name is refused, and it counts towards Apple Home's limit.") });
+    if (!groups.length) {
+      show(why, el("p", { class: "note", text: t("No hidden groups in {home}.", { home: answer.home }) }));
+      return;
+    }
+    show(why,
+      el("div", { class: "rows" }, groups.map((group) => el("div", { class: "row" },
+        el("div", { class: "who" }, el("strong", { text: group.name }),
+          el("span", { class: "muted", text: group.accessories ? t("1 accessory") : t("No accessories") })),
+        el("button", { type: "button", class: "icon-button danger", "aria-label": t("Remove {name}", { name: group.name }), title: t("Remove {name}", { name: group.name }),
+          onclick: (event) => removeGroups(event.currentTarget, [group], answer.home) }, HomeswiftCommon.icon("trash"))))),
+      el("div", { class: "actions" }, el("button", { type: "button", class: "danger", actionIcon: "trash", text: t("Remove all"),
+        onclick: (event) => removeGroups(event.currentTarget, groups, answer.home) })));
+  }
+
+  async function removeGroups(button, groups, home) {
+    const one = groups.length === 1;
+    const confirmed = await HomeswiftCommon.confirmAction({
+      title: one ? t("Remove the group {name}?", { name: groups[0].name }) : tn("Remove {n} hidden group?", "Remove {n} hidden groups?", groups.length),
+      text: one ? t("It is removed from {home} in Apple Home. Its accessories stay as they are.", { home })
+        : t("They are removed from {home} in Apple Home. Their accessories stay as they are.", { home }),
+      confirmLabel: t("Remove"), confirmIcon: "trash" });
+    if (!confirmed) return;
+    // Disabled while it runs, so a second click does not remove them again.
+    await HomeswiftCommon.busyButton(button, async () => {
+      const result = await request("empty-groups/remove", { method: "POST", body: { ids: groups.map((group) => group.id) } });
+      const failed = (result.failed || []).map((group) => t("{name}: {error}", { name: group.name, error: group.error }));
+      if (failed.length) HomeswiftCommon.showAlert(failed.join("\n"));
+    });
+    loadHiddenGroups();
+  }
+
+  loadHiddenGroups();
 
   // MARK: Pairing a Wingman: Add accessories finds it (or takes the address in the plugin's settings) and pairs it.
 
@@ -110,6 +165,21 @@ extension WingmanPlugin {
 // The Wingman page in French, Spanish and Portuguese (docs/translations.md).
 HomeswiftI18n.add({
   "fr": {
+    "Hidden groups in Apple Home": "Groupes masqués dans l'app Maison",
+    "Link this bridge to its home in Apple Home to see its hidden groups.": "Reliez ce pont à sa maison dans l'app Maison pour voir ses groupes masqués.",
+    "Groups of fewer than two accessories, which the Home app does not show. An interrupted group creation can leave one: it keeps the name, so a new group of that name is refused, and it counts towards Apple Home's limit.": "Des groupes de moins de deux accessoires, que l'app Maison n'affiche pas. Une création de groupe interrompue peut en laisser un : il garde le nom, si bien qu'un nouveau groupe de ce nom est refusé, et il compte dans la limite de l'app Maison.",
+    "No hidden groups in {home}.": "Aucun groupe masqué dans {home}.",
+    "1 accessory": "1 accessoire",
+    "No accessories": "Aucun accessoire",
+    "Remove {name}": "Supprimer {name}",
+    "Remove all": "Tout supprimer",
+    "Remove the group {name}?": "Supprimer le groupe {name} ?",
+    "Remove {n} hidden group?": "Supprimer {n} groupe masqué ?",
+    "Remove {n} hidden groups?": "Supprimer {n} groupes masqués ?",
+    "It is removed from {home} in Apple Home. Its accessories stay as they are.": "Il est supprimé de {home} dans l'app Maison. Ses accessoires restent tels quels.",
+    "They are removed from {home} in Apple Home. Their accessories stay as they are.": "Ils sont supprimés de {home} dans l'app Maison. Leurs accessoires restent tels quels.",
+    "Remove": "Supprimer",
+    "{name}: {error}": "{name} : {error}",
     "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, scenes and the Assistant, and stay out of HomeKit, which has them already.": "Les accessoires de l'app Maison dans Homeswift, grâce à Homeswift Wingman sur un Mac. Ils rejoignent la page Accessoires, les scènes et l'Assistant, et restent hors de HomeKit, qui les a déjà.",
     "Your Wingmen": "Vos Wingman",
     "Wingman no longer knows this bridge. Pair it again on Add accessories.": "Wingman ne connaît plus ce pont. Jumelez-le à nouveau dans Ajouter des accessoires.",
@@ -137,6 +207,21 @@ HomeswiftI18n.add({
     "Settings": "Réglages"
   },
   "es": {
+    "Hidden groups in Apple Home": "Grupos ocultos en la app Casa",
+    "Link this bridge to its home in Apple Home to see its hidden groups.": "Vincula este puente a su casa en la app Casa para ver sus grupos ocultos.",
+    "Groups of fewer than two accessories, which the Home app does not show. An interrupted group creation can leave one: it keeps the name, so a new group of that name is refused, and it counts towards Apple Home's limit.": "Grupos de menos de dos accesorios, que la app Casa no muestra. Una creación de grupo interrumpida puede dejar uno: conserva el nombre, así que se rechaza un grupo nuevo con ese nombre, y cuenta para el límite de la app Casa.",
+    "No hidden groups in {home}.": "No hay grupos ocultos en {home}.",
+    "1 accessory": "1 accesorio",
+    "No accessories": "Sin accesorios",
+    "Remove {name}": "Eliminar {name}",
+    "Remove all": "Eliminar todos",
+    "Remove the group {name}?": "¿Eliminar el grupo {name}?",
+    "Remove {n} hidden group?": "¿Eliminar {n} grupo oculto?",
+    "Remove {n} hidden groups?": "¿Eliminar {n} grupos ocultos?",
+    "It is removed from {home} in Apple Home. Its accessories stay as they are.": "Se elimina de {home} en la app Casa. Sus accesorios quedan como están.",
+    "They are removed from {home} in Apple Home. Their accessories stay as they are.": "Se eliminan de {home} en la app Casa. Sus accesorios quedan como están.",
+    "Remove": "Eliminar",
+    "{name}: {error}": "{name}: {error}",
     "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, scenes and the Assistant, and stay out of HomeKit, which has them already.": "Los accesorios de la app Casa en Homeswift, a través de Homeswift Wingman en un Mac. Se suman a la página Accesorios, las escenas y el Asistente, y quedan fuera de HomeKit, que ya los tiene.",
     "Your Wingmen": "Tus Wingman",
     "Wingman no longer knows this bridge. Pair it again on Add accessories.": "Wingman ya no conoce este puente. Vuelve a emparejarlo en Añadir accesorios.",
@@ -164,6 +249,21 @@ HomeswiftI18n.add({
     "Settings": "Ajustes"
   },
   "pt": {
+    "Hidden groups in Apple Home": "Grupos ocultos na app Casa",
+    "Link this bridge to its home in Apple Home to see its hidden groups.": "Ligue esta ponte à sua casa na app Casa para ver os grupos ocultos.",
+    "Groups of fewer than two accessories, which the Home app does not show. An interrupted group creation can leave one: it keeps the name, so a new group of that name is refused, and it counts towards Apple Home's limit.": "Grupos com menos de dois acessórios, que a app Casa não mostra. Uma criação de grupo interrompida pode deixar um: fica com o nome, por isso um novo grupo com esse nome é recusado, e conta para o limite da app Casa.",
+    "No hidden groups in {home}.": "Não há grupos ocultos em {home}.",
+    "1 accessory": "1 acessório",
+    "No accessories": "Sem acessórios",
+    "Remove {name}": "Remover {name}",
+    "Remove all": "Remover todos",
+    "Remove the group {name}?": "Remover o grupo {name}?",
+    "Remove {n} hidden group?": "Remover {n} grupo oculto?",
+    "Remove {n} hidden groups?": "Remover {n} grupos ocultos?",
+    "It is removed from {home} in Apple Home. Its accessories stay as they are.": "É removido de {home} na app Casa. Os seus acessórios ficam como estão.",
+    "They are removed from {home} in Apple Home. Their accessories stay as they are.": "São removidos de {home} na app Casa. Os seus acessórios ficam como estão.",
+    "Remove": "Remover",
+    "{name}: {error}": "{name}: {error}",
     "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, scenes and the Assistant, and stay out of HomeKit, which has them already.": "Os acessórios da app Casa no Homeswift, através do Homeswift Wingman num Mac. Juntam-se à página Acessórios, às cenas e ao Assistente, e ficam fora do HomeKit, que já os tem.",
     "Your Wingmen": "Os seus Wingman",
     "Wingman no longer knows this bridge. Pair it again on Add accessories.": "O Wingman já não conhece esta ponte. Emparelhe-o de novo em Adicionar acessórios.",
@@ -211,6 +311,14 @@ HomeswiftI18n.add({
   #setup { margin-bottom: 16px; }
   .facts.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .fact.warn b { color: var(--warn); }
+  /* Apple Home's groups the Home app does not show (fewer than two accessories): a row each, a red bin to remove it. */
+  .hidden-groups { display: grid; gap: 12px; }
+  .hidden-groups .note { margin: 0; }
+  .hidden-groups .rows { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .hidden-groups .row .who { display: grid; gap: 2px; }
+  .hidden-groups .row .who .muted { font-size: 0.8125rem; }
+  .hidden-groups .row .icon-button { width: 32px; min-width: 32px; height: 32px; min-height: 32px; color: var(--error); }
+  @media (pointer: coarse) { .hidden-groups .row .icon-button { width: 40px; min-width: 40px; height: 40px; min-height: 40px; } }
   .hint { margin: 14px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); font-size: 0.8125rem; }
   @media (prefers-reduced-motion: reduce) { .wingman { animation: none; } }
 </style>
@@ -228,6 +336,8 @@ HomeswiftI18n.add({
   <div id="setup"></div>
   <div class="section-head"><h2 data-i18n>Your Wingmen</h2></div>
   <div id="wingmen" class="grid"></div>
+  <div class="section-head"><h2 data-i18n>Hidden groups in Apple Home</h2></div>
+  <div id="hidden-groups"></div>
   <p id="assistant-hint" class="hint hidden"></p>
 </main>
 <script src="/common.js"></script>

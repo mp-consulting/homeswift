@@ -632,8 +632,25 @@ extension HomeswiftCatalog {
             guard let local = groups.first(where: { $0.id == group }), local.homeKitID == nil else { return }
             guard let snapshot = await plugin.homeSnapshot() else { throw HomeChangeError(.unreachable, "Apple Home is not reachable") }
             try checkGroup(local.members, in: snapshot)
-            let id = try await plugin.applyHomeChange(.createGroup(name: local.name, members: local.members))
-            guard let id else { throw HomeChangeError(.refused, "Apple Home did not create the group \(local.name)") }
+            let id: String
+            // Apple Home refuses a second group of a name (HMErrorDomain 13), and the Home app hides one of fewer than
+            // two accessories, which an earlier attempt can leave: such a group of that name, holding none but
+            // Homeswift's, is this one. A group of that name with other accessories is the user's, never taken over.
+            let linked = Set(groups.compactMap(\.homeKitID))
+            if let existing = snapshot.groups.first(where: {
+                !linked.contains($0.id) && $0.members.count < 2 && ($0.accessories ?? $0.members.count) == $0.members.count
+                    && Self.sameRoomName($0.name, local.name)
+            }) {
+                id = existing.id
+                let add = local.members.filter { !existing.members.contains($0) }, remove = existing.members.filter { !local.members.contains($0) }
+                if !add.isEmpty || !remove.isEmpty { _ = try await plugin.applyHomeChange(.setGroupMembers(id: id, add: add, remove: remove)) }
+                if existing.name != local.name { _ = try await plugin.applyHomeChange(.renameGroup(id: id, name: local.name)) }
+            } else {
+                guard let created = try await plugin.applyHomeChange(.createGroup(name: local.name, members: local.members)) else {
+                    throw HomeChangeError(.refused, "Apple Home did not create the group \(local.name)")
+                }
+                id = created
+            }
             try setWallGroups(groups.map { one in
                 var one = one
                 if one.id == local.id { one.homeKitID = id }

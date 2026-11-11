@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Apple Home's hidden groups**: the Wingman page lists the groups of fewer than two accessories that the Home app does
+  not show (counted in Apple Home), with a bin to remove one and Remove all, each confirmed first; the Assistant and MCP
+  clients have them as `list_empty_groups` and `remove_empty_groups`.
 - **Remove a room**: in Edit, a red bin beside each room's name removes it once confirmed; its accessories go to No room,
   and with the Home Link it goes from Apple Home too.
 
@@ -16,6 +19,9 @@ All notable changes to this project are documented here. The format follows
 - **Home Link refusals**: the Accessories page no longer shows what Apple Home refused once there is no Home Link
   ("Pair Homeswift Wingman"); a refusal goes once a later change to the same room, zone, group or accessory reaches
   Apple Home, and names accessories rather than giving their ids.
+- **Groups Apple Home already has**: a group made on the wall whose name Apple Home already has, often a group the Home
+  app hides because an earlier attempt left it with fewer than two accessories, is linked to that group and given the
+  wall's accessories, instead of being refused ("HMErrorDomain 13: Object already exists in the home") and dropped.
 - **Home Link waiting for serial numbers**: the reason now names the accessories (and their rooms) whose Serial Number
   Homeswift Wingman has not read, so the one holding the link down can be found in the Home app.
 

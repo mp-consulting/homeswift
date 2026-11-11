@@ -45,6 +45,29 @@ struct StructureTests {
         await host.stop()
     }
 
+    /// Apple Home's groups of fewer than two accessories, counted in Apple Home (a group of accessories Homeswift does not
+    /// have is not one), are listed and removed; a real group stays.
+    @Test func emptyGroupsAreListedAndRemoved() async throws {
+        let (host, plugin) = try await start()
+        try publishPlug(host)
+        environment.wingman.changeInAppleHome { _, groups in
+            groups = [
+                ["id": "group-empty", "name": "Spots Salon", "services": [String]()],
+                ["id": "group-one", "name": "Volets Salon", "services": ["svc-a"]],
+                ["id": "group-real", "name": "Not Homeswift's", "services": ["svc-b", "svc-c"]],
+            ]
+        }
+        #expect(await eventually { await plugin.emptyGroups()?.groups.count == 2 })
+        let listed = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "empty-groups", user: "test"))
+        #expect(listed.json["groups"]?.arrayValue?.compactMap { $0["name"]?.stringValue } == ["Spots Salon", "Volets Salon"])
+        let refused = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "empty-groups/remove", body: [:], user: "test"))
+        #expect(refused.status == 400)
+        let answer = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "empty-groups/remove", body: ["ids": ["group-empty", "group-one"]], user: "test"))
+        #expect(answer.json["removed"]?.arrayValue?.count == 2)
+        #expect(environment.wingman.groups.compactMap { $0["id"] as? String } == ["group-real"])
+        await host.stop()
+    }
+
     @Test func incompleteIdentityWaitsForHomeKitAndRecovers() async throws {
         environment.wingman.missingSerial("homeswift-switch", true)
         let (host, plugin) = try await start()
@@ -102,7 +125,7 @@ struct StructureTests {
         #expect(await plugin.homeSnapshot()?.zones.first { $0.id == zone }?.rooms == ["room-bureau"])
         let group = try #require(try await plugin.applyHomeChange(.createGroup(name: "Lampes", members: ["Wingman:light-1", "Meross:plug"])))
         #expect(environment.wingman.edits.last == .init(path: "groups/create", body: ["name": "Lampes", "services": ["bulb-1", "switch-1"], "home": "home-1"]))
-        #expect(await plugin.homeSnapshot()?.groups == [.init(id: group, name: "Lampes", members: ["Wingman:light-1", "Meross:plug"])])
+        #expect(await plugin.homeSnapshot()?.groups == [.init(id: group, name: "Lampes", members: ["Wingman:light-1", "Meross:plug"], accessories: 2)])
         let error = await #expect(throws: HomeChangeError.self) { try await plugin.applyHomeChange(.moveAccessory(accessoryID: "Elgato:lamp", roomID: nil)) }
         #expect(error?.kind == .notFound)
         await host.stop()

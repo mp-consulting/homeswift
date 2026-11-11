@@ -529,6 +529,8 @@ final class FakeHomeLink: @unchecked Sendable {
             case .createGroup(let name, let members):
                 try refuse(name)
                 try have(members)
+                // As HomeKit: one group of a name in a home (HMErrorDomain 13).
+                if state.home.groups.contains(where: { $0.name == name }) { throw HomeChangeError(.refused, "HMErrorDomain 13: Object already exists in the home.") }
                 let id = newID("group")
                 state.home.groups.append(.init(id: id, name: name, members: members))
                 return id

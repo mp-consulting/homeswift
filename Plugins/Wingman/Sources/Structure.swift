@@ -169,7 +169,7 @@ struct Structure: Sendable {
         let groups = home.serviceGroups.map { group in
             var seen: Set<String> = []
             let members = group.services.compactMap { byService[$0] }.filter { seen.insert($0).inserted }
-            return HomeSnapshot.Group(id: group.id, name: group.name, members: members)
+            return HomeSnapshot.Group(id: group.id, name: group.name, members: members, accessories: group.services.count)
         }
         return HomeSnapshot(
             homeID: home.id, homeName: home.name, rooms: home.rooms.map { HomeSnapshot.Room(id: $0.id, name: $0.name) },
@@ -468,7 +468,7 @@ extension WingmanPlugin {
 
     /// The link that is the Home Link: of those whose Wingman serves it and sees the bridge's home, the first connected
     /// one by Wingman id, so another takes over when it goes down.
-    private func homeLinkOwner() async -> (link: Link, structure: Structure, home: Structure.Home)? {
+    func homeLinkOwner() async -> (link: Link, structure: Structure, home: Structure.Home)? {
         for (link, structure) in await structures() where structure.servesHomeLink {
             guard await link.isConnected, let id = structure.bridgeHome, let home = structure.home(id) else { continue }
             return (link, structure, home)

@@ -237,6 +237,12 @@ public actor WingmanPlugin: HomeswiftPlugin {
                 }
             }
             return PluginWebResponse(["wingmen": .array(list)])
+        case ("GET", "empty-groups"):
+            return await emptyGroupsResponse()
+        case ("POST", "empty-groups/remove"):
+            // By id only: removing all of them is a list the person saw, never an empty request.
+            guard let ids = request.body["ids"]?.arrayValue?.compactMap(\.stringValue), !ids.isEmpty else { return .error(400, "ids: the groups to remove") }
+            return await removeEmptyGroups(Set(ids))
         default:
             return .error(404, "nothing at \(request.method) \(request.path)")
         }
