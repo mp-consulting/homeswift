@@ -1283,28 +1283,30 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .gauge-target { stroke: var(--text); stroke-width: 3; stroke-linecap: round; }
 
 /* Facets: readouts, meters, chips, swatches, pills */
-/* A temperature sensor's dial thermometer: a pale face, cold and warm bands, ticks and numbers, a dark needle with a red
-   tip that turns to the reading. Large: the dial beside the figure; extra-large: a big dial, the figure under it. */
+/* A temperature sensor's dial thermometer, two scales on one needle: the outer ticks and numbers in the user's unit,
+   the inner numbers in the other, coloured as the graded band they sit inside. Large: the dial beside the figure;
+   extra-large: a big dial alone, centred. */
 .thermometer { display: flex; align-items: center; gap: var(--space-16); }
-.thermometer-dial { width: 132px; height: 132px; flex: none; overflow: visible; }
+.thermometer-dial { width: 136px; height: 136px; flex: none; overflow: visible; }
 .widget.size-xlarge .thermometer { flex-direction: column; gap: var(--space-8); }
-/* Centred on the tile: no room kept for the corner menu, which the round dial clears. */
+.widget.size-xlarge .thermometer-dial { width: 210px; height: 210px; }
 .widget.widget-sensor.size-xlarge > .w-body > .thermometer { margin-right: 0; align-self: center; }
-.widget.size-xlarge .thermometer-dial { width: 200px; height: 200px; }
 .widget.size-xlarge .thermometer .sensor-figure { display: none; }
-.widget:not(.size-xlarge) .thermometer-dial .figure { display: none; }
-.thermometer-dial .face { fill: color-mix(in srgb, var(--surface, #fff) 70%, transparent); stroke: color-mix(in srgb, var(--text) 10%, transparent); stroke-width: 1.5; }
+.thermometer-dial .face { fill: color-mix(in srgb, var(--surface, #fff) 78%, transparent); stroke: color-mix(in srgb, var(--text) 9%, transparent); stroke-width: 1.5; }
 .thermometer-dial .band { fill: none; stroke-width: 11; stroke-linecap: butt; }
-.thermometer-dial line.minor { stroke: color-mix(in srgb, var(--text) 35%, transparent); stroke-width: 1.2; }
-.thermometer-dial line.major { stroke: var(--text); stroke-width: 2.2; }
-.thermometer-dial .mark-number { fill: var(--text); font-size: 17px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
-.thermometer-dial .unit { fill: var(--muted); font-size: 14px; font-weight: var(--weight-semibold); }
-.thermometer-dial .figure { fill: var(--text); font-size: 22px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+.thermometer-dial line.minor { stroke: color-mix(in srgb, var(--text) 40%, transparent); stroke-width: 1; }
+.thermometer-dial line.major { stroke: color-mix(in srgb, var(--text) 80%, transparent); stroke-width: 1.8; }
+.thermometer-dial .mark-number { fill: var(--text); font-size: 12px; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
+.thermometer-dial .inner-tick { stroke-width: 1.4; }
+.thermometer-dial .inner-number { font-size: 10px; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
+.thermometer-dial .unit { fill: var(--text); font-size: 14px; font-weight: var(--weight-semibold); }
+.thermometer-dial .unit.inner { font-size: 13px; }
 .thermometer-dial .needle { transform-box: view-box; transform-origin: 100px 100px; transition: transform 600ms var(--ease-out), opacity var(--fast); }
-.thermometer-dial .needle line { stroke-linecap: round; }
-.thermometer-dial .needle-body, .thermometer-dial .needle-tail { stroke: var(--text); stroke-width: 3; }
-.thermometer-dial .needle-tip { stroke: #d6322b; stroke-width: 3.4; }
+.thermometer-dial .needle line { stroke: var(--text); stroke-linecap: round; }
+.thermometer-dial .needle-body { stroke-width: 4; }
+.thermometer-dial .needle-tail { stroke-width: 6; }
 .thermometer-dial .hub { fill: var(--text); }
+.thermometer-dial .hub-ring { fill: var(--surface, #fff); }
 @media (prefers-reduced-motion: reduce) { .thermometer-dial .needle { transition: none; } }
 
 /* A sensor's own reading on its larger tiles: the figure large, its unit and what it measures beside it. */
