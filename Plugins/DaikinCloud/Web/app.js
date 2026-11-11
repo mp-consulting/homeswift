@@ -1,7 +1,7 @@
 // The Daikin Cloud page, after the Homebridge plugin's settings UI: the devices the account has; the sign-in's
 // state, its connection test and signing out (signing in is Setup's, on Add accessories, which the page leads to);
 // and help, with the quota the plugin saw on its last call. It writes no settings
-// (docs/adr/0002-schema-declares-every-setting.md): the plugin's open its Settings page, and a device's its own there.
+// (docs/adr/0002-schema-declares-every-setting.md): device settings open in the shared settings drawer over this page.
 (() => {
   "use strict";
   const { $, el, request, explain, breadcrumb, act, poll } = homeswift;
@@ -40,7 +40,7 @@
     slot.replaceChildren(message ? explain({ error: message, context: assistantContext(context), device }) : "");
   }
 
-  // MARK: Where settings are edited: the plugin's Settings page, and each device's there (its Accessory Settings).
+  // MARK: Accessory Settings: the shared drawer, with a page address for opening in a new tab.
 
   const settingsOf = (deviceID) => homeswift.accessorySettings(`DaikinCloud:${deviceID}`);
 
@@ -267,7 +267,16 @@
           context: assistantContext("The user is looking at the device list of the Daikin Cloud plugin's page."),
           device: assistantDevice(device),
         }) : null,
-        el("div", { class: "actions" }, el("a", { class: "button", href: settingsOf(device.id), actionIcon: "gear", text: t("Settings") })));
+        el("div", { class: "actions" }, el("a", { class: "button", href: settingsOf(device.id), actionIcon: "gear", text: t("Settings"),
+          onclick: (event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            homeswift.openAccessorySettings({
+              accessoryID: `DaikinCloud:${device.id}`, name: device.name, glyph: "thermo", trigger: event.currentTarget,
+              after: (changed) => { if (changed) devices.load(); },
+            });
+          },
+        })));
     },
   };
   $("#btn-refresh-devices").addEventListener("click", (event) => act(event.currentTarget, () => devices.load({ refresh: true })));

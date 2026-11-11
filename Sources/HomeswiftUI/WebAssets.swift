@@ -32645,6 +32645,19 @@ HomeswiftI18n.add("pt", {
     }
     HomeswiftSettings.openAccessory({ accessoryID, instance: name, name: title, glyph, trigger, after: (changed) => after?.(changed) });
   }
+
+  // Every plugin's accessory Settings link opens over its current page, including links in menus.
+  // Preserve modified clicks and explicit new-tab links as normal navigation.
+  document.addEventListener("click", (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const link = event.target.closest?.("a[href]");
+    if (!link || link.hasAttribute("download") || (link.target && link.target !== "_self")) return;
+    const url = new URL(link.href, location.href);
+    const accessoryID = url.searchParams.get("accessory");
+    if (url.origin !== location.origin || url.pathname !== settingsAddress || !accessoryID) return;
+    event.preventDefault();
+    openAccessorySettings({ accessoryID, trigger: link.isConnected ? link : document.activeElement });
+  });
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
   const { $, el, icon, tile, fact, markdown, sparkle, api, assistantRequest, formatTemperature, temperature } = HomeswiftCommon;
