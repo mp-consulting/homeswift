@@ -210,6 +210,33 @@ struct StructureTests {
             == "Waiting for Homeswift Wingman to read the Serial Number of Spot 1 (Salon), Spot 2, Spot 3, Spot 4, Spot 5 and 2 more in Apple Home")
     }
 
+    /// An accessory of no bridge whose serial number is unread (a TV's own AirPlay entry) does not hold the Home Link down
+    /// once every accessory Homeswift publishes on its own is found in Apple Home by its serial number.
+    @Test(arguments: [false, true])
+    func anotherAccessoryWithoutASerialDoesNotBlockTheLink(ownFound: Bool) throws {
+        let bridge = TestEnvironment.bridgeID
+        var accessories = [homeAccessory("main-bridge", serialNumber: bridge), homeAccessory("airplay-tv", serialNumber: "")]
+        if ownFound { accessories.append(homeAccessory("homeswift-tv", serialNumber: "tv")) }
+        let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": accessories]
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
+        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge], own: ["TV"])
+        #expect((structure.incompleteIdentityReason == nil) == ownFound)
+    }
+
+    /// A plugin that respells a serial number (Hue's 00:17:88:… as 001788…) is still found while Apple Home keeps the old
+    /// spelling, which it does until it reads the accessory's information again.
+    @Test func aRespelledSerialNumberStillMatches() throws {
+        let bridge = TestEnvironment.bridgeID
+        let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": [
+            homeAccessory("homeswift-bridge", serialNumber: bridge),
+            homeAccessory("hue-light", serialNumber: "00:17:88:01:0b:c7:a5:e4", bridge: ["id": "homeswift-bridge", "name": "Homeswift"]),
+        ]]
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
+        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge])
+        #expect(structure.homeKitID(of: "PhilipsHue:light", place: .init(bridge: bridge, serialNumber: "001788010BC7A5E4")) == "hue-light")
+        #expect(PluginContext.serialKey("00:17:88:01:0b:c7:a5:e4") == "001788010BC7A5E4")
+    }
+
     /// One of Homeswift's own accessories is found behind its bridge (the home's accessory whose Serial Number is the
     /// bridge's device ID), never a home's own accessory with the same serial number, such as the light a hub also brings
     /// to Apple Home; one published on its own is found among those that are not bridged.
