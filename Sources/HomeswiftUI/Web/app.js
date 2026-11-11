@@ -6026,7 +6026,21 @@
     const bar = el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), filtersButton, doctor.button, copy,
       el("label", { class: "toggle compact log-follow" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
       saveToggle, actions);
-    const card = el("div", { class: "card log-card" }, panel, bar, output);
+    // On a phone, a round button over the bar while the page is away from its end: back to the latest lines, following.
+    const latest = el("button", { type: "button", class: "log-to-end", "aria-label": t("Go to the latest lines"), title: t("Go to the latest lines"),
+      onclick: () => {
+        follow.checked = true;
+        const scroller = document.scrollingElement;
+        scroller.scrollTo({ top: scroller.scrollHeight, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      } }, HomeswiftCommon.icon("arrowDown"));
+    const card = el("div", { class: "card log-card" }, panel, bar, latest, output);
+    const showLatest = () => {
+      if (!card.isConnected) { removeEventListener("scroll", showLatest); return; }
+      const scroller = document.scrollingElement;
+      latest.classList.toggle("shown", phone.matches && scroller.scrollHeight - scroller.scrollTop - innerHeight > 120);
+    };
+    addEventListener("scroll", showLatest, { passive: true });
+    logState.showLatest = showLatest;
     const openFilters = (open) => { card.classList.toggle("filters-open", open); filtersButton.setAttribute("aria-expanded", String(open)); };
     filtersButton.addEventListener("click", () => openFilters(!card.classList.contains("filters-open")));
     // The page's listeners go with it: each removes itself once the card has left.
@@ -6142,6 +6156,7 @@
     while (output.childElementCount > logState.cap) output.firstElementChild.remove();   // the page stays the size of what it keeps
     if (logState.follow.checked && atBottom) logState.toEnd();
     logState.count.textContent = tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: output.childElementCount });
+    logState.showLatest?.();
   }
 
   // A hidden tab keeps no stream open; back in view, the live pages reload their values.

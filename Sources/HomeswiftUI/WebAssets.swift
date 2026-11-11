@@ -8404,7 +8404,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const bar = el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), filtersButton, doctor.button, copy,
       el("label", { class: "toggle compact log-follow" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
       saveToggle, actions);
-    const card = el("div", { class: "card log-card" }, panel, bar, output);
+    // On a phone, a round button over the bar while the page is away from its end: back to the latest lines, following.
+    const latest = el("button", { type: "button", class: "log-to-end", "aria-label": t("Go to the latest lines"), title: t("Go to the latest lines"),
+      onclick: () => {
+        follow.checked = true;
+        const scroller = document.scrollingElement;
+        scroller.scrollTo({ top: scroller.scrollHeight, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      } }, HomeswiftCommon.icon("arrowDown"));
+    const card = el("div", { class: "card log-card" }, panel, bar, latest, output);
+    const showLatest = () => {
+      if (!card.isConnected) { removeEventListener("scroll", showLatest); return; }
+      const scroller = document.scrollingElement;
+      latest.classList.toggle("shown", phone.matches && scroller.scrollHeight - scroller.scrollTop - innerHeight > 120);
+    };
+    addEventListener("scroll", showLatest, { passive: true });
+    logState.showLatest = showLatest;
     const openFilters = (open) => { card.classList.toggle("filters-open", open); filtersButton.setAttribute("aria-expanded", String(open)); };
     filtersButton.addEventListener("click", () => openFilters(!card.classList.contains("filters-open")));
     // The page's listeners go with it: each removes itself once the card has left.
@@ -8520,6 +8534,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     while (output.childElementCount > logState.cap) output.firstElementChild.remove();   // the page stays the size of what it keeps
     if (logState.follow.checked && atBottom) logState.toEnd();
     logState.count.textContent = tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: output.childElementCount });
+    logState.showLatest?.();
   }
 
   // A hidden tab keeps no stream open; back in view, the live pages reload their values.
@@ -11348,6 +11363,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     wingman: '<g transform="translate(0 4.32) scale(.048)"><g fill="currentColor" stroke="none"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/><g transform="translate(500 0) scale(-1 1)"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/></g></g><path d="M136 220L250 104L364 220M153 205V305H347V205" fill="none" stroke="currentColor" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/></g>',
     power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
     // Full screen: a frame with its corners pulled out, top right and bottom left.
+    arrowDown: '<path d="M12 5v14M6 13l6 6 6-6"/>',
     expand: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M13.5 7.5h3v3M10.5 16.5h-3v-3"/>',
     // Leaving full screen: expand's corners turned inward.
     collapse: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M16.5 10.5h-3v-3M7.5 13.5h3v3"/>',
@@ -21542,6 +21558,7 @@ HomeswiftI18n.add("es", {
   "Copied {n} lines": "{n} líneas copiadas",
   "Copy": "Copiar",
   "Copy it now: it is shown once. Send it as {header}.": "Cópialo ahora: solo se muestra una vez. Envíalo como {header}.",
+  "Go to the latest lines": "Ir a las últimas líneas",
   "Copy the lines shown": "Copiar las líneas mostradas",
   "Cost": "Coste",
   "Cost this month": "Coste este mes",
@@ -25305,6 +25322,7 @@ HomeswiftI18n.add("fr", {
   "Copied {n} lines": "{n} lignes copiées",
   "Copy": "Copier",
   "Copy it now: it is shown once. Send it as {header}.": "Copiez-le maintenant : il n'est affiché qu'une fois. Envoyez-le sous la forme {header}.",
+  "Go to the latest lines": "Aller aux dernières lignes",
   "Copy the lines shown": "Copier les lignes affichées",
   "Cost": "Coût",
   "Cost this month": "Coût ce mois-ci",
@@ -29068,6 +29086,7 @@ HomeswiftI18n.add("pt", {
   "Copied {n} lines": "{n} linhas copiadas",
   "Copy": "Copiar",
   "Copy it now: it is shown once. Send it as {header}.": "Copie-o agora: só é mostrado uma vez. Envie-o como {header}.",
+  "Go to the latest lines": "Ir para as últimas linhas",
   "Copy the lines shown": "Copiar as linhas mostradas",
   "Cost": "Custo",
   "Cost this month": "Custo este mês",
@@ -42471,7 +42490,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
    one in a darker pill) and More for the others, Account and the Assistant. A page's own actions float just above its
    right end (`--tab-bar-top`), each its own glass. */
 .tabbar-tabs { display: none; }
-.log-filters-toggle { display: none; }
+.log-filters-toggle, .log-to-end { display: none; }
 :root { --tab-bar-top: calc(max(14px, env(safe-area-inset-bottom)) + 66px); --float-action: 48px; }
 @media (max-width: 640px) {
   .tabbar { left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); }
@@ -42523,6 +42542,18 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   html .log-card > .log-action-bar > .search { display: block; flex: 1 1 0; width: auto; max-width: none; min-width: 0; height: 44px; margin: 0; padding: 0 var(--space-8); border: 0;
     border-radius: var(--radius-pill); background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
   .log-card > .log-action-bar > .search:focus { outline: none; box-shadow: none; }
+  /* Back to the latest lines: a round glass button centred over the bar, there only while the page is away from its end. */
+  .log-card > .log-to-end {
+    display: grid; place-items: center; position: fixed; z-index: calc(var(--layer-tabbar) + 1); left: 50%; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0;
+    bottom: calc(var(--tab-bar-top) + var(--space-10) + 56px + var(--space-12) + var(--keyboard, 0px)); border-radius: 50%; color: var(--text);
+    background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
+    opacity: 0; pointer-events: none; transform: translateX(-50%) scale(.85); transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out);
+  }
+  .log-card > .log-to-end.shown { opacity: 1; pointer-events: auto; transform: translateX(-50%); }
+  .log-card > .log-to-end svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .log-card.filters-open > .log-to-end { opacity: 0; pointer-events: none; }
+  @media (prefers-reduced-motion: reduce) { .log-card > .log-to-end, .log-card > .log-to-end.shown { transform: translateX(-50%); transition: opacity 160ms linear; } }
   .log-card > .log-filter-panel { display: none; }
   /* In the sheet, the text filter is in the bar: the levels, what the lines are about (Clear filters beside it while
      there is something to clear), then the time range. */

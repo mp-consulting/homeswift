@@ -6607,7 +6607,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
    one in a darker pill) and More for the others, Account and the Assistant. A page's own actions float just above its
    right end (`--tab-bar-top`), each its own glass. */
 .tabbar-tabs { display: none; }
-.log-filters-toggle { display: none; }
+.log-filters-toggle, .log-to-end { display: none; }
 :root { --tab-bar-top: calc(max(14px, env(safe-area-inset-bottom)) + 66px); --float-action: 48px; }
 @media (max-width: 640px) {
   .tabbar { left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); }
@@ -6659,6 +6659,18 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   html .log-card > .log-action-bar > .search { display: block; flex: 1 1 0; width: auto; max-width: none; min-width: 0; height: 44px; margin: 0; padding: 0 var(--space-8); border: 0;
     border-radius: var(--radius-pill); background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
   .log-card > .log-action-bar > .search:focus { outline: none; box-shadow: none; }
+  /* Back to the latest lines: a round glass button centred over the bar, there only while the page is away from its end. */
+  .log-card > .log-to-end {
+    display: grid; place-items: center; position: fixed; z-index: calc(var(--layer-tabbar) + 1); left: 50%; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0;
+    bottom: calc(var(--tab-bar-top) + var(--space-10) + 56px + var(--space-12) + var(--keyboard, 0px)); border-radius: 50%; color: var(--text);
+    background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
+    opacity: 0; pointer-events: none; transform: translateX(-50%) scale(.85); transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out);
+  }
+  .log-card > .log-to-end.shown { opacity: 1; pointer-events: auto; transform: translateX(-50%); }
+  .log-card > .log-to-end svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .log-card.filters-open > .log-to-end { opacity: 0; pointer-events: none; }
+  @media (prefers-reduced-motion: reduce) { .log-card > .log-to-end, .log-card > .log-to-end.shown { transform: translateX(-50%); transition: opacity 160ms linear; } }
   .log-card > .log-filter-panel { display: none; }
   /* In the sheet, the text filter is in the bar: the levels, what the lines are about (Clear filters beside it while
      there is something to clear), then the time range. */
