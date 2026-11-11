@@ -602,6 +602,46 @@
     return { node, label: name };
   }
 
+  /// A shutter's tile as its own slider: the shade follows the pointer, the position is written when it is let go. A
+  /// mouse drags at once; a finger holds still a moment first, so a swipe still scrolls the page. `ignore` leaves the
+  /// tile's own controls their presses. `value()` is the position being dragged to (null when none), `consumeSlid()`
+  /// whether a drag just ended (its release is not a tap).
+  function slideSurface(ctx, node, surface, slide, ignore = () => false) {
+    const { min, max, step } = slide;
+    let start = null, armed = false, holdTimer = null, sliding = null, slid = false;
+    const at = (event) => {
+      const box = node.getBoundingClientRect();
+      return snap(min + (1 - clamp((event.clientY - box.top) / box.height, 0, 1)) * (max - min), min, max, step);
+    };
+    surface.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || ignore(event)) return;
+      start = { x: event.clientX, y: event.clientY, id: event.pointerId };
+      armed = event.pointerType === "mouse";
+      clearTimeout(holdTimer);
+      if (!armed) holdTimer = setTimeout(() => { armed = true; node.classList.add("slide-ready"); }, PRESS_MS);
+    });
+    surface.addEventListener("pointermove", (event) => {
+      if (!start) return;
+      const moved = Math.abs(event.clientY - start.y);
+      if (!armed) { if (moved > PRESS_SLOP) { clearTimeout(holdTimer); start = null; } return; }
+      if (sliding === null && moved < 4) return;
+      if (sliding === null) { surface.setPointerCapture(start.id); node.classList.add("sliding"); }
+      sliding = at(event);
+      ctx.paint();
+    });
+    const finish = () => {
+      clearTimeout(holdTimer);
+      node.classList.remove("slide-ready", "sliding");
+      if (sliding !== null) { const value = sliding; sliding = null; slid = true; slide.commit(value); }
+      start = null; armed = false;
+    };
+    surface.addEventListener("pointerup", finish);
+    surface.addEventListener("pointercancel", () => { sliding = null; finish(); slid = false; ctx.paint(); });
+    // Once a finger has held still, the page does not scroll under it.
+    surface.addEventListener("touchmove", (event) => { if (armed) event.preventDefault(); }, { passive: false });
+    return { value: () => sliding, consumeSlid: () => { const was = slid; slid = false; return was; } };
+  }
+
   const pill = (text = "", tone = "") => el("span", { class: `pill ${tone}`.trim(), text });
 
   const glyphs = {
@@ -1488,9 +1528,9 @@
         built.body = [light.brightness?.(), white, light.swatches?.()].filter(Boolean);
       }
       if (size === "large") {
-        // A tall brightness beside the colours, or beside a tall white (and the Adaptive chip under it).
+        // A tall brightness beside the white and the colours under it, or beside a tall white (and the Adaptive chip).
         const tall = light.brightness?.({ vertical: true });
-        const side = light.swatches ? [light.swatches({ grid: true }), light.white?.({ thin: true })] : [light.white?.({ vertical: true }), light.adaptive?.("chip")];
+        const side = light.swatches ? [light.white?.({ thin: true }), light.swatches({ grid: true })] : [light.white?.({ vertical: true }), light.adaptive?.("chip")];
         built.body = [el("div", { class: "light-large" }, tall, el("div", { class: light.swatches ? "light-colours" : "light-tall" }, side.filter(Boolean)))];
       }
       if (size === "full") Object.assign(built, { body: lightBody(ctx, primary).nodes, facets: facets(ctx, [primary]) });
@@ -1557,8 +1597,9 @@
         return one.node;
       });
       for (const type of ["Current Horizontal Tilt Angle", "Current Vertical Tilt Angle"]) ctx.take(primary, type);
-      if (size === "medium") built.body = [el("div", { class: "w-row" }, el("div", { class: "w-grow" }, slider(false)), ...buttons)];
-      if (size === "large") built.body = [el("div", { class: "cover-large" }, slider(true), el("div", { class: "cover-buttons" }, buttons, tilts))];
+      // The larger tiles are the shutter's window: the tile itself is dragged (frame's shade), beside its buttons.
+      if (size === "medium") built.body = [el("div", { class: "w-row cover-keys" }, ...buttons)];
+      if (size === "large") built.body = [el("div", { class: "cover-large" }, el("div", { class: "cover-buttons" }, buttons, tilts))];
       if (size === "full") Object.assign(built, { body: [slider(false), el("div", { class: "w-keys" }, buttons), ...tilts], facets: facets(ctx, [primary]) });
       return built;
     },
@@ -2433,7 +2474,7 @@
         });
         node.append(el("span", { class: "w-veil", "aria-hidden": "true" }));
       } else hit.addEventListener("click", () => {
-        if (slid) { slid = false; return; }
+        if (slider?.consumeSlid()) return;
         if (wheel?.used()) return;
         built.tap ? built.tap() : ctx.openFull();
       });
@@ -2441,49 +2482,14 @@
       const wheel = built.wheel ? colourWheel(hit, built.wheel) : null;
       if (wheel) node.classList.add("has-wheel");
       hit.addEventListener("contextmenu", (event) => { event.preventDefault(); if (!wheel?.busy()) menu.click(); });
-      // A shutter's tile slides: the shade follows the pointer, the position is written when it is let go. A
-      // mouse drags at once; a finger holds still a moment first, so a swipe still scrolls the page.
-      let sliding = null, slid = false;
-      if (built.slide) {
-        const { min, max, step } = built.slide;
-        let start = null, armed = false, holdTimer = null;
-        const at = (event) => {
-          const box = node.getBoundingClientRect();
-          const share = clamp((event.clientY - box.top) / box.height, 0, 1);
-          return clamp(Math.round((min + (1 - share) * (max - min)) / step) * step, min, max);
-        };
-        hit.addEventListener("pointerdown", (event) => {
-          if (event.button !== 0) return;
-          start = { x: event.clientX, y: event.clientY, id: event.pointerId };
-          armed = event.pointerType === "mouse";
-          clearTimeout(holdTimer);
-          if (!armed) holdTimer = setTimeout(() => { armed = true; node.classList.add("slide-ready"); }, PRESS_MS);
-        });
-        hit.addEventListener("pointermove", (event) => {
-          if (!start) return;
-          const moved = Math.abs(event.clientY - start.y);
-          if (!armed) { if (moved > PRESS_SLOP) { clearTimeout(holdTimer); start = null; } return; }
-          if (sliding === null && moved < 4) return;
-          if (sliding === null) { hit.setPointerCapture(start.id); node.classList.add("sliding"); }
-          sliding = at(event);
-          ctx.paint();
-        });
-        const finish = () => {
-          clearTimeout(holdTimer);
-          node.classList.remove("slide-ready", "sliding");
-          if (sliding !== null) { const value = sliding; sliding = null; slid = true; built.slide.commit(value); }
-          start = null; armed = false;
-        };
-        hit.addEventListener("pointerup", finish);
-        hit.addEventListener("pointercancel", () => { sliding = null; finish(); slid = false; ctx.paint(); });
-        // Once a finger has held still, the page does not scroll under it.
-        hit.addEventListener("touchmove", (event) => { if (armed) event.preventDefault(); }, { passive: false });
-      }
+      // A shutter's tile slides (slideSurface).
+      const slider = built.slide ? slideSurface(ctx, node, hit, built.slide) : null;
       const middle = built.middle;
       node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), middle ? el("div", { class: "w-middle" }, middle) : "", el("div", { class: "w-bottom" }, who), el("span", { class: "w-corner" }, menu));
       ctx.watch(() => {
         const on = built.on ? built.on() : false;
         node.classList.toggle("on", on);
+        const sliding = slider?.value() ?? null;
         const value = sliding !== null ? `${sliding}%` : built.hero && !middle ? built.hero() : "";
         hero.replaceChildren(...(value ? [value] : []));
         if (shade) {
@@ -2506,11 +2512,33 @@
         const gauge = node.querySelector(".battery-gauge");
         if (gauge) node.querySelector(".w-head").append(gauge);
       }
-      // A shutter's larger tile is its window as the small one is: the slats come down over its closed share.
+      // A shutter's larger tile is its window as the small one is: the slats come down over its closed share, and the
+      // tile is the slider (dragged anywhere but its buttons). The keys move a slider kept for the keyboard and a
+      // screen reader.
       if (built.shade) {
         const shade = el("span", { class: "w-shade", "aria-hidden": "true" });
         node.prepend(shade);
-        ctx.watch(() => shade.style.setProperty("--closed", `${built.shade()}%`));
+        const slide = built.slide;
+        const slider = slide ? slideSurface(ctx, node, node, slide, (event) => !!event.target.closest("button, a, input, select, .menu")) : null;
+        const keys = slide ? el("span", { class: "visually-hidden w-slide-keys", role: "slider", tabindex: 0, "aria-label": t("Position"),
+          "aria-orientation": "vertical", "aria-valuemin": slide.min, "aria-valuemax": slide.max }) : null;
+        if (keys) {
+          keys.addEventListener("keydown", (event) => {
+            const { min, max, step } = slide;
+            const delta = { ArrowUp: step, ArrowRight: step, ArrowDown: -step, ArrowLeft: -step, PageUp: step * 10, PageDown: -step * 10 }[event.key];
+            const next = event.key === "Home" ? min : event.key === "End" ? max : delta === undefined ? null : snap(slide.value() + delta, min, max, step);
+            if (next === null) return;
+            event.preventDefault();
+            slide.commit(next);
+          });
+          node.append(keys);
+        }
+        ctx.watch(() => {
+          const { min, max } = slide ?? { min: 0, max: 100 };
+          const dragged = slider?.value() ?? null;
+          shade.style.setProperty("--closed", `${dragged !== null ? 100 - (dragged - min) / (max - min) * 100 : built.shade()}%`);
+          if (keys) { const shown = dragged ?? slide.value(); keys.setAttribute("aria-valuenow", shown); keys.setAttribute("aria-valuetext", `${shown} %`); }
+        });
       }
       node.classList.toggle("head-only", !body.length && !footerChips);
       ctx.watch(() => node.classList.toggle("powered-off", !!built.power && !built.power.big && !powerIsOn(built.power)));

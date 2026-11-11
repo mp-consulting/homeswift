@@ -978,7 +978,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .size-large .w-body { padding-right: 26px; overflow: hidden; justify-content: safe center; }
 /* Balance the space above and below the shutter controls around the tile's centre. */
 .widget-cover.size-large:not(.widget-measuring) { display: grid; grid-template-rows: auto minmax(0, 1fr); }
-.widget-cover.size-large > .w-body { align-self: center; }
+.widget-cover.size-large > .w-body { align-self: center; padding-right: 0; }
 .widget-cover.size-large > .w-head { align-self: start; }
 /* Brightness spans the card; the lower controls reserve space for the corner menu. */
 .widget-light.size-large .w-body { padding-right: 0; }
@@ -1092,7 +1092,12 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-veil { position: absolute; inset: 0; z-index: 0; pointer-events: none; background: color-mix(in srgb, var(--warn) 30%, transparent); clip-path: inset(0 100% 0 0); transition: clip-path 200ms var(--ease-out); }
 .holding > .w-veil { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
 /* A shutter's tile slid: the shade follows the pointer one to one; held on a phone, it lifts a little first. */
-.widget-summary.sliding > .w-shade { transition: none; }
+.widget.sliding > .w-shade { transition: none; }
+/* A shutter's larger tile is its slider: dragged up or down anywhere but its buttons, focused through its keys. */
+.widget:not(.widget-summary):has(> .w-slide-keys) { cursor: ns-resize; user-select: none; -webkit-user-select: none; }
+.widget:not(.widget-summary):has(> .w-slide-keys) :is(button, a) { cursor: pointer; }
+.widget:has(> .w-slide-keys:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.w-row.cover-keys { justify-content: center; gap: var(--space-10); }
 .widget-summary.slide-ready, .widget-summary.sliding { transform: scale(1.02); box-shadow: var(--shadow-thick); }
 .widget-cover.widget-summary > .w-hit { cursor: ns-resize; user-select: none; -webkit-user-select: none; }
 
@@ -1125,10 +1130,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .light-tall > .level { flex: 1; }
 .light-tall > .adaptive-chip { justify-content: center; }
 .light-colours { flex: 1; display: grid; align-content: center; gap: var(--space-12); min-width: 0; }
+/* The white spans to the tile's edge above the colours; only the colours keep clear of the corner menu. */
+.widget-light.size-xlarge > .w-body > .light-large { margin-right: 0; }
+.widget-light.size-xlarge .light-colours > .swatches { margin-right: 36px; }
 /* The shutter fills the tile like the window it covers; its buttons stand in a column beside it. */
 .cover-large > .level.vertical { flex: 1; min-width: 112px; border-radius: var(--radius-md); }
 .cover-buttons { display: grid; align-content: center; gap: var(--space-10); flex: none; min-width: 0; }
-.widget-cover.size-xlarge .cover-large { padding-right: 40px; }
+.widget-cover.size-xlarge > .w-body > .cover-large { margin: 0; padding: 0; justify-content: center; align-items: center; }
+.widget-cover.size-xlarge > .w-body { padding-right: 0; }
 .cover-buttons .level { width: 100%; }
 .toggles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-8); }
 .widget .mini-toggle { display: grid; gap: 1px; text-align: left; border-radius: var(--radius-md); padding: 9px 11px; background: var(--material-thin); transition: background-color var(--normal) var(--ease-out); }
@@ -6370,6 +6379,8 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%), inset 0 -1px 0 rgb(0 0 0 / 20%), 0 1px 3px rgb(0 0 0 / 18%);
   color: #fff; text-shadow: 0 1px 2px rgb(0 0 0 / 35%);
 }
+/* A tall brightness keeps its figure at the top, a pill as wide as the figure. */
+.widget-light .level.vertical:has(.level-thumb) .level-text { top: 10px; left: 50%; right: auto; transform: translateX(-50%); white-space: nowrap; }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .widget-light .level:has(.level-thumb) .level-text { background: #2a2620; -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
