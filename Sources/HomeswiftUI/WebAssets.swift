@@ -1289,7 +1289,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const count = el("span", { class: "muted count", role: "status", "aria-live": "polite" });
     const body = el("div", {});
     let loads = 0;   // the answer drawn is the last request's, however they arrive
-    let drawn = "";   // what the entries drawn were: a quiet refresh that finds the same leaves them (and an open Details) alone
+    let drawn = "";
+    const rowsByKey = new Map();   // the rows drawn, by entry: kept across refreshes   // what the entries drawn were: a quiet refresh that finds the same leaves them (and an open Details) alone
     // `quiet`: the phone's live refresh, without "Loading…" or the pickers' counts cleared.
     async function load(quiet = false) {
       const own = ++loads;
@@ -1324,9 +1325,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (quiet && shape === drawn) return;
       drawn = shape;
       const atEnd = atPageEnd();
-      body.replaceChildren(found.entries.length ? el("div", { class: "card audit-results" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
+      // Each entry keeps its row from one draw to the next (by its time, who and what): a refresh adds the new ones and
+      // drops those gone, so an open Details stays open and the entry being read stays where it is.
+      const keyOf = (entry) => [entry.ts, entry.principal, entry.client, entry.tool, entry.ok, entry.notConfirmed].join("|");
+      const kept = new Map(rowsByKey);
+      rowsByKey.clear();
+      const rows = ordered.map((entry) => {
+        const key = keyOf(entry);
+        const row = kept.get(key) ?? auditRow(entry);
+        rowsByKey.set(key, row);
+        return row;
+      });
+      const tbody = $(".audit-results tbody", body);
+      if (rows.length && tbody) {
+        tbody.replaceChildren(...rows);
+        $(".audit-results .note", body).textContent = found.path;
+      } else body.replaceChildren(rows.length ? el("div", { class: "card audit-results" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
         el("thead", {}, el("tr", {}, [t("Time"), t("Who"), t("What"), t("Outcome"), t("Details")].map((text) => el("th", { text })))),
-        el("tbody", {}, ordered.map(auditRow)))), el("p", { class: "muted note", text: found.path }))
+        el("tbody", {}, rows))), el("p", { class: "muted note", text: found.path }))
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("shield")), el("p", { class: "muted", text: t("Nothing in this range matches.") })));
       // Following, from the end (or a first draw), the page stays at the newest.
       if (phone.matches && following && (!quiet || atEnd)) toEnd();
