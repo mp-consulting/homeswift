@@ -1011,24 +1011,31 @@
     const pieces = 60, span = maxC - minC;
     for (let i = 0; i < pieces; i++) {
       const from = minC + span * i / pieces, to = Math.min(maxC, minC + span * (i + 1) / pieces + span * 0.004);
-      band += `<path class="band" stroke="${colourAt(from + span / pieces / 2)}" d="${arc(from, to, 68)}"/>`;
+      band += `<path class="band" stroke="${colourAt(from + span / pieces / 2)}" d="${arc(from, to, 66)}"/>`;
     }
     // A scale in either unit, placed by the Celsius each mark is.
     const toC = { c: (v) => v, f: (v) => (v - 32) / 1.8 };
     const minus = (v) => v < 0 ? `−${-v}` : String(v);
+    // How far a label reaches toward the centre or the rim at its angle: half its width where the scale runs up and
+    // down (the sides), half its height where it runs across (top and bottom), so no label meets its tick.
+    const reach = (celsius, text, size) => {
+      const a = angle(celsius) * Math.PI / 180;
+      const width = (text.length + (text.startsWith("−") ? 0.3 : 0)) * size * 0.29;
+      return width * Math.abs(Math.cos(a)) + size * 0.38 * Math.abs(Math.sin(a));
+    };
     const scale = (unit, outer) => {
       const [from, to, major, minor] = unit === "f" ? [-40, 120, 20, outer ? 5 : 10] : [-40, 50, 10, outer ? 2 : 5];
       let marks = "";
       for (let v = from; v <= to; v += minor) {
         const c = toC[unit](v), isMajor = (v - from) % major === 0;
         if (outer) {
-          const [x1, y1] = at(c, 75), [x2, y2] = at(c, isMajor ? 81 : 78);
+          const [x1, y1] = at(c, 71.5), [x2, y2] = at(c, isMajor ? 77.5 : 74.5);
           marks += `<line class="${isMajor ? "major" : "minor"}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
-          if (isMajor) { const [x, y] = at(c, 87); marks += `<text class="mark-number" x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central">${minus(v)}</text>`; }
+          if (isMajor) { const label = minus(v), [x, y] = at(c, 80 + reach(c, label, 9)); marks += `<text class="mark-number" x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central">${label}</text>`; }
         } else {
-          const [x1, y1] = at(c, 61), [x2, y2] = at(c, isMajor ? 55 : 58);
+          const [x1, y1] = at(c, 59), [x2, y2] = at(c, isMajor ? 53 : 56);
           marks += `<line class="inner-tick" stroke="${colourAt(c)}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
-          if (isMajor) { const [x, y] = at(c, 46); marks += `<text class="inner-number" fill="${colourAt(c)}" x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central">${minus(v)}</text>`; }
+          if (isMajor) { const label = minus(v), [x, y] = at(c, 50.5 - reach(c, label, 8.5)); marks += `<text class="inner-number" fill="${colourAt(c)}" x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central">${label}</text>`; }
         }
       }
       return marks;
@@ -1041,7 +1048,7 @@
     svg.innerHTML = `<circle class="face" cx="100" cy="100" r="99"/>` + band + scale(outerUnit, true) + scale(innerUnit, false) +
       `<text class="unit inner" x="100" y="134" text-anchor="middle">${innerUnit === "f" ? "°F" : "°C"}</text>` +
       `<text class="unit" x="100" y="180" text-anchor="middle">${outerUnit === "f" ? "°F" : "°C"}</text>` +
-      `<g class="needle"><line class="needle-tail" x1="100" y1="100" x2="${100 - 14}" y2="100"/><line class="needle-body" x1="100" y1="100" x2="${100 + 66}" y2="100"/></g>` +
+      `<g class="needle"><line class="needle-tail" x1="100" y1="100" x2="${100 - 14}" y2="100"/><line class="needle-body" x1="100" y1="100" x2="${100 + 64}" y2="100"/></g>` +
       `<circle class="hub" cx="100" cy="100" r="8"/><circle class="hub-ring" cx="100" cy="100" r="3.5"/>`;
     const needle = svg.querySelector(".needle");
     return {
