@@ -53,8 +53,9 @@ struct Structure: Sendable {
     var bridgeHome: String?
     var homes: [Home]
     var devices: [String: Device]
-    /// By home id, the accessories whose Serial Number Wingman has not read yet, as the Home app names them.
-    private var unresolvedIdentities: [String: [String]] = [:]
+    /// Why the Home Link waits for Wingman, naming the bridge's home's accessories whose Serial Number it has not read
+    /// yet; nil when it need not. Made once per read of the homes: the Home Link asks it before every edit.
+    private(set) var incompleteIdentityReason: String? = nil
     /// The accessories Homeswift mirrors, by HomeKit id.
     var mirrored: Set<String>
     var scenes: [WingmanAPI.Scene] = []
@@ -80,6 +81,7 @@ struct Structure: Sendable {
             if let serial = accessory.serialNumber?.uppercased(), bridges.contains(serial) { homeswiftBridges[accessory.id] = serial }
         }
         var devices: [String: Device] = [:]
+        var unresolved: [String] = []
         for home in homes {
             guard let homeID = home.id else { continue }
             for accessory in home.accessories {
@@ -113,7 +115,7 @@ struct Structure: Sendable {
                 let bridgeAccessory = accessory.manufacturer == "Homeswift" || accessory.model == "Homeswift"
                 if accessory.serialNumber?.isEmpty != false,
                    homeswift != nil || unknownBridge || possibleOwn || bridgeAccessory {
-                    unresolvedIdentities[homeID, default: []].append(accessory.room.map { "\(accessory.name) (\($0))" } ?? accessory.name)
+                    if homeID == self.bridgeHome { unresolved.append(accessory.room.map { "\(accessory.name) (\($0))" } ?? accessory.name) }
                 }
                 let information = ServiceType.accessoryInformation.uuid
                 let main = accessory.services.filter { HAPUUID($0.type) != information }.sorted { ($0.primary == true ? 0 : 1) < ($1.primary == true ? 0 : 1) }
@@ -129,6 +131,7 @@ struct Structure: Sendable {
             }
         }
         self.devices = devices
+        incompleteIdentityReason = Self.waitingReason(unresolved)
     }
 
     func home(_ id: String) -> Home? { homes.first { $0.id == id } }
@@ -140,9 +143,9 @@ struct Structure: Sendable {
 
     /// A missing cached identity is not evidence that an accessory was removed from Apple Home. Do not adopt
     /// partial groups or consume Pending Changes until Wingman has read the bridge's accessory identities.
-    var incompleteIdentityReason: String? {
-        guard let bridgeHome else { return nil }
-        guard let names = unresolvedIdentities[bridgeHome]?.sorted(), !names.isEmpty else { return nil }
+    private static func waitingReason(_ unresolved: [String]) -> String? {
+        guard !unresolved.isEmpty else { return nil }
+        let names = unresolved.sorted()
         // Named, so a person can find the accessory in the Home app: usually one that shows No Response there.
         let shown = names.prefix(5).joined(separator: ", ")
         let more = names.count > 5 ? " and \(names.count - 5) more" : ""
