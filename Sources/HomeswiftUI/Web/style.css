@@ -2669,7 +2669,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   button:is(.icon-button, .menu-button) { min-width: var(--round-target, 40px); }
   button.link { padding-top: var(--space-10); padding-bottom: var(--space-10); }
   .group button, .chat-suggestions button, .tabbar a { min-height: 0; min-width: 0; }
-  .menu [role="menuitem"] { padding: 11px var(--space-14); font-size: var(--text-lg); }
+  .menu :is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]) { padding: 11px var(--space-14); font-size: var(--text-lg); }
   /* A page's heading beside its tile, smaller; its tools under it. */
   .page-head { flex-wrap: nowrap; align-items: center; gap: var(--space-12); margin: var(--space-4) 0 var(--space-16); }
   .page-head:has(.tools) { flex-wrap: wrap; }

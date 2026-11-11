@@ -5969,8 +5969,8 @@
         phone.matches ? { heading: count.textContent } : null,
         phone.matches ? { label: t("Copy the lines shown"), icon: "copy", onSelect: () => copyLines().catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
         // Follow is on from the start; a phone turns it off here rather than in its bar.
-        phone.matches ? { label: t("Follow"), checked: follow.checked, onSelect: () => { follow.checked = !follow.checked; follow.dispatchEvent(new Event("change")); } } : null,
-        saving ? { label: t("Save payloads"), checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
+        phone.matches ? { label: t("Follow"), icon: "pulse", toggle: true, checkbox: true, checked: follow.checked, onSelect: () => { follow.checked = !follow.checked; follow.dispatchEvent(new Event("change")); } } : null,
+        saving ? { label: t("Save payloads"), icon: "archive", toggle: true, checkbox: true, checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
         phone.matches ? { separator: true } : null,
         { label: chosen ? t("Download this range") : t("Download the whole log"), icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
         { label: t("Empty the log…"), icon: "trash", danger: true, onSelect: async () => {
