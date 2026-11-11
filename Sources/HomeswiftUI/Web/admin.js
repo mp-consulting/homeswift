@@ -1294,19 +1294,50 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let typing = null;
     search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
     for (const choice of [outcome, since, scope]) choice.addEventListener("change", () => { clearTimeout(typing); typing = setTimeout(load, 0); });
+    const searchLabel = el("label", {}, el("span", { class: "visually-hidden", text: t("Search") }), search);
+    const filtersCard = el("div", { class: "card audit-filters", id: "audit-filters" },
+      el("div", { class: "audit-filter-grid" },
+        el("label", {}, el("span", { text: t("Time range") }), since),
+        el("label", {}, el("span", { text: t("Outcome") }), outcome),
+        el("div", { class: "audit-search" },
+          el("label", {}, el("span", { class: "visually-hidden", text: t("Search scope") }), scope),
+          searchLabel)),
+      el("div", { class: "audit-filter-footer" }, count,
+        HomeswiftCommon.clearFilters([[search, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) })));
+    // A phone (as the Logs and Plugins pages): one glass bar above the tab bar, the search and Filters, which opens the
+    // filters as a sheet over it, its badge counting the range and outcome that are not the defaults.
+    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
+    const filterCount = el("span", { class: "toolbar-count hidden" });
+    const filtersButton = el("button", { type: "button", class: "audit-filters-toggle", "aria-label": t("Filters"), title: t("Filters"),
+      "aria-controls": "audit-filters", "aria-expanded": "false" }, HomeswiftCommon.icon("filter"), filterCount);
+    const bar = el("div", { class: "audit-bar" }, filtersButton);
+    const showCount = () => {
+      const chosen = Number(outcome.value !== "") + Number(since.value !== "7d");
+      filterCount.textContent = String(chosen);
+      filterCount.classList.toggle("hidden", !chosen);
+      filtersButton.classList.toggle("on", chosen > 0);
+    };
+    for (const choice of [outcome, since]) choice.addEventListener("change", showCount);
+    showCount();
+    const openFilters = (open) => { filtersCard.classList.toggle("open", open); filtersButton.setAttribute("aria-expanded", String(open)); };
+    filtersButton.addEventListener("click", () => openFilters(!filtersCard.classList.contains("open")));
+    // A tap elsewhere closes it, though not one in the menu a picker opened from it; so does Escape. Its listeners go with the page.
+    const outside = (event) => {
+      if (!bar.isConnected) { document.removeEventListener("pointerdown", outside); return; }
+      if (!filtersCard.contains(event.target) && !bar.contains(event.target) && !event.target.closest?.('[role="menu"], .menu-scrim')) openFilters(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    filtersCard.addEventListener("keydown", (event) => { if (event.key === "Escape" && filtersCard.classList.contains("open")) { openFilters(false); filtersButton.focus(); } });
+    // The search sits in the bar on a phone, with the filters elsewhere.
+    const placeSearch = () => {
+      if (phone.matches) bar.prepend(search); else { searchLabel.append(search); openFilters(false); }
+    };
+    const onPhone = () => { if (bar.isConnected) placeSearch(); else phone.removeEventListener("change", onPhone); };
+    phone.addEventListener("change", onPhone);
+    placeSearch();
     app().show(main,
       app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
-      subnav("audit"),
-      el("div", { class: "card audit-filters" },
-        el("div", { class: "audit-filter-grid" },
-          el("label", {}, el("span", { text: t("Time range") }), since),
-          el("label", {}, el("span", { text: t("Outcome") }), outcome),
-          el("div", { class: "audit-search" },
-            el("label", {}, el("span", { class: "visually-hidden", text: t("Search scope") }), scope),
-            el("label", {}, el("span", { class: "visually-hidden", text: t("Search") }), search))),
-        el("div", { class: "audit-filter-footer" }, count,
-          HomeswiftCommon.clearFilters([[search, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) }))),
-      body);
+      subnav("audit"), filtersCard, body, bar);
     await load();
   }
 

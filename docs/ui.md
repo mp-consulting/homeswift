@@ -923,6 +923,8 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
   and every change made in this UI (client `web UI`, the user, the route, a small body with its secrets masked), newest
   first, filtered by time, outcome, tool and client (`/settings/audit?since=7d&outcome=failed&tool=…&client=…`).
   `auditLog: false` in the MCP block turns it off.
+  On a phone, as the Logs page, the search and **Filters** (the time range, outcome and scope in a sheet over the bar,
+  with a badge while they are not the defaults) are one glass bar above the tab bar, and each entry is a short card.
 - **Assistant** (`/settings/assistant`): the HomeswiftAiKit block's whole form (the provider, model and key, the MCP
   server and the rest) with its save bar, under a card with **Test connection** (it takes the form's settings, saved or
   not), what the Assistant used today and this month against its budgets, by model and by user, and **Edit the budgets**,

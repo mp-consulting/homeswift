@@ -348,6 +348,8 @@ try {
   await shot("appearance", "/appearance", { ready: ".wallpapers", tall: 2200 });
   await shot("backups-phone", "/settings/backups", { width: 375, height: 812, mobile: true, ready: ".drop-zone" });
   await shot("audit-phone", "/settings/audit?since=7d", { width: 375, height: 812, mobile: true, ready: ".audit-filter-footer" });
+  await shot("audit-phone-filters", "/settings/audit?since=7d", { width: 375, height: 812, mobile: true, ready: ".audit-filters-toggle", prepare: 'document.querySelector(".audit-filters-toggle").click();' });
+  await shot("audit-phone-landscape", "/settings/audit?since=7d", { width: 844, height: 390, mobile: true, touch: true, ready: ".audit-filters-toggle", viewportOnly: true });
   await shot("backups", "/settings/backups", { ready: ".drop-zone", tall: 1000 });
   await shot("vault", "/settings/vault", { ready: ".vault-move", tall: 800 });
   // An accessory's History tab, and the Logbook (the demonstration's day, from writeHistory).

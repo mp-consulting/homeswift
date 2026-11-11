@@ -1303,19 +1303,50 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let typing = null;
     search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
     for (const choice of [outcome, since, scope]) choice.addEventListener("change", () => { clearTimeout(typing); typing = setTimeout(load, 0); });
+    const searchLabel = el("label", {}, el("span", { class: "visually-hidden", text: t("Search") }), search);
+    const filtersCard = el("div", { class: "card audit-filters", id: "audit-filters" },
+      el("div", { class: "audit-filter-grid" },
+        el("label", {}, el("span", { text: t("Time range") }), since),
+        el("label", {}, el("span", { text: t("Outcome") }), outcome),
+        el("div", { class: "audit-search" },
+          el("label", {}, el("span", { class: "visually-hidden", text: t("Search scope") }), scope),
+          searchLabel)),
+      el("div", { class: "audit-filter-footer" }, count,
+        HomeswiftCommon.clearFilters([[search, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) })));
+    // A phone (as the Logs and Plugins pages): one glass bar above the tab bar, the search and Filters, which opens the
+    // filters as a sheet over it, its badge counting the range and outcome that are not the defaults.
+    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
+    const filterCount = el("span", { class: "toolbar-count hidden" });
+    const filtersButton = el("button", { type: "button", class: "audit-filters-toggle", "aria-label": t("Filters"), title: t("Filters"),
+      "aria-controls": "audit-filters", "aria-expanded": "false" }, HomeswiftCommon.icon("filter"), filterCount);
+    const bar = el("div", { class: "audit-bar" }, filtersButton);
+    const showCount = () => {
+      const chosen = Number(outcome.value !== "") + Number(since.value !== "7d");
+      filterCount.textContent = String(chosen);
+      filterCount.classList.toggle("hidden", !chosen);
+      filtersButton.classList.toggle("on", chosen > 0);
+    };
+    for (const choice of [outcome, since]) choice.addEventListener("change", showCount);
+    showCount();
+    const openFilters = (open) => { filtersCard.classList.toggle("open", open); filtersButton.setAttribute("aria-expanded", String(open)); };
+    filtersButton.addEventListener("click", () => openFilters(!filtersCard.classList.contains("open")));
+    // A tap elsewhere closes it, though not one in the menu a picker opened from it; so does Escape. Its listeners go with the page.
+    const outside = (event) => {
+      if (!bar.isConnected) { document.removeEventListener("pointerdown", outside); return; }
+      if (!filtersCard.contains(event.target) && !bar.contains(event.target) && !event.target.closest?.('[role="menu"], .menu-scrim')) openFilters(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    filtersCard.addEventListener("keydown", (event) => { if (event.key === "Escape" && filtersCard.classList.contains("open")) { openFilters(false); filtersButton.focus(); } });
+    // The search sits in the bar on a phone, with the filters elsewhere.
+    const placeSearch = () => {
+      if (phone.matches) bar.prepend(search); else { searchLabel.append(search); openFilters(false); }
+    };
+    const onPhone = () => { if (bar.isConnected) placeSearch(); else phone.removeEventListener("change", onPhone); };
+    phone.addEventListener("change", onPhone);
+    placeSearch();
     app().show(main,
       app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
-      subnav("audit"),
-      el("div", { class: "card audit-filters" },
-        el("div", { class: "audit-filter-grid" },
-          el("label", {}, el("span", { text: t("Time range") }), since),
-          el("label", {}, el("span", { text: t("Outcome") }), outcome),
-          el("div", { class: "audit-search" },
-            el("label", {}, el("span", { class: "visually-hidden", text: t("Search scope") }), scope),
-            el("label", {}, el("span", { class: "visually-hidden", text: t("Search") }), search))),
-        el("div", { class: "audit-filter-footer" }, count,
-          HomeswiftCommon.clearFilters([[search, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) }))),
-      body);
+      subnav("audit"), filtersCard, body, bar);
     await load();
   }
 
@@ -42675,6 +42706,55 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .plugins-row .plugins-open.action-with-icon::before { margin: 0; }
 }
 
+/* The Audit log on a phone, as the Logs page: its title and the settings' tabs; the search and Filters in one glass bar
+   above the tab bar, Filters opening the filters card as a sheet over it; each entry a short card rather than a table row. */
+.audit-bar, .audit-filters-toggle { display: none; }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  main:has(> .audit-bar) .page-head p { display: none; }
+  #app > main:has(> .audit-bar) { padding-bottom: calc(var(--tab-bar-top) + 56px + var(--space-24)); }
+  main > .audit-bar {
+    position: fixed; z-index: calc(var(--layer-tabbar) + 1); left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
+    bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--keyboard, 0px));
+    display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-6); padding: 5px; border: 1px solid var(--edge); border-radius: var(--radius-pill);
+    background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
+  }
+  html main > .audit-bar > .search { order: 1; display: block; flex: 1 1 0; width: auto; max-width: none; min-width: 0; height: 44px; margin: 0; padding: 0 var(--space-8) 0 var(--space-14);
+    border: 0; border-radius: var(--radius-pill); background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
+  main > .audit-bar > .search:focus { outline: none; box-shadow: none; }
+  html main > .audit-bar > .audit-filters-toggle {
+    order: 2; position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
+    flex: none; border: 0; border-radius: 50%; box-shadow: none; color: var(--text); background: color-mix(in srgb, var(--text) 9%, transparent);
+  }
+  main > .audit-bar > .audit-filters-toggle.on { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  main > .audit-bar svg { width: 21px; height: 21px; }
+  main > .audit-bar .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill);
+    display: grid; place-items: center; font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
+  /* The filters: a sheet over the bar while Filters is open. */
+  main:has(> .audit-bar) > .audit-filters { display: none; }
+  main:has(> .audit-bar) > .audit-filters.open {
+    display: block; position: fixed; z-index: calc(var(--layer-tabbar) + 2); margin: 0; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
+    bottom: calc(var(--tab-bar-top) + var(--space-10) + 56px + var(--space-10) + var(--keyboard, 0px)); max-height: calc(100dvh - var(--tab-bar-top) - 180px); overflow-y: auto;
+    padding: var(--space-16); border: 1px solid var(--edge); border-radius: var(--radius-lg); background: var(--material-solid); box-shadow: var(--shadow-thick);
+  }
+  main:has(> .audit-bar) .audit-filter-grid { grid-template-columns: minmax(0, 1fr); }
+  main:has(> .audit-bar) .audit-search { grid-template-columns: minmax(0, 1fr); }
+  /* Each entry a short card: what was done and its outcome, who, when, then its details. */
+  main:has(> .audit-bar) .audit-results .data-table, main:has(> .audit-bar) .audit-results .data-table tbody { display: block; }
+  main:has(> .audit-bar) .audit-results .data-table thead { display: none; }
+  main:has(> .audit-bar) .audit-results .data-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "what outcome" "who who" "time time" "details details";
+    gap: var(--space-4) var(--space-10); padding: var(--space-14) var(--space-16); border-bottom: 1px solid var(--line); }
+  main:has(> .audit-bar) .audit-results .data-table td { display: block; padding: 0; border: 0; min-width: 0; }
+  main:has(> .audit-bar) .audit-results .data-table td:nth-child(1) { grid-area: time; color: var(--muted); font-size: var(--text-sm); }
+  main:has(> .audit-bar) .audit-results .data-table td:nth-child(2) { grid-area: who; display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-6); }
+  main:has(> .audit-bar) .audit-results .data-table td:nth-child(2) .muted { margin: 0; }
+  main:has(> .audit-bar) .audit-results .data-table td:nth-child(3) { grid-area: what; min-width: 0; font-weight: var(--weight-semibold); }
+  main:has(> .audit-bar) .audit-results .data-table td:nth-child(4) { grid-area: outcome; align-self: start; }
+  main:has(> .audit-bar) .audit-results .data-table td:nth-child(5) { grid-area: details; }
+  main:has(> .audit-bar) .audit-results .data-table td:nth-child(5):empty { display: none; }
+  main:has(> .audit-bar) .audit-results .table-scroll { overflow: visible; }
+}
+
 /* A phone held sideways keeps the phone's layout with less height to spend, as iOS does: a compact tab bar (each icon
    beside its name), and the header scrolls away with the page rather than floating over it. */
 @media (max-height: 500px) and (pointer: coarse) {
@@ -42685,7 +42765,11 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .tabbar .tabbar-tabs svg { width: 21px; height: 21px; }
   .tabbar .mobile-nav-panel { bottom: 52px; max-height: calc(100dvh - 80px); }
   header { position: relative; top: 0; }
-  html .log-card > .log-action-bar, .accessories-bar, html main > .plugins-toolbar { padding: 3px; }
+  html .log-card > .log-action-bar, .accessories-bar, html main > .plugins-toolbar, main > .audit-bar { padding: 3px; }
+  html main > .audit-bar > .audit-filters-toggle { width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
+  html main > .audit-bar > .search { height: 40px; }
+  #app > main:has(> .audit-bar) { padding-bottom: calc(var(--tab-bar-top) + 48px + var(--space-24)); }
+  main:has(> .audit-bar) > .audit-filters.open { bottom: calc(var(--tab-bar-top) + var(--space-10) + 48px + var(--space-10)); max-height: calc(100dvh - var(--tab-bar-top) - 80px); }
   html main > .plugins-toolbar > :is(.plugins-filters-toggle, .plugins-add-round) { width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
   html main > .plugins-toolbar > .search { height: 40px; }
   #app > main:has(> .plugins-toolbar) { padding-bottom: calc(var(--tab-bar-top) + 48px + var(--space-24)); }
