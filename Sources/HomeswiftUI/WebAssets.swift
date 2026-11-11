@@ -40020,9 +40020,9 @@ select option:disabled { color: var(--muted); }
 .wall.editing .edit-bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .wall.editing .resize-handle { right: 4px; bottom: 8px; width: 29px; height: 29px; background: transparent; box-shadow: none; color: var(--accent-ink); }
 .wall.editing .resize-handle::after { left: 8px; top: 11px; }
-.wall.editing > .widget.size-small .edit-caption { top: 5px; font-size: var(--text-2xs); }
-/* A small tile's caption takes its top: the bar sits in the middle of what is left under it. */
-.wall.editing > .widget.size-small .edit-bar { top: calc(50% + 8px); padding: 2px; }
+/* A small tile is too short for its caption and the bar: the bar alone, in its middle (its label names the accessory). */
+.wall.editing > .widget.size-small .edit-bar { padding: 2px; }
+.wall.editing > .widget.size-small .edit-caption { display: none; }
 .wall.editing > .widget.size-small .edit-bar button { height: 22px; }
 .wall.editing > .widget.size-small .resize-handle { bottom: 3px; }
 .wall.editing > .widget-summary > .w-bottom, .wall.editing > .widget-summary > .w-middle { visibility: hidden; }
