@@ -50,6 +50,11 @@ extension WingmanPlugin {
         set_zones or a group with set_wall_layout does the same in the Home app, and the other way round. "structural edits are turned off in \
         Wingman's settings" means that setting is off; "only an administrator of the home can change it" means the Mac's \
         Apple Account is not an administrator of that home. Built-in scenes (Good Morning and the like) cannot be renamed \
-        or deleted; automations' accessory triggers and conditions, and new automations, are made in the Home app.
+        or deleted; automations' accessory triggers and conditions, and new automations, are made in the Home app. \
+        Apple Home keeps groups of fewer than two accessories that the Home app hides: an interrupted group creation \
+        leaves one, which keeps its name and counts towards HomeKit's limit. When Apple Home refuses a group with \
+        "HMErrorDomain 13: Object already exists in the home" or "HMErrorDomain 49: Reached maximum limit of objects for \
+        requested type", or the user asks to tidy groups, call list_empty_groups, tell them which, and remove them with \
+        remove_empty_groups (all of them, or by ids), which the user confirms.
         """
 }
