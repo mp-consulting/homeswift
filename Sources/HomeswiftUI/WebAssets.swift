@@ -8341,11 +8341,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const chosen = range.span();
       const query = new URLSearchParams();
       if (chosen) { query.set("from", chosen[0].toISOString()); if (chosen[1]) query.set("to", chosen[1].toISOString()); }
-      // A phone keeps its bar short: the count, Copy and Save payloads are here rather than in it.
+      // A phone keeps its bar short: the count, Copy, Follow and Save payloads are here rather than in it.
       const saving = phone.matches && !saveToggle.classList.contains("hidden");
       return [
         phone.matches ? { heading: count.textContent } : null,
         phone.matches ? { label: t("Copy the lines shown"), icon: "copy", onSelect: () => copyLines().catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
+        // Follow is on from the start; a phone turns it off here rather than in its bar.
+        phone.matches ? { label: t("Follow"), checked: follow.checked, onSelect: () => { follow.checked = !follow.checked; follow.dispatchEvent(new Event("change")); } } : null,
         saving ? { label: t("Save payloads"), checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
         phone.matches ? { separator: true } : null,
         { label: chosen ? t("Download this range") : t("Download the whole log"), icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
@@ -42470,7 +42472,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .tabbar .tabbar-tabs > :is(a, button):active { background: color-mix(in srgb, var(--text) 8%, transparent); }
   .tabbar .mobile-nav-panel { right: 0; left: auto; bottom: 74px; }
   /* The Logs page: the log is the page, scrolled as the page is, under its title alone; its actions are one glass bar
-     over the tab bar (the menu, the text filter, Filters, the Assistant, Follow), and the other filters a sheet above it. */
+     over the tab bar (the menu, which has Follow, the text filter, Filters, the Assistant), and the other filters a sheet above it. */
   main:has(> .log-card) .page-head p { display: none; }
   #app > main:has(> .log-card) { padding-bottom: calc(var(--tab-bar-top) + 56px + var(--space-24)); }
   .log-card { overflow: visible; padding: 0; background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
@@ -42490,13 +42492,12 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .log-action-bar > .search { order: 1; }
   .log-action-bar > .log-filters-toggle { order: 2; }
   .log-action-bar > .ai-button { order: 3; }
-  .log-action-bar > .log-follow { order: 4; padding-right: var(--space-8); }
   html .log-action-bar > :is(button, .menu-button) {
     position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
     border-radius: 50%; flex: none; color: var(--text); border: 0; box-shadow: none; background: color-mix(in srgb, var(--text) 9%, transparent);
   }
   html .log-action-bar > .ai-button { background: var(--accent-fill); color: var(--accent-text); }
-  html .log-action-bar > :is(.ai-button.hidden, .count, .spacer, .log-copy, .save-payloads) { display: none; }
+  html .log-action-bar > :is(.ai-button.hidden, .count, .spacer, .log-copy, .save-payloads, .log-follow) { display: none; }
   .log-action-bar > .log-filters-toggle.on { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
   .log-action-bar > .log-filters-toggle svg { width: 21px; height: 21px; }
   .log-action-bar .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill);

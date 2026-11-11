@@ -6624,7 +6624,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .tabbar .tabbar-tabs > :is(a, button):active { background: color-mix(in srgb, var(--text) 8%, transparent); }
   .tabbar .mobile-nav-panel { right: 0; left: auto; bottom: 74px; }
   /* The Logs page: the log is the page, scrolled as the page is, under its title alone; its actions are one glass bar
-     over the tab bar (the menu, the text filter, Filters, the Assistant, Follow), and the other filters a sheet above it. */
+     over the tab bar (the menu, which has Follow, the text filter, Filters, the Assistant), and the other filters a sheet above it. */
   main:has(> .log-card) .page-head p { display: none; }
   #app > main:has(> .log-card) { padding-bottom: calc(var(--tab-bar-top) + 56px + var(--space-24)); }
   .log-card { overflow: visible; padding: 0; background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
@@ -6644,13 +6644,12 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .log-action-bar > .search { order: 1; }
   .log-action-bar > .log-filters-toggle { order: 2; }
   .log-action-bar > .ai-button { order: 3; }
-  .log-action-bar > .log-follow { order: 4; padding-right: var(--space-8); }
   html .log-action-bar > :is(button, .menu-button) {
     position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
     border-radius: 50%; flex: none; color: var(--text); border: 0; box-shadow: none; background: color-mix(in srgb, var(--text) 9%, transparent);
   }
   html .log-action-bar > .ai-button { background: var(--accent-fill); color: var(--accent-text); }
-  html .log-action-bar > :is(.ai-button.hidden, .count, .spacer, .log-copy, .save-payloads) { display: none; }
+  html .log-action-bar > :is(.ai-button.hidden, .count, .spacer, .log-copy, .save-payloads, .log-follow) { display: none; }
   .log-action-bar > .log-filters-toggle.on { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
   .log-action-bar > .log-filters-toggle svg { width: 21px; height: 21px; }
   .log-action-bar .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill);

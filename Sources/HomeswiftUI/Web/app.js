@@ -5963,11 +5963,13 @@
       const chosen = range.span();
       const query = new URLSearchParams();
       if (chosen) { query.set("from", chosen[0].toISOString()); if (chosen[1]) query.set("to", chosen[1].toISOString()); }
-      // A phone keeps its bar short: the count, Copy and Save payloads are here rather than in it.
+      // A phone keeps its bar short: the count, Copy, Follow and Save payloads are here rather than in it.
       const saving = phone.matches && !saveToggle.classList.contains("hidden");
       return [
         phone.matches ? { heading: count.textContent } : null,
         phone.matches ? { label: t("Copy the lines shown"), icon: "copy", onSelect: () => copyLines().catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
+        // Follow is on from the start; a phone turns it off here rather than in its bar.
+        phone.matches ? { label: t("Follow"), checked: follow.checked, onSelect: () => { follow.checked = !follow.checked; follow.dispatchEvent(new Event("change")); } } : null,
         saving ? { label: t("Save payloads"), checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
         phone.matches ? { separator: true } : null,
         { label: chosen ? t("Download this range") : t("Download the whole log"), icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
