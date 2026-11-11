@@ -36978,15 +36978,15 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.size-xlarge .thermometer-dial { width: 200px; height: 200px; }
 .widget.size-xlarge .thermometer .sensor-figure { display: none; }
 .widget:not(.size-xlarge) .thermometer-dial .figure { display: none; }
+/* The extra-large dial's figure carries the unit, so the scale's own label is left out. */
+.widget.size-xlarge .thermometer-dial .unit { display: none; }
 .thermometer-dial .face { fill: color-mix(in srgb, var(--surface, #fff) 70%, transparent); stroke: color-mix(in srgb, var(--text) 10%, transparent); stroke-width: 1.5; }
-.thermometer-dial .band { fill: none; stroke-width: 5; stroke-linecap: round; }
-.thermometer-dial .band.cold { stroke: var(--cool); opacity: .55; }
-.thermometer-dial .band.warm { stroke: var(--heat); opacity: .55; }
+.thermometer-dial .band { fill: none; stroke-width: 11; stroke-linecap: butt; }
 .thermometer-dial line.minor { stroke: color-mix(in srgb, var(--text) 35%, transparent); stroke-width: 1.2; }
 .thermometer-dial line.major { stroke: var(--text); stroke-width: 2.2; }
 .thermometer-dial .mark-number { fill: var(--text); font-size: 17px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
 .thermometer-dial .unit { fill: var(--muted); font-size: 14px; font-weight: var(--weight-semibold); }
-.thermometer-dial .figure { fill: var(--text); font-size: 21px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+.thermometer-dial .figure { fill: var(--text); font-size: 18px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
 .thermometer-dial .needle { transform-box: view-box; transform-origin: 100px 100px; transition: transform 600ms var(--ease-out), opacity var(--fast); }
 .thermometer-dial .needle line { stroke-linecap: round; }
 .thermometer-dial .needle-body, .thermometer-dial .needle-tail { stroke: var(--text); stroke-width: 3; }
@@ -43343,28 +43343,43 @@ self.addEventListener("notificationclick", (event) => {
 
   /// A sensor service's reading: its value, its unit, a tone, and its glyph.
   /// A temperature sensor's larger tiles: a dial thermometer. A scale of 270° (−30 to 50 °C, −20 to 120 °F, as the
-  /// user shows temperatures), its numbers every 10 °C or 20 °F, a band cold below freezing and warm above, and a needle
+  /// user shows temperatures), its numbers every 10 °C or 20 °F, a band graded from blue (cold) through green and yellow
+  /// to red (hot), and a needle
   /// that turns to the reading; the figure itself under its hub.
   function thermometerDial(main) {
     const fahrenheit = HomeswiftCommon.temperature(0).unit === "°F";
-    const [min, max, major, minor, freezing] = fahrenheit ? [-20, 120, 20, 5, 32] : [-30, 50, 10, 2, 0];
+    const [min, max, major, minor] = fahrenheit ? [-20, 120, 20, 5] : [-30, 50, 10, 2];
     const angle = (v) => 135 + 270 * (clamp(v, min, max) - min) / (max - min);
     const at = (v, r) => { const a = angle(v) * Math.PI / 180; return [(100 + r * Math.cos(a)).toFixed(2), (100 + r * Math.sin(a)).toFixed(2)]; };
     const arc = (from, to, r) => { const [x1, y1] = at(from, r), [x2, y2] = at(to, r); return `M${x1} ${y1} A${r} ${r} 0 ${angle(to) - angle(from) > 180 ? 1 : 0} 1 ${x2} ${y2}`; };
+    // The band: short arcs, each the colour of its share of the scale (an SVG gradient cannot follow an arc), each a
+    // hair longer than its step so no seam shows between them.
+    const stops = [[0, [58, 150, 217]], [0.3, [76, 176, 80]], [0.55, [245, 211, 59]], [0.75, [243, 154, 43]], [1, [229, 65, 45]]];
+    const colourAt = (share) => {
+      const i = Math.max(1, stops.findIndex(([at]) => at >= share)), [a, ca] = stops[i - 1], [b, cb] = stops[i];
+      const k = (share - a) / (b - a || 1);
+      return `rgb(${ca.map((c, j) => Math.round(c + (cb[j] - c) * k)).join(" ")})`;
+    };
+    let band = "";
+    const pieces = 60, span = max - min;
+    for (let i = 0; i < pieces; i++) {
+      const from = min + span * i / pieces, to = Math.min(max, min + span * (i + 1) / pieces + span * 0.004);
+      band += `<path class="band" stroke="${colourAt((i + 0.5) / pieces)}" d="${arc(from, to, 90)}"/>`;
+    }
     let marks = "";
     for (let v = min; v <= max; v += minor) {
-      const isMajor = (v - min) % major === 0, [x1, y1] = at(v, 86), [x2, y2] = at(v, isMajor ? 76 : 81);
+      const isMajor = (v - min) % major === 0, [x1, y1] = at(v, 82), [x2, y2] = at(v, isMajor ? 72 : 77);
       marks += `<line class="${isMajor ? "major" : "minor"}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
-      if (isMajor) { const [x, y] = at(v, 63); marks += `<text class="mark-number" x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central">${v < 0 ? "−" + -v : v}</text>`; }
+      if (isMajor) { const [x, y] = at(v, 59); marks += `<text class="mark-number" x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central">${v < 0 ? "−" + -v : v}</text>`; }
     }
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 200 200");
     svg.setAttribute("class", "thermometer-dial");
     svg.setAttribute("aria-hidden", "true");
     svg.innerHTML = `<circle class="face" cx="100" cy="100" r="97"/>` +
-      `<path class="band cold" d="${arc(min, freezing, 91)}"/><path class="band warm" d="${arc(freezing, max, 91)}"/>${marks}` +
+      band + marks +
       `<text class="unit" x="100" y="180" text-anchor="middle">${fahrenheit ? "°F" : "°C"}</text>` +
-      `<text class="figure" x="100" y="131" text-anchor="middle"></text>` +
+      `<text class="figure" x="100" y="128" text-anchor="middle"></text>` +
       `<g class="needle"><line class="needle-tail" x1="100" y1="100" x2="${100 - 16}" y2="100"/><line class="needle-body" x1="100" y1="100" x2="${100 + 58}" y2="100"/><line class="needle-tip" x1="${100 + 50}" y1="100" x2="${100 + 74}" y2="100"/></g>` +
       `<circle class="hub" cx="100" cy="100" r="6"/>`;
     const needle = svg.querySelector(".needle"), figure = svg.querySelector(".figure");
@@ -43373,10 +43388,11 @@ self.addEventListener("notificationclick", (event) => {
       set() {
         const v = main.value;
         if (typeof v !== "number") { figure.textContent = "–"; needle.style.opacity = "0"; return; }
-        const shown = HomeswiftCommon.temperature(v).value;
+        const { value: shown, unit } = HomeswiftCommon.temperature(v);
         needle.style.opacity = "";
         needle.style.transform = `rotate(${angle(shown)}deg)`;
-        figure.textContent = shown.toFixed(1).replace(".", decimal) + "°";
+        // In the unit the scale is drawn in, as the status line writes it.
+        figure.textContent = `${shown < 0 ? "−" : ""}${Math.abs(shown).toFixed(1).replace(".", decimal)} ${unit}`;
       },
     };
   }

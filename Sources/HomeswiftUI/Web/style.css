@@ -1293,15 +1293,15 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.size-xlarge .thermometer-dial { width: 200px; height: 200px; }
 .widget.size-xlarge .thermometer .sensor-figure { display: none; }
 .widget:not(.size-xlarge) .thermometer-dial .figure { display: none; }
+/* The extra-large dial's figure carries the unit, so the scale's own label is left out. */
+.widget.size-xlarge .thermometer-dial .unit { display: none; }
 .thermometer-dial .face { fill: color-mix(in srgb, var(--surface, #fff) 70%, transparent); stroke: color-mix(in srgb, var(--text) 10%, transparent); stroke-width: 1.5; }
-.thermometer-dial .band { fill: none; stroke-width: 5; stroke-linecap: round; }
-.thermometer-dial .band.cold { stroke: var(--cool); opacity: .55; }
-.thermometer-dial .band.warm { stroke: var(--heat); opacity: .55; }
+.thermometer-dial .band { fill: none; stroke-width: 11; stroke-linecap: butt; }
 .thermometer-dial line.minor { stroke: color-mix(in srgb, var(--text) 35%, transparent); stroke-width: 1.2; }
 .thermometer-dial line.major { stroke: var(--text); stroke-width: 2.2; }
 .thermometer-dial .mark-number { fill: var(--text); font-size: 17px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
 .thermometer-dial .unit { fill: var(--muted); font-size: 14px; font-weight: var(--weight-semibold); }
-.thermometer-dial .figure { fill: var(--text); font-size: 21px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+.thermometer-dial .figure { fill: var(--text); font-size: 18px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
 .thermometer-dial .needle { transform-box: view-box; transform-origin: 100px 100px; transition: transform 600ms var(--ease-out), opacity var(--fast); }
 .thermometer-dial .needle line { stroke-linecap: round; }
 .thermometer-dial .needle-body, .thermometer-dial .needle-tail { stroke: var(--text); stroke-width: 3; }
