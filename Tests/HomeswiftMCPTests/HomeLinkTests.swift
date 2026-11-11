@@ -317,6 +317,17 @@ import Testing
         #expect(environment.homeLink.home.groups.first { $0.id == "hk-users" }?.members == [])
     }
 
+    /// A hidden group of that name that holds another bridge's accessory is not this one: it is never taken over.
+    @Test func aHiddenGroupWithAnotherBridgesAccessoryIsNotTakenOver() async throws {
+        let environment = try await environment(bulbs: 2)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil])
+        environment.homeLink.set { $0.home.groups = [.init(id: "hk-other", name: "Spots Salon", members: [], accessories: 1)] }
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateWall(["groups": [["name": "Spots Salon", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        #expect(environment.homeLink.home.groups.first { $0.id == "hk-other" }?.members == [])
+    }
+
     @Test(arguments: [false, true])
     func pendingGroupRenameSurvivesReadOnlyReconnect(deletedInHome: Bool) async throws {
         let environment = try await environment(bulbs: 2)

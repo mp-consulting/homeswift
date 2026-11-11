@@ -76,6 +76,10 @@
         return;
       }
       renderKeyed(list, wingmen, (wingman) => wingman.id, card);
+      // The hidden groups need the Home Link: read them again when a Wingman connects.
+      const connected = wingmen.some((wingman) => wingman.state === "connected");
+      if (waitingForLink && connected && !wasConnected) loadHiddenGroups();
+      wasConnected = connected;
     } catch (e) {
       list.replaceChildren(el("p", { class: "error", text: e.message }));
     }
@@ -86,10 +90,13 @@
   // limit. Each can be removed, or all of them, once confirmed.
 
   const hidden = $("#hidden-groups");
+  let waitingForLink = false, wasConnected = false;
 
   async function loadHiddenGroups() {
     let answer;
+    waitingForLink = false;
     try { answer = await request("empty-groups"); } catch (e) {
+      waitingForLink = e.status === 409;
       hidden.replaceChildren(el("div", { class: "card hidden-groups" }, el("p", { class: "muted note", text: e.status === 409 ? t("Link this bridge to its home in Apple Home to see its hidden groups.") : e.message })));
       return;
     }

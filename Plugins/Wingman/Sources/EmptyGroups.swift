@@ -22,11 +22,11 @@ extension WingmanPlugin {
         ])
     }
 
-    /// Removes the groups of `ids` (all of them without `ids`) that still hold fewer than two services.
-    func removeEmptyGroups(_ ids: Set<String>?) async -> PluginWebResponse {
+    /// Removes the groups of `ids` that still hold fewer than two services.
+    func removeEmptyGroups(_ ids: Set<String>) async -> PluginWebResponse {
         guard let found = await emptyGroups() else { return Self.noHomeLink }
         var removed: [JSONValue] = [], failed: [JSONValue] = []
-        for group in found.groups where ids?.contains(group.id) ?? true {
+        for group in found.groups where ids.contains(group.id) {
             do {
                 _ = try await applyHomeChange(.deleteGroup(id: group.id))
                 removed.append(["id": .string(group.id), "name": .string(group.name)])

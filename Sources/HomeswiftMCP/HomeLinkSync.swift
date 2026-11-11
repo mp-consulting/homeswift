@@ -634,11 +634,12 @@ extension HomeswiftCatalog {
             try checkGroup(local.members, in: snapshot)
             let id: String
             // Apple Home refuses a second group of a name (HMErrorDomain 13), and the Home app hides one of fewer than
-            // two accessories, which an earlier attempt can leave: such a group of that name is this one. A group of
-            // that name with accessories of its own is the user's, never taken over.
+            // two accessories, which an earlier attempt can leave: such a group of that name, holding none but
+            // Homeswift's, is this one. A group of that name with other accessories is the user's, never taken over.
             let linked = Set(groups.compactMap(\.homeKitID))
             if let existing = snapshot.groups.first(where: {
-                !linked.contains($0.id) && ($0.accessories ?? $0.members.count) < 2 && Self.sameRoomName($0.name, local.name)
+                !linked.contains($0.id) && $0.members.count < 2 && ($0.accessories ?? $0.members.count) == $0.members.count
+                    && Self.sameRoomName($0.name, local.name)
             }) {
                 id = existing.id
                 let add = local.members.filter { !existing.members.contains($0) }, remove = existing.members.filter { !local.members.contains($0) }

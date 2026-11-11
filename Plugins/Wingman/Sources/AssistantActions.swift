@@ -17,10 +17,13 @@ extension WingmanPlugin {
             path: "empty-groups", access: .read),
         AssistantAction(
             name: "remove_empty_groups", title: "Remove Apple Home's empty groups",
-            description: "Removes from Apple Home the groups list_empty_groups gives (all of them, or those of ids) that still hold "
-                + "fewer than two accessories. Answers removed and failed.",
+            description: "Removes from Apple Home the groups of ids, from list_empty_groups, that still hold fewer than two accessories; "
+                + "names lists their names, for the person to see what they confirm. Answers removed and failed.",
             method: "POST", path: "empty-groups/remove", access: .configure,
-            inputSchema: ["type": "object", "properties": ["ids": ["type": "array", "items": ["type": "string"], "description": "Group ids from list_empty_groups; all of them when left out"]]],
+            inputSchema: ["type": "object", "required": ["ids", "names"], "properties": [
+                "ids": ["type": "array", "items": ["type": "string"], "description": "Group ids from list_empty_groups"],
+                "names": ["type": "array", "items": ["type": "string"], "description": "Their names, as list_empty_groups gives them"],
+            ]],
             confirm: true),
     ]
 
@@ -55,6 +58,6 @@ extension WingmanPlugin {
         leaves one, which keeps its name and counts towards HomeKit's limit. When Apple Home refuses a group with \
         "HMErrorDomain 13: Object already exists in the home" or "HMErrorDomain 49: Reached maximum limit of objects for \
         requested type", or the user asks to tidy groups, call list_empty_groups, tell them which, and remove them with \
-        remove_empty_groups (all of them, or by ids), which the user confirms.
+        remove_empty_groups (their ids and names), which the user confirms.
         """
 }

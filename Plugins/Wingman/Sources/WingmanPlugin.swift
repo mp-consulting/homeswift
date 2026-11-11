@@ -240,7 +240,9 @@ public actor WingmanPlugin: HomeswiftPlugin {
         case ("GET", "empty-groups"):
             return await emptyGroupsResponse()
         case ("POST", "empty-groups/remove"):
-            return await removeEmptyGroups(request.body["ids"]?.arrayValue.map { Set($0.compactMap(\.stringValue)) })
+            // By id only: removing all of them is a list the person saw, never an empty request.
+            guard let ids = request.body["ids"]?.arrayValue?.compactMap(\.stringValue), !ids.isEmpty else { return .error(400, "ids: the groups to remove") }
+            return await removeEmptyGroups(Set(ids))
         default:
             return .error(404, "nothing at \(request.method) \(request.path)")
         }
