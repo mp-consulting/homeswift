@@ -145,7 +145,7 @@ jobs:
           filter: blob:none
 
       - name: Install Avahi's dns_sd
-        run: apt-get update && apt-get install -y --no-install-recommends libavahi-compat-libdnssd-dev python3
+        run: Scripts/apt-install.sh libavahi-compat-libdnssd-dev python3
 
       - name: Date the files by their last commit
         # A checkout dates every file now, which would rebuild all of the package's own code over the cached build.
