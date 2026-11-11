@@ -6893,7 +6893,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     });
     let filter = "all";
     const search = el("input", { type: "search", class: "search", placeholder: t("Search your plugins"), "aria-label": t("Search your plugins"), oninput: render });
-    const filters = el("div", { class: "group plugins-filters", role: "group", "aria-label": t("Status") });
+    const filters = el("div", { class: "group plugins-filters", id: "plugins-filters", role: "group", "aria-label": t("Status") });
     const matches = (block, value) => value === "all" || blockState(block, byPlatform.get(block.platform), running(block))[1] === value;
     [["all", "All", "plugin"], ["away", "Needs attention", "logs"], ["on", "Running", "play"], ["paused", "Paused", "pause"]].forEach(([value, label, icon]) => {
       filters.append(el("button", { actionIcon: icon, text: `${t(label)} · ${custom.filter((block) => matches(block, value)).length}`,
@@ -6907,6 +6907,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const selected = ["all", "away", "on", "paused"][i] === filter;
         button.setAttribute("aria-pressed", String(selected)); button.classList.toggle("on", selected);
       });
+      filterCount.classList.toggle("hidden", filter === "all");
+      filtersButton.classList.toggle("on", filter !== "all");
     }
     const add = el("button", { class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: () => {
       const dialog = openSheet((dismiss) => el("div", { class: "plugins-panel" },
@@ -6915,17 +6917,43 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       dialog.classList.add("plugins-inspector");
       dialog.addEventListener("click", (event) => { if (event.target.closest("a[href]")) dialog.close(); });
     } });
+    // A phone (as the Logs page): one glass bar above the tab bar, the search, Filters (the states in a sheet over the
+    // bar, a badge while one is chosen) and a round Add; the toolbar leaves the card for the page to be fixed there.
+    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
+    const filterCount = el("span", { class: "toolbar-count hidden", text: "1" });
+    const filtersButton = el("button", { type: "button", class: "plugins-filters-toggle", "aria-label": t("Filters"), title: t("Filters"),
+      "aria-controls": "plugins-filters", "aria-expanded": "false" }, HomeswiftCommon.icon("filter"), filterCount);
+    const addRound = el("button", { type: "button", class: "plugins-add-round", "aria-label": t("Add a plugin"), title: t("Add a plugin"), onclick: () => add.click() },
+      HomeswiftCommon.icon("plus"));
+    const toolbar = el("div", { class: "plugins-toolbar" }, filters, search, HomeswiftCommon.clearFilters([[search, ""]], {
+      active: () => filter !== "all", events: [[filters, "click"]], reset: () => { filter = "all"; render(); }
+    }), filtersButton, addRound);
+    const listCard = el("div", { class: "card plugins-card" }, toolbar, list);
+    const openFilters = (open) => { toolbar.classList.toggle("filters-open", open); filtersButton.setAttribute("aria-expanded", String(open)); };
+    filtersButton.addEventListener("click", () => openFilters(!toolbar.classList.contains("filters-open")));
+    // A state chosen closes the sheet; so do a tap elsewhere and Escape. The page's listeners go with it.
+    filters.addEventListener("click", () => setTimeout(() => openFilters(false)));
+    const outside = (event) => {
+      if (!toolbar.isConnected) { document.removeEventListener("pointerdown", outside); return; }
+      if (!toolbar.contains(event.target)) openFilters(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    toolbar.addEventListener("keydown", (event) => { if (event.key === "Escape" && toolbar.classList.contains("filters-open")) { openFilters(false); filtersButton.focus(); } });
+    const placeToolbar = () => {
+      if (phone.matches) main.append(toolbar);
+      else { listCard.prepend(toolbar); openFilters(false); }
+    };
+    const onPhone = () => { if (listCard.isConnected) placeToolbar(); else phone.removeEventListener("change", onPhone); };
+    phone.addEventListener("change", onPhone);
     const builtIn = plugins.blocks.filter((block) => block.system);
     show(main, el("div", { class: "plugins-heading" }, pageHead(t("Plugins"), t("Your connections, devices and services.")), add),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("{names}: no plugin compiled into this homeswift runs these blocks, so they are ignored.",
         { names: plugins.blocks.filter((block) => plugins.unknownPlatforms.includes(block.platform)).map((block) => block.name).join(", ") }) })) : null,
-      el("div", { class: "card plugins-card" },
-        el("div", { class: "plugins-toolbar" }, filters, search, HomeswiftCommon.clearFilters([[search, ""]], {
-          active: () => filter !== "all", events: [[filters, "click"]], reset: () => { filter = "all"; render(); }
-        })), list),
+      listCard,
       !custom.length ? window.HomeswiftImport.offer() : null,
       builtIn.length ? el("details", { class: "plugins-built-in" }, el("summary", { text: `${t("Built-in services")} · ${builtIn.length}` }),
         el("div", { class: "card plugins-list" }, ...builtIn.map(blockCard))) : null);
+    placeToolbar();
     render();
   };
 
@@ -42607,6 +42635,46 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 }
 @media (prefers-reduced-motion: reduce) { .tabbar .tabbar-tabs > :is(a, button) { transition: none; } }
 
+/* The Plugins page on a phone, as the Logs page: its title alone, one glass bar above the tab bar (the search, Filters with
+   the states in a sheet over it, a round Add), and each plugin's Open a round button. */
+.plugins-filters-toggle, .plugins-add-round { display: none; }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  main:has(> .plugins-toolbar) .page-head p, main:has(> .plugins-toolbar) .plugins-heading > .primary { display: none; }
+  #app > main:has(> .plugins-toolbar) { padding-bottom: calc(var(--tab-bar-top) + 56px + var(--space-24)); }
+  html main > .plugins-toolbar {
+    position: fixed; z-index: calc(var(--layer-tabbar) + 1); margin: 0; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
+    bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--keyboard, 0px));
+    display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-6); padding: 5px; border: 1px solid var(--edge); border-radius: var(--radius-pill);
+    background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
+  }
+  html main > .plugins-toolbar > .search { order: 1; display: block; flex: 1 1 0; width: auto; max-width: none; min-width: 0; height: 44px; margin: 0; padding: 0 var(--space-8) 0 var(--space-14);
+    border: 0; border-radius: var(--radius-pill); background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
+  main > .plugins-toolbar > .search:focus { outline: none; box-shadow: none; }
+  html main > .plugins-toolbar > .clear-filters { display: none; }
+  html main > .plugins-toolbar > :is(.plugins-filters-toggle, .plugins-add-round) {
+    position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
+    flex: none; border: 0; border-radius: 50%; box-shadow: none; color: var(--text); background: color-mix(in srgb, var(--text) 9%, transparent);
+  }
+  main > .plugins-toolbar > .plugins-filters-toggle { order: 2; }
+  main > .plugins-toolbar > .plugins-filters-toggle.on { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  html main > .plugins-toolbar > .plugins-add-round { order: 3; background: var(--accent-fill); color: var(--accent-text); }
+  main > .plugins-toolbar svg { width: 21px; height: 21px; }
+  main > .plugins-toolbar .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill);
+    display: grid; place-items: center; font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
+  /* The states: a sheet over the bar while Filters is open, one per line. */
+  html main > .plugins-toolbar > .plugins-filters { display: none; }
+  html main > .plugins-toolbar.filters-open > .plugins-filters {
+    display: grid; grid-template-columns: minmax(0, 1fr); position: absolute; left: 0; right: 0; bottom: calc(100% + var(--space-10)); gap: 2px; padding: var(--space-8);
+    border: 1px solid var(--edge); border-radius: var(--radius-lg); background: var(--material-solid); box-shadow: var(--shadow-thick);
+  }
+  html main > .plugins-toolbar.filters-open > .plugins-filters button { justify-content: flex-start; gap: var(--space-12); min-height: 44px; padding: var(--space-10) var(--space-12);
+    border-radius: var(--radius-md); font-size: var(--text-md); }
+  /* A plugin's Open: a round button, its name kept for assistive technology. */
+  .plugins-row .plugins-open { width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; border-radius: 50%; justify-content: center; }
+  .plugins-row .plugins-open.action-with-icon::before { margin: 0; }
+}
+
 /* A phone held sideways keeps the phone's layout with less height to spend, as iOS does: a compact tab bar (each icon
    beside its name), and the header scrolls away with the page rather than floating over it. */
 @media (max-height: 500px) and (pointer: coarse) {
@@ -42617,7 +42685,10 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .tabbar .tabbar-tabs svg { width: 21px; height: 21px; }
   .tabbar .mobile-nav-panel { bottom: 52px; max-height: calc(100dvh - 80px); }
   header { position: relative; top: 0; }
-  html .log-card > .log-action-bar, .accessories-bar { padding: 3px; }
+  html .log-card > .log-action-bar, .accessories-bar, html main > .plugins-toolbar { padding: 3px; }
+  html main > .plugins-toolbar > :is(.plugins-filters-toggle, .plugins-add-round) { width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
+  html main > .plugins-toolbar > .search { height: 40px; }
+  #app > main:has(> .plugins-toolbar) { padding-bottom: calc(var(--tab-bar-top) + 48px + var(--space-24)); }
   html .log-action-bar > :is(button, .menu-button), .accessories-bar .accessories-toolbar > :is(button, a), .accessories-bar .accessories-toolbar > .accessory-options-button {
     width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
   html .log-card > .log-action-bar > .search, .accessories-bar .search { height: 40px; }

@@ -4515,7 +4515,7 @@
     });
     let filter = "all";
     const search = el("input", { type: "search", class: "search", placeholder: t("Search your plugins"), "aria-label": t("Search your plugins"), oninput: render });
-    const filters = el("div", { class: "group plugins-filters", role: "group", "aria-label": t("Status") });
+    const filters = el("div", { class: "group plugins-filters", id: "plugins-filters", role: "group", "aria-label": t("Status") });
     const matches = (block, value) => value === "all" || blockState(block, byPlatform.get(block.platform), running(block))[1] === value;
     [["all", "All", "plugin"], ["away", "Needs attention", "logs"], ["on", "Running", "play"], ["paused", "Paused", "pause"]].forEach(([value, label, icon]) => {
       filters.append(el("button", { actionIcon: icon, text: `${t(label)} · ${custom.filter((block) => matches(block, value)).length}`,
@@ -4529,6 +4529,8 @@
         const selected = ["all", "away", "on", "paused"][i] === filter;
         button.setAttribute("aria-pressed", String(selected)); button.classList.toggle("on", selected);
       });
+      filterCount.classList.toggle("hidden", filter === "all");
+      filtersButton.classList.toggle("on", filter !== "all");
     }
     const add = el("button", { class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: () => {
       const dialog = openSheet((dismiss) => el("div", { class: "plugins-panel" },
@@ -4537,17 +4539,43 @@
       dialog.classList.add("plugins-inspector");
       dialog.addEventListener("click", (event) => { if (event.target.closest("a[href]")) dialog.close(); });
     } });
+    // A phone (as the Logs page): one glass bar above the tab bar, the search, Filters (the states in a sheet over the
+    // bar, a badge while one is chosen) and a round Add; the toolbar leaves the card for the page to be fixed there.
+    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
+    const filterCount = el("span", { class: "toolbar-count hidden", text: "1" });
+    const filtersButton = el("button", { type: "button", class: "plugins-filters-toggle", "aria-label": t("Filters"), title: t("Filters"),
+      "aria-controls": "plugins-filters", "aria-expanded": "false" }, HomeswiftCommon.icon("filter"), filterCount);
+    const addRound = el("button", { type: "button", class: "plugins-add-round", "aria-label": t("Add a plugin"), title: t("Add a plugin"), onclick: () => add.click() },
+      HomeswiftCommon.icon("plus"));
+    const toolbar = el("div", { class: "plugins-toolbar" }, filters, search, HomeswiftCommon.clearFilters([[search, ""]], {
+      active: () => filter !== "all", events: [[filters, "click"]], reset: () => { filter = "all"; render(); }
+    }), filtersButton, addRound);
+    const listCard = el("div", { class: "card plugins-card" }, toolbar, list);
+    const openFilters = (open) => { toolbar.classList.toggle("filters-open", open); filtersButton.setAttribute("aria-expanded", String(open)); };
+    filtersButton.addEventListener("click", () => openFilters(!toolbar.classList.contains("filters-open")));
+    // A state chosen closes the sheet; so do a tap elsewhere and Escape. The page's listeners go with it.
+    filters.addEventListener("click", () => setTimeout(() => openFilters(false)));
+    const outside = (event) => {
+      if (!toolbar.isConnected) { document.removeEventListener("pointerdown", outside); return; }
+      if (!toolbar.contains(event.target)) openFilters(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    toolbar.addEventListener("keydown", (event) => { if (event.key === "Escape" && toolbar.classList.contains("filters-open")) { openFilters(false); filtersButton.focus(); } });
+    const placeToolbar = () => {
+      if (phone.matches) main.append(toolbar);
+      else { listCard.prepend(toolbar); openFilters(false); }
+    };
+    const onPhone = () => { if (listCard.isConnected) placeToolbar(); else phone.removeEventListener("change", onPhone); };
+    phone.addEventListener("change", onPhone);
     const builtIn = plugins.blocks.filter((block) => block.system);
     show(main, el("div", { class: "plugins-heading" }, pageHead(t("Plugins"), t("Your connections, devices and services.")), add),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("{names}: no plugin compiled into this homeswift runs these blocks, so they are ignored.",
         { names: plugins.blocks.filter((block) => plugins.unknownPlatforms.includes(block.platform)).map((block) => block.name).join(", ") }) })) : null,
-      el("div", { class: "card plugins-card" },
-        el("div", { class: "plugins-toolbar" }, filters, search, HomeswiftCommon.clearFilters([[search, ""]], {
-          active: () => filter !== "all", events: [[filters, "click"]], reset: () => { filter = "all"; render(); }
-        })), list),
+      listCard,
       !custom.length ? window.HomeswiftImport.offer() : null,
       builtIn.length ? el("details", { class: "plugins-built-in" }, el("summary", { text: `${t("Built-in services")} · ${builtIn.length}` }),
         el("div", { class: "card plugins-list" }, ...builtIn.map(blockCard))) : null);
+    placeToolbar();
     render();
   };
 

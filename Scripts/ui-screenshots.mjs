@@ -326,6 +326,8 @@ try {
   await shot("plugins", "/plugins", { ready: ".plugins-row", tall: 1000 });
   await shot("plugins-inspector", "/plugins", { ready: ".plugins-row", prepare: 'document.querySelector(".plugins-name").click();' });
   await shot("plugins-phone", "/plugins", { width: 375, height: 812, mobile: true, ready: ".plugins-row" });
+  await shot("plugins-phone-filters", "/plugins", { width: 375, height: 812, mobile: true, ready: ".plugins-row", prepare: 'document.querySelector(".plugins-filters-toggle").click();' });
+  await shot("plugins-phone-landscape", "/plugins", { width: 844, height: 390, mobile: true, touch: true, ready: ".plugins-row", viewportOnly: true });
   await shot("plugins-drawer", "/plugins", { width: 375, height: 812, mobile: true, ready: ".plugins-row", prepare: 'document.querySelector(".plugins-name").click();' });
   await shot("plugins-accessories", "/plugins", { ready: ".plugins-row", prepare: 'document.querySelector("[data-plugin=demo] .plugins-name").click(); document.querySelector("#plugins-tab-1").click();' });
   await shot("plugins-events", "/plugins", { ready: ".plugins-row", prepare: 'document.querySelector("[data-plugin=demo] .plugins-name").click(); document.querySelector("#plugins-tab-3").click();' });

@@ -648,6 +648,12 @@ Escape, the close button, or a swipe on the phone's grabber closes it and return
 ![Plugin inspector on desktop](images/ui/plugins-inspector.png)
 ![Plugin drawer on a phone](images/ui/plugins-drawer.png)
 
+On a phone, as on the Logs page, the page shows its title alone and its actions are one glass bar above the tab bar:
+the search, **Filters** (the states in a sheet over the bar, with a badge while one is chosen) and a round **+** that
+adds a plugin. Each plugin's **Open** is a round button. A phone held sideways keeps this layout.
+
+<img src="images/ui/plugins-phone.png" alt="The Plugins page on a phone: the list, one glass bar with the search, Filters and Add above the tab bar" width="300"> <img src="images/ui/plugins-phone-filters.png" alt="The Plugins page on a phone with Filters open: All, Needs attention, Running and Paused in a sheet over the bar" width="300">
+
 A plugin whose account Needs Authorization says **Needs sign-in**, **Needs pairing** or **Needs keys**.
 Its Overview offers **Set up** or **Set up again**, using the existing Setup flow. One whose every accessory shows
 No Response says **Not responding** and its Events tab provides the log.
