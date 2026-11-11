@@ -14,6 +14,8 @@ All notable changes to this project are documented here. The format follows
   names sections of its page with `pageLinks`, shown beside Open its page.
 - **Apple Home's refusals in plain words**: "already exists" and "limit reached" (HMErrorDomain 13 and 49) say what they
   mean and point to the Wingman page's hidden groups, and a message Apple Home gave several times shows once with a count.
+- **One toolbar on a phone**: the Accessories page's bar holds every control, Full screen included, and the sections'
+  button joins its end instead of floating beside it; the Assistant's button sits above that end.
 - **Remove a room**: in Edit, a red bin beside each room's name removes it once confirmed; its accessories go to No room,
   and with the Home Link it goes from Apple Home too.
 

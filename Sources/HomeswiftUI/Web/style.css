@@ -3976,16 +3976,20 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .accessories-bar { display: grid; row-gap: var(--space-14); margin: 0 0 var(--space-18); }
 .accessories-bar > .accessories-views { margin: 0; }
 .accessories-bar .accessories-search-toggle { display: none; }
-/* A phone: one bar of glass along the bottom, within the thumb's reach, beside the sections' button (54px at 14px from
-   the right): the views first, then round buttons (the search, Filters with its count, Edit, the options). Full screen and
-   Add are in the options' menu on the wall. The search opens over the row, and the bar rises with the keyboard. */
+/* A phone: one bar of glass along the bottom, within the thumb's reach, that holds every control of the page: the views,
+   then round buttons grouped by what they do (the search and Filters with its count; Edit, the options and Full screen),
+   and at its end the sections' button, which joins it (`body:has(.accessories-bar) .tabbar` below). Add accessories is in
+   the options' menu. The search opens over the row, and the bar rises with the keyboard. */
 @media (max-width: 600px) {
   main:has(> .accessories-bar) { padding-bottom: calc(max(96px, var(--accessories-bar-height, 54px) + 30px) + env(safe-area-inset-bottom)); }
   body:has(.chat-dock) main:has(> .accessories-bar) { padding-bottom: calc(max(150px, var(--accessories-bar-height, 54px) + 30px) + env(safe-area-inset-bottom)); }
+  /* The bar's sizes, on the page, so the sections' button that joins the bar follows them. */
+  body:has(.accessories-bar) { --bar-button: 40px; --bar-gap: 2px; --bar-padding: 5px; --bar-inset: 7px; }
   .accessories-bar {
-    position: fixed; z-index: var(--layer-header); left: max(14px, env(safe-area-inset-left)); right: calc(max(14px, env(safe-area-inset-right)) + 62px);
+    position: fixed; z-index: var(--layer-header); left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
     bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--keyboard, 0px));
-    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); margin: 0; padding: var(--space-6);
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--bar-gap); margin: 0;
+    padding: var(--bar-padding) calc(var(--bar-padding) + var(--bar-button) + var(--bar-gap)) var(--bar-padding) var(--bar-padding);
     border-radius: var(--radius-xl); background-color: var(--material-chrome); background-image: var(--sheen);
     -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
@@ -3994,7 +3998,7 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
   .accessories-bar > .accessories-toolbar, .accessories-bar > .accessories-views { display: contents; }
   /* The views as two glyphs, their names for assistive technology. */
   .accessories-bar .subnav { order: 0; flex: none; width: auto; margin: 0 auto 0 0; padding: 2px; display: flex; overflow: visible; mask-image: none; -webkit-mask-image: none; }
-  .accessories-bar .subnav a { display: grid; place-items: center; width: 40px; min-width: 40px; height: 36px; padding: 0; border-radius: var(--radius-pill); }
+  .accessories-bar .subnav a { display: grid; place-items: center; width: 34px; min-width: 34px; height: 36px; padding: 0; border-radius: var(--radius-pill); }
   .accessories-bar .subnav a span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .accessories-bar .subnav svg { width: 20px; height: 20px; }
   /* Anything else of the toolbar (the Rooms button of Edit by room) after Edit. */
@@ -4006,13 +4010,25 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
   .accessories-bar .accessories-full-screen { order: 6; }
   .accessories-bar .accessories-add { order: 7; }
   .accessories-bar .in-menu-on-phone { display: none; }
+  .accessories-bar .accessories-full-screen { display: flex; order: 6; }
   /* Every button a 40px circle, as round buttons are at phone width, its glyph in the middle; Filters keeps its count
      as a badge. (Above the toolbar's own button rule, which lays a glyph and its words side by side.) */
   .accessories-bar .accessories-toolbar > :is(button, a).accessories-search-toggle, .accessories-bar .accessories-toolbar > :is(button, a).accessories-filters,
   .accessories-bar .accessories-toolbar > :is(button, a).accessories-edit, .accessories-bar .accessories-toolbar > :is(button, a)[aria-label],
   .accessories-bar .accessories-toolbar > .accessory-options-button, .accessories-bar .accessories-views > :is(button, a):not(.subnav) {
-    position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; gap: 0; border-radius: 50%; font-size: 0; flex: none;
+    position: relative; display: flex; align-items: center; justify-content: center; width: var(--bar-button); height: var(--bar-button); min-width: var(--bar-button); min-height: var(--bar-button); padding: 0; gap: 0; border-radius: 50%; font-size: 0; flex: none;
   }
+  /* Arranging: Edit, the options and Full screen together, a little apart from finding (the search and Filters). */
+  .accessories-bar .accessories-edit { margin-left: var(--space-4); }
+  /* The sections' button joins the bar's end, the same size as its buttons, so the page has one bar; the Assistant's
+     button sits above that end, and steps aside while the search is open. */
+  body:has(.accessories-bar) .tabbar { right: calc(max(14px, env(safe-area-inset-right)) + var(--bar-padding) + 1px);
+    bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--keyboard, 0px) + var(--bar-inset)); z-index: calc(var(--layer-header) + 1); }
+  body:has(.accessories-bar) .mobile-nav-toggle, body:has(.accessories-bar) .mobile-nav-toggle[aria-expanded="true"] {
+    width: var(--bar-button); height: var(--bar-button); min-width: var(--bar-button); min-height: var(--bar-button); box-shadow: none; }
+  body:has(.accessories-bar) .mobile-nav-toggle svg { width: 20px; height: 20px; }
+  body:has(.accessories-bar) .chat-dock { bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--keyboard, 0px) + var(--bar-button) + 2 * var(--bar-padding) + 2px + var(--space-10)); }
+  body:has(.accessories-bar.searching) .chat-dock { display: none; }
   .accessories-bar .accessories-toolbar > :is(button, a).hidden, .accessories-bar .accessories-views > :is(button, a).in-menu-on-phone { display: none; }
   .accessories-bar .accessories-filters .toolbar-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .accessories-bar .accessories-filters .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill); font-size: var(--text-2xs); }
@@ -4028,9 +4044,11 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 @media (prefers-reduced-motion: reduce) { .accessories-bar.searching .search { animation: none; } }
 /* A narrow phone: the buttons a little smaller, so the row still fits beside the sections' button. */
 @media (max-width: 359px) {
-  .accessories-bar { gap: var(--space-4); padding: var(--space-4); }
-  .accessories-bar .accessories-toolbar > :is(button, a, .accessory-options-button), .accessories-bar .accessories-views > :is(button, a):not(.subnav) { width: 36px; height: 36px; min-width: 36px; min-height: 36px; }
-  .accessories-bar .subnav a { width: 36px; min-width: 36px; }
+  body:has(.accessories-bar) { --bar-button: 36px; --bar-gap: 2px; --bar-padding: 4px; --bar-inset: 8px; }
+  /* No room for Full screen's own button below 360px: it is in the options' menu there. */
+  .accessories-bar :is(.accessories-views, .accessories-toolbar) > :is(button, a).accessories-full-screen { display: none; }
+  .accessories-bar .subnav a { width: 30px; min-width: 30px; }
+  .accessories-bar .accessories-edit { margin-left: 2px; }
 }
 /* Toolbar glyphs stay lighter than their labels. */
 .accessories-toolbar button > svg,
