@@ -63,7 +63,7 @@
       }
       drawHidden($("#excluded"), excluded.map((device) => device.name), (name) => {
         const device = excluded.find((entry) => entry.name === name);
-        if (device) location.href = settingsOf(device.accessoryId);
+        if (device) homeswift.openAccessorySettings({ accessoryID: device.accessoryId, name: device.name, after: (changed) => { if (changed) refresh(); } });
       });
       if (devices.length === 0) {
         if (!list.querySelector(".empty")) {

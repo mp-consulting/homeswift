@@ -832,7 +832,7 @@
         .forEach((name, index) => { if (index % 2) arranged.push(name); else arranged.unshift(name); });
       return el("div", { class: "chips plugin-cloud" }, arranged.map((name) => {
         const count = counts[name] ?? 0;
-        const tag = el("span", { class: `chip cloud-tag tone-${tone(name)}`, "aria-label": `${name}, ${tn("{n} accessory", "{n} accessories", count)}` },
+        const tag = el("a", { class: `chip cloud-tag tone-${tone(name)}`, href: pluginPage({ slug: slug(name) }), "aria-label": `${name}, ${tn("{n} accessory", "{n} accessories", count)}` },
           el("span", { text: name }), el("span", { class: "cloud-count", "aria-hidden": "true", text: String(count) }));
         tag.style.setProperty("--weight", Math.sqrt(count / most).toFixed(3));
         return tag;
@@ -2966,6 +2966,23 @@
     closeArea();
     svg.prepend(make("path", { class: "spark-area", d: area }),
       make("path", { class: "spark-baseline", d: "M3,29 H157" }), make("path", { d: path }));
+    const guide = make("path", { class: "spark-guide", visibility: "hidden" });
+    svg.append(guide);
+    let rect = null, shownIndex = null;
+    const hideGuide = () => { guide.setAttribute("visibility", "hidden"); rect = null; shownIndex = null; };
+    box.addEventListener("pointermove", (event) => {
+      rect ??= svg.getBoundingClientRect();
+      if (!rect.width) return;
+      const fraction = Math.max(0, Math.min(1, (160 * (event.clientX - rect.left) / rect.width - 3) / 154));
+      const index = Math.round(fraction * (values.length - 1));
+      if (index === shownIndex) return;
+      shownIndex = index;
+      if (values[index] == null) { guide.setAttribute("visibility", "hidden"); return; }
+      const x = values.length === 1 ? 80 : 3 + index / (values.length - 1) * 154;
+      guide.setAttribute("d", `M${x},1 V31`);
+      guide.setAttribute("visibility", "visible");
+    });
+    for (const type of ["pointerleave", "pointercancel", "pointerup"]) box.addEventListener(type, hideGuide);
     box.append(svg);
     return box;
   }

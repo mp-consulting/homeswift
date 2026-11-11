@@ -213,6 +213,11 @@ class AirConditioner: BaseDevice {
         // Consumption: the bridge reads that as a kWh counter, and onCurrent is a power that rises and falls.
         service = addService(.heaterCooler, name: name, optional: heaterCoolerCharacteristics() + [.swingMode],
             extra: reportsPower ? [Characteristic(EveCharacteristic.currentConsumption)] : [])
+        for axis in supportedSwingAxes {
+            service.characteristic(adding: axis.characteristic).onSet { [weak self] value in
+                try await self?.setSwingAxis(axis, enabled: Normalize.boolean(value))
+            }
+        }
         configureHeaterCooler()
 
         if config.flag("ac_air_quality"), status.airQuality != nil {
@@ -516,7 +521,41 @@ class AirConditioner: BaseDevice {
         if state == 3 { update(.coolingThresholdTemperature) }
     }
 
+    static func swingKey(_ axis: ClimateSwing) -> String {
+        axis == .vertical ? "airState.wDir.vStep" : "airState.wDir.hStep"
+    }
+
+    /// The model's key for an axis's step, whose "0" stops it and "100" swings it (ThinQ1 names it otherwise).
+    func swingModelKey(_ axis: ClimateSwing) -> String { Self.swingKey(axis) }
+
+    /// Whether the device reports an axis yet (ThinQ1's status always holds both).
+    func reportsSwing(_ axis: ClimateSwing) -> Bool { device.snapshot[Self.swingKey(axis)] != nil }
+
+    /// Sends an axis's step.
+    func sendSwing(_ axis: ClimateSwing, _ value: JSONValue) async throws {
+        try await sendCommand(["dataKey": .string(Self.swingKey(axis)), "dataValue": value], label: "\(axis.rawValue) swing")
+    }
+
+    var supportedSwingAxes: [ClimateSwing] {
+        ClimateSwing.allCases.filter { axis in
+            let options = device.deviceModel.value(swingModelKey(axis))?.options ?? [:]
+            return options["0"] != nil && options["100"] != nil && reportsSwing(axis)
+        }
+    }
+
+    func setSwingAxis(_ axis: ClimateSwing, enabled: Bool) async throws {
+        // Ignored while off, as Swing Mode is: show the device's state again rather than the value written.
+        guard supportedSwingAxes.contains(axis), status.isPowerOn else { updateAccessoryCharacteristic(device); return }
+        let value: JSONValue = enabled ? "100" : "0"
+        try await sendSwing(axis, value)
+        setSnapshotValues([Self.swingKey(axis): value])
+        updateAccessoryCharacteristic(device)
+    }
+
     func updateAccessoryFanStateCharacteristics() {
+        for axis in ClimateSwing.allCases {
+            service[axis.characteristic]?.value = .bool(JS.number(device.snapshot[Self.swingKey(axis)]) >= 100)
+        }
         service.set(.rotationSpeed, status.windStrength)
         service.set(.swingMode, status.isSwingOn ? 1 : 0)
     }

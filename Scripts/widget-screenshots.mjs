@@ -108,6 +108,48 @@ try {
   await send("Page.enable");
   await send("Runtime.enable");
   await appearance("light");
+  for (const width of [375, 1272]) {
+    await open("climate", width);
+    const failed = await evaluate(`(() => {
+      for (const tile of document.querySelectorAll('.widget-climate')) {
+        const box=tile.getBoundingClientRect();
+        const menu=tile.querySelector('.menu-button').getBoundingClientRect();
+        for (const control of tile.querySelectorAll('.climate-dial, .setpoint, .climate-modes, .climate-airflow')) {
+          const r=control.getBoundingClientRect(); if(!r.width || !r.height) continue;
+          if(r.left<box.left || r.right>box.right+1 || r.top<box.top || r.bottom>box.bottom+1) return tile.className+' '+control.classList+' outside tile '+JSON.stringify({box:box.toJSON(),r:r.toJSON()});
+          if(r.left<menu.right && r.right>menu.left && r.top<menu.bottom && r.bottom>menu.top) return tile.className+' '+control.classList+' overlaps menu '+JSON.stringify({r:r.toJSON(),menu:menu.toJSON()});
+        }
+        for(const button of tile.querySelectorAll('.round')) {
+          const r=button.getBoundingClientRect(); if(Math.abs(r.width-r.height)>1) return 'non-circular button';
+        }
+      }
+      return '';
+    })()`);
+    if(failed) throw Error(`Climate ${width}: ${failed}`);
+    await evaluate(`document.querySelector('.size-large .climate-modes button').click()`);
+    const targets = await evaluate(`document.querySelectorAll('.size-large .setpoint:not([hidden])').length`);
+    if(targets!==2) throw Error('Auto must show both temperature targets');
+    await evaluate(`document.querySelector('.size-medium .climate-dial').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))`);
+    const target = await evaluate(`document.querySelector('.size-medium .climate-dial').getAttribute('aria-valuenow')`);
+    if(Number(target)!==22) throw Error('Climate gauge keyboard target failed: '+target);
+    await shot(`climate-${width}`);
+  }
+  console.log('PASS: climate sizes, menu clearance, round buttons, Auto targets and keyboard gauge');
+  await evaluate(`document.querySelector('main').replaceChildren(HomeswiftWidgets.card(previewThermostat, {size:'medium'}))`);
+  // Its power is the head's switch, as on other tiles.
+  const power = `document.querySelector('.w-head > .switch input')`;
+  if (!await evaluate(`document.querySelector('.climate-dial').getAttribute('role') === 'slider' && ${power}.checked === false`)) throw Error('Off thermostat must retain its target gauge and power switch');
+  for (const value of [2, 0, 2]) {
+    const start = writes.length;
+    await evaluate(`${power}.click()`);
+    for (let attempt = 0; writes.length === start && attempt < 50; attempt++) await sleep(20);
+    const written = writes.slice(start);
+    if (written.length !== 1 || written[0].body.characteristic !== 'Target Heating Cooling State' || written[0].body.value !== value) throw Error('Thermostat must toggle off and resume its supported cooling mode: '+JSON.stringify(written));
+    if (!await evaluate(`${power}.checked === ${value !== 0} && document.querySelector('.widget').classList.contains('powered-off') === ${value === 0}`)) throw Error('Thermostat power appearance disagrees with its mode');
+  }
+  console.log('PASS: off thermostat gauge and power resume supported cooling mode');
+
+  writes.length = 0;
   await open("phone", 393);
   await shot("phone");
   const geometry = await evaluate(`[...document.querySelectorAll('.widget')].map(node => ({
@@ -139,6 +181,23 @@ try {
     for (const size of ["small", "medium", "large", "xlarge"]) await shot(`battery-${size}${suffix}`, `.wall.battery-${size} .widget`);
   }
   await appearance("light");
+  // Power stations retain their output controls and share the liquid battery at every size.
+  for (const width of [375, 1272]) {
+    await open("station", width);
+    for (const [value, tone] of [[0, "low"], [25, "medium"], [72, "high"], [100, "high"]]) {
+      await evaluate(`HomeswiftWidgets.event({ id: "station", characteristic: "Battery Level", value: ${value} })`);
+      const readings = await evaluate(`[...document.querySelectorAll('.battery-gauge')].map(g => ({value: g.getAttribute('aria-valuenow'), tone: g.dataset.charge, transform: g.closest('.widget').querySelector('.bat-liquid').style.transform}))`);
+      if (readings.length !== 4 || readings.some(g => +g.value !== value || g.tone !== tone || g.transform !== `translateY(${100-value}%)`)) throw Error('Battery level/colour mismatch');
+    }
+    await evaluate(`HomeswiftWidgets.event({ id: "station", characteristic: "Charging State", value: 2 })`);
+    if (await evaluate(`!!document.querySelector('.battery-graphic.charging')`)) throw Error('Not chargeable shown as charging');
+    await evaluate(`HomeswiftWidgets.event({ id: "station", characteristic: "Battery Level", value: 25 })`);
+    const overflow = await evaluate(`[...document.querySelectorAll('.battery-gauge')].some(g => { const a=g.getBoundingClientRect(), b=g.closest('.widget').getBoundingClientRect(); return a.bottom > b.bottom || a.right > b.right; })`);
+    if (overflow) throw Error('Battery gauge exceeds tile');
+    if (await evaluate(`[...document.querySelectorAll('.bat-wave')].some(w => getComputedStyle(w).animationName !== 'none')`)) throw Error('Battery ignores reduced motion');
+    if (width === 375) await shot('battery-station');
+  }
+  console.log('PASS: battery fill, colour, charging state and station sizes');
   // Sensors and a remote: a press lights its key and names it in the status line, and pressed twice the same way it
   // counts twice (the event repeats its value).
   await open("sensors");
@@ -152,6 +211,10 @@ try {
   // The Weather plugin's accessory at small, medium and large.
   await open("weather");
   await shot("weather", ".wall.weather-sizes");
+  // Every condition the Weather plugin reports, its sky by day and by night.
+  await open("skies");
+  await shot("skies-day", ".wall.skies-day");
+  await shot("skies-night", ".wall.skies-night");
   console.log('PASS: XL fits its contents and grows/shrinks with optional controls');
   if (process.argv[2]) { await open("sizes", 1272); await shot("s-m-l-xl", ".wall"); }
   await open("wall");

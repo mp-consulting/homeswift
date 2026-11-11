@@ -142,6 +142,21 @@ struct SwingController: Sendable {
         return value.stringValue ?? DaikinSettings.display(value)
     }
 
+    func supports(_ axis: DataPaths.FanAxis) -> Bool {
+        let point = device.data(managementPointID, "fanControl", DataPaths.fanDirection(operationMode, axis))
+        return point.value != nil && point.settable != false && (point.values.map { $0.contains(Daikin.swing) && $0.contains(Daikin.stop) } ?? true)
+    }
+
+    func set(_ enabled: Bool, axis: DataPaths.FanAxis) async throws {
+        guard supports(axis) else { throw DaikinSwingError.unsupportedAxis }
+        let target = enabled ? Daikin.swing : Daikin.stop
+        guard axisValue(axis) != target else { return }
+        try await device.setData(managementPointID, "fanControl", .string(target), path: DataPaths.fanDirection(operationMode, axis))
+    }
+
+    /// The axes the current mode can swing and stop, as the web UI's separate swing controls.
+    var supportedAxes: [ClimateSwing] { ClimateSwing.allCases.filter { supports($0.fanAxis) } }
+
     var isSupported: Bool { axisValue(.vertical) != nil || axisValue(.horizontal) != nil }
 
     /// Off only when an axis that exists is stopped.
@@ -274,4 +289,11 @@ actor AutoSetpointSync {
             logger.debug("[\(name)] AutoSetpoint sync skipped: \(message(of: error))")
         }
     }
+}
+
+private enum DaikinSwingError: Error { case unsupportedAxis }
+
+extension ClimateSwing {
+    /// The Daikin Cloud axis of this swing.
+    var fanAxis: DataPaths.FanAxis { self == .vertical ? .vertical : .horizontal }
 }

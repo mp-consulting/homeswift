@@ -781,6 +781,14 @@ final class MiotAccessoryBuilder {
             bindLevels(service, control.property("fan-level"))
             if let swing = control.property("vertical-swing") { bindSwing(service, swing) }
         }
+        for axis in ClimateSwing.allCases {
+            guard let property = main?.property("\(axis.rawValue)-swing") ?? spec.service("fan-control")?.property("\(axis.rawValue)-swing"), property.isWritable else { continue }
+            let characteristic = service.characteristic(adding: axis.characteristic)
+            bind([property]) { values, _ in
+                if let on = Self.bool(values[property.key]) { Self.set(characteristic, .bool(on)) }
+            }
+            characteristic.onWrite { value in try await handle.write(property, .bool(value.boolValue == true)) }
+        }
         bindChildLock(service)
         primary = service
     }

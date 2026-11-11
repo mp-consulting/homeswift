@@ -11,7 +11,9 @@ const gate=A('gate','Garden Gate','garageDoorOpener',[S('GarageDoorOpener',[C('C
 const lock=A('lock','Front Door','doorLock',[S('LockMechanism',[C('Lock Current State',0),C('Lock Target State',0,'uint8',{security:true})])]);
 const plug=A('plug','Reading Lamp','outlet',[S('Outlet',[G(C('On',false,'bool')),C('Outlet In Use',false,'bool')])]);
 const cover=A('cover','Bedroom Shutter','windowCovering',[S('WindowCovering',[C('Current Position',60),G(C('Target Position',60,'uint8',{minValue:0,maxValue:100,minStep:1})),C('Position State',2),C('Hold Position',false,'bool')])]);
-const climate=A('climate','Living Room','airConditioner',[S('HeaterCooler',[C('Active',1),C('Current Heater-Cooler State',2),C('Target Heater-Cooler State',1,'uint8',{validValues:[0,1,2]}),C('Current Temperature',19.5,'float',{unit:'celsius'}),C('Heating Threshold Temperature',21.5,'float',{minValue:16,maxValue:30,minStep:0.5,unit:'celsius'}),C('Cooling Threshold Temperature',24,'float',{minValue:16,maxValue:30,minStep:0.5,unit:'celsius'}),C('Rotation Speed',40,'float',{minValue:0,maxValue:100,minStep:1}),C('Swing Mode',0)])]);
+const climate=A('climate','Living Room','airConditioner',[S('HeaterCooler',[C('Active',1),C('Current Heater-Cooler State',2),C('Target Heater-Cooler State',1,'uint8',{validValues:[0,1,2]}),C('Current Temperature',19.5,'float',{unit:'celsius'}),C('Heating Threshold Temperature',21.5,'float',{minValue:16,maxValue:30,minStep:0.5,unit:'celsius'}),C('Cooling Threshold Temperature',24,'float',{minValue:16,maxValue:30,minStep:0.5,unit:'celsius'}),C('Rotation Speed',40,'float',{minValue:0,maxValue:100,minStep:1}),C('Swing Mode',0),C('Vertical Swing',false,'bool'),C('Horizontal Swing',false,'bool')])]);
+// A cooling-only thermostat starts off, without HeaterCooler's separate Active characteristic.
+window.previewThermostat=A('thermostat','Study Cooling','thermostat',[S('Thermostat',[C('Current Heating Cooling State',0),C('Target Heating Cooling State',0,'uint8',{validValues:[0,2]}),C('Current Temperature',25,'float',{unit:'celsius'}),C('Target Temperature',24,'float',{minValue:16,maxValue:30,minStep:0.5,unit:'celsius'})])]);
 const purifier=A('purifier','Studio Air','airPurifier',[S('AirPurifier',[C('Active',1),C('Current Air Purifier State',2),C('Target Air Purifier State',1),C('Rotation Speed',35,'float',{minValue:0,maxValue:100,minStep:1}),C('Swing Mode',0)]),S('AirQualitySensor',[C('Air Quality',1)],{primary:false}),S('HumiditySensor',[C('Current Relative Humidity',48,'float',{unit:'percentage'})],{primary:false}),S('FilterMaintenance',[C('Filter Life Level',95)],{primary:false}),...['Night Mode','Continuous Monitoring','Jet Focus'].map(name=>S('Switch',[C('On',false,'bool')],{primary:false,name}))]);
 const valve=A('valve','Garden Water','sprinkler',[S('Valve',[C('Active',0),C('In Use',0),C('Valve Type',1),C('Set Duration',600,'uint32',{minValue:0,maxValue:3600,minStep:60}),C('Remaining Duration',0,'uint32')])]);
 const sensor=A('sensor','Hall Temperature','sensor',[S('TemperatureSensor',[C('Current Temperature',22,'float',{unit:'celsius'})])]);
@@ -54,9 +56,19 @@ const add=(a,size,wall)=>{
  return node;
 };
 window.preview=(mode='wall')=>{
+  if(mode==='valve-running')for(const c of valve.services[0].characteristics){if(c.type==='Active'||c.type==='In Use')c.value=1;if(c.type==='Set Duration')c.value=3600;if(c.type==='Remaining Duration')c.value=3590;}
  main.replaceChildren();
  const head=e('div',{class:'page-head'},e('h1',{text:mode==='sizes'?'Four sizes':mode==='sizes-more'?'More accessories':'Accessories'}));main.append(head);
- if(mode==='adaptive'||mode==='slide'){
+ if(mode==='climate'){
+ for(const size of HomeswiftWidgets.sizes){const wall=e('div',{class:'wall',style:'margin-bottom:24px'});main.append(e('h2',{text:size}),wall);add(structuredClone(climate),size,wall);}
+ }else if(mode==='swing'){
+ for(const [name,axes] of [['Both axes',['Vertical Swing','Horizontal Swing']],['Vertical only',['Vertical Swing']],['Horizontal only',['Horizontal Swing']],['Combined only',[]],['No swing',null]]){
+  const a=structuredClone(climate);a.id='climate-'+name;a.name=name;
+  a.services[0].characteristics=a.services[0].characteristics.filter(c=>!['Vertical Swing','Horizontal Swing'].includes(c.type)||axes?.includes(c.type));
+  if(axes===null)a.services[0].characteristics=a.services[0].characteristics.filter(c=>c.type!=='Swing Mode');
+  const wall=e('div',{class:'wall',style:'margin-bottom:24px'});main.append(wall);add(a,'xlarge',wall);
+ }
+ }else if(mode==='adaptive'||mode==='slide'){
  const wall=e('div',{class:'wall'});main.append(wall);
  if(mode==='adaptive'){const a=structuredClone(accessories[5]);a.services[0].adaptiveLighting={resumable:true};a.services[0].characteristics.push(C('Characteristic Value Active Transition Count',1));add(a,'xlarge',wall);}
  else add(cover,'medium',wall);
@@ -64,10 +76,40 @@ window.preview=(mode='wall')=>{
   // Each at its default size, then the remote at each size; ?press= presses a button (its number) for the shot.
   const wall=e('div',{class:'wall sensors'});main.append(wall);for(const a of [motion,leak,air,remote])add(a,undefined,wall);
   const sizes=e('div',{class:'wall remote-sizes'});main.append(sizes);for(const size of ['small','medium','large'])add(remote,size,sizes);
+ }else if(mode==='skies'){
+  // Each sky at the four sizes by day (a UV index) and by night (none, the hour pinned to 22:00 while the tiles are
+  // built), then every condition the Weather plugin reports, small.
+  const hours=Date.prototype.getHours;
+  const sample=(condition,time)=>{
+   const a=structuredClone(weather);a.id=`weather-${time}-${condition}`;a.name=condition;
+   for(const c of a.services[0].characteristics){if(c.type==='Condition')c.value=condition;if(c.type==='UV Index')c.value=time==='day'?3:0;}
+   return a;
+  };
+  for(const time of ['day','night']){
+   if(time==='night')Date.prototype.getHours=()=>22;
+   main.append(e('h2',{text:time==='day'?'By day':'By night'}));
+   for(const condition of ['Clear sky','Partly cloudy','Fog','Rain showers','Thunderstorm','Snow']){
+    const wall=e('div',{class:'wall',style:'margin-bottom:16px'});main.append(wall);
+    for(const size of HomeswiftWidgets.sizes)add(sample(condition,time),size,wall);
+   }
+   main.append(e('h3',{text:'Every condition'}));
+   const all=e('div',{class:`wall skies-${time}`,style:'margin-bottom:32px'});main.append(all);
+   for(const condition of ['Clear sky','Mainly clear','Partly cloudy','Overcast','Fog','Drizzle','Freezing drizzle','Rain','Freezing rain','Rain showers','Snow','Snow showers','Thunderstorm','Thunderstorm with hail'])add(sample(condition,time),'small',all);
+   Date.prototype.getHours=hours;
+  }
  }else if(mode==='weather'){
   const wall=e('div',{class:'wall weather-sizes'});main.append(wall);for(const size of ['small','medium','large','xlarge'])add(weather,size,wall);
+ }else if(mode==='battery-levels'){
+  const wall=e('div',{class:'wall'});main.append(wall);
+  for(const percent of [10,25,50,75,100]){
+   const sample=A(`battery-${percent}`,`Battery · ${percent}%`,'other',[S('Battery',[C('Battery Level',percent),C('Charging State',0),C('Status Low Battery',0)])]);
+   add(sample,'medium',wall);
+  }
+ }else if(mode==='station'){
+  const station=A('station','Home Battery','other',[...battery.services,...['AC Output','USB Output'].map(name=>S('Outlet',[C('On',true,'bool')],{primary:false,name,subtype:name}))]);
+  for(const size of HomeswiftWidgets.sizes){const wall=e('div',{class:`wall battery-${size}`,style:'margin-bottom:24px'});main.append(wall);add(station,size,wall);}
  }else if(mode==='battery'){
-  for(const size of HomeswiftWidgets.sizes){const wall=e('div',{class:`wall battery-${size}`});main.append(wall);add(battery,size,wall);}
+  for(const size of HomeswiftWidgets.sizes){const wall=e('div',{class:`wall battery-${size}`,style:'margin-bottom:24px'});main.append(wall);add(battery,size,wall);}
  }else if(mode==='sizes'||mode==='sizes-more'){
   for(const a of mode==='sizes'?[accessories[5],climate,cover]:[purifier,valve,gate]){
    main.append(e('h2',{text:a.name}));const wall=e('div',{class:'wall'});main.append(wall);for(const size of HomeswiftWidgets.sizes)add(a,size,wall);
@@ -81,5 +123,8 @@ window.preview=(mode='wall')=>{
   for(const node of wall.children)node.append(e('div',{class:'edit-bar'},['‹','S','M','L','XL','›'].map(label=>e('button',{type:'button',text:label,'aria-pressed':label==='S'?node.classList.contains('size-small'):label==='M'?node.classList.contains('size-medium'):label==='L'?node.classList.contains('size-large'):label==='XL'?node.classList.contains('size-xlarge'):null}))));
  }
  if(mode==='sheet')HomeswiftWidgets.open(climate,{actions:()=>[]});
+ if(mode==='valve'||mode==='valve-running'){
+  HomeswiftWidgets.open(valve,{actions:()=>[]});
+ }
 };
 preview(new URLSearchParams(location.search).get('mode')||'wall');

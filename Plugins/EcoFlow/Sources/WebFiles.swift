@@ -133,6 +133,9 @@ extension EcoFlowPlugin {
 
   // Switches an output as HomeKit does; the next answer shows the device's state.
   async function switchOutput(device, output, button) {
+    if (output.on === true && !await HomeswiftCommon.confirmDialog(t("Turn off {output} on {name}? Connected devices will lose power.", {
+      output: t(output.name), name: device.name,
+    }))) return;
     button.disabled = true;
     try {
       await request("output", { method: "POST", body: { id: device.id, output: output.id, on: output.on !== true } });

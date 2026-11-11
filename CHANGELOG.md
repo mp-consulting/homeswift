@@ -6,7 +6,51 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-11
+
+### Added
+
+- **Climate controls**: responsive S, M, L and XL layouts with interactive temperature gauges, stepped fan speed,
+  and separate vertical and horizontal swing buttons for supported Daikin Cloud, LG ThinQ and Xiaomi MIoT devices.
+  Standard combined Swing Mode remains available to HomeKit controllers.
+- **Valve timers**: duration selection up to one hour and a live split-flap countdown, with tap-to-stop and reset.
+- **Battery tiles**: liquid level waves, charge-dependent colours and a centred charging indicator across all sizes.
+- **Weather skies**: the Weather tile draws its condition by day and by night (sun and rays, moon and stars, clouds,
+  fog, rain, snow, lightning), with looping motion that stops under reduced motion.
+
+### Changed
+
+- **Accessory controls**: full-width light sliders, temperature controls for supported colour lights, consistent
+  Adaptive Lighting icons, centred shutter controls and accessory settings drawers opened without leaving the page.
+  A shutter's large and extra-large tiles draw its slats as the small ones do and are dragged as their slider, with
+  their buttons centred. A light's tall brightness shows its figure at the top, and a colour light's extra-large tile
+  is taller than its large one: brightness and White across the tile, and sixteen colours under them. The colours
+  are distinct hues, and once some have been picked every size shows the most used first. A tap or a long press on a light's
+  icon on a large tile opens its colour wheel, which stays open for a press (a long press on a small tile too), and a
+  colour picked on the wheel is kept among the swatches. A long press on a colour swatch opens the wheel to change that
+  swatch, kept in this browser. Small and medium climate tiles read "19.5° → 21.5°", the target in the mode's colour;
+  the medium tile gives its name two lines and its dial the room it has. Arranging the wall, each tile is dimmed a little darker and its size bar sits in its middle, on dark glass.
+- **History and Logbook**: compact filters, scrollable lists, alternating rows and collapsible day groups; graphs
+  retain their original appearance. Dashboard plugin chips link to their pages and consumer sparklines show hover guides.
+
 ### Fixed
+
+- **Power stations**: an output on a station tile is held to turn off, as a lock is held to unlock (a tap turns it on);
+  the sheet's switches and the EcoFlow page confirm before switching off attached devices. The large tile's outputs
+  no longer clip.
+- **Light capabilities**: avoid showing colour controls for lights that do not support colour.
+- **Climate controls**: keep menus clear of controls at phone widths, support thermostat power and target changes,
+  and show only the swing axes a device can operate. Power is a switch, as on other tiles; a thermostat that was off
+  resumes in Auto; the dial's keys keep to its steps. LG ThinQ shows the device's swing again after a write ignored
+  while off, and Daikin Cloud no longer rebuilds the accessory when a mode lacks a swing axis.
+- **Valve timers**: the large tiles and the sheet draw again, a run counts down from the chosen duration rather
+  than the last run's, the countdown sits in the middle with Run and the duration (wide enough to read) side by side under it, larger on the extra-large tile, and it starts with Run rather than waiting for
+  the valve to report In Use.
+- **IKEA DIRIGERA**: every TRADFRI constant-voltage driver dims only, without colour controls.
+- **Sensor tiles**: the large and extra-large tiles show the sensor's own reading large instead of an empty panel, a
+  temperature on a two-scale dial thermometer (the user's unit outside, the other inside, one needle, a band graded
+  from cold blue to hot red), and a number in the status line carries its unit.
+- **Design tokens**: use the shared spacing, corner and weight tokens for valve countdown digits.
 
 - **Home Link**: wait for Wingman to read missing accessory serial numbers before applying changes or adopting
   groups. Incomplete HomeKit identity data no longer treats present accessories as absent or drops group members;
@@ -2523,7 +2567,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.28.1...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/mp-consulting/homeswift/compare/v0.28.1...v0.29.0
 [0.28.1]: https://github.com/mp-consulting/homeswift/compare/v0.28.0...v0.28.1
 [0.28.0]: https://github.com/mp-consulting/homeswift/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/mp-consulting/homeswift/compare/v0.26.0...v0.27.0

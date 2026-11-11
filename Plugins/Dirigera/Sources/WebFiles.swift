@@ -53,7 +53,7 @@ h2 { margin: 0 0 10px; }
   // Where settings are edited: the plugin's Settings page, and each device's (by its accessory's id) or scene's (by its
   // id on the hub) there.
   const settingsOf = (deviceID) => homeswift.accessorySettings(`Dirigera:${deviceID}`);
-  const openSettings = (deviceID) => { location.href = settingsOf(deviceID); };
+  const openSettings = (deviceID) => homeswift.openAccessorySettings({ accessoryID: `Dirigera:${deviceID}`, after: (changed) => { if (changed) refresh(); } });
 
   // MARK: Hubs
 

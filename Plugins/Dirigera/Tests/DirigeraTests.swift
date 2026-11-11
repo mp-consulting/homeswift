@@ -272,6 +272,21 @@ struct DirigeraTests {
         await host.stop()
     }
 
+    @Test func tradfriDriverDoesNotExposeColourFromPlaceholderAttributes() throws {
+        var json = try #require(FakeHub.devices.arrayValue?.first?.objectValue)
+        var attributes = try #require(json["attributes"]?.objectValue)
+        attributes["model"] = "TRADFRI Driver 30W"
+        attributes["colorHue"] = 0
+        attributes["colorSaturation"] = 0
+        json["attributes"] = .object(attributes)
+        let driver = try #require(DirigeraDevice(.object(json)))
+        #expect(driver.brightness == 60)
+        #expect(!driver.hasColour)
+        #expect(driver.hue == nil)
+        #expect(driver.saturation == nil)
+        #expect(driver.mirekRange == nil)
+    }
+
     /// A change of brightness and colour goes out in the hub's order: On, the level, then hue and saturation together.
     @Test func writesGoOutInOrder() async throws {
         let host = try await environment.start(settings: ["hubs": [["host": "192.0.2.20", "token": FakeHub.token]], "transitionMs": 0])

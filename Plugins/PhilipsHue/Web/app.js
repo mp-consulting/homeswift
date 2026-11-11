@@ -21,7 +21,7 @@
   // Where settings are edited: the plugin's Settings page, and each light's, sensor's or scene's there (its Accessory
   // Settings: a light's id, `device:<id>` for a sensor, a scene's id).
   const settingsOf = (deviceID) => homeswift.accessorySettings(`PhilipsHue:${deviceID}`);
-  const openSettings = (deviceID) => { location.href = settingsOf(deviceID); };
+  const openSettings = (deviceID) => homeswift.openAccessorySettings({ accessoryID: `PhilipsHue:${deviceID}`, after: (changed) => { if (changed) refresh(); } });
 
   // MARK: The bridge
 

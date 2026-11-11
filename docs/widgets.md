@@ -135,7 +135,7 @@ list below that it has):
 | Primary service | Widget | Small | Medium | Large | Extra large |
 |---|---|---|---|---|---|
 | Television | Television | power | power, status | input, volume, mute | remote, input |
-| HeaterCooler, Thermostat | Climate | temperature, mode by colour | temperature, setpoint status | inside and setpoint | gauge, setpoints, modes, fan speed, swing |
+| HeaterCooler, Thermostat | Climate | inside and target temperatures | interactive temperature gauge | gauge, setpoints, modes, fan speed, supported swing axes | expanded gauge, setpoints, modes, fan speed, supported swing axes |
 | AirPurifier | Air purifier | air quality | air quality, status | speed and readings | mode, speed, four readings, filter, switches |
 | SecuritySystem | Alarm | hold to turn off | state, hold to turn off | state and arm controls | the same, larger |
 | GarageDoorOpener | Gate | hold to open | state, hold to open | state, hold to open or close | with its locks and sensors |
@@ -161,6 +161,12 @@ at once and fades out. Under reduced motion only the colour changes.
 
 The Weather plugin's accessory is a Temperature sensor with Eve's weather characteristics, drawn by the Weather widget: the
 temperature and the sky's icon, the condition in words, then its humidity, wind, rain, pressure and UV index as it grows.
+Behind them the tile draws the sky: clear, cloudy, fog, rain, storm or snow, by day or by night (night by the hour on
+the viewing device, unless the UV index says the sun is up). Its clouds, rain, snow, stars and the sun's rays loop
+without end; reduced motion stills them.
+
+![Every condition's sky by day](images/widgets/skies-day.png)
+![Every condition's sky by night](images/widgets/skies-night.png)
 
 ![The weather at its four sizes](images/widgets/weather.png)
 
@@ -410,3 +416,25 @@ M-size colour lights place three circular shortcuts below brightness. They begin
 When supported, Adaptive Lighting always occupies the first shortcut, followed by the two most-used colour presets. The shortcut row and its container allow shadows and focus rings to paint outside their bounds.
 
 ![Full brightness with a visible handle and readable percentage in dark mode](images/widgets/light-medium-full-dark.png)
+
+### Liquid battery tiles
+
+Battery and power-station tiles use the whole card as a liquid charge meter in all four sizes.
+The fill height follows the reported percentage; the fill and percentage are red at 20% or below,
+amber through 50%, and green above 50%. A low-battery flag also turns them red.
+The wave stops when reduced motion is enabled; a bolt appears only while charging.
+Power stations keep their outlet controls in L and XL.
+
+![Power station tile sizes](images/widgets/battery-station.png)
+
+### Directional swing
+
+Climate widgets show independent **Vertical swing** and **Horizontal swing** controls when the
+plugin declares those writable axes. Otherwise they keep the standard **Swing** control; devices
+without swing have none. Daikin Cloud discovers axes for the current operation mode, LG ThinQ
+uses the model's swing options, and Xiaomi MIoT uses writable swing properties.
+
+Plugins can add `ClimateSwing.vertical.characteristic` and
+`ClimateSwing.horizontal.characteristic` to their climate service. These boolean characteristics
+must reflect device state and write only their own axis. Keep the standard `Swing Mode` for
+HomeKit compatibility: Apple Home does not provide native independent-axis controls.

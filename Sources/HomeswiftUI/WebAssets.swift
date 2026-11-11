@@ -3210,7 +3210,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         .forEach((name, index) => { if (index % 2) arranged.push(name); else arranged.unshift(name); });
       return el("div", { class: "chips plugin-cloud" }, arranged.map((name) => {
         const count = counts[name] ?? 0;
-        const tag = el("span", { class: `chip cloud-tag tone-${tone(name)}`, "aria-label": `${name}, ${tn("{n} accessory", "{n} accessories", count)}` },
+        const tag = el("a", { class: `chip cloud-tag tone-${tone(name)}`, href: pluginPage({ slug: slug(name) }), "aria-label": `${name}, ${tn("{n} accessory", "{n} accessories", count)}` },
           el("span", { text: name }), el("span", { class: "cloud-count", "aria-hidden": "true", text: String(count) }));
         tag.style.setProperty("--weight", Math.sqrt(count / most).toFixed(3));
         return tag;
@@ -5344,6 +5344,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     closeArea();
     svg.prepend(make("path", { class: "spark-area", d: area }),
       make("path", { class: "spark-baseline", d: "M3,29 H157" }), make("path", { d: path }));
+    const guide = make("path", { class: "spark-guide", visibility: "hidden" });
+    svg.append(guide);
+    let rect = null, shownIndex = null;
+    const hideGuide = () => { guide.setAttribute("visibility", "hidden"); rect = null; shownIndex = null; };
+    box.addEventListener("pointermove", (event) => {
+      rect ??= svg.getBoundingClientRect();
+      if (!rect.width) return;
+      const fraction = Math.max(0, Math.min(1, (160 * (event.clientX - rect.left) / rect.width - 3) / 154));
+      const index = Math.round(fraction * (values.length - 1));
+      if (index === shownIndex) return;
+      shownIndex = index;
+      if (values[index] == null) { guide.setAttribute("visibility", "hidden"); return; }
+      const x = values.length === 1 ? 80 : 3 + index / (values.length - 1) * 154;
+      guide.setAttribute("d", `M${x},1 V31`);
+      guide.setAttribute("visibility", "visible");
+    });
+    for (const type of ["pointerleave", "pointercancel", "pointerup"]) box.addEventListener(type, hideGuide);
     box.append(svg);
     return box;
   }
@@ -11270,6 +11287,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-4 1-7 4-7 2 0 3 2 2 4l-4 4M14 12c4 0 7 1 7 4 0 2-2 3-4 2l-4-4M12 14c0 4-1 7-4 7-2 0-3-2-2-4l4-4M10 12c-4 0-7-1-7-4 0-2 2-3 4-2l4 4"/>',
     speaker: '<rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M12 7h.01"/>',
     lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+    swingVertical: '<path stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter" d="M3 3h13v3h4v15 M4 7l8-1 M5 10l8-3 M7 13l7-5 M10 16l5-7 M13 19l3-9 M17 21l1-10"/>',
+    swingHorizontal: '<path stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter" d="M7 3v5h10V3 M9 5h6 M6 11l-3 6 M9 12l-2 8 M12 12v9 M15 12l2 8 M18 11l3 6"/>',
     thermo: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/>',
     door: '<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17M3 21h18M14 12h.01"/>',
     generic: '<rect x="4" y="4" width="16" height="16" rx="4"/>',
@@ -11342,6 +11361,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     flame: '<path d="M12 3c.5 3 4.5 5.5 4.5 10a4.5 4.5 0 0 1-9 0c0-2 1-3.4 2-4.5.2 1.8 1 2.8 2 3.3 0-3.2-.6-5.8.5-8.8z"/>',
     cloud: '<path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 9.1 4.5 4.5 0 0 0 7 18z"/>',
     rain: '<path d="M7 14h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 5.1 4.5 4.5 0 0 0 7 14zM8 17l-1 3M12 17l-1 3M16 17l-1 3"/>',
+    moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
     snow: '<path d="M7 14h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 5.1 4.5 4.5 0 0 0 7 14zM8 18h.01M12 18h.01M16 18h.01M10 21h.01M14 21h.01"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
     house: '<path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/>',
@@ -13234,7 +13254,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   window.HomeswiftCommon = {
     foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
     openSheet, confirmAction,
-    $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
 })();
@@ -18078,7 +18098,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const logbook = el("a", { class: "button", href: `/logbook?accessory=${encodeURIComponent(accessory.id)}`, actionIcon: "logs", text: t("Logbook"),
       onclick: () => document.querySelector("dialog.widget-sheet[open]")?.close() });
     const root = el("article", { class: "card accessory-card widget-full history-full" },
-      el("div", { class: "page-head history-head" },
+      el("div", { class: "editor-bar history-head" },
         el("div", { class: "who" }, el("h2", { text: accessory.name }), el("p", { class: "muted", text: t("Its values over time. The Logbook says who changed them.") })),
         el("div", { class: "tools" }, group)),
       charts, note, el("div", { class: "actions start" }, logbook));
@@ -18103,7 +18123,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         .map((series) => series.kind === "number" ? numberCard(series, found) : stateCard(series, found)).filter(Boolean);
       if (details.length) cards.push(el("details", { class: "history-details" },
         el("summary", { text: t("Details") }), details.map((series) => stateCard(series, found))));
-      charts.replaceChildren(...energyCards, ...cards);
+      // Only the compact state list uses the console material; charts retain their normal theme.
+      const content = [...energyCards];
+      let stateList = null;
+      for (const node of cards) {
+        if (node.matches(".history-state-row, .history-details")) {
+          if (!stateList) { stateList = el("div", { class: "log history-state-list", tabindex: 0, role: "region", "aria-label": t("History") }); content.push(stateList); }
+          stateList.append(node);
+        } else { stateList = null; content.push(node); }
+      }
+      charts.replaceChildren(...content);
       if (!cards.length && !energyCards.length) charts.append(el("p", { class: "muted", text: t("Nothing recorded in this range") }));
     }
 
@@ -18216,7 +18245,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const accessories = await api("/api/accessories").catch(() => []);
     const rooms = [...new Set(accessories.map((accessory) => accessory.room).filter(Boolean))].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale));
     const select = (name, label, choices, value) => {
-      const node = el("select", { name, "aria-label": label }, choices.map(([key, text]) => el("option", { value: key, text, selected: key === value })));
+      const node = el("select", { name, class: "popup", "aria-label": label }, choices.map(([key, text]) => el("option", { value: key, text, selected: key === value })));
       node.addEventListener("change", reload);
       return node;
     };
@@ -18238,14 +18267,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     syncPeriods();
     const clear = HomeswiftCommon.clearFilters(controls.map((control) => [control, control === since ? "24h" : ""]),
       { active: () => controls.some((control) => control.value !== (control === since ? "24h" : "")), events: controls.map((control) => [control, "change"]), reset: reload });
-    const list = el("div", { class: "logbook" });
-    const count = el("p", { class: "muted logbook-count", "aria-live": "polite" });
+    const list = el("div", { class: "log logbook", tabindex: 0, role: "region", "aria-label": t("Logbook") });
+    const count = el("p", { class: "muted log-action-bar logbook-count", "aria-live": "polite" });
     const icons = new Map(accessories.map((one) => [one.id, HomeswiftWidgets.accessoryIcon(one) ?? "accessory"]));
     const byID = new Map(accessories.map((one) => [one.id, one]));
     app().show(main, app().pageHead(t("Logbook"), t("What changed in the home, and who or what changed it.")),
-      el("div", { class: "card logbook-card" },
-        el("div", { class: "logbook-toolbar" }, periods,
-          el("div", { class: "logbook-filters" }, room, accessory, source, clear), since), count, list));
+      el("div", { class: "card log-card logbook-card" },
+        el("div", { class: "log-filter-panel logbook-toolbar" },
+          el("div", { class: "log-scope-row" },
+            el("div", { class: "log-time" }, el("span", { text: t("Time range") }), periods),
+            ...[[t("Room"), room], [t("Accessory"), accessory], [t("Change Source"), source]].map(([label, control]) =>
+              el("label", {}, el("span", { text: label }), control))), clear, since), count, list));
 
     async function reload() {
       const query = new URLSearchParams();
@@ -18271,7 +18303,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         if (!days.has(key)) days.set(key, []);
         days.get(key).push(row(entry, date, timeFormat, exactFormat));
       }
-      list.replaceChildren(...[...days].map(([day, rows]) => el("section", { class: "logbook-day" }, el("h3", { text: day }), el("ul", { class: "logbook-list" }, rows))));
+      list.replaceChildren(...[...days].map(([day, rows]) => {
+        const section = el("details", { class: "logbook-day" }, el("summary", { text: day }), el("ul", { class: "logbook-list" }, rows));
+        section.open = true;
+        return section;
+      }));
     }
 
     function row(entry, date, timeFormat, exactFormat) {
@@ -20396,6 +20432,8 @@ window.HomeswiftHouseEditor = function ({ preferences, api, scaledImage, saved }
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Seconds": "Segundos",
+  "Turn off {output} on {name}? Connected devices will lose power.": "¿Apagar {output} de {name}? Los dispositivos conectados perderán la alimentación.",
   "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Solo se agrupan las luces. Los demás controles siguen disponibles en el menú del grupo. En Casa, elige « Mostrar como mosaicos separados » para cada dispositivo si el grupo no aparece.",
   "Controls for {name}": "Controles de {name}",
   "Every member of a group must be in Apple Home.": "Todos los miembros de un grupo deben estar en Apple Home.",
@@ -21114,6 +21152,14 @@ HomeswiftI18n.add("es", {
   "Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do.": "Además, cambiar config.json, los plugins y los ajustes, y reiniciar el puente: todo lo que puede hacer esta interfaz web.",
   "Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.": "Además, encender y apagar accesorios y ejecutar escenas. Las cerraduras, puertas de garaje y alarmas te siguen preguntando antes.",
   "Amber": "Ámbar",
+  "Yellow": "Amarillo",
+  "Orange": "Naranja",
+  "Coral": "Coral",
+  "Magenta": "Magenta",
+  "Indigo": "Índigo",
+  "Sky blue": "Azul cielo",
+  "Teal": "Verde azulado",
+  "Lime": "Lima",
   "Amber and soft orange, a little different on each light.": "Ámbar y naranja suave, un poco distintos en cada luz.",
   "Ambiances and light shows for a room's lights.": "Ambientes y juegos de luces para las luces de una habitación.",
   "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.": "Un administrador cambia ajustes, plugins y usuarios; el resto ve el puente y controla los accesorios.",
@@ -21554,6 +21600,8 @@ HomeswiftI18n.add("es", {
   "Hold to turn off": "Mantén para desactivar",
   "hold to turn on": "mantén para encender",
   "Hold to turn on": "Mantén para encender",
+  "Hold to turn off {output}": "Mantén para apagar {output}",
+  "Turn on {output}": "Encender {output}",
   "hold to unlock": "mantén para desbloquear",
   "Hold to unlock": "Mantén para desbloquear",
   "Home": "Inicio",
@@ -22410,6 +22458,10 @@ HomeswiftI18n.add("es", {
   "Sunset {days}": "Atardecer {days}",
   "Supported Asset Types": "Tipos de recursos compatibles",
   "Supported Diagnostics Modes": "Modos de diagnóstico compatibles",
+  "Vertical swing": "Oscilación vertical",
+  "Horizontal swing": "Oscilación horizontal",
+  "Vertical Swing": "Oscilación vertical",
+  "Horizontal Swing": "Oscilación horizontal",
   "Swing": "Oscilación",
   "Swing Mode": "Oscilación",
   "switch": "interruptor",
@@ -22430,6 +22482,7 @@ HomeswiftI18n.add("es", {
   "Target Position": "Posición objetivo",
   "Target Relative Humidity": "Humedad objetivo",
   "Target temperature": "Temperatura objetivo",
+  "Target {temperature}": "Objetivo {temperature}",
   "Target Temperature": "Temperatura objetivo",
   "Target Tilt Angle": "Inclinación objetivo",
   "Target Vertical Tilt Angle": "Inclinación vertical",
@@ -22758,6 +22811,11 @@ HomeswiftI18n.add("es", {
   "Wallpaper": "Fondo de pantalla",
   "Warm amber, each light flickering on its own.": "Ámbar cálido, cada luz parpadeando a su aire.",
   "Warm white": "Blanco cálido",
+  "Custom colour": "Color personalizado",
+  "{name} (hold to change)": "{name} (mantén para cambiar)",
+  "Colour wheel": "Rueda de colores",
+  "Cool white": "Blanco frío",
+  "Lavender": "Lavanda",
   "Warnings": "Avisos",
   "Water": "Agua",
   "Water Level": "Nivel de agua",
@@ -24128,6 +24186,8 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Seconds": "Secondes",
+  "Turn off {output} on {name}? Connected devices will lose power.": "Éteindre {output} sur {name} ? Les appareils connectés ne seront plus alimentés.",
   "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Seules les lumières sont regroupées. Les autres commandes restent accessibles dans le menu du groupe. Dans Maison, choisissez « Afficher en tant que vignettes séparées » pour chaque appareil si le groupe n’apparaît pas.",
   "Controls for {name}": "Commandes de {name}",
   "Every member of a group must be in Apple Home.": "Tous les membres d’un groupe doivent être dans Apple Home.",
@@ -24846,6 +24906,14 @@ HomeswiftI18n.add("fr", {
   "Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do.": "Modifier aussi config.json, les plugins et les réglages, et redémarrer le pont : tout ce que peut faire cette interface web.",
   "Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.": "Allumer et éteindre aussi les accessoires, et lancer des scènes. Les serrures, portes de garage et alarmes demandent toujours votre accord.",
   "Amber": "Ambre",
+  "Yellow": "Jaune",
+  "Orange": "Orange",
+  "Coral": "Corail",
+  "Magenta": "Magenta",
+  "Indigo": "Indigo",
+  "Sky blue": "Bleu ciel",
+  "Teal": "Bleu canard",
+  "Lime": "Citron vert",
   "Amber and soft orange, a little different on each light.": "Ambre et orange doux, un peu différents sur chaque lampe.",
   "Ambiances and light shows for a room's lights.": "Atmosphères et jeux de lumière pour les lampes d'une pièce.",
   "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.": "Un administrateur modifie les réglages, les plugins et les utilisateurs ; les autres voient le pont et commandent les accessoires.",
@@ -25286,6 +25354,8 @@ HomeswiftI18n.add("fr", {
   "Hold to turn off": "Maintenir pour désactiver",
   "hold to turn on": "maintenir pour allumer",
   "Hold to turn on": "Maintenir pour allumer",
+  "Hold to turn off {output}": "Maintenir pour éteindre {output}",
+  "Turn on {output}": "Allumer {output}",
   "hold to unlock": "maintenir pour déverrouiller",
   "Hold to unlock": "Maintenir pour déverrouiller",
   "Home": "Accueil",
@@ -26142,6 +26212,10 @@ HomeswiftI18n.add("fr", {
   "Sunset {days}": "Coucher du soleil {days}",
   "Supported Asset Types": "Types de ressources pris en charge",
   "Supported Diagnostics Modes": "Modes de diagnostic pris en charge",
+  "Vertical swing": "Oscillation verticale",
+  "Horizontal swing": "Oscillation horizontale",
+  "Vertical Swing": "Oscillation verticale",
+  "Horizontal Swing": "Oscillation horizontale",
   "Swing": "Oscillation",
   "Swing Mode": "Oscillation",
   "switch": "interrupteur",
@@ -26162,6 +26236,7 @@ HomeswiftI18n.add("fr", {
   "Target Position": "Position cible",
   "Target Relative Humidity": "Humidité cible",
   "Target temperature": "Température cible",
+  "Target {temperature}": "Consigne {temperature}",
   "Target Temperature": "Température cible",
   "Target Tilt Angle": "Inclinaison cible",
   "Target Vertical Tilt Angle": "Inclinaison verticale",
@@ -26490,6 +26565,11 @@ HomeswiftI18n.add("fr", {
   "Wallpaper": "Fond d'écran",
   "Warm amber, each light flickering on its own.": "Un ambre chaud, chaque lampe vacillant à son rythme.",
   "Warm white": "Blanc chaud",
+  "Custom colour": "Couleur personnalisée",
+  "{name} (hold to change)": "{name} (maintenir pour changer)",
+  "Colour wheel": "Roue des couleurs",
+  "Cool white": "Blanc froid",
+  "Lavender": "Lavande",
   "Warnings": "Avertissements",
   "Water": "Eau",
   "Water Level": "Niveau d'eau",
@@ -27860,6 +27940,8 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Seconds": "Segundos",
+  "Turn off {output} on {name}? Connected devices will lose power.": "Desligar {output} em {name}? Os dispositivos ligados ficarão sem energia.",
   "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Apenas as luzes são agrupadas. Os outros controlos continuam disponíveis no menu do grupo. Na app Casa, escolha « Mostrar como mosaicos separados » para cada dispositivo se o grupo não aparecer.",
   "Controls for {name}": "Controlos de {name}",
   "Every member of a group must be in Apple Home.": "Todos os membros de um grupo têm de estar na Apple Home.",
@@ -28578,6 +28660,14 @@ HomeswiftI18n.add("pt", {
   "Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do.": "Também alterar o config.json, os plugins e as definições, e reiniciar a ponte: tudo o que esta interface web pode fazer.",
   "Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.": "Também ligar e desligar acessórios e executar cenas. Fechaduras, portas de garagem e alarmes continuam a pedir confirmação primeiro.",
   "Amber": "Âmbar",
+  "Yellow": "Amarelo",
+  "Orange": "Laranja",
+  "Coral": "Coral",
+  "Magenta": "Magenta",
+  "Indigo": "Índigo",
+  "Sky blue": "Azul-céu",
+  "Teal": "Verde-azulado",
+  "Lime": "Lima",
   "Amber and soft orange, a little different on each light.": "Âmbar e laranja suave, um pouco diferentes em cada luz.",
   "Ambiances and light shows for a room's lights.": "Ambientes e jogos de luz para as luzes de uma divisão.",
   "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.": "Um administrador altera definições, plugins e utilizadores; os restantes veem a ponte e controlam os acessórios.",
@@ -29018,6 +29108,8 @@ HomeswiftI18n.add("pt", {
   "Hold to turn off": "Manter para desativar",
   "hold to turn on": "manter para ligar",
   "Hold to turn on": "Manter para ligar",
+  "Hold to turn off {output}": "Manter para desligar {output}",
+  "Turn on {output}": "Ligar {output}",
   "hold to unlock": "manter para destrancar",
   "Hold to unlock": "Manter para destrancar",
   "Home": "Início",
@@ -29874,6 +29966,10 @@ HomeswiftI18n.add("pt", {
   "Sunset {days}": "Pôr do sol {days}",
   "Supported Asset Types": "Tipos de recursos suportados",
   "Supported Diagnostics Modes": "Modos de diagnóstico suportados",
+  "Vertical swing": "Oscilação vertical",
+  "Horizontal swing": "Oscilação horizontal",
+  "Vertical Swing": "Oscilação vertical",
+  "Horizontal Swing": "Oscilação horizontal",
   "Swing": "Oscilação",
   "Swing Mode": "Oscilação",
   "switch": "interruptor",
@@ -29894,6 +29990,7 @@ HomeswiftI18n.add("pt", {
   "Target Position": "Posição pretendida",
   "Target Relative Humidity": "Humidade pretendida",
   "Target temperature": "Temperatura pretendida",
+  "Target {temperature}": "Alvo {temperature}",
   "Target Temperature": "Temperatura pretendida",
   "Target Tilt Angle": "Inclinação pretendida",
   "Target Vertical Tilt Angle": "Inclinação vertical",
@@ -30222,6 +30319,11 @@ HomeswiftI18n.add("pt", {
   "Wallpaper": "Papel de parede",
   "Warm amber, each light flickering on its own.": "Âmbar quente, cada luz a tremeluzir ao seu ritmo.",
   "Warm white": "Branco quente",
+  "Custom colour": "Cor personalizada",
+  "{name} (hold to change)": "{name} (manter para mudar)",
+  "Colour wheel": "Roda de cores",
+  "Cool white": "Branco frio",
+  "Lavender": "Lavanda",
   "Warnings": "Avisos",
   "Water": "Água",
   "Water Level": "Nível da água",
@@ -32645,6 +32747,19 @@ HomeswiftI18n.add("pt", {
     }
     HomeswiftSettings.openAccessory({ accessoryID, instance: name, name: title, glyph, trigger, after: (changed) => after?.(changed) });
   }
+
+  // Every plugin's accessory Settings link opens over its current page, including links in menus.
+  // Preserve modified clicks and explicit new-tab links as normal navigation.
+  document.addEventListener("click", (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const link = event.target.closest?.("a[href]");
+    if (!link || link.hasAttribute("download") || (link.target && link.target !== "_self")) return;
+    const url = new URL(link.href, location.href);
+    const accessoryID = url.searchParams.get("accessory");
+    if (url.origin !== location.origin || url.pathname !== settingsAddress || !accessoryID) return;
+    event.preventDefault();
+    openAccessorySettings({ accessoryID, trigger: link.isConnected ? link : document.activeElement });
+  });
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
   const { $, el, icon, tile, fact, markdown, sparkle, api, assistantRequest, formatTemperature, temperature } = HomeswiftCommon;
@@ -36520,7 +36635,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.size-medium:not(.widget-full) .who strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 /* Compact: icon and name in one row; tall: icon above the name, as in Apple Home. */
 .widget.widget-summary { border-radius: var(--radius); }
-.widget.size-small { flex-direction: row; align-items: center; padding: var(--space-10); gap: var(--space-10); }
+.widget.size-small { flex-direction: row; align-items: center; padding: var(--space-10) var(--space-12); gap: var(--space-10); }
 .size-small .w-top { flex: none; }
 .size-small .w-bottom { flex: 1; align-items: center; min-width: 0; }
 .size-small .w-hero { display: none; }
@@ -36546,6 +36661,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-body > * { flex-shrink: 0; }
 .widget:not(.widget-full) .seg > button { white-space: nowrap; padding-inline: 2px; }
 .size-large .w-body { padding-right: 26px; overflow: hidden; justify-content: safe center; }
+/* Balance the space above and below the shutter controls around the tile's centre. */
+.widget-cover.size-large:not(.widget-measuring) { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.widget-cover.size-large > .w-body { align-self: center; padding-right: 0; }
+.widget-cover.size-large > .w-head { align-self: start; }
+/* Brightness spans the card; the lower controls reserve space for the corner menu. */
+.widget-light.size-large .w-body { padding-right: 0; }
+.widget-light.size-large .w-body > .swatches { margin-right: 26px; }
+.widget-light.size-large .w-body > .w-row { margin-right: 40px; }
 /* A large light's swatches on one line, as large as the line allows for the eight colours and the sun. */
 .size-large .swatches { gap: 5px; flex-wrap: nowrap; }
 .widget.size-large .swatch { width: min(28px, calc((100% - 40px) / 9)); height: auto; aspect-ratio: 1; }
@@ -36574,6 +36697,11 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget:not(.widget-full) .menu-button[aria-expanded="true"] { background: color-mix(in srgb, currentColor 22%, transparent); }
 .widget:not(.widget-full) .menu-button svg { width: 18px; height: 18px; }
 @media (prefers-contrast: more) { .widget:not(.widget-full) .menu-button { border: 1px solid currentColor; } }
+/* The sheet's menu, at its foot, in the tint the wall's tiles give theirs. */
+.widget-full .card-foot .menu-button { background: color-mix(in srgb, currentColor 10%, transparent); border-color: transparent; box-shadow: none; color: inherit; }
+@media (hover: hover) and (pointer: fine) { .widget-full .card-foot .menu-button:hover { background: color-mix(in srgb, currentColor 17%, transparent); } }
+.widget-full .card-foot .menu-button[aria-expanded="true"] { background: color-mix(in srgb, currentColor 22%, transparent); }
+@media (prefers-contrast: more) { .widget-full .card-foot .menu-button { border: 1px solid currentColor; } }
 /* A phone holds every button to 40px tall (the phone rules below); a widget's own controls keep their shapes,
    a swatch round, a step a bar, the corner's glyph 28px, its hit area grown under a finger instead. */
 .widget .swatch, .widget .steps > button, .widget .seg > button, .widget .round, .widget .w-hit, .widget:not(.widget-full) .menu-button, .edit-bar button { min-height: 0; min-width: 0; }
@@ -36648,11 +36776,18 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* A shutter's tile: its closed part drawn from the top. */
 .w-shade { position: absolute; inset: 0 0 auto 0; z-index: 0; height: var(--closed, 0%); pointer-events: none;
   background: repeating-linear-gradient(180deg, rgba(120, 128, 142, 0.16) 0 7px, rgba(120, 128, 142, 0.26) 7px 8px); transition: height 300ms var(--ease-out); }
+.widget:not(.widget-summary):has(> .w-shade) { isolation: isolate; }
+.widget:not(.widget-summary) > .w-shade { z-index: -1; border-radius: inherit; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 /* Held to confirm: a fill crosses the tile; let go early and it goes back. */
 .w-veil { position: absolute; inset: 0; z-index: 0; pointer-events: none; background: color-mix(in srgb, var(--warn) 30%, transparent); clip-path: inset(0 100% 0 0); transition: clip-path 200ms var(--ease-out); }
 .holding > .w-veil { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
 /* A shutter's tile slid: the shade follows the pointer one to one; held on a phone, it lifts a little first. */
-.widget-summary.sliding > .w-shade { transition: none; }
+.widget.sliding > .w-shade { transition: none; }
+/* A shutter's larger tile is its slider: dragged up or down anywhere but its buttons, focused through its keys. */
+.widget:not(.widget-summary):has(> .w-slide-keys) { cursor: ns-resize; user-select: none; -webkit-user-select: none; }
+.widget:not(.widget-summary):has(> .w-slide-keys) :is(button, a) { cursor: pointer; }
+.widget:has(> .w-slide-keys:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.w-row.cover-keys { justify-content: center; gap: var(--space-10); }
 .widget-summary.slide-ready, .widget-summary.sliding { transform: scale(1.02); box-shadow: var(--shadow-thick); }
 .widget-cover.widget-summary > .w-hit { cursor: ns-resize; user-select: none; -webkit-user-select: none; }
 
@@ -36670,9 +36805,6 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-grow { flex: 1; min-width: 0; }
 .w-keys { display: flex; align-items: center; gap: var(--space-6); }
 .w-actions { display: grid; min-width: 130px; }
-.w-figure { display: grid; line-height: 1.1; }
-.w-big { font-size: 2.125rem; font-weight: var(--weight-semibold); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-.w-figure span { font-size: var(--text-xs); color: var(--muted); }
 .w-state { font-size: 1.625rem; font-weight: var(--weight-bold); letter-spacing: -0.02em; line-height: 1.1; }
 .w-line { font-size: var(--text-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .big-state { display: flex; align-items: center; gap: var(--space-10); flex-wrap: wrap; }
@@ -36687,9 +36819,17 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .light-tall { display: flex; flex-direction: column; gap: var(--space-8); flex: none; width: 96px; }
 .light-tall > .level { flex: 1; }
 .light-tall > .adaptive-chip { justify-content: center; }
-.light-colours { flex: 1; display: grid; align-content: center; gap: var(--space-12); min-width: 0; }
-.cover-large > .level.vertical { width: 112px; flex: none; border-radius: var(--radius-md); }
-.cover-buttons { display: grid; align-content: center; gap: var(--space-10); flex: 1; min-width: 0; }
+/* An extra-large colour light: the brightness and the white across the tile, then every colour, clear of the menu. */
+.light-full { display: grid; gap: var(--space-10); align-content: start; }
+.widget-light.size-xlarge > .w-body > .light-full { margin-right: 0; }
+.widget-light.size-xlarge > .w-body:has(> .light-full) { justify-content: flex-start; }
+/* Its sixteen colours in two rows of eight across the tile's width (the menu sits under them). */
+.light-full > .swatches { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); justify-items: center; row-gap: var(--space-8); column-gap: 0; }
+/* The shutter fills the tile like the window it covers; its buttons stand in a column beside it. */
+.cover-large > .level.vertical { flex: 1; min-width: 112px; border-radius: var(--radius-md); }
+.cover-buttons { display: grid; align-content: center; gap: var(--space-10); flex: none; min-width: 0; }
+.widget-cover.size-xlarge > .w-body > .cover-large { margin: 0; padding: 0; justify-content: center; align-items: center; }
+.widget-cover.size-xlarge > .w-body { padding-right: 0; }
 .cover-buttons .level { width: 100%; }
 .toggles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-8); }
 .widget .mini-toggle { display: grid; gap: 1px; text-align: left; border-radius: var(--radius-md); padding: 9px 11px; background: var(--material-thin); transition: background-color var(--normal) var(--ease-out); }
@@ -36818,8 +36958,6 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .sp-value span { font-size: var(--text-xs); color: var(--muted); }
 .widget .round { width: 36px; height: 36px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
 .widget .round svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
-.climate-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-12); }
-@container widgets (max-width: 400px) { .climate-hero { grid-template-columns: minmax(0, 1fr); } }
 .gauge { width: 100%; max-width: 230px; height: auto; display: block; margin: 0 auto; overflow: visible; }
 .gauge-track, .gauge-band { fill: none; stroke-width: 12; stroke-linecap: round; }
 .gauge-track { stroke: var(--track); }
@@ -36830,6 +36968,40 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .gauge-target { stroke: var(--text); stroke-width: 3; stroke-linecap: round; }
 
 /* Facets: readouts, meters, chips, swatches, pills */
+/* A temperature sensor's dial thermometer, two scales on one needle: the outer ticks and numbers in the user's unit,
+   the inner numbers in the other, coloured as the graded band they sit inside. Large: the dial beside the figure;
+   extra-large: a big dial alone, centred. */
+.thermometer { display: flex; align-items: center; gap: var(--space-16); }
+.thermometer-dial { width: 136px; height: 136px; flex: none; overflow: visible; }
+.widget.size-xlarge .thermometer { flex-direction: column; gap: var(--space-8); }
+.widget.size-xlarge .thermometer-dial { width: 210px; height: 210px; }
+.widget.widget-sensor.size-xlarge > .w-body > .thermometer { margin-right: 0; align-self: center; }
+.widget.size-xlarge .thermometer .sensor-figure { display: none; }
+.thermometer-dial .face { fill: color-mix(in srgb, var(--surface, #fff) 78%, transparent); stroke: color-mix(in srgb, var(--text) 9%, transparent); stroke-width: 1.5; }
+.thermometer-dial .band { fill: none; stroke-width: 11; stroke-linecap: butt; }
+.thermometer-dial line.minor { stroke: color-mix(in srgb, var(--text) 40%, transparent); stroke-width: 1; }
+.thermometer-dial line.major { stroke: color-mix(in srgb, var(--text) 80%, transparent); stroke-width: 1.8; }
+.thermometer-dial .mark-number { fill: var(--text); font-size: 9px; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
+.thermometer-dial .inner-tick { stroke-width: 1.4; }
+.thermometer-dial .inner-number { font-size: 8.5px; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
+.thermometer-dial .unit { fill: var(--text); font-size: 14px; font-weight: var(--weight-semibold); }
+.thermometer-dial .unit.inner { font-size: 13px; }
+.thermometer-dial .needle { transform-box: view-box; transform-origin: 100px 100px; transition: transform 600ms var(--ease-out), opacity var(--fast); }
+.thermometer-dial .needle line { stroke: var(--text); stroke-linecap: round; }
+.thermometer-dial .needle-body { stroke-width: 4; }
+.thermometer-dial .needle-tail { stroke-width: 6; }
+.thermometer-dial .hub { fill: var(--text); }
+.thermometer-dial .hub-ring { fill: var(--surface, #fff); }
+@media (prefers-reduced-motion: reduce) { .thermometer-dial .needle { transition: none; } }
+
+/* A sensor's own reading on its larger tiles: the figure large, its unit and what it measures beside it. */
+.sensor-figure { display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: var(--space-6); }
+.sensor-figure b { font-size: calc(var(--text-3xl) * 1.25); font-weight: var(--weight-semibold); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1; }
+.sensor-figure small { font-size: var(--text-md); color: var(--muted); font-weight: var(--weight-medium); }
+.sensor-figure span { grid-column: 1 / -1; font-size: var(--text-sm); color: var(--muted); margin-top: var(--space-4); }
+.sensor-figure[data-tone="warn"] b { color: var(--warn); }
+.widget.size-xlarge .sensor-figure b { font-size: calc(var(--text-3xl) * 2); }
+.widget.size-xlarge .sensor-figure small { font-size: var(--text-xl); }
 .readouts { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: var(--space-8); }
 .readouts.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .readouts.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -36869,10 +37041,13 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* Adaptive Lighting: the day's whites, a sun on them; dimmed until the Home app has sent a schedule to resume. */
 .widget .swatch.adaptive { display: grid; place-items: center; color: #5c3b00; background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); }
 .widget .swatch.adaptive svg, .widget .round.adaptive svg, .adaptive-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.size-large .swatch.adaptive svg { width: 13px; height: 13px; }
+.widget.size-large .round.adaptive { width: 28px; height: 28px; min-height: 28px; padding: 0; }
+.size-large .swatch.adaptive svg, .size-large .round.adaptive svg { width: 13px; height: 13px; }
 .widget .round.adaptive[aria-pressed="true"] { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
 .widget .adaptive-chip { display: inline-flex; align-items: center; gap: var(--space-6); }
 .widget .adaptive.unset { opacity: 0.55; }
+/* A light's icon on a larger tile opens its colour wheel when held. */
+.widget .w-head > .tile.wheel-handle { cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
 .widget .swatch { width: 30px; height: 30px; padding: 0; border-radius: 50%; background: var(--swatch); border: 2px solid var(--edge); }
 .widget .swatch[aria-checked="true"] { outline: 2px solid var(--text); outline-offset: 1px; }
 /* Room for that ring: a box that clips (a fixed widget's body) would cut it. */
@@ -36888,22 +37063,42 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* Hold to confirm: the fill runs while held and snaps back when let go early. */
 .widget .hold { position: relative; overflow: hidden; width: 100%; border-radius: var(--radius-md); padding: var(--space-10) var(--space-16); font-weight: var(--weight-semibold); touch-action: none; user-select: none; -webkit-user-select: none; }
 .hold-fill { position: absolute; inset: 0; display: grid; place-items: center; background: var(--warn); color: #fff; clip-path: inset(0 100% 0 0); transition: clip-path 200ms var(--ease-out); }
-.hold.holding .hold-fill { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
+.hold.holding .hold-fill, .hold-chip.holding .hold-fill { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
+/* A power station's output: a chip that fills while held. */
+.hold-chip { position: relative; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.hold-chip .hold-fill { border-radius: inherit; font-weight: var(--weight-semibold); display: flex; align-items: center; justify-content: center; gap: var(--space-6); }
+/* The fill repeats the chip's power icon beside its name, so nothing shifts as it sweeps across. */
+.hold-chip.action-with-icon .hold-fill::before { content: ""; width: 16px; height: 16px; flex: none; background: currentColor;
+  mask: var(--action-icon) center / contain no-repeat; -webkit-mask: var(--action-icon) center / contain no-repeat; }
 
 /* Valve: a round run button whose ring empties as the time runs out. */
 .valve { display: grid; justify-items: center; gap: var(--space-14); }
 .valve .seg { width: 100%; }
-.widget .valve-button { position: relative; width: 128px; height: 128px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
-.valve-button svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
-.valve-button .ring-track, .valve-button .ring { fill: none; stroke-width: 6; }
-.valve-button .ring-track { stroke: var(--track); }
-.valve-button .ring { stroke: var(--cool); stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
-.valve-text { display: grid; justify-items: center; line-height: 1.2; }
-.valve-text b { font-size: 1.125rem; }
-.valve-text span { font-size: var(--text-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+/* The countdown in the middle of the tile, Run and the duration side by side under it. */
+.valve-actions { display: flex; gap: var(--space-8); justify-content: center; align-items: center; }
+.valve-duration { width: auto; min-width: 7.5rem; }
+.valve-run-control { flex: none; display: flex; justify-content: center; }
+.valve-running-controls { display: flex; flex-direction: column; align-items: center; gap: var(--space-10); }
+.widget-valve:not(.widget-full) > .w-body { padding-right: 0; }
+.valve-running-controls[hidden] { display: none !important; }
+.valve-countdown { display: flex; gap: var(--space-8); }
+.valve-countdown[hidden] { display: none; }
+.widget-valve.size-medium .w-middle { display: grid; justify-items: start; align-items: center; pointer-events: none; }
+.widget-valve.size-medium .valve-flap { min-width: 52px; height: 54px; font-size: 34px; }
+.widget-valve.size-medium .valve-clock-part small { font-size: 9px; }
+.valve-clock-part { display: grid; justify-items: center; gap: var(--space-4); }
+.valve-clock-part small { font-size: 10px; font-weight: var(--weight-semibold); color: var(--accent-ink); text-transform: uppercase; letter-spacing: .04em; }
+.valve-flap { position: relative; display: grid; place-items: center; min-width: 64px; height: 66px; padding-inline: var(--space-4); box-sizing: border-box; border-radius: var(--radius-sm); color: #f5f5f5; background: linear-gradient(#444 0%, #303030 49%, #1c1c1c 50%, #252525 100%); border: 1px solid #616161; box-shadow: inset 0 1px 0 #ffffff26, 0 3px 5px #0003; font-size: 40px; line-height: 1; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; letter-spacing: -2px; }
+.valve-flap::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #000b; box-shadow: 0 1px #ffffff18; }
+/* The extra-large tile and the sheet show the countdown large. */
+.widget-full .valve-flap, .widget-valve.size-xlarge .valve-flap { min-width: 90px; height: 96px; font-size: 60px; border-radius: var(--radius-md); }
+.widget-valve.size-xlarge .valve-clock-part small { font-size: 12px; }
+.widget-valve.size-xlarge .valve-countdown { gap: var(--space-12); }
+.widget-valve.size-xlarge .valve-running-controls { gap: var(--space-16); }
+
 
 @media (prefers-reduced-motion: reduce) {
-  .seg-thumb, .level-fill, .widget .tile, .widget.size-small, .w-shade, .valve-button .ring { transition-duration: 0ms !important; }
+  .seg-thumb, .level-fill, .widget .tile, .widget.size-small, .w-shade { transition-duration: 0ms !important; }
   .widget-summary:has(> .w-hit:active) { transform: none; }
   .widget-sheet[open] { animation-name: fade; }
 }
@@ -37052,6 +37247,9 @@ textarea.short { min-height: 220px; }
 .cloud-tag.tone-5 { --tag: var(--series-5); }
 .cloud-tag.tone-6 { --tag: var(--series-6); }
 .cloud-tag.tone-7 { --tag: var(--series-7); }
+.cloud-tag[href] { text-decoration: none; }
+.cloud-tag[href]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (hover: hover) { .cloud-tag[href]:hover { background: color-mix(in srgb, var(--tag) 24%, transparent); } }
 /* A chip with a remove button (the Matter card's ecosystems, for an administrator). */
 .chip.removable { display: inline-flex; align-items: center; gap: 2px; padding-right: 2px; }
 /* A chip's remove button stays a 22-point disc (no button minimum stretches it) with a 40-point tap around it. */
@@ -37420,6 +37618,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumer-sparkline path { fill: none; stroke: currentColor; stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
 .consumer-sparkline .spark-area { fill: currentColor; fill-opacity: 0.12; stroke: none; }
 .consumer-sparkline .spark-baseline { stroke: var(--line); stroke-width: 1; }
+.consumer-sparkline .spark-guide { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
 .consumer-sparkline circle { fill: currentColor; }
 .consumer.nested .consumer-sparkline { color: color-mix(in srgb, var(--consumer-tone, var(--series-1)) 65%, var(--material-solid)); }
 .consumer.rest .consumer-sparkline { color: var(--muted); }
@@ -37707,7 +37906,7 @@ button.menu-filter[aria-pressed="true"] { background: var(--accent-fill); border
 button.menu-filter:active { transform: scale(0.96); }
 .menu-filter-count { opacity: 0.7; font-variant-numeric: tabular-nums; }
 button.menu-filter.action-with-icon::before { width: 12px; height: 12px; }
-.menu-group-heading { padding: var(--space-8) var(--space-12) var(--space-2); font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.menu-group-heading { padding: var(--space-8) var(--space-12) calc(var(--space-4) / 2); font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 /* A finger's pill: taller, as every button on a touch screen, without crowding the menu's first row. */
 @media (pointer: coarse) { button.menu-filter { min-height: 36px; padding-inline: var(--space-12); } }
 @media (prefers-reduced-motion: reduce) { button.menu-filter:active { transform: none; } }
@@ -39850,18 +40049,25 @@ select option:disabled { color: var(--muted); }
 
 /* Editing is a layout preview with its own quiet header and bottom control strip. */
 .wall.editing > .widget:not(.lifted):not(.drag-slot) { outline: 1px solid color-mix(in srgb, var(--accent) 25%, var(--edge)); outline-offset: -1px; }
-.wall.editing > .widget::after { background: color-mix(in srgb, var(--bg) 65%, transparent); }
+.wall.editing > .widget::after { background: color-mix(in srgb, var(--bg) 40%, rgb(18 20 26 / 34%)); }
 .edit-caption { position: absolute; inset: 9px 12px auto; z-index: 3; display: flex; align-items: center; gap: 7px; font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text); pointer-events: none; }
 .edit-caption > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .edit-grip { flex: none; color: var(--muted); font-size: 19px; line-height: 1; }
-.wall.editing .edit-bar { left: 8px; right: 37px; top: auto; bottom: 7px; transform: none; width: auto; max-width: none; padding: 3px; border-radius: var(--radius-sm); background: var(--material-solid); box-shadow: var(--shadow-control); }
-.wall.editing .edit-bar button { width: auto; height: 26px; flex: 1 1 0; border-radius: var(--radius-xs); font-size: var(--text-2xs); }
-.wall.editing .edit-bar button[data-step] { flex: .7 1 0; font-size: 18px; }
+/* Arranging: the size bar sits in the middle of every tile, as wide as its buttons (never wider than the tile). */
+.wall.editing .edit-bar { left: 50%; right: auto; top: 50%; bottom: auto; transform: translate(-50%, -50%); width: max-content; max-width: calc(100% - 16px); padding: 3px; border-radius: var(--radius-sm);
+  /* Dark glass in either appearance: it stands out over the dimmed tile under it. */
+  background: rgb(24 26 32 / 86%); border-color: rgb(255 255 255 / 12%); box-shadow: 0 6px 18px rgb(0 0 0 / 28%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%); backdrop-filter: blur(10px) saturate(140%); }
+.wall.editing .edit-bar button:not([aria-pressed="true"]) { color: rgb(255 255 255 / 78%); }
+@media (hover: hover) and (pointer: fine) { .wall.editing .edit-bar button:not([aria-pressed="true"]):hover { color: #fff; background: rgb(255 255 255 / 10%); } }
+.wall.editing .edit-bar button { width: 30px; height: 26px; flex: 0 1 30px; border-radius: var(--radius-xs); font-size: var(--text-2xs); }
+.wall.editing .edit-bar button[data-step] { width: 24px; flex: 0 1 24px; font-size: 18px; }
 .wall.editing .edit-bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .wall.editing .resize-handle { right: 4px; bottom: 8px; width: 29px; height: 29px; background: transparent; box-shadow: none; color: var(--accent-ink); }
 .wall.editing .resize-handle::after { left: 8px; top: 11px; }
-.wall.editing > .widget.size-small .edit-caption { top: 5px; font-size: var(--text-2xs); }
-.wall.editing > .widget.size-small .edit-bar { bottom: 3px; padding: 2px; }
+/* A small tile is too short for its caption and the bar: the bar alone, in its middle (its label names the accessory). */
+.wall.editing > .widget.size-small .edit-bar { padding: 2px; }
+.wall.editing > .widget.size-small .edit-caption { display: none; }
 .wall.editing > .widget.size-small .edit-bar button { height: 22px; }
 .wall.editing > .widget.size-small .resize-handle { bottom: 3px; }
 .wall.editing > .widget-summary > .w-bottom, .wall.editing > .widget-summary > .w-middle { visibility: hidden; }
@@ -39872,8 +40078,7 @@ select option:disabled { color: var(--muted); }
 .wall.editing > .accessory-group { cursor: default; }
 .wall.editing > .accessory-group > .server-head { visibility: hidden; }
 .edit-caption > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); }
-/* A corner grip leaves more of the bottom edge for the size controls. */
-.wall.editing .edit-bar { right: 24px; }
+/* A corner grip, clear of the size controls in the middle. */
 .wall.editing .resize-handle,
 .wall.editing > .widget.size-small .resize-handle {
   right: 0; bottom: 0; width: 28px; height: 28px; border-radius: 0 0 var(--radius) 0;
@@ -40443,37 +40648,142 @@ select option:disabled { color: var(--muted); }
 @media (hover: hover) { .detail-item:hover .detail-item-name { color: var(--accent-ink); } }
 
 
-/* The battery widget at every size: the design's battery with its three bars, the level filling them, and a bolt
-   beside it while charging, which pulses while the bar being filled flickers. Low turns it amber. */
-.battery-gauge { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-6); flex: none; align-self: center; }
-.battery-gauge.low .battery-graphic { color: var(--warn); }
-.battery-graphic { position: relative; display: flex; align-items: center; justify-content: center; gap: var(--space-4); color: var(--ok); }
-.battery-graphic .bat-icon { width: 34px; height: 34px; overflow: visible; }
-.size-medium .battery-graphic .bat-icon { width: 28px; height: 28px; }
-.size-large .battery-graphic .bat-icon { width: 56px; height: 56px; }
-.size-xlarge .battery-graphic .bat-icon { width: 72px; height: 72px; }
-.battery-graphic rect.bat-body, .battery-graphic path.bat-terminal { fill: none; stroke: currentColor; stroke-width: 1.6; }
-.battery-graphic path.bat-terminal { stroke-linecap: round; }
-/* No stroke on the bars and the bolt: on small and medium tiles the graphic sits in .w-hero, whose svg rule strokes every
-   shape 2 units wide, which filled the gaps between the bars and thickened the bolt. */
-.battery-graphic .bat-bar, .battery-graphic .bat-bolt { stroke: none; }
-.battery-graphic .bat-bar { fill: currentColor; opacity: 0.2; transition: opacity var(--normal) var(--ease-out); }
-.battery-graphic .bat-bar.on { opacity: 1; }
-/* The bolt sits outside the battery's box, beside it, so the battery stays centred. */
-/* Its size is --bolt, and half of it is its offset from the middle, so it stays on the battery's centre line at every size. */
-.battery-graphic .bat-bolt { --bolt: 20px; display: none; position: absolute; left: calc(100% + 2px); top: 50%; margin-top: calc(var(--bolt) / -2); width: var(--bolt); height: var(--bolt); fill: currentColor; }
-.size-medium .battery-graphic .bat-bolt { --bolt: 16px; }
-.size-large .battery-graphic .bat-bolt { --bolt: 26px; }
-.size-xlarge .battery-graphic .bat-bolt { --bolt: 32px; }
-.battery-graphic.charging .bat-bolt { display: block; animation: bat-bolt 1.8s ease-in-out infinite; }
-/* Charging breathes rather than blinks: a hard on and off reads as a fault, and a wall is looked at all day, so the bolt
-   pulses its opacity only, without the scale that pulled the eye. */
-.battery-graphic.charging .bat-bar.live { animation: bat-breathe 1.6s ease-in-out infinite alternate; }
-@keyframes bat-breathe { from { opacity: 1; } to { opacity: 0.35; } }
-@keyframes bat-bolt { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+/* The tile is the liquid container. Keep text and controls above its translucent fill. */
+.battery-gauge { display: flex; align-items: center; justify-content: center; flex: none; align-self: center; }
+.battery-gauge, .battery-graphic { color: var(--ok); }
+:is(.battery-gauge, .battery-graphic)[data-charge="low"] { color: var(--error); }
+:is(.battery-gauge, .battery-graphic)[data-charge="medium"] { color: var(--warn); }
+:is(.battery-gauge, .battery-graphic)[data-charge="unknown"] { color: var(--muted); }
+.widget:has(> .battery-graphic) { isolation: isolate; }
+.widget > .battery-graphic { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; z-index: -1; }
+.battery-graphic .bat-icon, .battery-graphic .bat-window { position: absolute; inset: 0; display: block; }
+.battery-graphic .bat-liquid { position: absolute; inset: 0; opacity: 0.28; background: linear-gradient(180deg, currentColor, color-mix(in srgb, currentColor 55%, transparent)); transition: transform var(--normal) var(--ease-out); }
+.battery-graphic .bat-wave { position: absolute; width: 200%; height: 16px; max-width: none; left: 0; top: -15px; fill: currentColor; stroke: none; animation: battery-wave 3s linear infinite; }
+.battery-graphic .bat-wave path { fill: currentColor; stroke: none; }
+.battery-graphic .bat-wave-back { height: 20px; top: -19px; opacity: 0.55; animation-duration: 4.5s; animation-direction: reverse; }
+/* A vivid grass-green surface, with a darker readout that stays legible on the glass. */
+.battery-graphic[data-charge="high"] { color: #79cf32; }
+.battery-graphic[data-charge="high"] .bat-liquid { opacity: 0.85; background: linear-gradient(180deg, #79cf32, rgb(57 142 34 / 65%)); }
+.battery-graphic[data-charge="high"] .bat-wave { filter: drop-shadow(0 -2px 5px rgb(121 207 50 / 30%)); }
+.battery-graphic[data-charge="high"] .bat-wave-back { color: #9cdd55; }
+.battery-gauge[data-charge="high"] { color: color-mix(in srgb, var(--text) 75%, #65bc30); text-shadow: 0 0 10px rgb(121 207 50 / 15%); }
+.size-small .battery-graphic .bat-wave { height: 6px; top: -5px; }
+.size-small .battery-graphic .bat-wave-back { height: 8px; top: -7px; }
+.battery-graphic.empty .bat-liquid { visibility: hidden; }
+.battery-graphic.full .bat-wave { animation: none; }
+.battery-graphic .bat-bolt { display: none; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; fill: currentColor; stroke: none; filter: drop-shadow(0 1px 2px rgb(255 255 255 / 45%)); }
+.battery-graphic[data-charge="high"] .bat-bolt { color: #285f18; }
+.size-small .battery-graphic .bat-bolt { width: 24px; height: 24px; opacity: 0.35; }
+.size-large .battery-graphic .bat-bolt { width: 52px; height: 52px; }
+.size-xlarge .battery-graphic .bat-bolt { width: 64px; height: 64px; }
+.battery-graphic .bat-bolt path { fill: currentColor; stroke: none; }
+.battery-graphic.charging .bat-bolt { display: block; }
+@keyframes battery-wave { to { transform: translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) {
-  .battery-graphic.charging .bat-bar.live, .battery-graphic.charging .bat-bolt { animation: none; }
+  .battery-graphic .bat-wave { animation: none; }
+  .battery-graphic .bat-liquid { transition: none; }
 }
+/* The weather tile's sky, behind its content: a gradient for the condition by day or night, and layers that loop
+   forever. Each moves exactly one tile of its pattern per cycle, so a loop never jumps; near layers move faster than
+   far ones, for depth. Stars twinkle on a clear night; the sun turns its rays in the top-right corner (the moon glows
+   there at night); clouds drift at two depths; fog rolls; rain falls at two depths; snow sways as it falls; a storm's
+   lightning lights the whole sky. White text reads on every sky; reduced motion stills them all. */
+.widget:has(> .weather-sky) { isolation: isolate; --text: #fff; --muted: rgb(255 255 255 / 80%); color: var(--text); border-color: rgb(255 255 255 / 22%); text-shadow: 0 1px 3px rgb(0 0 0 / 22%); }
+.widget:has(> .weather-sky) .tile { background: rgb(255 255 255 / 22%); color: #fff; box-shadow: none; }
+.widget:has(> .weather-sky) .readout { background: rgb(255 255 255 / 16%); border-color: rgb(255 255 255 / 22%); }
+.widget:has(> .weather-sky) .menu-button { background: rgb(255 255 255 / 18%); color: #fff; }
+.widget > .weather-sky { position: absolute; inset: 0; z-index: -1; overflow: hidden; border-radius: inherit; pointer-events: none;
+  --sky-top: #6fb2f2; --sky-bottom: #3478cf; background: linear-gradient(160deg, var(--sky-top), var(--sky-bottom)); }
+.weather-sky > span { position: absolute; inset: 0; display: none; }
+.weather-sky[data-sky="clear"][data-time="day"] { --sky-top: #ffb547; --sky-bottom: #ee5f38; }
+.weather-sky[data-sky="clear"][data-time="night"] { --sky-top: #233a78; --sky-bottom: #0d1a40; }
+.weather-sky[data-sky="cloudy"][data-time="day"] { --sky-top: #6fb2f2; --sky-bottom: #3478cf; }
+.weather-sky[data-sky="cloudy"][data-time="night"] { --sky-top: #34446a; --sky-bottom: #182039; }
+.weather-sky[data-sky="fog"][data-time="day"] { --sky-top: #a3afbc; --sky-bottom: #6f7c8a; }
+.weather-sky[data-sky="fog"][data-time="night"] { --sky-top: #48525f; --sky-bottom: #262c37; }
+.weather-sky[data-sky="rain"][data-time="day"] { --sky-top: #5d7591; --sky-bottom: #33455c; }
+.weather-sky[data-sky="rain"][data-time="night"] { --sky-top: #263449; --sky-bottom: #101826; }
+.weather-sky[data-sky="storm"] { --sky-top: #48415f; --sky-bottom: #1a1628; }
+.weather-sky[data-sky="snow"][data-time="day"] { --sky-top: #8db4dc; --sky-bottom: #4f78ad; }
+.weather-sky[data-sky="snow"][data-time="night"] { --sky-top: #22325a; --sky-bottom: #0d162e; }
+
+/* Stars: two fields of points on a 60 px grid, twinkling; on a clear night, fainter behind a cloudy one. */
+.weather-sky[data-time="night"]:is([data-sky="clear"], [data-sky="cloudy"]) .sky-stars { display: block;
+  background-image: radial-gradient(circle, rgb(255 255 255 / 85%) 0 1px, transparent 1.5px), radial-gradient(circle, rgb(255 255 255 / 55%) 0 0.8px, transparent 1.3px);
+  background-size: 60px 60px; background-position: 7px 9px, 37px 41px; animation: sky-twinkle 3.2s ease-in-out infinite alternate; }
+.weather-sky[data-sky="cloudy"] .sky-stars { opacity: 0.5; }
+
+/* The light in the top-right corner: by day a sun whose rays turn slowly, by night a moon; faint behind clouds. */
+.weather-sky:is([data-sky="clear"], [data-sky="cloudy"]) .sky-light { display: block; transform-origin: calc(100% - 6px) 6px; animation: sky-breathe 5s ease-in-out infinite alternate;
+  background: radial-gradient(circle at calc(100% - 6px) 6px, rgb(255 236 150 / 85%) 0 30px, rgb(255 214 120 / 34%) 31px 54px, rgb(255 200 110 / 14%) 55px 88px, transparent 89px); }
+.weather-sky .sky-light::after { content: ""; position: absolute; width: 260px; height: 260px; right: -124px; top: -124px; border-radius: 50%;
+  background: repeating-conic-gradient(rgb(255 240 180 / 22%) 0 6deg, transparent 6deg 30deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 36px, #000 40px, transparent 128px); mask: radial-gradient(circle, transparent 0 36px, #000 40px, transparent 128px);
+  animation: sky-turn 40s linear infinite; }
+.weather-sky[data-time="night"] .sky-light { background: radial-gradient(circle at calc(100% - 14px) 14px, rgb(255 246 220 / 80%) 0 18px, rgb(255 246 220 / 14%) 19px 40px, transparent 41px); }
+.weather-sky[data-time="night"] .sky-light::after, .weather-sky[data-sky="cloudy"] .sky-light::after { display: none; }
+.weather-sky[data-sky="cloudy"] .sky-light { opacity: 0.45; }
+
+/* Clouds at two depths: strips twice the tile's width whose halves are alike, sliding left one half per cycle, the
+   near one faster and brighter. */
+.weather-sky:is([data-sky="cloudy"], [data-sky="fog"], [data-sky="rain"], [data-sky="storm"], [data-sky="snow"]) .sky-clouds {
+  display: block; inset: 0 auto 0 0; width: 200%; background-repeat: repeat-x; background-size: 50% 100%;
+  background-image: radial-gradient(ellipse 22% 26% at 22% 10%, rgb(255 255 255 / 26%), transparent 70%),
+    radial-gradient(ellipse 18% 20% at 58% 18%, rgb(255 255 255 / 20%), transparent 70%),
+    radial-gradient(ellipse 24% 24% at 88% 4%, rgb(255 255 255 / 22%), transparent 70%);
+  animation: sky-drift 48s linear infinite; }
+.weather-sky .sky-clouds.near { background-image: radial-gradient(ellipse 26% 30% at 36% -2%, rgb(255 255 255 / 34%), transparent 70%),
+    radial-gradient(ellipse 18% 22% at 80% 20%, rgb(255 255 255 / 26%), transparent 70%); animation-duration: 26s; }
+.weather-sky[data-sky="cloudy"] .sky-clouds { filter: brightness(1.25); }
+.weather-sky:is([data-sky="rain"], [data-sky="storm"]) .sky-clouds { filter: brightness(0.75); }
+/* Fog: wide soft banks rolling across at two depths, the near one the other way. */
+.weather-sky[data-sky="fog"] .sky-clouds { background-image: radial-gradient(ellipse 40% 12% at 30% 40%, rgb(255 255 255 / 30%), transparent 70%),
+    radial-gradient(ellipse 36% 10% at 75% 68%, rgb(255 255 255 / 26%), transparent 70%), radial-gradient(ellipse 30% 9% at 50% 88%, rgb(255 255 255 / 22%), transparent 70%); animation-duration: 30s; }
+.weather-sky[data-sky="fog"] .sky-clouds.near { background-image: radial-gradient(ellipse 34% 9% at 60% 25%, rgb(255 255 255 / 22%), transparent 70%),
+    radial-gradient(ellipse 30% 8% at 15% 58%, rgb(255 255 255 / 20%), transparent 70%); animation-duration: 16s; animation-direction: reverse; }
+
+/* Rain at two depths: short slanted dashes on a grid, falling one tile per cycle; the far rain finer and slower, the
+   storm's harder. */
+.weather-sky:is([data-sky="rain"], [data-sky="storm"]) .sky-fx { display: block; inset: -30px -20% 0;
+  background-image: radial-gradient(ellipse 1px 8px, rgb(255 255 255 / 50%) 0 99%, transparent 100%);
+  background-size: 26px 30px; transform: skewX(-14deg); animation: sky-rain 0.55s linear infinite; }
+.weather-sky:is([data-sky="rain"], [data-sky="storm"]) .sky-fx.far { inset: -20px -20% 0;
+  background-image: radial-gradient(ellipse 0.8px 5px, rgb(255 255 255 / 30%) 0 99%, transparent 100%);
+  background-size: 14px 20px; background-position: 7px 0; animation: sky-rain-far 0.8s linear infinite; }
+.weather-sky[data-sky="storm"] .sky-fx { animation-duration: 0.4s; }
+.weather-sky[data-sky="storm"] .sky-fx.far { animation-duration: 0.6s; }
+/* Lightning: now and then the whole sky flashes, twice in quick succession. */
+.weather-sky[data-sky="storm"] .sky-light { display: block; background: radial-gradient(ellipse 90% 70% at 65% 0%, rgb(225 215 255 / 70%), rgb(200 190 255 / 20%) 60%, transparent 80%);
+  opacity: 0; animation: sky-flash 7s linear infinite; }
+.weather-sky[data-sky="storm"] .sky-light::after { display: none; }
+
+/* Snow at two depths: flakes on a grid drifting down one tile per cycle and swaying side to side on the way. */
+.weather-sky[data-sky="snow"] .sky-fx { display: block; inset: -40px -10px 0;
+  background-image: radial-gradient(circle, rgb(255 255 255 / 92%) 0 2.2px, transparent 2.7px), radial-gradient(circle, rgb(255 255 255 / 70%) 0 1.6px, transparent 2.1px);
+  background-size: 40px 40px; background-position: 0 0, 20px 22px; animation: sky-snow 4s linear infinite; }
+.weather-sky[data-sky="snow"] .sky-fx.far { inset: -24px -10px 0;
+  background-image: radial-gradient(circle, rgb(255 255 255 / 55%) 0 1.1px, transparent 1.6px);
+  background-size: 24px 24px; background-position: 9px 5px; animation: sky-snow-far 6s linear infinite; }
+
+/* A small tile is one line of text across the sky: its weather is lighter, and the sun or moon leaves the menu alone. */
+.size-small > .weather-sky .sky-fx { opacity: 0.55; }
+.size-small > .weather-sky:not([data-sky="storm"]) .sky-light { display: none; }
+@keyframes sky-drift { to { transform: translateX(-50%); } }
+@keyframes sky-rain { from { transform: skewX(-14deg) translateY(0); } to { transform: skewX(-14deg) translateY(30px); } }
+@keyframes sky-rain-far { from { transform: skewX(-14deg) translateY(0); } to { transform: skewX(-14deg) translateY(20px); } }
+@keyframes sky-snow { 0% { transform: translate(0, 0); } 25% { transform: translate(5px, 10px); } 50% { transform: translate(0, 20px); } 75% { transform: translate(-5px, 30px); } 100% { transform: translate(0, 40px); } }
+@keyframes sky-snow-far { 0% { transform: translate(0, 0); } 25% { transform: translate(-3px, 6px); } 50% { transform: translate(0, 12px); } 75% { transform: translate(3px, 18px); } 100% { transform: translate(0, 24px); } }
+@keyframes sky-twinkle { from { opacity: 0.45; } to { opacity: 1; } }
+@keyframes sky-breathe { from { transform: scale(1); } to { transform: scale(1.08); } }
+@keyframes sky-turn { to { transform: rotate(360deg); } }
+@keyframes sky-flash { 0%, 86% { opacity: 0; } 87% { opacity: 1; } 89% { opacity: 0.15; } 91% { opacity: 0.85; } 96%, 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .weather-sky > span, .weather-sky .sky-light::after { animation: none !important; } }
+.station-controls { display: flex; align-items: center; gap: var(--space-20); min-width: 0; }
+.station-controls > :last-child { flex: 1; min-width: 0; }
+/* A power station's outputs sit along the bottom at their own height, left of the menu; the bolt moves to the right,
+   clear of them. */
+.widget-switch-group:is(.size-large, .size-xlarge):has(> .battery-graphic) > .w-body { position: absolute; bottom: var(--space-12); left: var(--space-12); right: 56px; padding: 0; }
+.widget-switch-group:is(.size-large, .size-xlarge) > .battery-graphic .bat-bolt { left: auto; right: var(--space-20); transform: translateY(-50%); width: 40px; height: 40px; }
 .gauge-figure { font-size: 15px; font-weight: var(--weight-figure); font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .size-medium .gauge-figure { display: block; font-size: 16px; }
 .size-large .gauge-figure { font-size: 18px; letter-spacing: -0.01em; }
@@ -40485,24 +40795,18 @@ select option:disabled { color: var(--muted); }
 .widget.widget-battery:not(.widget-full) .menu-button svg { width: 18px; height: 18px; stroke-width: 2.2; }
 
 /* A small battery tile: the icon on the left, the name and status beside it, and the level as a subtitle under the
-   name, so the name is never cut; the graphic has a fixed box, the bolt in its right part while charging. */
-.widget-battery.size-small { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "icon bottom" "icon sub"; column-gap: var(--space-12); align-items: center; }
-.widget-battery.size-small .w-top { display: contents; }
-.widget-battery.size-small .w-top > .tile { grid-area: icon; }
-.widget-battery.size-small .w-top > .w-hero:has(> .battery-gauge) { grid-area: sub; display: flex; align-items: center; justify-self: start; min-width: 0; white-space: nowrap; }
-.widget-battery.size-small .w-bottom { grid-area: bottom; min-width: 0; position: static; }
-.widget-battery.size-small .w-bottom .menu-button { position: absolute; top: auto; left: auto; right: 6px; bottom: 6px; }
-.widget-battery.size-small .battery-gauge { flex-direction: row; gap: var(--space-6); }
-.widget-battery.size-small .battery-graphic { width: 42px; flex: none; justify-content: flex-start; }
-.widget-battery.size-small .battery-graphic .bat-icon { width: 20px; height: 20px; }
-.widget-battery.size-small .battery-graphic .bat-bolt { --bolt: 12px; left: 24px; }
-.widget-battery.size-small .gauge-figure { display: block; font-size: 13px; line-height: 1; white-space: nowrap; }
-.widget-battery.size-small .gauge-figure small { font-size: 0.8em; }
+   name, leaving the liquid background free to span the whole tile. */
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "icon bottom" "icon sub"; column-gap: var(--space-12); align-items: center; }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .w-top { display: contents; }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .w-top > .tile { grid-area: icon; }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .w-top > .w-hero:has(> .battery-gauge) { grid-area: sub; display: flex; align-items: center; justify-self: start; min-width: 0; white-space: nowrap; }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .w-bottom { grid-area: bottom; min-width: 0; position: static; }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .w-bottom .menu-button { position: absolute; top: auto; left: auto; right: 6px; bottom: 6px; }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .battery-gauge { flex-direction: row; gap: var(--space-6); }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .gauge-figure { display: block; font-size: 13px; line-height: 1; white-space: nowrap; }
+:is(.widget-battery, .widget-switch-group:has(.battery-gauge)).size-small .gauge-figure small { font-size: 0.8em; }
 
-/* A medium battery tile: the gauge centred on the card, not on the top row that holds the icon. */
-.widget-battery.size-medium { position: relative; }
-.widget-battery.size-medium .w-top { position: static; }
-.widget-battery.size-medium .w-top > .w-hero:has(> .battery-gauge) { position: absolute; left: 50%; top: 36%; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; }
+/* Larger battery tiles leave room for their percentage and output controls. */
 
 /* Shared photographic artwork for saved scenes and templates. */
 .scene-artwork { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: var(--radius-sm); }
@@ -41671,7 +41975,7 @@ button.plugins-name { padding: 0; min-height: 40px; border: 0; border-radius: 4p
 .plugins-panel-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-16); margin-bottom: 22px; }
 .plugins-panel h2 { margin: 0; }
 button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; flex-shrink: 0; border-radius: 50%; }
-.plugins-tabs { display: flex; gap: var(--space-2); padding: 5px; border: 1px solid var(--line); border-radius: calc(var(--radius-xl) + 2px); background: color-mix(in srgb, var(--text) 5%, transparent); overflow-x: auto; }
+.plugins-tabs { display: flex; gap: calc(var(--space-4) / 2); padding: 5px; border: 1px solid var(--line); border-radius: calc(var(--radius-xl) + 2px); background: color-mix(in srgb, var(--text) 5%, transparent); overflow-x: auto; }
 .plugins-tabs button { flex: 1 0 auto; padding: var(--space-10) var(--space-12); border: 0; box-shadow: none; background: none; font-size: 13px; white-space: nowrap; }
 .plugins-tabs [aria-selected="true"] { background: var(--material-solid); box-shadow: var(--shadow-control); }
 .plugins-tabs .icon { width: 14px; height: 14px; }
@@ -41715,7 +42019,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .plugins-accessory > .tile { flex-shrink: 0; }
 @media (max-width: 640px) {
   .plugins-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-radius: var(--radius-lg); overflow: visible; }
-  .plugins-tabs button { flex-direction: column; gap: var(--space-4); min-width: 0; padding: var(--space-8) var(--space-2); font-size: 11px; border-radius: var(--radius-md); }
+  .plugins-tabs button { flex-direction: column; gap: var(--space-4); min-width: 0; padding: var(--space-8) calc(var(--space-4) / 2); font-size: 11px; border-radius: var(--radius-md); }
 }
 
 /* Management actions form one aligned list; removal stays visually separate. */
@@ -41758,32 +42062,30 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .plugins-open { grid-column: 5; grid-row: 1; }
 }
 
-/* Logbook uses the same integrated filter-and-list card as Plugins. */
-.logbook-card { padding: 0; overflow: hidden; }
-.logbook-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-12); padding: var(--space-20); border-bottom: 1px solid var(--line); }
-.logbook-periods { flex: 0 1 auto; max-width: 100%; }
-.logbook-toolbar .logbook-filters { flex: 1 1 480px; display: flex; flex-wrap: wrap; gap: var(--space-8); margin: 0; }
-.logbook-toolbar .logbook-filters select { flex: 1; width: 0; min-width: 125px; border-radius: var(--radius-pill); }
-.logbook-toolbar .clear-filters { width: 40px; height: 40px; min-height: 40px; flex: 0 0 40px; padding: 0; margin: 0; gap: 0; font-size: 0; border-radius: 50%; }
+/* Logbook shares the Logs toolbar and scrollable console, with compact event rows. */
+.logbook-card .logbook { padding: 0; }
+.logbook-card .logbook-periods { max-width: 100%; }
+.logbook-card .logbook-periods button { min-width: 0; white-space: normal; }
+.logbook-card .logbook-toolbar > select.popup { flex: 1 1 140px; min-width: 0; }
+.logbook-toolbar .clear-filters { width: 36px; height: 36px; min-height: 36px; flex: 0 0 36px; padding: 0; margin: 0; gap: 0; font-size: 0; border-radius: 50%; }
 .logbook-toolbar .clear-filters:disabled { display: none; }
-.logbook-card .logbook-count { margin: 0; padding: var(--space-12) var(--space-20); font-size: var(--text-sm); border-bottom: 1px solid var(--line); }
-.logbook-card .logbook-day h3 { margin: 0; padding: var(--space-12) var(--space-20); background: color-mix(in srgb, var(--text) 3%, transparent); border-bottom: 1px solid var(--line); }
+.logbook-card .logbook-count { margin: 0; padding: var(--space-6) var(--space-16); font-size: var(--text-xs); border-bottom: 1px solid var(--line); }
+.logbook-card .logbook-day > summary { cursor: pointer; min-height: 40px; box-sizing: border-box; align-content: center; font-weight: var(--weight-semibold); position: sticky; top: 0; z-index: 1; margin: 0; padding: var(--space-6) var(--space-16); font-size: var(--text-xs); color: #ffcfaa; background: linear-gradient(rgb(224 117 55 / 18%), rgb(224 117 55 / 18%)), var(--console); border-bottom: 1px solid rgb(224 117 55 / 25%); }
 .logbook-card .logbook-list { border: 0; border-radius: 0; background: none; }
-.logbook-card .logbook-entry { padding: var(--space-12) var(--space-20); }
-.logbook-card .logbook > .empty, .logbook-card .logbook > .error { padding: var(--space-20); margin: 0; }
+.logbook-card .logbook-entry { padding: 3px var(--space-16); gap: var(--space-8); grid-template-columns: auto minmax(0, 1fr) auto; }
+.logbook-card .logbook-entry + .logbook-entry { border-top: 0; }
+.logbook-card .logbook-entry:nth-child(even) { background: rgba(255, 255, 255, 0.055); }
+.logbook-card .logbook-entry > .tile { display: none; }
+.logbook-card .logbook-entry time { align-self: start; padding-top: 2px; min-width: 5ch; font-family: var(--mono); font-size: var(--text-xs); }
+.logbook-card .logbook-entry .who > * { white-space: normal; overflow-wrap: anywhere; }
+.logbook-card .logbook-entry .who strong { font-weight: var(--weight-medium); }
+.logbook-card .logbook-entry .source { border: 0; background: none; padding: 0; font-size: var(--text-xs); font-weight: var(--weight-regular, 400); }
+.logbook-card .logbook > .empty, .logbook-card .logbook > .error { padding: var(--space-16); margin: 0; }
+@media (hover: hover) and (pointer: fine) { .logbook-card .logbook-entry:hover { background: var(--material-thin); } }
 @media (max-width: 640px) {
-  .logbook-toolbar { padding: var(--space-12); }
-  .logbook-periods { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; border-radius: var(--radius-lg); }
-  .logbook-periods button { flex-direction: column; min-width: 0; padding: var(--space-8) var(--space-4); font-size: 12px; white-space: normal; border-radius: var(--radius-md); }
-  .logbook-toolbar .logbook-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .logbook-toolbar .logbook-filters select { width: 100%; min-width: 0; }
-  .logbook-card .logbook-entry { padding-inline: var(--space-12); }
-}
-@media (max-width: 640px) {
-  .logbook-toolbar .logbook-filters > select[name="source"] { grid-column: 1 / -1; }
-  .logbook-toolbar .logbook-filters:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px; }
-  .logbook-toolbar .logbook-filters:has(.clear-filters:not(:disabled)) > select[name="accessory"] { grid-column: 2 / 4; }
-  .logbook-toolbar .logbook-filters:has(.clear-filters:not(:disabled)) > select[name="source"] { grid-column: 1 / 3; }
+  .logbook-card .logbook-periods button { min-width: 0; white-space: normal; font-size: var(--text-xs); }
+  .logbook-card .logbook-entry { grid-template-columns: auto minmax(0, 1fr); padding: var(--space-8) var(--space-12); gap: 1px var(--space-8); }
+  .logbook-toolbar .clear-filters { width: 40px; height: 40px; min-height: 40px; flex-basis: 40px; }
 }
 
 /* Medium lights keep brightness directly reachable above the tile hit target. */
@@ -41798,9 +42100,10 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .widget-light.size-medium:has(.light-shortcuts) .w-top { min-height: 36px; align-items: center; }
 .widget-light.size-medium:has(.light-shortcuts) .w-bottom { position: absolute; top: 10px; left: 44px; right: 10px; min-height: 36px; align-items: center; }
 .widget-light.size-medium:has(.light-shortcuts) .w-bottom .who { padding-right: 0; }
-.widget-light.size-medium .light-shortcuts { display: grid; gap: var(--space-4); pointer-events: auto; }
-.widget-light.size-medium .light-shortcuts > .level { height: 40px; min-height: 40px; }
-.widget-light.size-medium .light-shortcuts .swatches { flex-wrap: nowrap; gap: var(--space-6); padding-right: 34px; overflow: visible; }
+.widget-light.size-medium:has(.light-shortcuts) .w-middle { position: absolute; inset: 10px; }
+.widget-light.size-medium .light-shortcuts { display: contents; }
+.widget-light.size-medium .light-shortcuts > .level { position: absolute; top: 50%; left: 0; right: 0; transform: translateY(-50%); height: 40px; min-height: 40px; pointer-events: auto; }
+.widget-light.size-medium .light-shortcuts .swatches { position: absolute; top: calc(50% + 20px + var(--space-10)); left: 0; right: 0; flex-wrap: nowrap; gap: var(--space-6); padding-right: 34px; overflow: visible; pointer-events: auto; }
 .widget-light.size-medium .light-shortcuts .swatch { flex: 0 1 28px; width: 28px; height: 28px; min-height: 28px; }
 
 .widget-light.size-medium:has(.light-shortcuts) .w-middle { overflow: visible; }
@@ -41814,7 +42117,171 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .widget-light .level:has(.level-thumb) .level-text,
 .widget-light .level:has(.level-thumb) .level-label { color: #2a2620; text-shadow: 0 1px 1px rgb(255 255 255 / 65%); }
 
-.widget-light .level:has(.level-thumb) .level-text { top: 50%; bottom: auto; transform: translateY(-50%); padding: 2px var(--space-6); border-radius: var(--radius-pill); background: #2a2620; color: #fff; text-shadow: none; }
+.widget-light .level:has(.level-thumb) .level-text { top: 50%; bottom: auto; transform: translateY(-50%); padding: 2px var(--space-6); border-radius: var(--radius-pill);
+  background: linear-gradient(160deg, rgb(255 255 255 / 8%), transparent 55%), rgb(12 10 8 / 48%);
+  -webkit-backdrop-filter: blur(3px) saturate(150%); backdrop-filter: blur(3px) saturate(150%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%), inset 0 -1px 0 rgb(0 0 0 / 20%), 0 1px 3px rgb(0 0 0 / 18%);
+  color: #fff; text-shadow: 0 1px 2px rgb(0 0 0 / 35%);
+}
+/* A tall brightness keeps its figure at the top, a pill as wide as the figure. */
+.widget-light .level.vertical:has(.level-thumb) .level-text { top: 10px; left: 50%; right: auto; transform: translateX(-50%); white-space: nowrap; }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .widget-light .level:has(.level-thumb) .level-text { background: #2a2620; -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/* Accessory History uses the same console material and compact rhythm as Logs. */
+.widget-sheet .history-full { padding: 0; gap: 0; }
+.history-full .history-head { justify-content: space-between; }
+.history-full .history-head .who { min-width: 0; }
+.history-full .history-head h2 { font-size: var(--text-lg); overflow-wrap: anywhere; }
+.history-full .history-head p { margin: var(--space-4) 0 0; font-size: var(--text-sm); }
+.history-full .history-charts { padding: var(--space-12) var(--space-16); }
+.history-full .history-state-list { height: auto; min-height: 0; max-height: min(320px, 40dvh); overflow-y: auto; overscroll-behavior: contain; background: var(--console); padding: 0; border-radius: var(--radius-md); }
+.history-full .history-state-row { align-items: baseline; padding: var(--space-8) var(--space-12); border-bottom: 0; font-size: var(--text-sm); }
+.history-full .history-state-row:nth-child(even) { background: rgb(255 255 255 / 5.5%); }
+.history-full .history-state-row .who { overflow-wrap: anywhere; }
+.history-full .history-state-row .who strong { font-weight: var(--weight-medium); }
+.history-full .history-state-row .who small { font-size: var(--text-xs); }
+.history-full .history-state-row > b { flex-shrink: 0; font-family: var(--mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.history-full .history-details { padding-top: 0; }
+.history-full .history-details > summary { padding: var(--space-8) var(--space-12); font-size: var(--text-xs); }
+.history-full > .history-note, .history-full > .actions { padding: var(--space-12) var(--space-16); font-size: var(--text-xs); }
+@media (max-width: 640px) {
+ .history-full .history-head .tools, .history-full .history-head .group { width: 100%; }
+ .history-full .history-head .group button { flex: 1; }
+}
+
+/* Logbook has three scope menus, unlike Logs' single source menu. */
+@media (max-width: 640px) {
+  .logbook-card > .logbook-toolbar { display: flex; flex-direction: row; flex-wrap: wrap; gap: var(--space-8); padding: var(--space-10); }
+  .logbook-toolbar > .log-scope-row { display: grid; flex: 1 1 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6); }
+  .logbook-toolbar .log-scope-row > label { grid-area: auto; }
+  .logbook-toolbar .log-scope-row > .log-time { grid-area: auto; grid-column: 1 / -1; }
+  .logbook-toolbar .log-scope-row > label:last-child { grid-column: 1 / -1; }
+  .logbook-toolbar .logbook-periods { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; }
+  .logbook-toolbar .logbook-periods button { padding: var(--space-6) var(--space-4); gap: var(--space-4); }
+}
+
+.logbook-card .logbook-day > summary::marker { color: currentColor; }
+.logbook-card .logbook-day > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Climate: fixed-size dashboard cells, with independent space for the menu. */
+.widget-climate:not(.widget-full) { container-type: inline-size; }
+.widget-climate.size-small { flex-direction: column; align-items: stretch; gap: var(--space-4); }
+.widget-climate.size-small .status, .widget-climate.size-small .toggle { display: none; }
+.widget-climate.size-small .tile { width: 24px; height: 24px; border-radius: var(--radius-sm); }
+.widget-climate .who { gap: calc(var(--space-4) / 2); line-height: 1.15; }
+/* The small tile reads as one line: the temperature, then its target in the mode's colour, beside it rather than off
+   by the menu. */
+.climate-compact { display: flex; align-items: baseline; gap: var(--space-8); padding-right: calc(var(--space-16) * 2); min-width: 0; }
+.climate-compact b { font-size: var(--text-2xl); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.climate-goal { font-size: var(--text-sm); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+.climate-goal[data-mode="heat"] { color: var(--heat); }
+.climate-goal[data-mode="cool"] { color: var(--cool); }
+.climate-goal[data-mode="auto"] { color: var(--auto); }
+.widget-climate .w-body { padding: 0; overflow: visible; gap: var(--space-10); }
+.climate-dashboard { display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: var(--space-10); align-items: center; min-height: 0; }
+.climate-dial { width: 112px; height: 112px; display: block; touch-action: none; user-select: none; overflow: visible; }
+.climate-dial[role=slider] { cursor: pointer; }
+.climate-dial:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 50%; }
+.climate-dial .gauge-band { stroke: var(--accent); }
+.climate-dial .gauge-dot { stroke: var(--accent); stroke-width: 3; }
+.climate-dial .gauge-track, .climate-dial .gauge-band { stroke-width: 9; stroke-linecap: butt; }
+.climate-dial.is-off .gauge-band, .climate-dial.is-off .gauge-dot { stroke: var(--muted); }
+.climate-target-label { display: none; }
+/* The medium climate tile: its name (two lines if it needs them) beside the power switch, and the dial under it,
+   as large as the tile allows. The dial says the mode and the target, so the status line is left out; the target reads
+   "→ 21.5°" in the mode's colour, as on the small tile. */
+.widget-climate.size-medium .w-head { flex: none; gap: var(--space-6); align-items: flex-start; }
+.widget-climate.size-medium .tile { width: 28px; height: 28px; border-radius: var(--radius-sm); }
+.widget-climate.size-medium:not(.widget-full) .who strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; overflow: hidden; line-height: 1.2; }
+.widget-climate.size-medium:not(.widget-full) .who .status { display: none; }
+.widget-climate.size-medium .w-body { justify-content: center; padding: 0; }
+.widget-climate.size-medium .climate-dashboard { display: flex; justify-content: center; padding: 0 0 var(--space-4); }
+.widget-climate.size-medium .climate-dial { width: min(116px, calc(var(--tile-row) * 2 + var(--unit-gap) - 56px)); height: auto; aspect-ratio: 1; }
+.widget-climate.size-medium .climate-dial .gauge-value { font-size: calc(var(--text-3xl) * 2); }
+.widget-climate.size-medium .climate-dial .gauge-caption:not(.climate-target-label) { display: none; }
+.widget-climate.size-medium .climate-dial .climate-target-label { font-size: 38px; font-weight: var(--weight-semibold); transform: translateY(-8px); }
+.climate-dial[data-mode="heat"] .climate-target-label { fill: var(--heat); }
+.climate-dial[data-mode="cool"] .climate-target-label { fill: var(--cool); }
+.climate-dial[data-mode="auto"] .climate-target-label { fill: var(--auto); }
+.widget-climate.size-medium .climate-target-label { display: block; }
+.widget-climate .setpoints { min-width: 0; width: 100%; gap: var(--space-4); }
+.widget-climate .setpoint { width: 100%; min-width: 0; grid-template-columns: 32px minmax(0,1fr) 32px; gap: var(--space-4); padding: var(--space-8); border-radius: var(--radius-md); background: var(--material-thin); }
+.widget-climate .sp-value { min-width: 0; }
+.widget-climate .sp-value b { font-size: var(--text-2xl); }
+.widget-climate .round { width: 32px; height: 32px; min-height: 32px; }
+.widget-climate .climate-modes { border-radius: var(--radius-md); min-width: 0; }
+.widget-climate .climate-modes > button { border-radius: inherit; min-width: 0; min-height: 28px; font-size: var(--text-xs); }
+.widget-climate.size-large .climate-dashboard { grid-template-rows: minmax(0,1fr) auto; }
+.widget-climate.size-large .climate-dial { grid-column: 2; grid-row: 1 / 3; align-self: start; width: 88px; height: 88px; justify-self: center; }
+.widget-climate.size-large .climate-modes { grid-column: 1; }
+.widget-climate.size-xlarge .w-body { justify-content: space-between; }
+.widget-climate.size-xlarge .w-body > .climate-modes { margin-block: var(--space-4); }
+.climate-airflow { display: flex; align-items: center; gap: var(--space-10); margin-right: calc(var(--space-16) * 2); }
+.climate-airflow > .w-row { padding: var(--space-8); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--material-thin); display: grid; grid-template-columns: minmax(0,1fr); flex: 1; gap: var(--space-4); min-width: 0; }
+.climate-airflow > .level { flex: 1; min-width: 0; }
+.climate-airflow .steps { width: 100%; height: 24px; }
+.climate-airflow .w-label { font-size: var(--text-xs); }
+.climate-airflow .chips { flex: none; gap: var(--space-4); }
+.widget-climate .climate-swing.action-with-icon { display: grid; place-items: center; width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: var(--radius-sm); }
+.widget-climate .climate-swing.action-with-icon::before { width: 30px; height: 30px; margin: 0; }
+.widget-climate.size-large .climate-swing.action-with-icon::before { width: 24px; height: 24px; }
+.widget-climate .climate-swing svg path { stroke-width: 1.5; stroke-linecap: square; stroke-linejoin: miter; }
+@container (max-width: 330px) {
+  .climate-dashboard { grid-template-columns: minmax(0,1fr) 88px; gap: var(--space-6); }
+  .climate-dial { width: 88px; height: 88px; }
+  .widget-climate .setpoint { padding: var(--space-4); grid-template-columns: 28px minmax(0,1fr) 28px; }
+  .widget-climate .round { width: 28px; height: 28px; min-height: 28px; }
+  .widget-climate .sp-value b { font-size: var(--text-xl); }
+}
+
+.widget-climate.size-small .w-head > .switch { display: none; }
+.widget-climate .climate-dashboard { grid-template-columns: minmax(0,1fr) 128px; }
+.widget-climate .climate-dial { width: 128px; height: 128px; }
+.widget-climate.size-large .climate-dial { width: 108px; height: 108px; }
+.widget-climate .climate-airflow { gap: var(--space-8); }
+.widget-climate .climate-airflow .chips { flex-wrap: nowrap; gap: var(--space-8); }
+@container (max-width: 330px) {
+  .widget-climate .climate-dashboard { grid-template-columns: minmax(0,1fr) 96px; }
+  .widget-climate .climate-dial { width: 96px; height: 96px; }
+}
+
+/* A compact switch on the medium tile leaves its name room at phone width. */
+.widget-climate.size-medium .w-head > .switch { width: 40px; height: 24px; }
+.widget-climate.size-medium .w-head > .switch span::before { width: 18px; height: 18px; }
+.widget-climate.size-medium .w-head > .switch input:checked + span::before { transform: translateX(16px); }
+.widget-climate.size-medium .w-head > .switch input:checked:active + span::before { transform: translateX(12px); }
+.climate-dial .gauge-caption { font-size: var(--text-base); }
+.widget-climate.size-xlarge .w-body { display: flex; flex-direction: column; justify-content: space-between; align-items: stretch; }
+.widget-climate.size-xlarge .climate-dashboard { align-self: stretch; }
+.widget-climate.size-xlarge:has(> .w-corner) .w-body > .climate-airflow { align-self: stretch; margin-right: calc(var(--space-16) * 2); }
+.widget-climate.size-xlarge .climate-modes { margin-block: 0; transform: translateY(-20px); }
+.widget-climate .climate-modes .seg-thumb { border-radius: calc(var(--radius-md) - 3px); }
+.climate-dial .gauge-value { font-size: calc(var(--text-3xl) * 2); }
+
+.widget-climate.size-large .setpoint { padding: var(--space-4); }
+.widget-climate.size-xlarge:has(.setpoint:not([hidden]) ~ .setpoint:not([hidden])) .climate-modes { transform: translateY(-6px); }
+@container (max-width: 330px) { .widget-climate.size-xlarge .climate-modes { transform: translateY(-12px); } }
+.widget-climate.size-large .climate-dashboard { padding-right: var(--space-24); }
+.widget-climate .climate-airflow { align-items: flex-end; }
+.widget-climate.size-large .climate-dial { transform: translateY(-16px); }
+
+.widget-climate.size-large .w-body { justify-content: space-between; gap: var(--space-6); }
+.widget-climate.size-large .climate-dashboard { padding-right: 0; gap: var(--space-4) var(--space-10); }
+.widget-climate.size-large .climate-dial { width: 88px; height: 88px; transform: none; }
+.widget-climate.size-large .climate-airflow > .w-row { padding: var(--space-4) var(--space-6); }
+.widget-climate.size-large .climate-airflow .steps { height: 18px; }
+.widget-climate.size-large .climate-airflow .w-row { gap: calc(var(--space-4) / 2); }
+.widget-climate.size-large .climate-modes > button { min-height: 24px; }
+.widget-climate.size-large .w-body { justify-content: center; gap: var(--space-10); }
+.widget-climate.size-large .climate-dashboard { row-gap: var(--space-10); }
+
+.widget-climate .climate-airflow { --airflow-size: 60px; align-items: stretch; }
+.widget-climate.size-large .climate-airflow { --airflow-size: 48px; }
+.widget-climate .climate-airflow > .w-row { box-sizing: border-box; height: var(--airflow-size); }
+.widget-climate .climate-airflow > .chips { align-items: stretch; }
+.widget-climate .climate-airflow .climate-swing.action-with-icon { width: var(--airflow-size); height: var(--airflow-size); min-height: var(--airflow-size); }
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
@@ -41985,6 +42452,8 @@ self.addEventListener("notificationclick", (event) => {
   const degrees = (celsius) => { const { value } = HomeswiftCommon.temperature(celsius); return `${Number.isInteger(value) ? value : value.toFixed(1).replace(".", decimal)}°`; };
   const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.max(0, Math.round(seconds % 60))).padStart(2, "0")}`;
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  /// A value on its control's grid: `min` plus whole steps, within the bounds.
+  const snap = (value, min, max, step) => clamp(min + Math.round((value - min) / step) * step, min, max);
   /// Whether an accessory answers: its device responds and its plugin is not paused (the Accessories page's Online;
   /// No Response is the rest).
   const answers = (accessory) => !accessory.unavailable && !accessory.paused;
@@ -42096,7 +42565,13 @@ self.addEventListener("notificationclick", (event) => {
           : t("Its plugin is paused: resume it to control {name}", { name: accessory.name }));
         return;
       }
-      if (characteristic.security && !held) {
+      const turnsOffOutput = isStation(ctx) && ["Outlet", "Switch"].includes(service.type)
+        && characteristic.type === "On" && (value === false || value === 0);
+      if (turnsOffOutput && !held) {
+        if (!await HomeswiftCommon.confirmDialog(t("Turn off {output} on {name}? Connected devices will lose power.", {
+          output: shortName(accessory, service), name: accessory.name,
+        }))) { ctx.paint(); return; }
+      } else if (characteristic.security && !held) {
         const label = characteristic.format === "bool" ? (value ? t("On") : t("Off")) : labelFor(characteristic.type, value);
         if (!await HomeswiftCommon.confirmDialog(t("Set {setting} of {name} to {value}?", { setting: typeName(characteristic.type).toLowerCase(), name: accessory.name, value: label }))) { ctx.paint(); return; }
       }
@@ -42438,8 +42913,10 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   /// A secondary on/off service, pressed or not.
-  function chip(label, onChange) {
-    const node = el("button", { type: "button", class: "chip", text: label, "aria-pressed": "false" });
+  /// `iconOnly`: the icon alone, the label read out and shown on hover.
+  function chip(label, onChange, actionIcon, iconOnly = false) {
+    const node = el("button", iconOnly ? { type: "button", class: "chip", actionIcon, "aria-label": label, title: label, "aria-pressed": "false" }
+      : { type: "button", class: "chip", text: label, actionIcon, "aria-pressed": "false" });
     node.addEventListener("click", () => {
       const on = node.getAttribute("aria-pressed") !== "true";
       node.setAttribute("aria-pressed", String(on));
@@ -42450,27 +42927,74 @@ self.addEventListener("notificationclick", (event) => {
 
   /// A security write (unlock, open, disarm): held for a moment, the fill running across; let go early and
   /// nothing happens. Space and Enter hold it from the keyboard. The fill's transition in style.css lasts as long.
+  /// `armed`: whether a hold is needed now; when it is not, a tap calls `onTap` (a lock's safe side, an output off).
   const HOLD_MS = 900;
-  function hold(label, onConfirm) {
+  function hold(label, onConfirm, { armed = () => true, onTap = null, className = "hold", actionIcon } = {}) {
     const text = el("span", { text: label });
     const fillText = el("span", { class: "hold-fill", "aria-hidden": "true", text: label });
-    const node = el("button", { type: "button", class: "hold" }, text, fillText);
+    const node = el("button", { type: "button", class: className, actionIcon }, text, fillText);
     // A timer decides, the fill only shows it: a transition does not run in a hidden tab.
-    let timer = null;
+    let timer = null, confirmed = false;
     const start = () => {
-      if (timer) return;
+      if (timer || !armed()) return;
       node.classList.add("holding");
-      timer = setTimeout(() => { cancel(); onConfirm(); }, HOLD_MS);
+      timer = setTimeout(() => { cancel(); confirmed = true; onConfirm(); }, HOLD_MS);
     };
     const cancel = () => { clearTimeout(timer); timer = null; node.classList.remove("holding"); };
-    node.addEventListener("pointerdown", (event) => { if (event.button === 0) { node.setPointerCapture(event.pointerId); start(); } });
+    node.addEventListener("pointerdown", (event) => { if (event.button === 0 && armed()) { node.setPointerCapture(event.pointerId); start(); } });
     for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) node.addEventListener(type, cancel);
-    node.addEventListener("keydown", (event) => { if ((event.key === " " || event.key === "Enter") && !event.repeat) { event.preventDefault(); start(); } });
+    // Unarmed, Space and Enter click as on any button (the tap).
+    node.addEventListener("keydown", (event) => { if ((event.key === " " || event.key === "Enter") && !event.repeat && armed()) { event.preventDefault(); start(); } });
     node.addEventListener("keyup", (event) => { if (event.key === " " || event.key === "Enter") cancel(); });
-    node.addEventListener("click", (event) => event.preventDefault());
+    // The click ending a confirmed hold is not a tap: the state it confirmed has already changed.
+    node.addEventListener("click", (event) => {
+      event.preventDefault();
+      if (confirmed) { confirmed = false; return; }
+      if (!armed()) onTap?.();
+    });
     const name = (next) => { text.textContent = next; fillText.textContent = next; node.setAttribute("aria-label", t("{action} (press and hold)", { action: next })); };
     name(label);
     return { node, label: name };
+  }
+
+  /// A shutter's tile as its own slider: the shade follows the pointer, the position is written when it is let go. A
+  /// mouse drags at once; a finger holds still a moment first, so a swipe still scrolls the page. `ignore` leaves the
+  /// tile's own controls their presses. `value()` is the position being dragged to (null when none), `consumeSlid()`
+  /// whether a drag just ended (its release is not a tap).
+  function slideSurface(ctx, node, surface, slide, ignore = () => false) {
+    const { min, max, step } = slide;
+    let start = null, armed = false, holdTimer = null, sliding = null, slid = false;
+    const at = (event) => {
+      const box = node.getBoundingClientRect();
+      return snap(min + (1 - clamp((event.clientY - box.top) / box.height, 0, 1)) * (max - min), min, max, step);
+    };
+    surface.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || ignore(event)) return;
+      start = { x: event.clientX, y: event.clientY, id: event.pointerId };
+      armed = event.pointerType === "mouse";
+      clearTimeout(holdTimer);
+      if (!armed) holdTimer = setTimeout(() => { armed = true; node.classList.add("slide-ready"); }, PRESS_MS);
+    });
+    surface.addEventListener("pointermove", (event) => {
+      if (!start) return;
+      const moved = Math.abs(event.clientY - start.y);
+      if (!armed) { if (moved > PRESS_SLOP) { clearTimeout(holdTimer); start = null; } return; }
+      if (sliding === null && moved < 4) return;
+      if (sliding === null) { surface.setPointerCapture(start.id); node.classList.add("sliding"); }
+      sliding = at(event);
+      ctx.paint();
+    });
+    const finish = () => {
+      clearTimeout(holdTimer);
+      node.classList.remove("slide-ready", "sliding");
+      if (sliding !== null) { const value = sliding; sliding = null; slid = true; slide.commit(value); }
+      start = null; armed = false;
+    };
+    surface.addEventListener("pointerup", finish);
+    surface.addEventListener("pointercancel", () => { sliding = null; finish(); slid = false; ctx.paint(); });
+    // Once a finger has held still, the page does not scroll under it.
+    surface.addEventListener("touchmove", (event) => { if (armed) event.preventDefault(); }, { passive: false });
+    return { value: () => sliding, consumeSlid: () => { const was = slid; slid = false; return was; } };
   }
 
   const pill = (text = "", tone = "") => el("span", { class: `pill ${tone}`.trim(), text });
@@ -42575,11 +43099,11 @@ self.addEventListener("notificationclick", (event) => {
   // ---- Shared pieces of widgets -----------------------------------------------------------------------
 
   /// A speed: bars when it has a few positions, else a level.
-  function speedControl(ctx, service, characteristic, color) {
-    const min = characteristic.minValue ?? 0, max = characteristic.maxValue ?? 100, count = positions(characteristic);
+  function speedControl(ctx, service, characteristic, color, preferSteps = false) {
+    const min = characteristic.minValue ?? 0, max = characteristic.maxValue ?? 100, count = preferSteps && positions(characteristic) > 6 ? 5 : positions(characteristic);
     if (count <= 6 && count >= 2) {
       const stepSize = (max - min) / count;
-      const control = steps({ label: t("Speed"), count }, (n) => ctx.write(service, characteristic, min + n * stepSize));
+      const control = steps({ label: t("Speed"), count }, (n) => ctx.write(service, characteristic, snap(min + n * stepSize, min, max, characteristic.minStep || 1)));
       if (color) control.node.style.setProperty("--steps", color);
       ctx.watch(() => control.set(Math.round((numberOf(characteristic) - min) / stepSize)));
       return el("div", { class: "w-row" }, el("span", { class: "w-label", text: t("Speed") }), control.node);
@@ -42589,31 +43113,103 @@ self.addEventListener("notificationclick", (event) => {
     return control.node;
   }
 
+  /// Swing as chips: one per axis the device swings separately (Swing Mode then stays for HomeKit), else Swing Mode.
+  function swingChips(ctx, service, iconOnly = false) {
+    const axes = [["Vertical Swing", t("Vertical swing"), "swingVertical"], ["Horizontal Swing", t("Horizontal swing"), "swingHorizontal"]];
+    const supported = axes.filter(([name]) => canWrite(ctx.char(service, name)));
+    if (!supported.length) return [chipFor(ctx, service, ctx.char(service, "Swing Mode"), t("Swing"), "swingVertical", iconOnly)].filter(Boolean);
+    const combined = ctx.char(service, "Swing Mode");
+    if (combined) ctx.use(combined);
+    return supported.map(([name, label, icon]) => chipFor(ctx, service, ctx.char(service, name), label, icon, iconOnly));
+  }
+
   /// A writable bool or 0/1 of a service as a chip (Swing, Child lock).
-  function chipFor(ctx, service, characteristic, label) {
+  function chipFor(ctx, service, characteristic, label, actionIcon, iconOnly = false) {
     if (!canWrite(characteristic)) return null;
     ctx.use(characteristic);
-    const control = chip(label, (on) => ctx.write(service, characteristic, onValue(characteristic, on)));
+    const control = chip(label, (on) => ctx.write(service, characteristic, onValue(characteristic, on)), actionIcon, iconOnly);
     ctx.watch(() => control.set(isOn(characteristic)));
     return control.node;
   }
 
-  const presets = [
-    [t("Warm white"), 30, 55], [t("Amber"), 26, 85], [t("Red"), 2, 90], [t("Pink"), 330, 70], [t("Violet"), 275, 70], [t("Blue"), 220, 85], [t("Cyan"), 185, 75], [t("Green"), 125, 75],
+  /// The colours a light's tiles offer, each its own hue (its key in the usage counts) far enough from its neighbours to
+  /// tell apart: the first eight are a tile's defaults, the rest join them on the extra-large tile. Once colours have
+  /// been picked, every tile shows the most used first (`shownColours`).
+  const palette = [
+    [t("Warm white"), 32, 50], [t("Red"), 0, 90], [t("Orange"), 25, 95], [t("Yellow"), 50, 95],
+    [t("Green"), 125, 75], [t("Blue"), 225, 85], [t("Violet"), 275, 70], [t("Pink"), 330, 75],
+    [t("Cool white"), 210, 15], [t("Lime"), 85, 80], [t("Teal"), 165, 70], [t("Cyan"), 188, 80],
+    [t("Sky blue"), 205, 75], [t("Indigo"), 248, 80], [t("Magenta"), 300, 85], [t("Lavender"), 268, 35],
   ];
 
   const colourUsageKey = "homeswift.colour-shortcuts";
   function colourUsage() {
     try {
       const saved = JSON.parse(localStorage.getItem(colourUsageKey) || "{}");
-      return Object.fromEntries(presets.map(([, hue]) => [hue,
+      return Object.fromEntries(palette.map(([, hue]) => [hue,
         Number.isSafeInteger(saved?.[hue]) && saved[hue] > 0 ? saved[hue] : 0]));
     } catch { return {}; }
+  }
+  /// The `count` colours a tile shows: the most used first (the colours picked on the wheel among them, the latest
+  /// first), then the defaults in their order. Each is `{ name, h, s, key }`: `key` the palette hue it counts as (its
+  /// colour may have been changed on the wheel, `colourOverrides`), or `custom` its place among the custom colours.
+  const shownColours = (count) => {
+    const usage = colourUsage(), overrides = colourOverrides();
+    const custom = customColours().map((one, index) => ({ colour: { name: t("Custom colour"), h: one.h, s: one.s, custom: index }, index: index - 100, used: one.count }));
+    return [...custom, ...palette.map(([name, h, s], index) => {
+      const changed = overrides[h];
+      return { colour: changed ? { name: t("Custom colour"), h: changed.h, s: changed.s, key: h } : { name, h, s, key: h }, index, used: Number(usage[h]) || 0 };
+    })].sort((a, b) => b.used - a.used || a.index - b.index).slice(0, count).map((one) => one.colour);
+  };
+  /// A swatch's colour changed on the wheel (held, it opens it): a palette swatch keeps its place and its uses with the
+  /// new colour, a custom one changes in place. Kept in this browser; every light's swatches show it at once.
+  const colourOverridesKey = "homeswift.colour-overrides";
+  function colourOverrides() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(colourOverridesKey) || "{}");
+      return Object.fromEntries(palette.map(([, hue]) => [hue, saved?.[hue]]).filter(([, one]) =>
+        Number.isFinite(one?.h) && one.h >= 0 && one.h < 360 && Number.isFinite(one?.s) && one.s >= 0 && one.s <= 100).map(([hue, one]) => [hue, { h: one.h, s: one.s }]));
+    } catch { return {}; }
+  }
+  function changeSwatch(colour, h, s) {
+    try {
+      if (colour.custom !== undefined) {
+        const saved = customColours();
+        if (saved[colour.custom]) saved[colour.custom] = { ...saved[colour.custom], h, s };
+        localStorage.setItem(customColoursKey, JSON.stringify(saved));
+      } else {
+        localStorage.setItem(colourOverridesKey, JSON.stringify({ ...colourOverrides(), [colour.key]: { h, s } }));
+      }
+    } catch {}
+    dispatchEvent(new CustomEvent("homeswift-colours"));
   }
   function rememberColour(hue) {
     const counts = colourUsage();
     counts[hue] = Math.min((counts[hue] || 0) + 1, Number.MAX_SAFE_INTEGER);
     try { localStorage.setItem(colourUsageKey, JSON.stringify(counts)); } catch {}
+  }
+  /// Two colours the eye takes for one: hues within 6°, saturations within 12.
+  const sameColour = (h1, s1, h2, s2) => Math.min(Math.abs(h1 - h2), 360 - Math.abs(h1 - h2)) <= 6 && Math.abs(s1 - s2) <= 12;
+  /// The colours picked on the wheel, kept in this browser: eight at most, the latest first, each with its uses.
+  const customColoursKey = "homeswift.custom-colours";
+  function customColours() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(customColoursKey) || "[]");
+      return Array.isArray(saved) ? saved.filter((one) => Number.isFinite(one?.h) && one.h >= 0 && one.h < 360 && Number.isFinite(one?.s) && one.s >= 0 && one.s <= 100)
+        .map((one) => ({ h: one.h, s: one.s, count: Number.isSafeInteger(one.count) && one.count > 0 ? one.count : 1 })).slice(0, 8) : [];
+    } catch { return []; }
+  }
+  /// A colour picked on the wheel, or a custom swatch pressed: counted as the palette's own colour when it is one,
+  /// else kept (moved first) among the custom colours. A new pick redraws the swatches (`homeswift-colours`) so it shows.
+  function rememberPick(h, s) {
+    const overrides = colourOverrides();
+    const preset = palette.find(([, ph, ps]) => sameColour(h, s, overrides[ph]?.h ?? ph, overrides[ph]?.s ?? ps));
+    if (preset) { rememberColour(preset[1]); return; }
+    const saved = customColours();
+    const found = saved.find((one) => sameColour(h, s, one.h, one.s));
+    const next = [{ h, s, count: Math.min((found?.count ?? 0) + 1, Number.MAX_SAFE_INTEGER) }, ...saved.filter((one) => one !== found)].slice(0, 8);
+    try { localStorage.setItem(customColoursKey, JSON.stringify(next)); } catch {}
+    if (!found) dispatchEvent(new CustomEvent("homeswift-colours"));
   }
 
   /// A light's controls, each a function that builds it (null when the light has none): `brightness` (a level,
@@ -42681,23 +43277,40 @@ self.addEventListener("notificationclick", (event) => {
         });
         return control.node;
       } : null,
-      swatches: pickColor ? ({ grid = false, compact = false } = {}) => {
-        const usage = colourUsage();
-        const choices = compact ? [...presets].sort((a, b) => (Number(usage[b[1]]) || 0) - (Number(usage[a[1]]) || 0)).slice(0, adaptive ? 2 : 3) : presets;
-        const swatches = choices.map(([name, h, s]) => {
-          const swatch = el("button", { type: "button", class: "swatch", role: "radio", "aria-label": name, title: name, onclick: () => {
-            pickColor(h, s);
-            rememberColour(h);
-          } });
-          swatch.style.setProperty("--swatch", `hsl(${h} ${s}% 60%)`);
-          return { swatch, h, s };
-        });
-        ctx.watch(() => {
+      swatches: pickColor ? ({ grid = false, compact = false, more = false } = {}) => {
+        // The extra-large tile fills two rows of eight: Adaptive Lighting's swatch takes one colour's place.
+        const count = compact ? (adaptive ? 2 : 3) : more ? palette.length - (adaptive ? 1 : 0) : 8;
+        const node = el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": t("Colour") });
+        const lead = adaptive ? adaptiveControl("swatch") : null;
+        let swatches = [];
+        const paint = () => {
           const h = numberOf(hue), s = numberOf(saturation);
-          const near = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b)) <= 6;
-          for (const one of swatches) one.swatch.setAttribute("aria-checked", String(!adaptiveOn() && s > 4 && near(one.h, h) && Math.abs(one.s - s) <= 12));
-        });
-        return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": t("Colour") }, adaptive ? adaptiveControl("swatch") : null, swatches.map((one) => one.swatch));
+          for (const one of swatches) one.swatch.setAttribute("aria-checked", String(!adaptiveOn() && s > 4 && sameColour(one.h, one.s, h, s)));
+        };
+        const fill = () => {
+          swatches = shownColours(count).map((colour) => {
+            const { name, h, s } = colour;
+            const swatch = el("button", { type: "button", class: `swatch${colour.key === undefined ? " custom" : ""}`, role: "radio", "aria-label": name,
+              title: t("{name} (hold to change)", { name }), onclick: () => {
+                // The click ending a hold that opened the wheel is not a tap.
+                if (wheel.used()) return;
+                pickColor(h, s);
+                if (colour.key === undefined) rememberPick(h, s); else rememberColour(colour.key);
+              } });
+            swatch.style.setProperty("--swatch", `hsl(${h} ${s}% 60%)`);
+            // Held, the colour wheel: the colour picked replaces this swatch's, and the light takes it.
+            const wheel = colourWheel(swatch, { color: { pick: (ph, ps) => { changeSwatch(colour, ph, ps); pickColor(ph, ps); } }, available: () => answers(ctx.accessory) });
+            return { swatch, h, s };
+          });
+          node.replaceChildren(...[lead, ...swatches.map((one) => one.swatch)].filter(Boolean));
+          paint();
+        };
+        fill();
+        // A colour newly picked on the wheel joins every light's swatches; a tile no longer shown stops listening.
+        const refill = () => { if (node.isConnected) fill(); else removeEventListener("homeswift-colours", refill); };
+        addEventListener("homeswift-colours", refill);
+        ctx.watch(paint);
+        return node;
       } : null,
       white: whiteRange ? ({ vertical = false, thin = false } = {}) => {
         const { low, high } = whiteRange;
@@ -42729,6 +43342,83 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   /// A sensor service's reading: its value, its unit, a tone, and its glyph.
+  /// A temperature sensor's larger tiles: a dial thermometer with two scales on one needle, as on a wall thermometer.
+  /// It spans −40 to 50 °C, which is −40 to 122 °F, over 270°. The outer scale (ticks and numbers outside the band) is
+  /// the unit the user shows temperatures in, its unit at the foot of the dial; the inner scale (numbers inside the band,
+  /// each the band's colour there) is the other, its unit under the hub. The band is graded from blue (cold) through
+  /// green and yellow to red (hot); the needle turns to the reading.
+  function thermometerDial(main) {
+    const fahrenheit = HomeswiftCommon.temperature(0).unit === "°F";
+    const minC = -40, maxC = 50;
+    const angle = (celsius) => 135 + 270 * (clamp(celsius, minC, maxC) - minC) / (maxC - minC);
+    const at = (celsius, r) => { const a = angle(celsius) * Math.PI / 180; return [(100 + r * Math.cos(a)).toFixed(2), (100 + r * Math.sin(a)).toFixed(2)]; };
+    const arc = (from, to, r) => { const [x1, y1] = at(from, r), [x2, y2] = at(to, r); return `M${x1} ${y1} A${r} ${r} 0 ${angle(to) - angle(from) > 180 ? 1 : 0} 1 ${x2} ${y2}`; };
+    // The band: short arcs, each the colour of its share of the scale (an SVG gradient cannot follow an arc), each a
+    // hair longer than its step so no seam shows between them.
+    const stops = [[0, [58, 150, 217]], [0.3, [76, 176, 80]], [0.55, [245, 211, 59]], [0.75, [243, 154, 43]], [1, [229, 65, 45]]];
+    const colourAt = (celsius) => {
+      const share = (clamp(celsius, minC, maxC) - minC) / (maxC - minC);
+      const i = Math.max(1, stops.findIndex(([edge]) => edge >= share)), [a, ca] = stops[i - 1], [b, cb] = stops[i];
+      const k = (share - a) / (b - a || 1);
+      return `rgb(${ca.map((c, j) => Math.round(c + (cb[j] - c) * k)).join(" ")})`;
+    };
+    let band = "";
+    const pieces = 60, span = maxC - minC;
+    for (let i = 0; i < pieces; i++) {
+      const from = minC + span * i / pieces, to = Math.min(maxC, minC + span * (i + 1) / pieces + span * 0.004);
+      band += `<path class="band" stroke="${colourAt(from + span / pieces / 2)}" d="${arc(from, to, 66)}"/>`;
+    }
+    // A scale in either unit, placed by the Celsius each mark is.
+    const toC = { c: (v) => v, f: (v) => (v - 32) / 1.8 };
+    const minus = (v) => v < 0 ? `−${-v}` : String(v);
+    // How far a label reaches toward the centre or the rim at its angle: half its width where the scale runs up and
+    // down (the sides), half its height where it runs across (top and bottom), so no label meets its tick.
+    const reach = (celsius, text, size) => {
+      const a = angle(celsius) * Math.PI / 180;
+      const width = (text.length + (text.startsWith("−") ? 0.3 : 0)) * size * 0.29;
+      return width * Math.abs(Math.cos(a)) + size * 0.38 * Math.abs(Math.sin(a));
+    };
+    const scale = (unit, outer) => {
+      const [from, to, major, minor] = unit === "f" ? [-40, 120, 20, outer ? 5 : 10] : [-40, 50, 10, outer ? 2 : 5];
+      let marks = "";
+      for (let v = from; v <= to; v += minor) {
+        const c = toC[unit](v), isMajor = (v - from) % major === 0;
+        if (outer) {
+          const [x1, y1] = at(c, 71.5), [x2, y2] = at(c, isMajor ? 77.5 : 74.5);
+          marks += `<line class="${isMajor ? "major" : "minor"}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+          if (isMajor) { const label = minus(v), [x, y] = at(c, 80 + reach(c, label, 9)); marks += `<text class="mark-number" x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central">${label}</text>`; }
+        } else {
+          const [x1, y1] = at(c, 59), [x2, y2] = at(c, isMajor ? 53 : 56);
+          marks += `<line class="inner-tick" stroke="${colourAt(c)}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+          if (isMajor) { const label = minus(v), [x, y] = at(c, 50.5 - reach(c, label, 8.5)); marks += `<text class="inner-number" fill="${colourAt(c)}" x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central">${label}</text>`; }
+        }
+      }
+      return marks;
+    };
+    const [outerUnit, innerUnit] = fahrenheit ? ["f", "c"] : ["c", "f"];
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 200 200");
+    svg.setAttribute("class", "thermometer-dial");
+    svg.setAttribute("aria-hidden", "true");
+    // The band and scales drawn a little smaller than the face, for a margin of white between the numbers and its edge.
+    svg.innerHTML = `<circle class="face" cx="100" cy="100" r="99"/>` +
+      `<g transform="translate(100 100) scale(0.94) translate(-100 -100)">${band}${scale(outerUnit, true)}${scale(innerUnit, false)}</g>` +
+      `<text class="unit inner" x="100" y="134" text-anchor="middle">${innerUnit === "f" ? "°F" : "°C"}</text>` +
+      `<text class="unit" x="100" y="180" text-anchor="middle">${outerUnit === "f" ? "°F" : "°C"}</text>` +
+      `<g class="needle"><line class="needle-tail" x1="100" y1="100" x2="${100 - 14}" y2="100"/><line class="needle-body" x1="100" y1="100" x2="${100 + 64}" y2="100"/></g>` +
+      `<circle class="hub" cx="100" cy="100" r="8"/><circle class="hub-ring" cx="100" cy="100" r="3.5"/>`;
+    const needle = svg.querySelector(".needle");
+    return {
+      node: svg,
+      set() {
+        const v = main.value;
+        if (typeof v !== "number") { needle.style.opacity = "0"; return; }
+        needle.style.opacity = "";
+        needle.style.transform = `rotate(${angle(v)}deg)`;
+      },
+    };
+  }
+
   const readings = {
     TemperatureSensor: ["Current Temperature", "thermo"], HumiditySensor: ["Current Relative Humidity", "sensor"], LightSensor: ["Current Ambient Light Level", "sensor"],
     AirQualitySensor: ["Air Quality", "wind"], MotionSensor: ["Motion Detected", "sensor"], OccupancySensor: ["Occupancy Detected", "sensor"],
@@ -42835,7 +43525,7 @@ self.addEventListener("notificationclick", (event) => {
     const body = el("div", { class: "w-block-body" },
       canWrite(speed) ? speedControl(ctx, service, speed) : null,
       canWrite(target) ? modeControl(ctx, service, target) : null,
-      el("div", { class: "chips" }, chipFor(ctx, service, ctx.char(service, "Swing Mode"), t("Swing")), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))));
+      el("div", { class: "chips" }, ...swingChips(ctx, service), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))));
     ctx.watch(() => { body.hidden = !isOn(power); });
     return el("div", { class: "w-block" }, el("div", { class: "w-row" }, el("span", { class: "w-label", text: name }), control.node), body);
   }
@@ -42922,6 +43612,78 @@ self.addEventListener("notificationclick", (event) => {
     return control.node;
   }
 
+  /// The current temperature stays in the centre; the handle writes the selected target.
+  function climateDial(ctx, parts, targets, current) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 200 200");
+    svg.setAttribute("class", "climate-dial");
+    const at = value => { const a = (135 + 270 * value) * Math.PI / 180; return [100 + 86 * Math.cos(a), 100 + 86 * Math.sin(a)]; };
+    const arc = value => { const a = at(0), b = at(Math.max(.0001, value)); return `M${a} A86 86 0 ${value > 2/3 ? 1 : 0} 1 ${b}`; };
+    svg.innerHTML = `<path class="gauge-track" d="${arc(1)}"/><path class="gauge-band"/><circle class="gauge-dot" r="7"/><text class="gauge-value" x="100" y="96" text-anchor="middle"></text><text class="gauge-caption" x="100" y="122" text-anchor="middle"></text><text class="climate-target-label gauge-caption" x="100" y="151" text-anchor="middle"></text>`;
+    const [band, dot, valueText, caption, targetText] = [".gauge-band", ".gauge-dot", ".gauge-value", ".gauge-caption", ".climate-target-label"].map(s => svg.querySelector(s));
+    caption.textContent = t("Inside");
+    const selected = () => targets().filter(canWrite).at(-1);
+    let pending = null, box = null;
+    const bounds = c => [c.minValue ?? 10, c.maxValue ?? 35, c.minStep || .5];
+    /// The handle and band only: what a drag moves.
+    const paintHandle = (c) => {
+      const [min,max] = bounds(c), target = pending ?? numberOf(c), share = clamp((target-min)/(max-min),0,1);
+      for (const [key,v] of Object.entries({min,max,now:target})) svg.setAttribute(`aria-value${key}`,v);
+      const [x,y] = at(share);
+      dot.setAttribute("cx",x); dot.setAttribute("cy",y);
+      band.setAttribute("d",arc(share));
+    };
+    const paint = () => {
+      const shown = targets(), c = shown.filter(canWrite).at(-1), value = current();
+      svg.classList.toggle("is-off", parts.mode() === "off");
+      svg.dataset.mode = parts.mode();
+      valueText.textContent = value === null ? "–" : degrees(+value.toFixed(1));
+      // Where it is going, in the mode's colour (style.css), as the small tile writes it.
+      targetText.textContent = shown.length ? `→ ${shown.map(c => degrees(numberOf(c))).join("–")}` : "";
+      svg.setAttribute("role", c ? "slider" : "img");
+      svg.setAttribute("aria-label", c ? t("Target temperature") : t("Inside"));
+      svg.tabIndex = c ? 0 : -1;
+      dot.style.display = c ? "" : "none";
+      if (c) paintHandle(c); else band.setAttribute("d", "");
+    };
+    const commit = value => { const c = selected(); if (c) ctx.write(parts.service,c,value); };
+    const fromPointer = event => {
+      const c = selected(); if (!c || !box) return;
+      let angle = Math.atan2(event.clientY-box.top-box.height/2,event.clientX-box.left-box.width/2)*180/Math.PI;
+      angle = (angle-135+360)%360;
+      if (angle>270) angle = angle>315 ? 0 : 270;
+      const [min,max,step] = bounds(c);
+      const next = snap(min+(max-min)*angle/270,min,max,step);
+      if (next !== pending) { pending = next; paintHandle(c); }
+    };
+    svg.addEventListener("pointerdown", e => { if(e.button!==0 || !selected()) return; e.preventDefault(); svg.setPointerCapture(e.pointerId); box = svg.getBoundingClientRect(); fromPointer(e); });
+    svg.addEventListener("pointermove", e => { if(svg.hasPointerCapture(e.pointerId)) fromPointer(e); });
+    svg.addEventListener("pointerup", e => { if(pending===null) return; const value=pending; pending=null; svg.releasePointerCapture(e.pointerId); commit(value); });
+    svg.addEventListener("pointercancel", () => { pending=null; paint(); });
+    svg.addEventListener("keydown", e => {
+      const c=selected(); if(!c) return; const [min,max,step]=bounds(c);
+      const delta={ArrowUp:step,ArrowRight:step,ArrowDown:-step,ArrowLeft:-step,PageUp:step*4,PageDown:-step*4}[e.key];
+      if(delta===undefined && e.key!=="Home" && e.key!=="End") return;
+      e.preventDefault(); commit(e.key==="Home"?min:e.key==="End"?max:snap(numberOf(c)+delta,min,max,step));
+    });
+    ctx.watch(paint);
+    return svg;
+  }
+
+  /// A power station's output as a chip: held to turn off (what it powers goes dark), a tap to turn on.
+  function outputChip(ctx, service, characteristic, name) {
+    ctx.use(characteristic);
+    const turn = (on) => ctx.write(service, characteristic, onValue(characteristic, on), { held: true });
+    const control = hold(name, () => turn(false), { armed: () => isOn(characteristic), onTap: () => turn(true), className: "chip hold-chip", actionIcon: "power" });
+    ctx.watch(() => {
+      const on = isOn(characteristic);
+      control.node.setAttribute("aria-pressed", String(on));
+      control.node.setAttribute("aria-label", on ? t("Hold to turn off {output}", { output: name }) : t("Turn on {output}", { output: name }));
+      control.node.title = control.node.getAttribute("aria-label");
+    });
+    return control.node;
+  }
+
   /// A thermostat inside another accessory's card (a purifier's heater): its modes and setpoint.
   function climateBlock(ctx, service, name) {
     const parts = climateParts(ctx, service);
@@ -42992,7 +43754,7 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   /// Chips for the bools of a service a widget offers as options (Swing, Child lock).
-  const optionChips = (ctx, service) => [chipFor(ctx, service, ctx.char(service, "Swing Mode"), t("Swing")), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))].filter(Boolean);
+  const optionChips = (ctx, service) => [...swingChips(ctx, service), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))].filter(Boolean);
   const chipRow = (nodes) => nodes.length ? el("div", { class: "chips" }, nodes) : null;
   const row = (label, ...nodes) => el("div", { class: "w-row" }, label ? el("span", { class: "w-label", text: label }) : null, ...nodes);
 
@@ -43044,13 +43806,21 @@ self.addEventListener("notificationclick", (event) => {
       const count = () => ons.filter(isOn).length;
       const level = isStation(ctx) ? ctx.take(ctx.find("Battery"), "Battery Level") : null;
 
-      const body = size === "large" || size === "full"
+      const battery = level ? ctx.find("Battery") : null;
+      const charging = battery ? ctx.take(battery, "Charging State") : null;
+      const low = battery ? ctx.take(battery, "Status Low Battery") : null;
+      const gauge = battery ? batteryGauge(t("Battery"), batteryGraphic()) : null;
+      if (gauge) ctx.watch(() => gauge.set(clamp(Math.round(numberOf(level)), 0, 100), charging?.value === 1, isOn(low)));
+
+      const body = size === "full" || (size === "large" && !gauge)
         ? [el("div", { class: "toggles" }, switches.map((s, i) => miniToggle(ctx, s, ons[i], shortName(ctx.accessory, s))))]
-        : [chipRow(switches.map((s, i) => chipFor(ctx, s, ons[i], shortName(ctx.accessory, s))))];
+        : [chipRow(switches.map((s, i) => gauge ? outputChip(ctx, s, ons[i], shortName(ctx.accessory, s)) : chipFor(ctx, s, ons[i], shortName(ctx.accessory, s), "power")))];
       return {
         // A power station's figure is its battery; a group's, how many are on.
-        body, hero: () => level ? `${Math.round(numberOf(level))} %` : `${count()}/${ons.length}`,
-        status: () => [count() ? t("{n} of {total} on", { n: count(), total: ons.length }) : t("All off")],
+        background: gauge?.background,
+        body: gauge && size !== "small" ? [el("div", { class: "station-controls" }, gauge.node, ...body)] : body,
+        hero: () => gauge ? gauge.node : `${count()}/${ons.length}`,
+        status: () => gauge && size === "small" && !ctx.tall ? [""] : [count() ? t("{n} of {total} on", { n: count(), total: ons.length }) : t("All off")],
         on: () => count() > 0,
       };
     },
@@ -43099,15 +43869,27 @@ self.addEventListener("notificationclick", (event) => {
   });
 
   register({
-    name: "climate", types: ["HeaterCooler", "Thermostat"], icon: "thermo", size: "xlarge",
+    // Drawn at the wall's own four sizes (`wallSizes`), with no summary layout: a climate tile keeps its dial.
+    name: "climate", types: ["HeaterCooler", "Thermostat"], icon: "thermo", size: "xlarge", wallSizes: true,
     build(ctx, primary, size) {
       const parts = climateParts(ctx, primary);
       const now = () => typeof parts.current?.value === "number" ? parts.current.value : null;
+      const thermostatModes = parts.target?.validValues || [0, 1, 2, 3];
+      // Off at load, the last mode is unknown: resume in Auto where the thermostat has it, never forcing heat or cool.
+      let resumeState = thermostatModes.includes(3) ? 3 : thermostatModes.find(value => value > 0);
       const mode = () => parts.mode();
-      const shownMode = () => mode() === "off" ? parts.lastMode() : mode();
+      ctx.watch(() => {
+        if (!parts.heaterCooler && numberOf(parts.target) > 0) resumeState = numberOf(parts.target);
+      });
+      const shownMode = () => mode() === "off"
+        ? parts.heaterCooler ? parts.lastMode() : ["off", "heat", "cool", "auto"][resumeState] ?? "off"
+        : mode();
       const modeWords = { off: t("off"), heat: t("heat"), cool: t("cool"), auto: t("auto") };
       const built = {
-        power: canWrite(parts.active) ? { service: primary, characteristic: parts.active } : null,
+        // On is the mode, not Active alone; a thermostat without Active turns off and back on through its target state.
+        power: canWrite(parts.active) ? { service: primary, characteristic: parts.active, isOn: () => mode() !== "off" }
+          : !parts.heaterCooler && canWrite(parts.target) && thermostatModes.includes(0) && resumeState !== undefined
+            ? { isOn: () => mode() !== "off", write: (on) => ctx.write(primary, parts.target, on ? resumeState : 0) } : null,
         tone: () => ({ heat: "heat", cool: "blue", auto: "green" })[shownMode()] ?? "teal",
         on: () => mode() !== "off",
         hero: () => now() === null ? "" : el("span", {}, degrees(+now().toFixed(1)), el("small", { text: modeWords[mode()] ?? mode() })),
@@ -43129,39 +43911,38 @@ self.addEventListener("notificationclick", (event) => {
           return [idle[mode()] ?? t("Idle · auto to {temperature}", { temperature: target })];
         },
       };
-      if (size === "small") return built;
       const points = setpointControls(ctx, parts);
-      if (size === "medium") {
-        // The temperature inside and one setpoint: the mode's own (Cool to in auto).
-        const big = el("b", { class: "w-big" });
+      const targets = () => parts.setpoints(shownMode());
+      if (size === "small") {
+        // The reading, then where it is going on the same line, in the mode's colour: "19.5° → 21.5°"; off, the word.
+        const current = el("b"), target = el("span", { class: "climate-goal" });
         ctx.watch(() => {
-          const shown = parts.setpoints(shownMode());
-          points.show(shown.slice(-1));
-          big.textContent = now() === null ? "–" : degrees(+now().toFixed(1));
+          const off = mode() === "off", shown = targets();
+          current.textContent = now() === null ? "–" : degrees(+now().toFixed(1));
+          target.textContent = off || !shown.length ? t("Off") : `→ ${shown.map(c => degrees(numberOf(c))).join("–")}`;
+          target.dataset.mode = off ? "off" : mode();
+          target.setAttribute("aria-label", off ? t("Off") : t("Target {temperature}", { temperature: shown.map(c => degrees(numberOf(c))).join(" – ") }));
         });
-        built.body = [el("div", { class: "w-row" }, el("div", { class: "w-figure" }, big, el("span", { text: t("Inside") })), el("div", { class: "setpoints" }, points.nodes))];
+        built.body = [el("div", { class: "climate-compact" }, current, target)];
         return built;
       }
-      const temps = [parts.heat, parts.cool, parts.single].filter(Boolean);
-      const min = Math.min(...temps.map((c) => c.minValue ?? 10), 10), max = Math.max(...temps.map((c) => c.maxValue ?? 35), 30);
-      const dial = gauge({ min, max });
-      const colors = { heat: "var(--heat)", cool: "var(--cool)", auto: "var(--auto)" };
-      ctx.watch(() => {
-        const shown = parts.setpoints(shownMode());
-        points.show(shown);
-        const caption = typeof parts.humidity?.value === "number" ? t("Inside · {humidity} %", { humidity: Math.round(parts.humidity.value) }) : t("Inside");
-        if (mode() === "off" || !shown.length) dial.update({ value: now(), caption });
-        else if (shown.length === 2) dial.update({ value: now(), from: numberOf(shown[0]), to: numberOf(shown[1]), color: colors.auto, caption });
-        else dial.update({ value: now(), from: now() ?? numberOf(shown[0]), to: numberOf(shown[0]), color: colors[mode()], caption });
-      });
-      const speed = ctx.take(primary, "Rotation Speed");
-      const chips = optionChips(ctx, primary);
-      built.body = [
-        el("div", { class: "climate-hero" }, dial.node, el("div", { class: "setpoints" }, points.nodes)),
-        climateModes(ctx, parts),
-        canWrite(speed) ? speedControl(ctx, primary, speed) : null,
-        chipRow(chips),
-      ].filter(Boolean);
+      const dial = climateDial(ctx, parts, targets, now);
+      ctx.watch(() => points.show(targets()));
+      const dashboard = el("div", { class: "climate-dashboard" },
+        size === "medium" ? null : el("div", { class: "setpoints" }, points.nodes), dial);
+      const modes = size === "medium" ? null : climateModes(ctx, parts);
+      if (modes) modes.classList.add("climate-modes");
+      if (size === "large" && modes) dashboard.append(modes);
+      built.body = [dashboard, size === "large" ? null : modes].filter(Boolean);
+      if (size === "large" || size === "xlarge" || size === "full") {
+        const speed = ctx.take(primary, "Rotation Speed");
+        const swings = swingChips(ctx, primary, true);
+        for (const button of swings) button.classList.add("climate-swing");
+        const speedNode = canWrite(speed) ? speedControl(ctx, primary, speed, null, true) : null;
+        if (speedNode || swings.length) built.body.push(el("div", { class: "climate-airflow" }, speedNode, chipRow(swings)));
+        const lock = chipFor(ctx, primary, ctx.char(primary, "Lock Physical Controls"), t("Child lock"));
+        if (lock) built.body.push(chipRow([lock]));
+      }
       if (size === "full") built.facets = facets(ctx, [primary]);
       return built;
     },
@@ -43227,7 +44008,8 @@ self.addEventListener("notificationclick", (event) => {
   /// colour temperature (the white slider's range), both when it has both; null for a light with neither.
   function lightPicks(ctx, service, on, light) {
     const turnOn = () => { if (!isOn(on)) ctx.write(service, on, onValue(on, true)); };
-    const color = light.pickColor ? { pick: (h, s) => { light.pickColor(h, s); turnOn(); } } : null;
+    // A colour picked on the wheel is kept among the swatches (rememberPick).
+    const color = light.pickColor ? { pick: (h, s) => { light.pickColor(h, s); rememberPick(h, s); turnOn(); } } : null;
     const white = light.pickWhite ? { ...light.whiteRange, pick: (k) => { light.pickWhite(k); turnOn(); } } : null;
     // A paused plugin's light, or one that does not answer, takes no colour: a hold is a tap, which says why.
     return color || white ? { color, white, available: () => answers(ctx.accessory) } : null;
@@ -43257,12 +44039,17 @@ self.addEventListener("notificationclick", (event) => {
         const colours = light.swatches?.({ compact: true });
         built.middle = colours ? el("div", { class: "light-shortcuts" }, brightness, colours) : brightness;
       }
-      if (size === "medium") built.body = [light.brightness?.(), light.swatches?.() ?? whiteRow({ thin: true })].filter(Boolean);
+      if (size === "medium") {
+        const white = light.swatches
+          ? light.white?.({ thin: true })
+          : whiteRow({ thin: true });
+        built.body = [light.brightness?.(), white, light.swatches?.()].filter(Boolean);
+      }
       if (size === "large") {
-        // A tall brightness beside the colours, or beside a tall white (and the Adaptive chip under it).
-        const tall = light.brightness?.({ vertical: true });
-        const side = light.swatches ? [light.swatches({ grid: true }), light.white?.({ thin: true })] : [light.white?.({ vertical: true }), light.adaptive?.("chip")];
-        built.body = [el("div", { class: "light-large" }, tall, el("div", { class: light.swatches ? "light-colours" : "light-tall" }, side.filter(Boolean)))];
+        // With colours: the brightness and the white across the tile, every colour under them. Without: a tall
+        // brightness beside a tall white (and the Adaptive chip).
+        if (light.swatches) built.body = [el("div", { class: "light-full" }, [light.brightness?.(), light.white?.(), light.swatches({ more: true })].filter(Boolean))];
+        else built.body = [el("div", { class: "light-large" }, light.brightness?.({ vertical: true }), el("div", { class: "light-tall" }, [light.white?.({ vertical: true }), light.adaptive?.("chip")].filter(Boolean)))];
       }
       if (size === "full") Object.assign(built, { body: lightBody(ctx, primary).nodes, facets: facets(ctx, [primary]) });
       return built;
@@ -43328,8 +44115,9 @@ self.addEventListener("notificationclick", (event) => {
         return one.node;
       });
       for (const type of ["Current Horizontal Tilt Angle", "Current Vertical Tilt Angle"]) ctx.take(primary, type);
-      if (size === "medium") built.body = [el("div", { class: "w-row" }, el("div", { class: "w-grow" }, slider(false)), ...buttons)];
-      if (size === "large") built.body = [el("div", { class: "cover-large" }, slider(true), el("div", { class: "cover-buttons" }, buttons, tilts))];
+      // The larger tiles are the shutter's window: the tile itself is dragged (frame's shade), beside its buttons.
+      if (size === "medium") built.body = [el("div", { class: "w-row cover-keys" }, ...buttons)];
+      if (size === "large") built.body = [el("div", { class: "cover-large" }, el("div", { class: "cover-buttons" }, buttons, tilts))];
       if (size === "full") Object.assign(built, { body: [slider(false), el("div", { class: "w-keys" }, buttons), ...tilts], facets: facets(ctx, [primary]) });
       return built;
     },
@@ -43438,18 +44226,41 @@ self.addEventListener("notificationclick", (event) => {
       const set = ctx.take(primary, "Set Duration"), remaining = ctx.take(primary, "Remaining Duration");
       ctx.take(primary, "Valve Type");
       // Remaining Duration is sent when the valve opens; the page counts down from there.
-      let endsAt = null, lastRemaining;
-      const running = () => isOn(inUse) || (isOn(active) && !inUse);
+      let endsAt = null, lastRemaining, wasRunning = false;
+      // Active reflects a stop immediately; In Use may arrive later from the device.
+      // The countdown runs from the press of Run (Active), not from In Use, which a valve may report a moment later or
+      // never; until it does, the status says it is starting. Active reflects a stop at once.
+      const running = () => isOn(active);
+      const flowing = () => !inUse || isOn(inUse);
       const left = () => endsAt ? Math.max(0, Math.round((endsAt - Date.now()) / 1000)) : numberOf(remaining);
       ctx.watch(() => {
-        if (remaining && remaining.value !== lastRemaining) { lastRemaining = remaining.value; endsAt = running() ? Date.now() + numberOf(remaining) * 1000 : null; }
-        if (!running()) endsAt = null;
+        const on = running();
+        // A start counts down the chosen Set Duration: Remaining Duration still holds the last run's figure until the
+        // device reports a new one, which then takes over (as on a page opened mid-run).
+        const reported = remaining && remaining.value !== lastRemaining && numberOf(remaining) > 0;
+        if (on && reported) endsAt = Date.now() + numberOf(remaining) * 1000;
+        else if (on && !wasRunning) endsAt = Date.now() + numberOf(set, numberOf(remaining)) * 1000;
+        lastRemaining = remaining?.value;
+        wasRunning = on;
+        if (!on) endsAt = null;
+      });
+      const minuteDigits = el("b", { class: "valve-flap" });
+      const secondDigits = el("b", { class: "valve-flap" });
+      const countdown = el("div", { class: "valve-countdown", role: "timer" },
+        el("span", { class: "valve-clock-part" }, minuteDigits, el("small", { text: t("Minutes") })),
+        el("span", { class: "valve-clock-part" }, secondDigits, el("small", { text: t("Seconds") })));
+      ctx.watch(() => {
+        const seconds = Math.max(0, Math.floor(running() ? left() : numberOf(set)));
+        minuteDigits.textContent = String(Math.floor(seconds / 60)).padStart(2, "0");
+        secondDigits.textContent = String(seconds % 60).padStart(2, "0");
+        countdown.setAttribute("aria-label", running() ? t("{time} left", { time: clock(seconds) }) : t("for {time}", { time: clock(seconds) }));
       });
       const toggleRun = () => ctx.write(primary, active, isOn(active) ? 0 : 1);
       const built = {
         on: () => running(), tap: toggleRun, tapLabel: () => isOn(active) ? t("stop") : t("run"),
-        hero: () => running() ? clock(left()) : "",
-        status: () => running() ? [t("Running · {time} left", { time: clock(left()) }), "cool"] : isOn(active) ? [t("Starting…")] : [t("Off")],
+        hero: () => !ctx.tall && running() ? clock(left()) : "",
+        middle: ctx.tall ? countdown : null,
+        status: () => running() ? (flowing() ? [t("Running"), "cool"] : [t("Starting…"), "cool"]) : [t("Off")],
       };
       // The figures move each second while it runs.
       const ticker = setInterval(() => {
@@ -43457,33 +44268,46 @@ self.addEventListener("notificationclick", (event) => {
         if (running()) ctx.paint();
       }, 1000);
       if (size === "small") return built;
-      const px = size === "medium" ? 84 : 140, radius = px / 2 - 6, circumference = 2 * Math.PI * radius;
-      const ring = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      ring.setAttribute("viewBox", `0 0 ${px} ${px}`);
-      ring.setAttribute("aria-hidden", "true");
-      ring.innerHTML = `<circle class="ring-track" cx="${px / 2}" cy="${px / 2}" r="${radius}"/><circle class="ring" cx="${px / 2}" cy="${px / 2}" r="${radius}" stroke-dasharray="${circumference.toFixed(1)}"/>`;
-      const title = el("b"), detail = el("span");
-      const button = el("button", { type: "button", class: "valve-button", onclick: toggleRun }, ring, el("span", { class: "valve-text" }, title, detail));
-      button.style.width = button.style.height = `${px}px`;
-      const total = () => numberOf(set, numberOf(remaining, 0)) || 1;
+      const actionLabel = el("span");
+      const action = el("button", { type: "button", actionIcon: "play", onclick: toggleRun }, actionLabel);
+      // Run, and under it the duration, beside the countdown.
+      const actions = el("div", { class: "valve-actions" }, action);
+      const runningControls = el("div", { class: "valve-running-controls" }, countdown, actions);
+      const runControl = el("div", { class: "valve-run-control" }, runningControls);
+      let shownOn;
       ctx.watch(() => {
-        const on = running();
-        title.textContent = isOn(active) ? t("Stop") : t("Run [valve]");
-        detail.textContent = on ? t("{time} left", { time: clock(left()) }) : t("for {time}", { time: clock(numberOf(set, 0)) });
-        ring.querySelector(".ring").style.strokeDashoffset = String(on ? circumference * (1 - clamp(left() / total(), 0, 1)) : circumference);
-        button.setAttribute("aria-label", isOn(active) ? t("Stop {name}", { name: ctx.accessory.name }) : t("Run {name} [valve]", { name: ctx.accessory.name }));
+        const on = isOn(active);
+        // The ticker repaints every second: only a change of state touches the button.
+        if (on === shownOn) return;
+        shownOn = on;
+        actionLabel.textContent = on ? t("Stop") : t("Run [valve]");
+        // The icon is a CSS mask (`actionIcon`): swap it by redecorating, as there is no SVG child to replace.
+        HomeswiftCommon.decorateAction(action, on ? "stop" : "play");
+        action.setAttribute("aria-label", on ? t("Stop {name}", { name: ctx.accessory.name }) : t("Run {name} [valve]", { name: ctx.accessory.name }));
       });
       let durations = null;
       if (canWrite(set)) {
-        const choices = [60, 120, 300, 600, 900, 1800].filter((s) => s >= (set.minValue ?? 0) && s <= (set.maxValue ?? 3600));
-        if (!choices.includes(numberOf(set)) && numberOf(set) > 0) choices.push(numberOf(set));
-        choices.sort((a, b) => a - b);
-        const shown = choices.slice(0, 4).includes(numberOf(set)) ? choices.slice(0, 4) : [...choices.slice(0, 3), numberOf(set)];
-        const control = segmented(shown.map((s) => ({ value: s, label: s % 60 ? clock(s) : t("{n} min", { n: s / 60 }) })), t("Duration"), (v) => ctx.write(primary, set, v));
-        ctx.watch(() => control.set(numberOf(set)));
-        durations = control.node;
+        const choices = [120, ...Array.from({ length: 12 }, (_, i) => (i + 1) * 300)]
+          .filter((seconds) => seconds >= (set.minValue ?? 0) && seconds <= (set.maxValue ?? 3600));
+        const durationLabel = (seconds) => seconds > 0 && seconds % 3600 === 0
+          ? t("{n} h", { n: seconds / 3600 })
+          : seconds % 60 ? clock(seconds) : t("{n} min", { n: seconds / 60 });
+        const control = el("select", { class: "popup valve-duration", "aria-label": t("Duration"),
+          onchange: (event) => ctx.write(primary, set, Number(event.target.value)) });
+        let displayedDuration;
+        ctx.watch(() => {
+          const current = numberOf(set);
+          if (current === displayedDuration) return;
+          displayedDuration = current;
+          const available = choices.includes(current) ? choices : [...choices, current].sort((a, b) => a - b);
+          control.replaceChildren(...available.map((seconds) => el("option", {
+            value: String(seconds), text: durationLabel(seconds), selected: seconds === current,
+          })));
+        });
+        durations = control;
+        actions.append(control);
       }
-      built.body = size === "medium" ? [el("div", { class: "w-row" }, button, el("div", { class: "w-grow" }, durations))] : [el("div", { class: "valve" }, button, durations)];
+      built.body = size === "medium" ? [runControl] : [el("div", { class: "valve" }, runControl)];
       if (size === "full") built.facets = facets(ctx, [primary]);
       return built;
     },
@@ -43551,9 +44375,27 @@ self.addEventListener("notificationclick", (event) => {
     "Snow showers": [t("Snow showers"), "snow"], Thunderstorm: [t("Thunderstorm"), "rain"], "Thunderstorm with hail": [t("Thunderstorm with hail"), "rain"],
   };
   const weatherOf = (value) => weatherConditions[value] ?? [typeof value === "string" && value !== "Unknown" ? value : "", "cloud"];
+  /// The sky a condition draws behind the tile: clear, cloudy, fog, rain, storm or snow.
+  const skyOf = (value) => typeof value === "string" && value.startsWith("Thunderstorm") ? "storm" : value === "Fog" ? "fog"
+    : ({ sun: "clear", cloud: "cloudy", rain: "rain", snow: "snow" })[weatherOf(value)[1]];
+  /// Night by the hour on this device, unless the sun still gives a UV index.
+  const weatherNight = (uv) => {
+    if (typeof uv?.value === "number" && uv.value > 0) return false;
+    const hour = new Date().getHours();
+    return hour < 7 || hour >= 20;
+  };
+  /// The tile's sky (style.css draws each with its light and weather): a layer behind the content, as a battery's liquid.
+  function weatherSky() {
+    return el("span", { class: "weather-sky", "aria-hidden": "true" },
+      el("span", { class: "sky-stars" }), el("span", { class: "sky-light" }), el("span", { class: "sky-clouds" }),
+      el("span", { class: "sky-fx far" }), el("span", { class: "sky-clouds near" }), el("span", { class: "sky-fx" }));
+  }
   register({
     name: "weather", types: ["TemperatureSensor"], tone: "blue", size: "large",
-    icon: (ctx, primary) => weatherOf(ctx.char(primary, "Condition")?.value)[1],
+    icon: (ctx, primary) => {
+      const glyph = weatherOf(ctx.char(primary, "Condition")?.value)[1];
+      return glyph === "sun" && weatherNight(ctx.char(primary, "UV Index")) ? "moon" : glyph;
+    },
     match: (ctx, primary) => !!ctx.char(primary, "Condition"),
     build(ctx, primary, size) {
       const condition = ctx.take(primary, "Condition");
@@ -43568,7 +44410,13 @@ self.addEventListener("notificationclick", (event) => {
       const number = (c, digits = 0) => typeof c?.value === "number" ? c.value.toFixed(digits).replace(".", decimal) : "–";
       const degrees = () => temperature?.value() ?? { text: "–", unit: "" };
       const words = () => weatherOf(condition?.value)[0] || (raining?.value === 1 ? t("Raining") : "");
+      const sky = size === "full" ? null : weatherSky();
+      if (sky) ctx.watch(() => {
+        sky.dataset.sky = raining?.value === 1 && skyOf(condition?.value) !== "storm" && skyOf(condition?.value) !== "snow" ? "rain" : skyOf(condition?.value);
+        sky.dataset.time = weatherNight(uv) ? "night" : "day";
+      });
       const built = {
+        background: sky,
         on: () => false,
         hero: () => el("span", {}, degrees().text, el("small", { text: degrees().unit })),
         // A compact tile has no hero: the temperature goes before the condition.
@@ -43605,12 +44453,28 @@ self.addEventListener("notificationclick", (event) => {
         status: () => {
           const others = ctx.services.filter((s) => s !== primary && readings[s.type]).map((s) => reading(ctx, s)?.value()).filter(Boolean);
           const v = value();
-          return others.length ? [others.map((o) => `${o.text}${o.unit ? ` ${o.unit}` : ""}`).join(" · ")] : [labelFor(one?.main.type ?? "", one?.main.value ?? ""), v.tone === "warn" ? "warn" : ""];
+          if (others.length) return [others.map((o) => `${o.text}${o.unit ? ` ${o.unit}` : ""}`).join(" · ")];
+          // A number says itself with its unit ("22.0 °C"); a state ("Leak detected") by its words.
+          const words = v.unit ? `${v.text} ${v.unit}` : labelFor(one?.main.type ?? "", one?.main.value ?? "");
+          return [words, v.tone === "warn" ? "warn" : ""];
         },
       };
       if (size === "small") return built;
       const f = facets(ctx, []);
-      built.body = [el("div", { class: `readouts${size === "medium" ? " three" : ""}` }, size === "medium" ? f.readouts.slice(0, 3) : f.readouts.slice(0, 6)), size !== "medium" ? f.meters[0] : null].filter(Boolean);
+      // A larger tile shows its own reading large (the hero only a summary tile has), then any others beside it; a
+      // temperature on a dial thermometer.
+      const dial = primary.type === "TemperatureSensor" && one ? thermometerDial(one.main) : null;
+      if (dial) ctx.watch(() => dial.set());
+      const figure = el("div", { class: "sensor-figure" });
+      ctx.watch(() => {
+        const v = value();
+        figure.dataset.tone = v.tone || "";
+        figure.replaceChildren(el("b", { text: v.text }), v.unit ? el("small", { text: v.unit }) : "",
+          el("span", { text: typeName(one?.main.type ?? "") }));
+      });
+      const others = size === "medium" ? f.readouts.slice(0, 3) : f.readouts.slice(0, 6);
+      const lead = dial ? el("div", { class: "thermometer" }, dial.node, figure) : figure;
+      built.body = [lead, others.length ? el("div", { class: `readouts${size === "medium" ? " three" : ""}` }, others) : null, size !== "medium" ? f.meters[0] : null].filter(Boolean);
       if (size === "full") built.facets = { chips: f.chips, readouts: [], meters: f.meters.slice(1), blocks: f.blocks };
       return built;
     },
@@ -43670,26 +44534,20 @@ self.addEventListener("notificationclick", (event) => {
     },
   });
 
-  /// The battery graphic from the design: an outline with its terminal, three bars filled by the level, and a bolt
-  /// beside it while charging. While charging the bars sweep and the bolt pulses (style.css stops them under
-  /// reduced motion). Its colour comes from the tile's tone, and a low battery turns it amber.
+  /// Liquid height and colour follow the real charge; only the surface moves, never the reading.
   function batteryGraphic() {
     const node = el("span", { class: "battery-graphic", "aria-hidden": "true" });
-    node.innerHTML = '<svg class="bat-icon" viewBox="0 0 24 24"><rect class="bat-body" x="2" y="6.5" width="17" height="11" rx="2"/><path class="bat-terminal" d="M21.5 10.5v3"/>' +
-      // Three slim bars across the outline's inside (x 2.8 to 18.2): 1.4 to its edges and 2.4 between them, so the steps
-      // stay distinct on a small tile's 20 px battery.
-      '<rect class="bat-bar" x="4.2" y="8.7" width="2.6" height="6.6" rx="0.6"/><rect class="bat-bar" x="9.2" y="8.7" width="2.6" height="6.6" rx="0.6"/><rect class="bat-bar" x="14.2" y="8.7" width="2.6" height="6.6" rx="0.6"/></svg>' +
-      '<svg class="bat-bolt" viewBox="0 0 24 24"><path d="M13.6 2 5.5 13.2h5.6L9.6 22l8.9-11.6h-5.7z"/></svg>';
-    const bars = [...node.querySelectorAll(".bat-bar")];
+    node.innerHTML = '<span class="bat-icon"><span class="bat-window"><span class="bat-liquid">' +
+      '<svg class="bat-wave bat-wave-back" viewBox="0 0 200 12" preserveAspectRatio="none"><path d="M0 6 Q25 12 50 6 T100 6 T150 6 T200 6 V12 H0Z"/></svg>' +
+      '<svg class="bat-wave" viewBox="0 0 200 12" preserveAspectRatio="none"><path d="M0 6 Q25 0 50 6 T100 6 T150 6 T200 6 V12 H0Z"/></svg>' +
+      '</span></span></span><svg class="bat-bolt" viewBox="0 0 24 24"><path d="M13.6 2 5.5 13.2h5.6L9.6 22l8.9-11.6h-5.7z"/></svg>';
+    const liquid = node.querySelector(".bat-liquid");
     return {
       node,
       set(percent, charging) {
-        const filled = percent === null ? 0 : percent >= 67 ? 3 : percent >= 34 ? 2 : percent >= 10 ? 1 : 0;
-        // While charging, the bar being filled (the last one lit) flickers; the others hold still.
-        bars.forEach((bar, index) => {
-          bar.classList.toggle("on", index < filled);
-          bar.classList.toggle("live", charging && index === Math.max(filled - 1, 0));
-        });
+        liquid.style.transform = `translateY(${100 - (percent ?? 0)}%)`;
+        node.classList.toggle("empty", percent === null || percent === 0);
+        node.classList.toggle("full", percent === 100);
         node.classList.toggle("charging", charging);
       },
     };
@@ -43699,12 +44557,15 @@ self.addEventListener("notificationclick", (event) => {
   function batteryGauge(label, graphic) {
     const value = el("b"), unit = el("small", { text: " %" });
     const node = el("div", { class: "battery-gauge", role: "meter", "aria-label": label, "aria-valuemin": 0, "aria-valuemax": 100 },
-      graphic.node, el("span", { class: "gauge-figure" }, value, unit));
+      el("span", { class: "gauge-figure" }, value, unit));
     return {
-      node,
+      node, background: graphic.node,
       set(percent, charging, low) {
         value.textContent = percent === null ? "–" : String(percent);
         if (percent !== null) node.setAttribute("aria-valuenow", percent);
+        else node.removeAttribute("aria-valuenow");
+        node.dataset.charge = percent === null ? "unknown" : low || percent <= 20 ? "low" : percent <= 50 ? "medium" : "high";
+        graphic.node.dataset.charge = node.dataset.charge;
         graphic.set(percent, charging);
         node.classList.toggle("low", low || (percent !== null && percent < 10));
       },
@@ -43712,7 +44573,7 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   // A battery on its own accessory (a power station's state of charge): the gauge at every size, with the battery
-  // graphic (bars for the level, a bolt while charging). Read only, so a tap opens All controls.
+  // graphic (liquid for the level, a bolt while charging). Read only, so a tap opens All controls.
   register({
     name: "battery", types: ["Battery"], icon: "battery", tone: "green", size: "small",
     build(ctx, primary, size) {
@@ -43720,13 +44581,14 @@ self.addEventListener("notificationclick", (event) => {
       const charging = ctx.take(primary, "Charging State");
       const low = ctx.take(primary, "Status Low Battery");
       const percent = () => (level ? clamp(Math.round(numberOf(level)), 0, 100) : null);
-      const isCharging = () => !!(charging && isOn(charging));
+      const isCharging = () => charging?.value === 1;
       const isLow = () => !!(low && isOn(low));
       const graphic = batteryGraphic();
       const gauge = batteryGauge(t("Battery"), graphic);
       ctx.watch(() => gauge.set(percent(), isCharging(), isLow()));
       const built = {
-        on: () => isOn(charging),
+        background: gauge.background,
+        on: isCharging,
         // A summary tile (small, medium) shows the gauge as its figure; a larger tile has it in its body.
         hero: () => gauge.node,
         // The state is the status line, so a larger tile does not repeat it under the gauge.
@@ -43823,7 +44685,7 @@ self.addEventListener("notificationclick", (event) => {
       const size = sizes.includes(options.size) ? options.size : defaultOf(widget, ctx, primary);
       // Reuse the builders' compact, main-control and expanded variants at the four wall sizes; a builder tells the
       // tall tile from the compact one by `ctx.tall` (both draw its "small").
-      const contentSize = { small: "small", medium: "small", large: "medium", xlarge: "large" }[size];
+      const contentSize = widget.wallSizes ? size : { small: "small", medium: "small", large: "medium", xlarge: "large" }[size];
       ctx.tall = size === "medium";
       node = frame(ctx, ...built(ctx, widget, primary, contentSize), primary, size);
     }
@@ -43946,12 +44808,15 @@ self.addEventListener("notificationclick", (event) => {
       if (tone) status.dataset.tone = tone; else delete status.dataset.tone;
     };
   }
+  /// Whether a widget's power is on, and switching it: its characteristic, unless the widget gives its own (`isOn`, `write`).
+  const powerIsOn = (power) => power.isOn ? power.isOn() : isOn(power.characteristic);
+  const writePower = (ctx, power, on) => power.write ? power.write(on) : ctx.write(power.service, power.characteristic, onValue(power.characteristic, on));
+
   function powerToggle(ctx, built) {
     if (!built.power) return null;
-    const { service, characteristic, big } = built.power;
-    const control = toggle(t("{name}: power", { name: ctx.accessory.name }), (on) => ctx.write(service, characteristic, onValue(characteristic, on)));
-    if (big) control.node.classList.add("big");
-    ctx.watch(() => control.set(isOn(characteristic)));
+    const control = toggle(t("{name}: power", { name: ctx.accessory.name }), (on) => writePower(ctx, built.power, on));
+    if (built.power.big) control.node.classList.add("big");
+    ctx.watch(() => control.set(powerIsOn(built.power)));
     return control.node;
   }
 
@@ -43974,7 +44839,8 @@ self.addEventListener("notificationclick", (event) => {
   /// A haptic tick, where the device has them and the page may (a browser refuses before the first tap on it, and says
   /// so in the console).
   const buzz = (ms) => { if (navigator.userActivation?.hasBeenActive ?? true) navigator.vibrate?.(ms); };
-  function colourWheel(hit, picks) {
+  /// `tapOpens`: a tap opens the picker and leaves it open (a light's icon); a press then picks, a press off it closes.
+  function colourWheel(hit, picks, { tapOpens = false } = {}) {
     const radius = WHEEL_SIZE / 2, { color, white } = picks;
     // The white bar sits under the wheel when the light has both.
     const bar = color && white ? WHITE_BAR : null;
@@ -44015,7 +44881,7 @@ self.addEventListener("notificationclick", (event) => {
       const h = Math.round((Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360), s = Math.round(share * 100);
       return { inside, h, s, css: wheelColor(h, s), left, top };
     };
-    const show = () => {
+    const show = (sticky = false) => {
       timer = null;
       used = true;
       tile()?.classList.remove("arming");
@@ -44039,10 +44905,26 @@ self.addEventListener("notificationclick", (event) => {
       document.body.append(node);
       // Followed on the window: the tile may be drawn again while the picker is open (an event from the device).
       const listening = new AbortController(), options = { signal: listening.signal };
-      open = { node, mark, preview, reading, x, y, moved: false, choice: null, listening };
+      open = { node, mark, preview, reading, x, y, moved: false, choice: null, listening, sticky: false, pressed: false };
       try { hit.setPointerCapture(start.id); } catch {}
       addEventListener("pointermove", follow, options);
       addEventListener("pointerup", release, options);
+      // Opened by a tap: a press on the wheel picks (dragged, it follows), a press off it closes.
+      // Left open (opened by a tap, or let go without moving): a press on the wheel picks (dragged, it follows), a press
+      // off it closes. The press's click goes nowhere: not to a control under the wheel, nor to one it was closed over.
+      open.stay = () => {
+        open.sticky = true;
+        addEventListener("pointerdown", (event) => {
+          // The press is the wheel's alone: a slider or a tile under it starts nothing.
+          event.preventDefault();
+          event.stopPropagation();
+          addEventListener("click", (click) => { click.preventDefault(); click.stopPropagation(); }, { capture: true, once: true });
+          if (!at(event).inside) { close(); return; }
+          open.pressed = true;
+          follow(event);
+        }, { ...options, capture: true });
+      };
+      if (sticky) open.stay();
       addEventListener("pointercancel", (event) => { if (event.pointerId === start?.id) close(); }, options);
       addEventListener("blur", close, options);
       addEventListener("keydown", (event) => { if (event.key === "Escape") close(); }, options);
@@ -44051,10 +44933,15 @@ self.addEventListener("notificationclick", (event) => {
       buzz(8);
     };
     const follow = (event) => {
-      if (event.pointerId !== start?.id) return;
-      // A mouse let go where no pointerup reached the page (outside the window): nothing is picked.
-      if (event.buttons === 0) { close(); return; }
-      if (!open.moved && Math.hypot(event.clientX - start.x, event.clientY - start.y) < PRESS_SLOP) return;
+      if (open.sticky) {
+        // Opened by a tap: a mouse previews where it hovers, a finger once it presses.
+        if (event.pointerType !== "mouse" && !open.pressed) return;
+      } else {
+        if (event.pointerId !== start?.id) return;
+        // A mouse let go where no pointerup reached the page (outside the window): nothing is picked.
+        if (event.buttons === 0) { close(); return; }
+        if (!open.moved && Math.hypot(event.clientX - start.x, event.clientY - start.y) < PRESS_SLOP) return;
+      }
       open.moved = true;
       const choice = open.choice = at(event);
       open.node.classList.toggle("outside", !choice.inside);
@@ -44065,8 +44952,10 @@ self.addEventListener("notificationclick", (event) => {
       if (open.reading) open.reading.textContent = choice.white !== undefined ? `${num(choice.white)} K` : "";
     };
     const release = (event) => {
-      if (event.pointerId !== start?.id) return;
-      const choice = open.moved ? open.choice : null;
+      if (open.sticky ? !open.pressed : event.pointerId !== start?.id) return;
+      // Held, then let go without moving: the wheel stays open for a press, as after a tap.
+      if (!open.sticky && !open.moved) { open.stay(); return; }
+      const choice = open.sticky ? at(event) : open.moved ? open.choice : null;
       close();
       if (!choice?.inside) return;
       // The pick lands with a tick, as the picker opened with one.
@@ -44087,7 +44976,8 @@ self.addEventListener("notificationclick", (event) => {
       const up = (other) => {
         if (other.pointerId !== id) return;
         removeEventListener("pointerup", up);
-        if (!open && start?.id === id) close();
+        if (open || start?.id !== id) return;
+        if (tapOpens && timer) { clearTimeout(timer); show(true); } else close();
       };
       addEventListener("pointerup", up);
     });
@@ -44111,7 +45001,8 @@ self.addEventListener("notificationclick", (event) => {
     if (mark) glyph.append(mark);
     const menu = actionsButton(ctx, false);
     const node = el("article", { class: `card widget size-${size} widget-${widget.name}`, "data-search": searchText(accessory), "data-id": accessory.id });
-    if (size === "small" || size === "medium") {
+    if (built.background) node.append(built.background);
+    if ((size === "small" || size === "medium") && !widget.wallSizes) {
       node.classList.add("widget-summary");
       const hero = el("span", { class: "w-hero" });
       const hit = el("button", { type: "button", class: "w-hit" });
@@ -44148,7 +45039,7 @@ self.addEventListener("notificationclick", (event) => {
         });
         node.append(el("span", { class: "w-veil", "aria-hidden": "true" }));
       } else hit.addEventListener("click", () => {
-        if (slid) { slid = false; return; }
+        if (slider?.consumeSlid()) return;
         if (wheel?.used()) return;
         built.tap ? built.tap() : ctx.openFull();
       });
@@ -44156,49 +45047,14 @@ self.addEventListener("notificationclick", (event) => {
       const wheel = built.wheel ? colourWheel(hit, built.wheel) : null;
       if (wheel) node.classList.add("has-wheel");
       hit.addEventListener("contextmenu", (event) => { event.preventDefault(); if (!wheel?.busy()) menu.click(); });
-      // A shutter's tile slides: the shade follows the pointer, the position is written when it is let go. A
-      // mouse drags at once; a finger holds still a moment first, so a swipe still scrolls the page.
-      let sliding = null, slid = false;
-      if (built.slide) {
-        const { min, max, step } = built.slide;
-        let start = null, armed = false, holdTimer = null;
-        const at = (event) => {
-          const box = node.getBoundingClientRect();
-          const share = clamp((event.clientY - box.top) / box.height, 0, 1);
-          return clamp(Math.round((min + (1 - share) * (max - min)) / step) * step, min, max);
-        };
-        hit.addEventListener("pointerdown", (event) => {
-          if (event.button !== 0) return;
-          start = { x: event.clientX, y: event.clientY, id: event.pointerId };
-          armed = event.pointerType === "mouse";
-          clearTimeout(holdTimer);
-          if (!armed) holdTimer = setTimeout(() => { armed = true; node.classList.add("slide-ready"); }, PRESS_MS);
-        });
-        hit.addEventListener("pointermove", (event) => {
-          if (!start) return;
-          const moved = Math.abs(event.clientY - start.y);
-          if (!armed) { if (moved > PRESS_SLOP) { clearTimeout(holdTimer); start = null; } return; }
-          if (sliding === null && moved < 4) return;
-          if (sliding === null) { hit.setPointerCapture(start.id); node.classList.add("sliding"); }
-          sliding = at(event);
-          ctx.paint();
-        });
-        const finish = () => {
-          clearTimeout(holdTimer);
-          node.classList.remove("slide-ready", "sliding");
-          if (sliding !== null) { const value = sliding; sliding = null; slid = true; built.slide.commit(value); }
-          start = null; armed = false;
-        };
-        hit.addEventListener("pointerup", finish);
-        hit.addEventListener("pointercancel", () => { sliding = null; finish(); slid = false; ctx.paint(); });
-        // Once a finger has held still, the page does not scroll under it.
-        hit.addEventListener("touchmove", (event) => { if (armed) event.preventDefault(); }, { passive: false });
-      }
+      // A shutter's tile slides (slideSurface).
+      const slider = built.slide ? slideSurface(ctx, node, hit, built.slide) : null;
       const middle = built.middle;
       node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), middle ? el("div", { class: "w-middle" }, middle) : "", el("div", { class: "w-bottom" }, who), el("span", { class: "w-corner" }, menu));
       ctx.watch(() => {
         const on = built.on ? built.on() : false;
         node.classList.toggle("on", on);
+        const sliding = slider?.value() ?? null;
         const value = sliding !== null ? `${sliding}%` : built.hero && !middle ? built.hero() : "";
         hero.replaceChildren(...(value ? [value] : []));
         if (shade) {
@@ -44216,8 +45072,46 @@ self.addEventListener("notificationclick", (event) => {
       node.append(el("div", { class: "w-head" }, glyph, who, powerToggle(ctx, built)),
         body.length ? el("div", { class: "w-body" }, body) : "",
         footerChips ? el("div", { class: "w-footer" }, footerChips, menu) : el("span", { class: "w-corner" }, menu));
+      // Keep the charge beside the heading, clear of the centred charging bolt and output controls.
+      if (built.background) {
+        const gauge = node.querySelector(".battery-gauge");
+        if (gauge) node.querySelector(".w-head").append(gauge);
+      }
+      // A light's icon, held, opens its colour wheel, as a small tile does held anywhere.
+      if (built.wheel) {
+        const icon = node.querySelector(".w-head > .tile");
+        if (icon) { colourWheel(icon, built.wheel, { tapOpens: true }); icon.classList.add("wheel-handle"); icon.title = t("Colour wheel"); }
+      }
+      // A shutter's larger tile is its window as the small one is: the slats come down over its closed share, and the
+      // tile is the slider (dragged anywhere but its buttons). The keys move a slider kept for the keyboard and a
+      // screen reader.
+      if (built.shade) {
+        const shade = el("span", { class: "w-shade", "aria-hidden": "true" });
+        node.prepend(shade);
+        const slide = built.slide;
+        const slider = slide ? slideSurface(ctx, node, node, slide, (event) => !!event.target.closest("button, a, input, select, .menu")) : null;
+        const keys = slide ? el("span", { class: "visually-hidden w-slide-keys", role: "slider", tabindex: 0, "aria-label": t("Position"),
+          "aria-orientation": "vertical", "aria-valuemin": slide.min, "aria-valuemax": slide.max }) : null;
+        if (keys) {
+          keys.addEventListener("keydown", (event) => {
+            const { min, max, step } = slide;
+            const delta = { ArrowUp: step, ArrowRight: step, ArrowDown: -step, ArrowLeft: -step, PageUp: step * 10, PageDown: -step * 10 }[event.key];
+            const next = event.key === "Home" ? min : event.key === "End" ? max : delta === undefined ? null : snap(slide.value() + delta, min, max, step);
+            if (next === null) return;
+            event.preventDefault();
+            slide.commit(next);
+          });
+          node.append(keys);
+        }
+        ctx.watch(() => {
+          const { min, max } = slide ?? { min: 0, max: 100 };
+          const dragged = slider?.value() ?? null;
+          shade.style.setProperty("--closed", `${dragged !== null ? 100 - (dragged - min) / (max - min) * 100 : built.shade()}%`);
+          if (keys) { const shown = dragged ?? slide.value(); keys.setAttribute("aria-valuenow", shown); keys.setAttribute("aria-valuetext", `${shown} %`); }
+        });
+      }
       node.classList.toggle("head-only", !body.length && !footerChips);
-      ctx.watch(() => node.classList.toggle("powered-off", !!built.power && !built.power.big && !isOn(built.power.characteristic)));
+      ctx.watch(() => node.classList.toggle("powered-off", !!built.power && !built.power.big && !powerIsOn(built.power)));
     }
     ctx.watch(paintGlyph);
     ctx.watch(statusPainter(ctx, built, status));
@@ -44258,7 +45152,7 @@ self.addEventListener("notificationclick", (event) => {
         el("summary", { text: names.length > 3 ? t("{names} and {n} more", { names: names.slice(0, 2).join(", "), n: names.length - 2 }) : names.join(", ") }),
         el("div", { class: "controls" }, rest)) : null,
       el("div", { class: "card-foot" }, el("span", { class: "muted", text: [describeModel(accessory), accessory.bridge].filter(Boolean).join(" · ") }), actionsButton(ctx, true)));
-    if (built.power && !built.power.big) ctx.watch(() => node.classList.toggle("powered-off", !isOn(built.power.characteristic)));
+    if (built.power && !built.power.big) ctx.watch(() => node.classList.toggle("powered-off", !powerIsOn(built.power)));
     ctx.watch(paintGlyph);
     ctx.watch(statusPainter(ctx, built, status));
     paused(node, ctx);

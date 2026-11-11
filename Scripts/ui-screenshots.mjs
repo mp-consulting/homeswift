@@ -367,7 +367,7 @@ try {
       };
       HomeswiftAdmin.history({ id: "demo-scenes", name: "Living Room Scenes", services: [] });
       for (let i = 0; i < 40 && !document.querySelector(".history-state-row"); i++) await new Promise(r => setTimeout(r, 100));
-      if (document.querySelectorAll(".history-charts > .history-state-row").length !== 4) throw Error("Unchanged scenes must be compact rows");
+      if (document.querySelectorAll(".history-state-list > .history-state-row").length !== 4) throw Error("Unchanged scenes must be compact rows");
       const details = document.querySelector(".history-details");
       if (!details || details.open) throw Error("Metadata must be collapsed initially");
       details.open = true;

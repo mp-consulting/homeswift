@@ -254,6 +254,32 @@ import Testing
         #expect(fan[.currentFanState]?.value == .int(2))
     }
 
+    @Test(arguments: [true, false]) func climateSwingCapabilities(_ writableHorizontal: Bool) throws {
+        let property: (Int, String, [String]) -> JSONValue = { id, name, access in
+            ["iid": .number(Double(id)), "type": .string("urn:miot-spec-v2:property:\(name):0:test:1"),
+             "description": .string(name), "format": "bool", "access": .array(access.map { .string($0) })]
+        }
+        let spec = try MiotSpec(json: ["type": "urn:miot-spec-v2:device:air-conditioner:0:test:1", "services": [
+            ["iid": 2, "type": "urn:miot-spec-v2:service:air-conditioner:0:test:1", "description": "AC", "properties": [property(1, "on", ["read", "write"])]] ,
+            ["iid": 3, "type": "urn:miot-spec-v2:service:fan-control:0:test:1", "description": "Fan", "properties": [
+                property(1, "vertical-swing", ["read", "write", "notify"]),
+                property(2, "horizontal-swing", writableHorizontal ? ["read", "write", "notify"] : ["read", "notify"]),
+            ]],
+        ]])
+        let built = try #require(MiotAccessoryBuilder(spec: spec, model: "test.ac", name: "Test", accessoryID: "miot:1",
+            serialNumber: "1", firmware: "1", options: DeviceOptions([:]), defaults: MappingDefaults(), handle: detachedHandle,
+            timings: fastTimings.accessory, logger: testLogger, makeAdaptiveLighting: { AdaptiveLightingController($0, mode: .automatic) }).build())
+        let service = try #require(built.accessory.service(.heaterCooler))
+        #expect(service[ClimateSwing.vertical.characteristic] != nil)
+        #expect((service[ClimateSwing.horizontal.characteristic] != nil) == writableHorizontal)
+        show(built, ["3.1": true, "3.2": false])
+        #expect(service[ClimateSwing.vertical.characteristic]?.value == .bool(true))
+        if writableHorizontal { #expect(service[ClimateSwing.horizontal.characteristic]?.value == .bool(false)) }
+        show(built, ["3.1": false, "3.2": true])
+        #expect(service[ClimateSwing.vertical.characteristic]?.value == .bool(false))
+        if writableHorizontal { #expect(service[ClimateSwing.horizontal.characteristic]?.value == .bool(true)) }
+    }
+
     @Test func heater() throws {
         let built = try #require(buildFixture("zhimi.heater.mc2", options: ["buzzerControl": true, "ledControl": true, "offDelayControl": true]))
         let accessory = built.accessory
