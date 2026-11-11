@@ -117,6 +117,9 @@
         onclick: (event) => removeGroups(event.currentTarget, groups, answer.home) })));
   }
 
+  // Opened at #hidden-groups (the Settings page's link): there once the section is drawn.
+  const reveal = () => { if (location.hash === "#hidden-groups") (hidden.previousElementSibling ?? hidden).scrollIntoView({ block: "center" }); };
+
   async function removeGroups(button, groups, home) {
     const one = groups.length === 1;
     const confirmed = await HomeswiftCommon.confirmAction({
@@ -134,7 +137,7 @@
     loadHiddenGroups();
   }
 
-  loadHiddenGroups();
+  loadHiddenGroups().then(reveal);
 
   // MARK: Pairing a Wingman: Add accessories finds it (or takes the address in the plugin's settings) and pairs it.
 

@@ -10,7 +10,8 @@ All notable changes to this project are documented here. The format follows
 
 - **Apple Home's hidden groups**: the Wingman page lists the groups of fewer than two accessories that the Home app does
   not show (counted in Apple Home), with a bin to remove one and Remove all, each confirmed first; the Assistant and MCP
-  clients have them as `list_empty_groups` and `remove_empty_groups`.
+  clients have them as `list_empty_groups` and `remove_empty_groups`. The Wingman settings link to them: a plugin's schema
+  names sections of its page with `pageLinks`, shown beside Open its page.
 - **Apple Home's refusals in plain words**: "already exists" and "limit reached" (HMErrorDomain 13 and 49) say what they
   mean and point to the Wingman page's hidden groups, and a message Apple Home gave several times shows once with a count.
 - **Remove a room**: in Edit, a red bin beside each room's name removes it once confirmed; its accessories go to No room,

@@ -660,6 +660,14 @@ settings write (the Settings page edits what the schema declares, [Settings](#se
 and `Plugins/ElgatoKeyLights/Web` is the example. The page speaks the user's language with `t()` and a `Web/i18n.js`
 of its own ([translations.md](translations.md)).
 
+The Settings page links to sections of the page its schema names, beside **Open its page**: `pageLinks` in
+`config.schema.json`, each a `title` (translated through the schema's `i18n`), the `anchor` of an element of the
+page, and an `icon` of common.js's `icons`. The Wingman plugin links its hidden groups this way:
+
+```json
+"pageLinks": [{ "title": "Hidden groups in Apple Home", "anchor": "hidden-groups", "icon": "grid" }]
+```
+
 ### In the web UI
 
 Every accessory shows on the web UI's Accessories page as a widget of its kind, built from its services: mark the
