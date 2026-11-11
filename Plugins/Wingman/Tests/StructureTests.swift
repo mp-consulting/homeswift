@@ -45,6 +45,41 @@ struct StructureTests {
         await host.stop()
     }
 
+    @Test func incompleteIdentityWaitsForHomeKitAndRecovers() async throws {
+        environment.wingman.missingSerial("homeswift-switch", true)
+        let (host, plugin) = try await start()
+        try publishPlug(host)
+        let state = await plugin.homeLinkState()
+        guard case .down(let reason) = state else {
+            Issue.record("Incomplete identity must keep the Home Link down, got \(String(describing: state))")
+            await host.stop()
+            return
+        }
+        #expect(reason.contains("Serial Number"))
+        #expect(await plugin.homeSnapshot() == nil)
+        let error = await #expect(throws: HomeChangeError.self) {
+            try await plugin.applyHomeChange(.createGroup(name: "Lights", members: ["Wingman:light-1", "Meross:plug"]))
+        }
+        #expect(error?.kind == .unreachable)
+        #expect(environment.wingman.edits.isEmpty)
+        environment.wingman.missingSerial("homeswift-switch", false)
+        #expect(await eventually { await plugin.homeLinkState() == .up })
+        #expect(await plugin.homeSnapshot()?.placements["Meross:plug"] == .some("room-bureau"))
+        _ = try await plugin.applyHomeChange(.createGroup(name: "Lights", members: ["Wingman:light-1", "Meross:plug"]))
+        #expect(environment.wingman.edits.last?.path == "groups/create")
+        // A later incomplete refresh must not publish a group with only the still-identifiable member.
+        environment.wingman.missingSerial("homeswift-switch", true)
+        #expect(await eventually { await plugin.homeSnapshot() == nil })
+        guard case .down = await plugin.homeLinkState() else {
+            Issue.record("Losing a previously known identity must pause the Home Link")
+            await host.stop()
+            return
+        }
+        environment.wingman.missingSerial("homeswift-switch", false)
+        #expect(await eventually { await plugin.homeSnapshot()?.groups.first?.members.count == 2 })
+        await host.stop()
+    }
+
     /// Changes the Home Link asks for go to Wingman by id; one Apple Home does not have is not found.
     @Test func changesGoToAppleHomeByID() async throws {
         let (host, plugin) = try await start()
@@ -118,6 +153,21 @@ struct StructureTests {
         ]]]
         if let bridge { accessory["bridge"] = bridge }
         return accessory
+    }
+
+    @Test(arguments: [false, true])
+    func incompleteOwnershipDoesNotPublishPartialGroups(childBridge: Bool) throws {
+        let bridge = TestEnvironment.bridgeID
+        var unresolved = homeAccessory("unresolved", serialNumber: "")
+        if childBridge { unresolved["manufacturer"] = "Homeswift"; unresolved["model"] = "Homeswift" }
+        var accessories = [homeAccessory("main-bridge", serialNumber: bridge), unresolved]
+        if childBridge {
+            accessories.append(homeAccessory("child-light", serialNumber: "LIGHT", bridge: ["id": "unresolved", "name": "Child", "manufacturer": "Homeswift"]))
+        }
+        let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": accessories]
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
+        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge, "CHILD"], own: childBridge ? [] : ["TV"])
+        #expect(structure.incompleteIdentityReason != nil)
     }
 
     /// One of Homeswift's own accessories is found behind its bridge (the home's accessory whose Serial Number is the

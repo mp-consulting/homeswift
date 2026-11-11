@@ -89,7 +89,10 @@ also gives Homeswift:
   Wingman is not reachable Homeswift's changes wait for it, and while **Let bridges edit rooms, scenes and automations**
   is off they are refused. Mirrored accessories are known by their HomeKit id, Homeswift's own by their serial number
   behind Homeswift's bridge (so a hub's light Apple Home also has is never taken for Homeswift's), or among the
-  accessories it publishes on their own. Only that home's accessories are mirrored, unless `homes` names others.
+  accessories it publishes on their own. When HomeKit has not supplied the bridge's accessory serial numbers yet,
+  the Home Link waits for Wingman to read them: changes stay pending and existing groups are kept until the identities
+  arrive. If this bridge publishes standalone accessories, an unread serial on another standalone accessory also
+  keeps the link waiting: its ownership cannot be determined safely yet. Only that home's accessories are mirrored, unless `homes` names others.
 - **Scenes**: Apple Home's scenes join **Scenes from your hubs**, in the room of their accessories when they share one.
   Run them, and from their ⋯ menu rename them, keep their lights as they are (their other actions stay) or delete them.
   A new scene of lights that are all in one Apple Home home can be kept there. Built-in scenes (Good Morning and the

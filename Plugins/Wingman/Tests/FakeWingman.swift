@@ -50,6 +50,7 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         var created = 0
         /// Whether it is a Wingman with "home-link" (rooms, zones and service groups by id).
         var servesHomeLink = true
+        var missingSerials: Set<String> = []
         /// Rooms removed in the Home app or through `rooms/delete`.
         var deletedRooms: Set<String> = []
         var zones: [[String: Any]] = [["id": "zone-bas", "name": "Rez-de-chaussée", "roomIDs": ["room-salon", "room-entree"]]]
@@ -74,6 +75,15 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
 
     /// A Wingman from before the Home Link: rooms by name only.
     func withoutHomeLink() { state.withLockedValue { $0.servesHomeLink = false } }
+
+    /// HomeKit can expose a serial characteristic before its value has been read.
+    func missingSerial(_ id: String, _ missing: Bool) {
+        state.withLockedValue { state in
+            if missing { state.missingSerials.insert(id) } else { state.missingSerials.remove(id) }
+            state.seq += 1
+            state.events.append(["seq": state.seq, "kind": "homes", "home": "Maison"])
+        }
+    }
 
     var zones: [[String: Any]] { state.withLockedValue { $0.zones } }
     var groups: [[String: Any]] { state.withLockedValue { $0.groups } }
@@ -264,6 +274,7 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
             ($0.removed, $0.unreachable, $0.roomNames, $0.administrator, $0.servesStructure, $0.accessoryRooms, $0.addedRooms, $0.deletedRooms,
              $0.servesHomeLink, $0.zones, $0.groups)
         }
+        let missingSerials = state.withLockedValue { $0.missingSerials }
         var home = Self.home
         let rooms = (Self.rooms + added).filter { !deleted.contains($0.0) }.map { id, name in (id: id, original: name, name: roomNames[id] ?? name) }
         let deletedNames = Set((Self.rooms + added).filter { deleted.contains($0.0) }.map(\.1))
@@ -271,6 +282,19 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
             let id = accessory["id"] as? String ?? ""
             guard !removed.contains(id) else { return nil }
             var accessory = accessory
+            if missingSerials.contains(id) {
+                accessory["services"] = (accessory["services"] as? [[String: Any]] ?? []).map { service in
+                    var service = service
+                    service["characteristics"] = (service["characteristics"] as? [[String: Any]] ?? []).map { characteristic in
+                        var characteristic = characteristic
+                        if characteristic["type"] as? String == "00000030-0000-1000-8000-0026BB765291" {
+                            characteristic.removeValue(forKey: "value")
+                        }
+                        return characteristic
+                    }
+                    return service
+                }
+            }
             if unreachable.contains(id) { accessory["reachable"] = false }
             if let room = rooms.first(where: { $0.original == accessory["room"] as? String }) { accessory["room"] = room.name }
             if let original = accessory["room"] as? String, deletedNames.contains(original) { accessory["room"] = Self.defaultRoom.1 }
