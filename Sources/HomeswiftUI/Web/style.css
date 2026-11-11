@@ -6612,7 +6612,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
    one in a darker pill) and More for the others, Account and the Assistant. A page's own actions float just above its
    right end (`--tab-bar-top`), each its own glass. */
 .tabbar-tabs { display: none; }
-.log-filters-toggle, .log-to-end, .log-follow-button { display: none; }
+.log-filters-toggle, .log-to-end, .log-follow-button, .audit-to-end, .audit-follow-button { display: none; }
 :root { --tab-bar-top: calc(max(14px, env(safe-area-inset-bottom)) + 66px); --float-action: 48px; }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .tabbar { left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); }
@@ -6667,17 +6667,18 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
     border-radius: var(--radius-pill); background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
   .log-card > .log-action-bar > .search:focus { outline: none; box-shadow: none; }
   /* Back to the latest lines: a round glass button centred over the bar, there only while the page is away from its end. */
-  .log-card > .log-to-end {
+  :is(.log-card, main) > :is(.log-to-end, .audit-to-end) {
     display: grid; place-items: center; position: fixed; z-index: calc(var(--layer-tabbar) + 1); left: 50%; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0;
     bottom: calc(var(--tab-bar-top) + var(--space-10) + 56px + var(--space-12) + var(--keyboard, 0px)); border-radius: 50%; color: var(--text);
     background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
     opacity: 0; pointer-events: none; transform: translateX(-50%) scale(.85); transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out);
   }
-  .log-card > .log-to-end.shown { opacity: 1; pointer-events: auto; transform: translateX(-50%); }
-  .log-card > .log-to-end svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  :is(.log-card, main) > :is(.log-to-end, .audit-to-end).shown { opacity: 1; pointer-events: auto; transform: translateX(-50%); }
+  :is(.log-card, main) > :is(.log-to-end, .audit-to-end) svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .log-card.filters-open > .log-to-end { opacity: 0; pointer-events: none; }
-  @media (prefers-reduced-motion: reduce) { .log-card > .log-to-end, .log-card > .log-to-end.shown { transform: translateX(-50%); transition: opacity 160ms linear; } }
+  main:has(> .audit-filters.open) > .audit-to-end { opacity: 0; pointer-events: none; }
+  @media (prefers-reduced-motion: reduce) { :is(.log-card, main) > :is(.log-to-end, .audit-to-end), :is(.log-card, main) > :is(.log-to-end, .audit-to-end).shown { transform: translateX(-50%); transition: opacity 160ms linear; } }
   .log-card > .log-filter-panel { display: none; }
   /* In the sheet, the text filter is in the bar: the levels, what the lines are about (Clear filters beside it while
      there is something to clear), then the time range. */
@@ -6763,12 +6764,18 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   html main > .audit-bar > .search { order: 1; display: block; flex: 1 1 0; width: auto; max-width: none; min-width: 0; height: 44px; margin: 0; padding: 0 var(--space-8) 0 var(--space-14);
     border: 0; border-radius: var(--radius-pill); background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
   main > .audit-bar > .search:focus { outline: none; box-shadow: none; }
+  html main > .audit-bar > .audit-follow-button {
+    order: 3; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
+    flex: none; border: 0; border-radius: 50%; box-shadow: none; color: var(--text); background: color-mix(in srgb, var(--text) 9%, transparent);
+  }
+  main > .audit-bar > .audit-follow-button[aria-pressed="true"] { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
   html main > .audit-bar > .audit-filters-toggle {
     order: 2; position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
     flex: none; border: 0; border-radius: 50%; box-shadow: none; color: var(--text); background: color-mix(in srgb, var(--text) 9%, transparent);
   }
   main > .audit-bar > .audit-filters-toggle.on { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
   main > .audit-bar svg { width: 21px; height: 21px; }
+  main > .audit-bar > .audit-follow-button svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   main > .audit-bar .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill);
     display: grid; place-items: center; font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
   /* The filters: a sheet over the bar while Filters is open. */
@@ -6796,7 +6803,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   /* Its details' JSON across the card, not held to the table column's width. */
   main:has(> .audit-bar) .audit-results .data-table td.audit-details { max-width: none; }
   main:has(> .audit-bar) .audit-details pre.json { min-width: 0; max-width: none; width: 100%; box-sizing: border-box; }
-  main:has(> .audit-bar) .audit-results .table-scroll { overflow: visible; }
+  main:has(> .audit-bar) .audit-results .table-scroll { overflow: visible; max-height: none; }
 }
 
 /* A phone held sideways keeps the phone's layout with less height to spend, as iOS does: a compact tab bar (each icon
@@ -6810,7 +6817,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .tabbar .mobile-nav-panel { bottom: 52px; max-height: calc(100dvh - 80px); }
   header { position: relative; top: 0; }
   html .log-card > .log-action-bar, .accessories-bar, html main > .plugins-toolbar, main > .audit-bar { padding: 3px; }
-  html main > .audit-bar > .audit-filters-toggle { width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
+  html main > .audit-bar > :is(.audit-filters-toggle, .audit-follow-button) { width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
   html main > .audit-bar > .search { height: 40px; }
   #app > main:has(> .audit-bar) { padding-bottom: calc(var(--tab-bar-top) + 48px + var(--space-24)); }
   main:has(> .audit-bar) > .audit-filters.open { bottom: calc(var(--tab-bar-top) + var(--space-10) + 48px + var(--space-10)); max-height: calc(100dvh - var(--tab-bar-top) - 80px); }
@@ -6822,6 +6829,6 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   html .log-card > .log-action-bar > .search, .accessories-bar .search { height: 40px; }
   #app > main:has(> .log-card), main:has(> .accessories-bar) { padding-bottom: calc(var(--tab-bar-top) + 48px + var(--space-24)); }
   .log-card > .log { min-height: calc(100dvh - var(--tab-bar-top) - 48px - var(--space-24) - 70px); }
-  .log-card > .log-to-end { bottom: calc(var(--tab-bar-top) + var(--space-10) + 48px + var(--space-10)); }
+  :is(.log-card, main) > :is(.log-to-end, .audit-to-end) { bottom: calc(var(--tab-bar-top) + var(--space-10) + 48px + var(--space-10)); }
   .log-card.filters-open > .log-filter-panel { bottom: calc(var(--tab-bar-top) + var(--space-10) + 48px + var(--space-10)); max-height: calc(100dvh - var(--tab-bar-top) - 80px); }
 }

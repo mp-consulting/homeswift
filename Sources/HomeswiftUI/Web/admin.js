@@ -1256,12 +1256,33 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       paint();
       return control;
     };
+    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
+    // A phone follows new entries as the Logs page does: a pause button beside Filters (play once paused), the page at its
+    // end, a round arrow back to it while scrolled away.
+    let following = true;
+    const scroller = () => document.scrollingElement;
+    const atPageEnd = () => scroller().scrollHeight - scroller().scrollTop - innerHeight < 40;
+    const toEnd = (smooth = false) => scroller().scrollTo({ top: scroller().scrollHeight,
+      behavior: smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches ? "smooth" : "auto" });
+    const followButton = el("button", { type: "button", class: "audit-follow-button", "aria-label": t("Follow") });
+    const showFollow = () => {
+      followButton.setAttribute("aria-pressed", String(following));
+      followButton.title = following ? t("Pause") : t("Follow");
+      followButton.replaceChildren(HomeswiftCommon.icon(following ? "pause" : "play"));
+    };
+    followButton.addEventListener("click", () => { following = !following; showFollow(); if (following) { toEnd(true); load(true); } });
+    showFollow();
+    const latest = el("button", { type: "button", class: "audit-to-end", "aria-label": t("Go to the latest lines"), title: t("Go to the latest lines"),
+      onclick: () => { following = true; showFollow(); toEnd(true); } }, HomeswiftCommon.icon("arrowDown"));
+    const showLatest = () => latest.classList.toggle("shown", phone.matches && scroller().scrollHeight - scroller().scrollTop - innerHeight > 120);
     const outcome = select(outcomes, params.get("outcome") ?? "", t("Outcome"));
     const since = select(spans, params.has("since") ? params.get("since") : "7d", t("Time range"));
     const count = el("span", { class: "muted count", role: "status", "aria-live": "polite" });
     const body = el("div", {});
     let loads = 0;   // the answer drawn is the last request's, however they arrive
-    async function load() {
+    let drawn = "";   // what the entries drawn were: a quiet refresh that finds the same leaves them (and an open Details) alone
+    // `quiet`: the phone's live refresh, without "Loading…" or the pickers' counts cleared.
+    async function load(quiet = false) {
       const own = ++loads;
       const query = new URLSearchParams();
       if (search.value.trim()) query.set(scope.value, search.value.trim());
@@ -1269,8 +1290,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       query.set("since", since.value);
       window.history.replaceState(null, "", `/settings/audit?${query}`);
       if (!since.value) query.delete("since");
-      count.textContent = t("Loading…");
-      for (const control of [outcome, since]) { control.counts.clear(); control.paint(); }
+      if (!quiet) {
+        count.textContent = t("Loading…");
+        for (const control of [outcome, since]) { control.counts.clear(); control.paint(); }
+      }
       // The server counts each alternative against the current text and the other selected filter, in the same pass.
       query.set("spans", spans.map(([value]) => value).join(","));
       let found;
@@ -1286,10 +1309,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         return;
       }
       count.textContent = t("{shown} of {total}", { shown: found.entries.length, total: found.total });
+      // On a phone the newest is at the foot, by the bar, where new entries arrive (as the Logs page); elsewhere, first.
+      const ordered = phone.matches ? [...found.entries].reverse() : found.entries;
+      const shape = `${phone.matches}|${found.total}|${found.entries[0]?.ts ?? ""}|${found.entries.length}`;
+      if (quiet && shape === drawn) return;
+      drawn = shape;
+      const atEnd = atPageEnd();
       body.replaceChildren(found.entries.length ? el("div", { class: "card audit-results" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
         el("thead", {}, el("tr", {}, [t("Time"), t("Who"), t("What"), t("Outcome"), t("Details")].map((text) => el("th", { text })))),
-        el("tbody", {}, found.entries.map(auditRow)))), el("p", { class: "muted note", text: found.path }))
+        el("tbody", {}, ordered.map(auditRow)))), el("p", { class: "muted note", text: found.path }))
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("shield")), el("p", { class: "muted", text: t("Nothing in this range matches.") })));
+      // Following, from the end (or a first draw), the page stays at the newest.
+      if (phone.matches && following && (!quiet || atEnd)) toEnd();
+      showLatest();
     }
     let typing = null;
     search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
@@ -1306,11 +1338,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         HomeswiftCommon.clearFilters([[search, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) })));
     // A phone (as the Logs and Plugins pages): one glass bar above the tab bar, the search and Filters, which opens the
     // filters as a sheet over it, its badge counting the range and outcome that are not the defaults.
-    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
     const filterCount = el("span", { class: "toolbar-count hidden" });
     const filtersButton = el("button", { type: "button", class: "audit-filters-toggle", "aria-label": t("Filters"), title: t("Filters"),
       "aria-controls": "audit-filters", "aria-expanded": "false" }, HomeswiftCommon.icon("filter"), filterCount);
-    const bar = el("div", { class: "audit-bar" }, filtersButton);
+    const bar = el("div", { class: "audit-bar" }, filtersButton, followButton);
     const showCount = () => {
       const chosen = Number(outcome.value !== "") + Number(since.value !== "7d");
       filterCount.textContent = String(chosen);
@@ -1322,6 +1353,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const openFilters = (open) => { filtersCard.classList.toggle("open", open); filtersButton.setAttribute("aria-expanded", String(open)); };
     filtersButton.addEventListener("click", () => openFilters(!filtersCard.classList.contains("open")));
     // A tap elsewhere closes it, though not one in the menu a picker opened from it; so does Escape. Its listeners go with the page.
+    // While following, a phone reads the entries again every few seconds, unless the filters or a menu cover the page
+    // or the tab is hidden; the page's listeners and its timer go with it.
+    const refresh = setInterval(() => {
+      if (!bar.isConnected) { clearInterval(refresh); return; }
+      if (phone.matches && following && !document.hidden && !filtersCard.classList.contains("open") && !document.querySelector('[role="menu"]')) load(true);
+    }, 4000);
+    const onScroll = () => { if (bar.isConnected) showLatest(); else removeEventListener("scroll", onScroll); };
+    addEventListener("scroll", onScroll, { passive: true });
     const outside = (event) => {
       if (!bar.isConnected) { document.removeEventListener("pointerdown", outside); return; }
       if (!filtersCard.contains(event.target) && !bar.contains(event.target) && !event.target.closest?.('[role="menu"], .menu-scrim')) openFilters(false);
@@ -1337,7 +1376,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     placeSearch();
     app().show(main,
       app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
-      subnav("audit"), filtersCard, body, bar);
+      subnav("audit"), filtersCard, body, bar, latest);
     await load();
   }
 

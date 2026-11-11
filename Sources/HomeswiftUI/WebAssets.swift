@@ -1265,12 +1265,33 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       paint();
       return control;
     };
+    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
+    // A phone follows new entries as the Logs page does: a pause button beside Filters (play once paused), the page at its
+    // end, a round arrow back to it while scrolled away.
+    let following = true;
+    const scroller = () => document.scrollingElement;
+    const atPageEnd = () => scroller().scrollHeight - scroller().scrollTop - innerHeight < 40;
+    const toEnd = (smooth = false) => scroller().scrollTo({ top: scroller().scrollHeight,
+      behavior: smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches ? "smooth" : "auto" });
+    const followButton = el("button", { type: "button", class: "audit-follow-button", "aria-label": t("Follow") });
+    const showFollow = () => {
+      followButton.setAttribute("aria-pressed", String(following));
+      followButton.title = following ? t("Pause") : t("Follow");
+      followButton.replaceChildren(HomeswiftCommon.icon(following ? "pause" : "play"));
+    };
+    followButton.addEventListener("click", () => { following = !following; showFollow(); if (following) { toEnd(true); load(true); } });
+    showFollow();
+    const latest = el("button", { type: "button", class: "audit-to-end", "aria-label": t("Go to the latest lines"), title: t("Go to the latest lines"),
+      onclick: () => { following = true; showFollow(); toEnd(true); } }, HomeswiftCommon.icon("arrowDown"));
+    const showLatest = () => latest.classList.toggle("shown", phone.matches && scroller().scrollHeight - scroller().scrollTop - innerHeight > 120);
     const outcome = select(outcomes, params.get("outcome") ?? "", t("Outcome"));
     const since = select(spans, params.has("since") ? params.get("since") : "7d", t("Time range"));
     const count = el("span", { class: "muted count", role: "status", "aria-live": "polite" });
     const body = el("div", {});
     let loads = 0;   // the answer drawn is the last request's, however they arrive
-    async function load() {
+    let drawn = "";   // what the entries drawn were: a quiet refresh that finds the same leaves them (and an open Details) alone
+    // `quiet`: the phone's live refresh, without "Loading…" or the pickers' counts cleared.
+    async function load(quiet = false) {
       const own = ++loads;
       const query = new URLSearchParams();
       if (search.value.trim()) query.set(scope.value, search.value.trim());
@@ -1278,8 +1299,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       query.set("since", since.value);
       window.history.replaceState(null, "", `/settings/audit?${query}`);
       if (!since.value) query.delete("since");
-      count.textContent = t("Loading…");
-      for (const control of [outcome, since]) { control.counts.clear(); control.paint(); }
+      if (!quiet) {
+        count.textContent = t("Loading…");
+        for (const control of [outcome, since]) { control.counts.clear(); control.paint(); }
+      }
       // The server counts each alternative against the current text and the other selected filter, in the same pass.
       query.set("spans", spans.map(([value]) => value).join(","));
       let found;
@@ -1295,10 +1318,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         return;
       }
       count.textContent = t("{shown} of {total}", { shown: found.entries.length, total: found.total });
+      // On a phone the newest is at the foot, by the bar, where new entries arrive (as the Logs page); elsewhere, first.
+      const ordered = phone.matches ? [...found.entries].reverse() : found.entries;
+      const shape = `${phone.matches}|${found.total}|${found.entries[0]?.ts ?? ""}|${found.entries.length}`;
+      if (quiet && shape === drawn) return;
+      drawn = shape;
+      const atEnd = atPageEnd();
       body.replaceChildren(found.entries.length ? el("div", { class: "card audit-results" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
         el("thead", {}, el("tr", {}, [t("Time"), t("Who"), t("What"), t("Outcome"), t("Details")].map((text) => el("th", { text })))),
-        el("tbody", {}, found.entries.map(auditRow)))), el("p", { class: "muted note", text: found.path }))
+        el("tbody", {}, ordered.map(auditRow)))), el("p", { class: "muted note", text: found.path }))
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("shield")), el("p", { class: "muted", text: t("Nothing in this range matches.") })));
+      // Following, from the end (or a first draw), the page stays at the newest.
+      if (phone.matches && following && (!quiet || atEnd)) toEnd();
+      showLatest();
     }
     let typing = null;
     search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
@@ -1315,11 +1347,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         HomeswiftCommon.clearFilters([[search, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) })));
     // A phone (as the Logs and Plugins pages): one glass bar above the tab bar, the search and Filters, which opens the
     // filters as a sheet over it, its badge counting the range and outcome that are not the defaults.
-    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
     const filterCount = el("span", { class: "toolbar-count hidden" });
     const filtersButton = el("button", { type: "button", class: "audit-filters-toggle", "aria-label": t("Filters"), title: t("Filters"),
       "aria-controls": "audit-filters", "aria-expanded": "false" }, HomeswiftCommon.icon("filter"), filterCount);
-    const bar = el("div", { class: "audit-bar" }, filtersButton);
+    const bar = el("div", { class: "audit-bar" }, filtersButton, followButton);
     const showCount = () => {
       const chosen = Number(outcome.value !== "") + Number(since.value !== "7d");
       filterCount.textContent = String(chosen);
@@ -1331,6 +1362,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const openFilters = (open) => { filtersCard.classList.toggle("open", open); filtersButton.setAttribute("aria-expanded", String(open)); };
     filtersButton.addEventListener("click", () => openFilters(!filtersCard.classList.contains("open")));
     // A tap elsewhere closes it, though not one in the menu a picker opened from it; so does Escape. Its listeners go with the page.
+    // While following, a phone reads the entries again every few seconds, unless the filters or a menu cover the page
+    // or the tab is hidden; the page's listeners and its timer go with it.
+    const refresh = setInterval(() => {
+      if (!bar.isConnected) { clearInterval(refresh); return; }
+      if (phone.matches && following && !document.hidden && !filtersCard.classList.contains("open") && !document.querySelector('[role="menu"]')) load(true);
+    }, 4000);
+    const onScroll = () => { if (bar.isConnected) showLatest(); else removeEventListener("scroll", onScroll); };
+    addEventListener("scroll", onScroll, { passive: true });
     const outside = (event) => {
       if (!bar.isConnected) { document.removeEventListener("pointerdown", outside); return; }
       if (!filtersCard.contains(event.target) && !bar.contains(event.target) && !event.target.closest?.('[role="menu"], .menu-scrim')) openFilters(false);
@@ -1346,7 +1385,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     placeSearch();
     app().show(main,
       app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
-      subnav("audit"), filtersCard, body, bar);
+      subnav("audit"), filtersCard, body, bar, latest);
     await load();
   }
 
@@ -42571,7 +42610,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
    one in a darker pill) and More for the others, Account and the Assistant. A page's own actions float just above its
    right end (`--tab-bar-top`), each its own glass. */
 .tabbar-tabs { display: none; }
-.log-filters-toggle, .log-to-end, .log-follow-button { display: none; }
+.log-filters-toggle, .log-to-end, .log-follow-button, .audit-to-end, .audit-follow-button { display: none; }
 :root { --tab-bar-top: calc(max(14px, env(safe-area-inset-bottom)) + 66px); --float-action: 48px; }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .tabbar { left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); }
@@ -42626,17 +42665,18 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
     border-radius: var(--radius-pill); background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
   .log-card > .log-action-bar > .search:focus { outline: none; box-shadow: none; }
   /* Back to the latest lines: a round glass button centred over the bar, there only while the page is away from its end. */
-  .log-card > .log-to-end {
+  :is(.log-card, main) > :is(.log-to-end, .audit-to-end) {
     display: grid; place-items: center; position: fixed; z-index: calc(var(--layer-tabbar) + 1); left: 50%; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0;
     bottom: calc(var(--tab-bar-top) + var(--space-10) + 56px + var(--space-12) + var(--keyboard, 0px)); border-radius: 50%; color: var(--text);
     background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
     opacity: 0; pointer-events: none; transform: translateX(-50%) scale(.85); transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out);
   }
-  .log-card > .log-to-end.shown { opacity: 1; pointer-events: auto; transform: translateX(-50%); }
-  .log-card > .log-to-end svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  :is(.log-card, main) > :is(.log-to-end, .audit-to-end).shown { opacity: 1; pointer-events: auto; transform: translateX(-50%); }
+  :is(.log-card, main) > :is(.log-to-end, .audit-to-end) svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .log-card.filters-open > .log-to-end { opacity: 0; pointer-events: none; }
-  @media (prefers-reduced-motion: reduce) { .log-card > .log-to-end, .log-card > .log-to-end.shown { transform: translateX(-50%); transition: opacity 160ms linear; } }
+  main:has(> .audit-filters.open) > .audit-to-end { opacity: 0; pointer-events: none; }
+  @media (prefers-reduced-motion: reduce) { :is(.log-card, main) > :is(.log-to-end, .audit-to-end), :is(.log-card, main) > :is(.log-to-end, .audit-to-end).shown { transform: translateX(-50%); transition: opacity 160ms linear; } }
   .log-card > .log-filter-panel { display: none; }
   /* In the sheet, the text filter is in the bar: the levels, what the lines are about (Clear filters beside it while
      there is something to clear), then the time range. */
@@ -42722,12 +42762,18 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   html main > .audit-bar > .search { order: 1; display: block; flex: 1 1 0; width: auto; max-width: none; min-width: 0; height: 44px; margin: 0; padding: 0 var(--space-8) 0 var(--space-14);
     border: 0; border-radius: var(--radius-pill); background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
   main > .audit-bar > .search:focus { outline: none; box-shadow: none; }
+  html main > .audit-bar > .audit-follow-button {
+    order: 3; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
+    flex: none; border: 0; border-radius: 50%; box-shadow: none; color: var(--text); background: color-mix(in srgb, var(--text) 9%, transparent);
+  }
+  main > .audit-bar > .audit-follow-button[aria-pressed="true"] { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
   html main > .audit-bar > .audit-filters-toggle {
     order: 2; position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
     flex: none; border: 0; border-radius: 50%; box-shadow: none; color: var(--text); background: color-mix(in srgb, var(--text) 9%, transparent);
   }
   main > .audit-bar > .audit-filters-toggle.on { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
   main > .audit-bar svg { width: 21px; height: 21px; }
+  main > .audit-bar > .audit-follow-button svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   main > .audit-bar .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill);
     display: grid; place-items: center; font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
   /* The filters: a sheet over the bar while Filters is open. */
@@ -42755,7 +42801,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   /* Its details' JSON across the card, not held to the table column's width. */
   main:has(> .audit-bar) .audit-results .data-table td.audit-details { max-width: none; }
   main:has(> .audit-bar) .audit-details pre.json { min-width: 0; max-width: none; width: 100%; box-sizing: border-box; }
-  main:has(> .audit-bar) .audit-results .table-scroll { overflow: visible; }
+  main:has(> .audit-bar) .audit-results .table-scroll { overflow: visible; max-height: none; }
 }
 
 /* A phone held sideways keeps the phone's layout with less height to spend, as iOS does: a compact tab bar (each icon
@@ -42769,7 +42815,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .tabbar .mobile-nav-panel { bottom: 52px; max-height: calc(100dvh - 80px); }
   header { position: relative; top: 0; }
   html .log-card > .log-action-bar, .accessories-bar, html main > .plugins-toolbar, main > .audit-bar { padding: 3px; }
-  html main > .audit-bar > .audit-filters-toggle { width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
+  html main > .audit-bar > :is(.audit-filters-toggle, .audit-follow-button) { width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
   html main > .audit-bar > .search { height: 40px; }
   #app > main:has(> .audit-bar) { padding-bottom: calc(var(--tab-bar-top) + 48px + var(--space-24)); }
   main:has(> .audit-bar) > .audit-filters.open { bottom: calc(var(--tab-bar-top) + var(--space-10) + 48px + var(--space-10)); max-height: calc(100dvh - var(--tab-bar-top) - 80px); }
@@ -42781,7 +42827,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   html .log-card > .log-action-bar > .search, .accessories-bar .search { height: 40px; }
   #app > main:has(> .log-card), main:has(> .accessories-bar) { padding-bottom: calc(var(--tab-bar-top) + 48px + var(--space-24)); }
   .log-card > .log { min-height: calc(100dvh - var(--tab-bar-top) - 48px - var(--space-24) - 70px); }
-  .log-card > .log-to-end { bottom: calc(var(--tab-bar-top) + var(--space-10) + 48px + var(--space-10)); }
+  :is(.log-card, main) > :is(.log-to-end, .audit-to-end) { bottom: calc(var(--tab-bar-top) + var(--space-10) + 48px + var(--space-10)); }
   .log-card.filters-open > .log-filter-panel { bottom: calc(var(--tab-bar-top) + var(--space-10) + 48px + var(--space-10)); max-height: calc(100dvh - var(--tab-bar-top) - 80px); }
 }
 
