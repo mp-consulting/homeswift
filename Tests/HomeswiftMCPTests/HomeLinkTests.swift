@@ -272,6 +272,38 @@ import Testing
         #expect(environment.homeLink.applied.contains { if case .moveAccessory("Devices:lamp", _) = $0 { true } else { false } })
     }
 
+    /// A first link that waited for a Home whose id came back to the linked one is moot: the changes kept go out.
+    @Test func aMootFirstLinkLetsTheChangesGo() async throws {
+        let environment = try await environment()
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(rooms: [("hk-salon", "Salon")], placements: ["Devices:lamp": "hk-salon"])
+        await environment.catalog.followHome()
+        environment.homeLink.set { $0.state = .down("asleep") }
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateLayout(["rooms": ["Salon", "Office"]], by: "test")
+        environment.homeLink.set { $0.state = .up; $0.home.homeID = "home-2" }
+        await environment.catalog.followHome()
+        #expect(environment.catalog.home.homeLink.value.comparison != nil)
+        environment.homeLink.set { $0.home.homeID = "home-1" }
+        await environment.catalog.followHome()
+        #expect(environment.catalog.home.homeLink.value.comparison == nil)
+        #expect(environment.catalog.home.homeLink.value.pending.isEmpty)
+        #expect(environment.homeLink.home.rooms.contains { $0.name == "Office" })
+    }
+
+    /// A refusal in a replay is kept even when a later change of the same replay reaches Apple Home.
+    @Test func aRefusalSurvivesItsOwnReplay() async throws {
+        let environment = try await environment(bulbs: 4)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil, "Devices:bulb3": nil, "Devices:bulb4": nil])
+        await environment.catalog.followHome()
+        environment.homeLink.set { $0.missing = ["Devices:bulb2"] }
+        _ = try await environment.catalog.updateWall(["groups": [
+            ["name": "Refused", "members": ["Devices:bulb1", "Devices:bulb2"]], ["name": "Made", "members": ["Devices:bulb3", "Devices:bulb4"]]]])
+        #expect(environment.homeLink.home.groups.map(\.name) == ["Made"])
+        #expect(environment.catalog.home.homeLink.value.refused.count == 1)
+    }
+
     /// A refused group creation, whose group leaves the wall, is settled once a later group change reaches Apple Home.
     @Test func aRefusedCreationIsSettledByALaterGroupChange() async throws {
         let environment = try await environment(bulbs: 3)

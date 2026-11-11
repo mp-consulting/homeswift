@@ -185,7 +185,7 @@ public actor WingmanPlugin: HomeswiftPlugin {
     /// Whether an Apple Home accessory is one Homeswift may mirror at all: not Homeswift's own, in a chosen home. What
     /// discovery lists, Excluded or not.
     nonisolated func isCandidate(_ accessory: WingmanAPI.Accessory, home: WingmanAPI.Home, homeswift: Set<String>) -> Bool {
-        if let serial = accessory.serialNumber, homeswift.contains(serial) { return false }
+        if let serial = accessory.serialNumber, homeswift.contains(PluginContext.serialKey(serial)) { return false }
         if !includesHome(home.name) { return false }
         if let bridge = accessory.bridge, bridge.manufacturer == "Homeswift" || bridge.model == "Homeswift" { return false }
         return true

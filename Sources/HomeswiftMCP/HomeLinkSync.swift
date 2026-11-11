@@ -247,6 +247,10 @@ extension HomeswiftCatalog {
         home.lastHome.withLockedValue { $0 = LastHome(state: link.state, snapshot: snapshot) }
         guard link.state.isUp, var snapshot else { home.layoutChanged(); return }
         let file = home.homeLink.value
+        if file.homeID == snapshot.homeID, file.comparison != nil {
+            // Apple Home is the linked home again (Wingman back on its Mac): the first link it waited for is moot.
+            try home.homeLink.update { $0.comparison = nil }
+        }
         if file.homeID != snapshot.homeID {
             let comparison = await compareWithHome(snapshot)
             if comparison.needsConfirmation {
@@ -508,13 +512,15 @@ extension HomeswiftCatalog {
     /// Drops the refusals about what `change` changes: Apple Home has it now, or no longer has it. A Group or Zone change
     /// that reaches Apple Home also settles the refusals about Groups or Zones the bridge no longer has, such as a refused
     /// creation, whose Group leaves the wall, or edits to one removed since (named by the Home's id once removed).
-    private func settleRefusals(of change: HomeLinkFile.PendingChange) {
+    /// `keeping`: refused in this same replay, so never settled by a later change of it.
+    private func settleRefusals(of change: HomeLinkFile.PendingChange, keeping: [HomeLinkFile.Refused] = []) {
         guard !home.homeLink.value.refused.isEmpty else { return }
         let subjects = change.subjects
         let groups = Set(wallGroups.map(\.id)), zones = Set(home.homeLink.value.zones.map(\.id))
         let groupChange = subjects.contains { $0.hasPrefix("group:") }, zoneChange = subjects.contains { $0.hasPrefix("zone:") }
         func settled(_ refused: HomeLinkFile.Refused) -> Bool {
             if !refused.change.subjects.isDisjoint(with: subjects) { return true }
+            if keeping.contains(refused) { return false }
             switch refused.change {
             case .createGroup(let id), .renameGroup(let id, _), .setGroupMembers(let id, _, _): return groupChange && !groups.contains(id)
             case .createZone(let id), .renameZone(let id, _), .setZoneRooms(let id, _, _): return zoneChange && !zones.contains(id)
@@ -547,14 +553,14 @@ extension HomeswiftCatalog {
         while let change = home.homeLink.value.pending.first {
             do {
                 try await push(change, plugin: link.plugin)
-                settleRefusals(of: change)
+                settleRefusals(of: change, keeping: refused)
             } catch let error as HomeChangeError where error.kind == .unreachable {
                 logger.info("Apple Home is not reachable: \(home.homeLink.value.pending.count) changes wait for it")
                 return refused
             } catch let error as HomeChangeError where error.kind == .notFound && !change.isGroupChange {
                 // A move of an accessory Apple Home does not have (Not in Home), a room or zone already gone there.
                 logger.debug("\(change.described): no longer in Apple Home")
-                settleRefusals(of: change)
+                settleRefusals(of: change, keeping: refused)
             } catch {
                 logger.warning("Apple Home refused: \(change.described): \(error)")
                 let failure = HomeLinkFile.Refused(change: change, reason: named("\(error)"))

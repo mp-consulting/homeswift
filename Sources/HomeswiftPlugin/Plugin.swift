@@ -647,11 +647,12 @@ public final class PluginContext: @unchecked Sendable {
     /// bridge it is behind (nil for one published on its own server) and its own.
     public struct PublishedPlace: Sendable, Hashable {
         public var bridge: String?
+        /// As `PluginContext.serialKey` spells it.
         public var serialNumber: String
 
         public init(bridge: String?, serialNumber: String) {
             self.bridge = bridge
-            self.serialNumber = serialNumber
+            self.serialNumber = PluginContext.serialKey(serialNumber)
         }
     }
 
@@ -660,16 +661,26 @@ public final class PluginContext: @unchecked Sendable {
         Set(publishedServers().filter { !$0.isExternal }.map(\.deviceID))
     }
 
-    /// The Serial Numbers of the accessories Homeswift publishes on their own servers (`publishExternal`).
+    /// A Serial Number as it is compared with another controller's copy (Apple Home's, through Wingman): uppercase,
+    /// without separators. HomeKit keeps an accessory's Serial Number until it reads its information again, so a plugin
+    /// that respells one (`00:17:88:…` as `001788…`) is still found by it.
+    public static func serialKey(_ serialNumber: String) -> String {
+        serialNumber.uppercased().filter { !":-. ".contains($0) }
+    }
+
+    private static func serialKey(of accessory: Accessory) -> String? {
+        accessory.information[.serialNumber]?.value.stringValue.map(serialKey)
+    }
+
+    /// The Serial Numbers (`serialKey`) of the accessories Homeswift publishes on their own servers (`publishExternal`).
     public var ownSerialNumbers: Set<String> {
-        Set(publishedServers().filter(\.isExternal).flatMap(\.published).compactMap { $0.information[.serialNumber]?.value.stringValue })
+        Set(publishedServers().filter(\.isExternal).flatMap(\.published).compactMap(Self.serialKey(of:)))
     }
 
     /// Where Homeswift publishes the accessory with this id, mirrored ones left out.
     public func publishedPlace(ofAccessory id: String) -> PublishedPlace? {
         for server in publishedServers() {
-            guard let accessory = server.published.first(where: { $0.id == id }),
-                  let serialNumber = accessory.information[.serialNumber]?.value.stringValue else { continue }
+            guard let accessory = server.published.first(where: { $0.id == id }), let serialNumber = Self.serialKey(of: accessory) else { continue }
             return PublishedPlace(bridge: server.isExternal ? nil : server.deviceID, serialNumber: serialNumber)
         }
         return nil
@@ -681,7 +692,7 @@ public final class PluginContext: @unchecked Sendable {
         var index: [PublishedPlace: String] = [:], shared: Set<PublishedPlace> = []
         for server in publishedServers() {
             for accessory in server.published {
-                guard let serialNumber = accessory.information[.serialNumber]?.value.stringValue else { continue }
+                guard let serialNumber = Self.serialKey(of: accessory) else { continue }
                 let place = PublishedPlace(bridge: server.isExternal ? nil : server.deviceID, serialNumber: serialNumber)
                 if index.updateValue(accessory.id, forKey: place) != nil { shared.insert(place) }
             }
@@ -694,7 +705,7 @@ public final class PluginContext: @unchecked Sendable {
     /// are unique, or published on its own when `bridge` is nil; nil when none, or several, are there.
     public func publishedAccessoryID(at place: PublishedPlace) -> String? {
         let ids = publishedServers().filter { place.bridge == nil ? $0.isExternal : !$0.isExternal && $0.deviceID == place.bridge }
-            .flatMap(\.published).filter { $0.information[.serialNumber]?.value.stringValue == place.serialNumber }.map(\.id)
+            .flatMap(\.published).filter { Self.serialKey(of: $0) == Self.serialKey(place.serialNumber) }.map(\.id)
         return ids.count == 1 ? ids[0] : nil
     }
 
@@ -715,15 +726,16 @@ public final class PluginContext: @unchecked Sendable {
     /// The id of the one accessory Homeswift itself publishes with this serial number (mirrored ones left out); nil
     /// when none or several have it. For a plugin that reads another controller's view of the home (Wingman).
     public func publishedAccessoryID(serialNumber: String) -> String? {
-        let ids = publishedAccessories().filter { $0.mirroredFrom == nil && $0.information[.serialNumber]?.value.stringValue == serialNumber }.map(\.id)
+        let key = Self.serialKey(serialNumber)
+        let ids = publishedAccessories().filter { $0.mirroredFrom == nil && Self.serialKey(of: $0) == key }.map(\.id)
         return ids.count == 1 ? ids[0] : nil
     }
 
     /// The serial numbers of every accessory Homeswift itself publishes to HomeKit, on any bridge or on its own, mirrored
     /// ones left out: a plugin that reads another controller's view of the home (Wingman reads the Home app's, which has
-    /// Homeswift's accessories too) knows which are Homeswift's own.
+    /// Homeswift's accessories too) knows which are Homeswift's own. As `serialKey` spells them.
     public var publishedSerialNumbers: Set<String> {
-        Set(publishedAccessories().filter { $0.mirroredFrom == nil }.compactMap { $0.information[.serialNumber]?.value.stringValue })
+        Set(publishedAccessories().filter { $0.mirroredFrom == nil }.compactMap(Self.serialKey(of:)))
     }
 
     /// The accessories this instance has on the bridge or published on their own, including those

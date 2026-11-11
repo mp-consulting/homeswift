@@ -80,8 +80,8 @@ struct Structure: Sendable {
         }
         // Homeswift's accessories published on their own that Apple Home shows with their serial number: once all are,
         // an accessory of no bridge whose serial is unread is someone else's (a TV's own AirPlay entry), not one of them.
-        let seenOwn = Set(homes.flatMap(\.accessories).filter { $0.bridge == nil }.compactMap { $0.serialNumber?.uppercased() })
-        let ownMissing = own.contains { !seenOwn.contains($0.uppercased()) }
+        let seenOwn = Set(homes.flatMap(\.accessories).filter { $0.bridge == nil }.compactMap { $0.serialNumber.map(PluginContext.serialKey) })
+        let ownMissing = own.contains { !seenOwn.contains(PluginContext.serialKey($0)) }
         var devices: [String: Device] = [:]
         for home in homes {
             guard let homeID = home.id else { continue }
@@ -104,7 +104,7 @@ struct Structure: Sendable {
                         homeswift = nil
                     }
                 } else {
-                    homeswift = accessory.serialNumber.map(own.contains) == true ? .own : nil
+                    homeswift = accessory.serialNumber.map { own.contains(PluginContext.serialKey($0)) } == true ? .own : nil
                 }
                 // Ownership itself depends on identity. An unread serial on a Homeswift bridge (or a possible
                 // standalone accessory when this host publishes some) cannot be treated as proof of absence.
@@ -127,7 +127,7 @@ struct Structure: Sendable {
                 let groupingService = primary.count == 1 ? primary.first?.id
                     : (primary.isEmpty && candidates.count == 1 ? candidates.first?.id : nil)
                 devices[accessory.id] = Device(
-                    name: accessory.name, room: accessory.room, home: homeID, writable: writable, serialNumber: accessory.serialNumber,
+                    name: accessory.name, room: accessory.room, home: homeID, writable: writable, serialNumber: accessory.serialNumber.map(PluginContext.serialKey),
                     homeswift: homeswift, roomID: accessory.roomID, services: main.compactMap(\.id), groupingService: groupingService)
             }
         }
