@@ -5806,14 +5806,30 @@
     // `live`: new lines join the page (not while a span in the past is shown); `cap`: how many it keeps.
     filter.value = params.get("q") ?? "";
     const level = levelChoices.some(([value]) => value === params.get("level")) ? params.get("level") : "info";
-    // Its end: the box's, or on a phone the page's.
+    // Its end: the box's, or on a phone the page's. While a menu or the Filters sheet covers the page, a phone holds the
+    // page where it is (scrolling it under their glass made them flicker with each line) and catches up once they close.
+    let held = false;
+    const covered = () => phone.matches && Boolean(document.querySelector('[role="menu"]') || output.closest(".filters-open"));
     const atEnd = () => {
+      if (held) return true;
       const box = phone.matches ? document.scrollingElement : output;
       return box.scrollHeight - box.scrollTop - (phone.matches ? innerHeight : box.clientHeight) < 40;
     };
     // On a phone, again once laid out: the page's height is only known after the lines are drawn.
     const toEnd = () => {
       if (!phone.matches) { output.scrollTop = output.scrollHeight; return; }
+      if (covered()) {
+        if (held) return;
+        held = true;
+        const release = new MutationObserver(() => {
+          if (covered()) return;
+          release.disconnect();
+          held = false;
+          if (follow.checked && output.isConnected) toEnd();
+        });
+        release.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+        return;
+      }
       const end = () => { document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight; };
       end();
       requestAnimationFrame(end);
