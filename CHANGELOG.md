@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **Home Link refusals**: the Accessories page no longer shows what Apple Home refused once there is no Home Link
+  ("Pair Homeswift Wingman"); a refusal goes once a later change to the same room, zone, group or accessory reaches
+  Apple Home, and names accessories rather than giving their ids.
 - **Home Link waiting for serial numbers**: the reason now names the accessories (and their rooms) whose Serial Number
   Homeswift Wingman has not read, so the one holding the link down can be found in the Home app.
 
