@@ -796,13 +796,38 @@
     } catch { return {}; }
   }
   /// The `count` colours a tile shows: the most used first (the colours picked on the wheel among them, the latest
-  /// first), then the defaults in their order. Each is `[name, hue, saturation, custom]`.
+  /// first), then the defaults in their order. Each is `{ name, h, s, key }`: `key` the palette hue it counts as (its
+  /// colour may have been changed on the wheel, `colourOverrides`), or `custom` its place among the custom colours.
   const shownColours = (count) => {
-    const usage = colourUsage();
-    const custom = customColours().map((one, index) => ({ colour: [t("Custom colour"), one.h, one.s, true], index: index - 100, used: one.count }));
-    return [...custom, ...palette.map((colour, index) => ({ colour, index, used: Number(usage[colour[1]]) || 0 }))]
-      .sort((a, b) => b.used - a.used || a.index - b.index).slice(0, count).map((one) => one.colour);
+    const usage = colourUsage(), overrides = colourOverrides();
+    const custom = customColours().map((one, index) => ({ colour: { name: t("Custom colour"), h: one.h, s: one.s, custom: index }, index: index - 100, used: one.count }));
+    return [...custom, ...palette.map(([name, h, s], index) => {
+      const changed = overrides[h];
+      return { colour: changed ? { name: t("Custom colour"), h: changed.h, s: changed.s, key: h } : { name, h, s, key: h }, index, used: Number(usage[h]) || 0 };
+    })].sort((a, b) => b.used - a.used || a.index - b.index).slice(0, count).map((one) => one.colour);
   };
+  /// A swatch's colour changed on the wheel (held, it opens it): a palette swatch keeps its place and its uses with the
+  /// new colour, a custom one changes in place. Kept in this browser; every light's swatches show it at once.
+  const colourOverridesKey = "homeswift.colour-overrides";
+  function colourOverrides() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(colourOverridesKey) || "{}");
+      return Object.fromEntries(palette.map(([, hue]) => [hue, saved?.[hue]]).filter(([, one]) =>
+        Number.isFinite(one?.h) && one.h >= 0 && one.h < 360 && Number.isFinite(one?.s) && one.s >= 0 && one.s <= 100).map(([hue, one]) => [hue, { h: one.h, s: one.s }]));
+    } catch { return {}; }
+  }
+  function changeSwatch(colour, h, s) {
+    try {
+      if (colour.custom !== undefined) {
+        const saved = customColours();
+        if (saved[colour.custom]) saved[colour.custom] = { ...saved[colour.custom], h, s };
+        localStorage.setItem(customColoursKey, JSON.stringify(saved));
+      } else {
+        localStorage.setItem(colourOverridesKey, JSON.stringify({ ...colourOverrides(), [colour.key]: { h, s } }));
+      }
+    } catch {}
+    dispatchEvent(new CustomEvent("homeswift-colours"));
+  }
   function rememberColour(hue) {
     const counts = colourUsage();
     counts[hue] = Math.min((counts[hue] || 0) + 1, Number.MAX_SAFE_INTEGER);
@@ -822,7 +847,8 @@
   /// A colour picked on the wheel, or a custom swatch pressed: counted as the palette's own colour when it is one,
   /// else kept (moved first) among the custom colours. A new pick redraws the swatches (`homeswift-colours`) so it shows.
   function rememberPick(h, s) {
-    const preset = palette.find(([, ph, ps]) => sameColour(h, s, ph, ps));
+    const overrides = colourOverrides();
+    const preset = palette.find(([, ph, ps]) => sameColour(h, s, overrides[ph]?.h ?? ph, overrides[ph]?.s ?? ps));
     if (preset) { rememberColour(preset[1]); return; }
     const saved = customColours();
     const found = saved.find((one) => sameColour(h, s, one.h, one.s));
@@ -907,12 +933,18 @@
           for (const one of swatches) one.swatch.setAttribute("aria-checked", String(!adaptiveOn() && s > 4 && sameColour(one.h, one.s, h, s)));
         };
         const fill = () => {
-          swatches = shownColours(count).map(([name, h, s, custom]) => {
-            const swatch = el("button", { type: "button", class: `swatch${custom ? " custom" : ""}`, role: "radio", "aria-label": name, title: name, onclick: () => {
-              pickColor(h, s);
-              if (custom) rememberPick(h, s); else rememberColour(h);
-            } });
+          swatches = shownColours(count).map((colour) => {
+            const { name, h, s } = colour;
+            const swatch = el("button", { type: "button", class: `swatch${colour.key === undefined ? " custom" : ""}`, role: "radio", "aria-label": name,
+              title: t("{name} (hold to change)", { name }), onclick: () => {
+                // The click ending a hold that opened the wheel is not a tap.
+                if (wheel.used()) return;
+                pickColor(h, s);
+                if (colour.key === undefined) rememberPick(h, s); else rememberColour(colour.key);
+              } });
             swatch.style.setProperty("--swatch", `hsl(${h} ${s}% 60%)`);
+            // Held, the colour wheel: the colour picked replaces this swatch's, and the light takes it.
+            const wheel = colourWheel(swatch, { color: { pick: (ph, ps) => { changeSwatch(colour, ph, ps); pickColor(ph, ps); } }, available: () => answers(ctx.accessory) });
             return { swatch, h, s };
           });
           node.replaceChildren(...[lead, ...swatches.map((one) => one.swatch)].filter(Boolean));
@@ -1172,8 +1204,10 @@
     const paint = () => {
       const shown = targets(), c = shown.filter(canWrite).at(-1), value = current();
       svg.classList.toggle("is-off", parts.mode() === "off");
+      svg.dataset.mode = parts.mode();
       valueText.textContent = value === null ? "–" : degrees(+value.toFixed(1));
-      targetText.textContent = shown.map(c => degrees(numberOf(c))).join(" – ");
+      // Where it is going, in the mode's colour (style.css), as the small tile writes it.
+      targetText.textContent = shown.length ? `→ ${shown.map(c => degrees(numberOf(c))).join("–")}` : "";
       svg.setAttribute("role", c ? "slider" : "img");
       svg.setAttribute("aria-label", c ? t("Target temperature") : t("Inside"));
       svg.tabIndex = c ? 0 : -1;
@@ -1448,10 +1482,14 @@
       const points = setpointControls(ctx, parts);
       const targets = () => parts.setpoints(shownMode());
       if (size === "small") {
-        const current = el("b"), target = el("span");
+        // The reading, then where it is going on the same line, in the mode's colour: "19.5° → 21.5°"; off, the word.
+        const current = el("b"), target = el("span", { class: "climate-goal" });
         ctx.watch(() => {
+          const off = mode() === "off", shown = targets();
           current.textContent = now() === null ? "–" : degrees(+now().toFixed(1));
-          target.textContent = targets().map(c => degrees(numberOf(c))).join(" – ");
+          target.textContent = off || !shown.length ? t("Off") : `→ ${shown.map(c => degrees(numberOf(c))).join("–")}`;
+          target.dataset.mode = off ? "off" : mode();
+          target.setAttribute("aria-label", off ? t("Off") : t("Target {temperature}", { temperature: shown.map(c => degrees(numberOf(c))).join(" – ") }));
         });
         built.body = [el("div", { class: "climate-compact" }, current, target)];
         return built;
@@ -1797,7 +1835,9 @@
       if (size === "small") return built;
       const actionLabel = el("span");
       const action = el("button", { type: "button", actionIcon: "play", onclick: toggleRun }, actionLabel);
-      const runningControls = el("div", { class: "valve-running-controls" }, countdown, action);
+      // Run, and under it the duration, beside the countdown.
+      const actions = el("div", { class: "valve-actions" }, action);
+      const runningControls = el("div", { class: "valve-running-controls" }, countdown, actions);
       const runControl = el("div", { class: "valve-run-control" }, runningControls);
       let shownOn;
       ctx.watch(() => {
@@ -1830,8 +1870,9 @@
           })));
         });
         durations = control;
+        actions.append(control);
       }
-      built.body = size === "medium" ? [el("div", { class: "w-row" }, runControl, el("div", { class: "w-grow" }, durations))] : [el("div", { class: "valve" }, runControl, durations)];
+      built.body = size === "medium" ? [runControl] : [el("div", { class: "valve" }, runControl)];
       if (size === "full") built.facets = facets(ctx, [primary]);
       return built;
     },
@@ -2423,7 +2464,9 @@
       open.stay = () => {
         open.sticky = true;
         addEventListener("pointerdown", (event) => {
+          // The press is the wheel's alone: a slider or a tile under it starts nothing.
           event.preventDefault();
+          event.stopPropagation();
           addEventListener("click", (click) => { click.preventDefault(); click.stopPropagation(); }, { capture: true, once: true });
           if (!at(event).inside) { close(); return; }
           open.pressed = true;

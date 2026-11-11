@@ -22482,6 +22482,7 @@ HomeswiftI18n.add("es", {
   "Target Position": "Posición objetivo",
   "Target Relative Humidity": "Humedad objetivo",
   "Target temperature": "Temperatura objetivo",
+  "Target {temperature}": "Objetivo {temperature}",
   "Target Temperature": "Temperatura objetivo",
   "Target Tilt Angle": "Inclinación objetivo",
   "Target Vertical Tilt Angle": "Inclinación vertical",
@@ -22811,6 +22812,7 @@ HomeswiftI18n.add("es", {
   "Warm amber, each light flickering on its own.": "Ámbar cálido, cada luz parpadeando a su aire.",
   "Warm white": "Blanco cálido",
   "Custom colour": "Color personalizado",
+  "{name} (hold to change)": "{name} (mantén para cambiar)",
   "Colour wheel": "Rueda de colores",
   "Cool white": "Blanco frío",
   "Lavender": "Lavanda",
@@ -26234,6 +26236,7 @@ HomeswiftI18n.add("fr", {
   "Target Position": "Position cible",
   "Target Relative Humidity": "Humidité cible",
   "Target temperature": "Température cible",
+  "Target {temperature}": "Consigne {temperature}",
   "Target Temperature": "Température cible",
   "Target Tilt Angle": "Inclinaison cible",
   "Target Vertical Tilt Angle": "Inclinaison verticale",
@@ -26563,6 +26566,7 @@ HomeswiftI18n.add("fr", {
   "Warm amber, each light flickering on its own.": "Un ambre chaud, chaque lampe vacillant à son rythme.",
   "Warm white": "Blanc chaud",
   "Custom colour": "Couleur personnalisée",
+  "{name} (hold to change)": "{name} (maintenir pour changer)",
   "Colour wheel": "Roue des couleurs",
   "Cool white": "Blanc froid",
   "Lavender": "Lavande",
@@ -29986,6 +29990,7 @@ HomeswiftI18n.add("pt", {
   "Target Position": "Posição pretendida",
   "Target Relative Humidity": "Humidade pretendida",
   "Target temperature": "Temperatura pretendida",
+  "Target {temperature}": "Alvo {temperature}",
   "Target Temperature": "Temperatura pretendida",
   "Target Tilt Angle": "Inclinação pretendida",
   "Target Vertical Tilt Angle": "Inclinação vertical",
@@ -30315,6 +30320,7 @@ HomeswiftI18n.add("pt", {
   "Warm amber, each light flickering on its own.": "Âmbar quente, cada luz a tremeluzir ao seu ritmo.",
   "Warm white": "Branco quente",
   "Custom colour": "Cor personalizada",
+  "{name} (hold to change)": "{name} (manter para mudar)",
   "Colour wheel": "Roda de cores",
   "Cool white": "Branco frio",
   "Lavender": "Lavanda",
@@ -36812,7 +36818,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .light-full { display: grid; gap: var(--space-10); align-content: start; }
 .widget-light.size-xlarge > .w-body > .light-full { margin-right: 0; }
 .widget-light.size-xlarge > .w-body:has(> .light-full) { justify-content: flex-start; }
-.light-full > .swatches { margin-right: 36px; }
+/* Its sixteen colours in two rows of eight across the tile's width (the menu sits under them). */
+.light-full > .swatches { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); justify-items: center; row-gap: var(--space-8); column-gap: 0; }
 /* The shutter fills the tile like the window it covers; its buttons stand in a column beside it. */
 .cover-large > .level.vertical { flex: 1; min-width: 112px; border-radius: var(--radius-md); }
 .cover-buttons { display: grid; align-content: center; gap: var(--space-10); flex: none; min-width: 0; }
@@ -37025,7 +37032,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* Valve: a round run button whose ring empties as the time runs out. */
 .valve { display: grid; justify-items: center; gap: var(--space-14); }
 .valve .seg { width: 100%; }
-.valve-duration { width: 100%; min-width: 0; }
+.valve-actions { display: grid; gap: var(--space-8); justify-items: stretch; }
+.valve-duration { width: auto; min-width: 7.5rem; }
 .valve-run-control { flex: none; }
 .valve-running-controls { display: flex; align-items: center; gap: var(--space-12); }
 .valve-running-controls[hidden] { display: none !important; }
@@ -42109,9 +42117,14 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .widget-climate.size-small .status, .widget-climate.size-small .toggle { display: none; }
 .widget-climate.size-small .tile { width: 24px; height: 24px; border-radius: var(--radius-sm); }
 .widget-climate .who { gap: calc(var(--space-4) / 2); line-height: 1.15; }
-.climate-compact { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-8); padding-right: calc(var(--space-16) * 2); }
-.climate-compact b { font-size: var(--text-2xl); font-variant-numeric: tabular-nums; }
-.climate-compact span { font-size: var(--text-xs); color: var(--muted); }
+/* The small tile reads as one line: the temperature, then its target in the mode's colour, beside it rather than off
+   by the menu. */
+.climate-compact { display: flex; align-items: baseline; gap: var(--space-8); padding-right: calc(var(--space-16) * 2); min-width: 0; }
+.climate-compact b { font-size: var(--text-2xl); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.climate-goal { font-size: var(--text-sm); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+.climate-goal[data-mode="heat"] { color: var(--heat); }
+.climate-goal[data-mode="cool"] { color: var(--cool); }
+.climate-goal[data-mode="auto"] { color: var(--auto); }
 .widget-climate .w-body { padding: 0; overflow: visible; gap: var(--space-10); }
 .climate-dashboard { display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: var(--space-10); align-items: center; min-height: 0; }
 .climate-dial { width: 112px; height: 112px; display: block; touch-action: none; user-select: none; overflow: visible; }
@@ -42122,7 +42135,22 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .climate-dial .gauge-track, .climate-dial .gauge-band { stroke-width: 9; stroke-linecap: butt; }
 .climate-dial.is-off .gauge-band, .climate-dial.is-off .gauge-dot { stroke: var(--muted); }
 .climate-target-label { display: none; }
-.widget-climate.size-medium .climate-dashboard { display: flex; justify-content: center; padding-bottom: var(--space-20); }
+/* The medium climate tile: its name (two lines if it needs them) beside the power switch, and the dial under it,
+   as large as the tile allows. The dial says the mode and the target, so the status line is left out; the target reads
+   "→ 21.5°" in the mode's colour, as on the small tile. */
+.widget-climate.size-medium .w-head { flex: none; gap: var(--space-6); align-items: flex-start; }
+.widget-climate.size-medium .tile { width: 28px; height: 28px; border-radius: var(--radius-sm); }
+.widget-climate.size-medium:not(.widget-full) .who strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; overflow: hidden; line-height: 1.2; }
+.widget-climate.size-medium:not(.widget-full) .who .status { display: none; }
+.widget-climate.size-medium .w-body { justify-content: center; padding: 0; }
+.widget-climate.size-medium .climate-dashboard { display: flex; justify-content: center; padding: 0 0 var(--space-4); }
+.widget-climate.size-medium .climate-dial { width: min(116px, calc(var(--tile-row) * 2 + var(--unit-gap) - 56px)); height: auto; aspect-ratio: 1; }
+.widget-climate.size-medium .climate-dial .gauge-value { font-size: calc(var(--text-3xl) * 2); }
+.widget-climate.size-medium .climate-dial .gauge-caption:not(.climate-target-label) { display: none; }
+.widget-climate.size-medium .climate-dial .climate-target-label { font-size: 38px; font-weight: var(--weight-semibold); transform: translateY(-8px); }
+.climate-dial[data-mode="heat"] .climate-target-label { fill: var(--heat); }
+.climate-dial[data-mode="cool"] .climate-target-label { fill: var(--cool); }
+.climate-dial[data-mode="auto"] .climate-target-label { fill: var(--auto); }
 .widget-climate.size-medium .climate-target-label { display: block; }
 .widget-climate .setpoints { min-width: 0; width: 100%; gap: var(--space-4); }
 .widget-climate .setpoint { width: 100%; min-width: 0; grid-template-columns: 32px minmax(0,1fr) 32px; gap: var(--space-4); padding: var(--space-8); border-radius: var(--radius-md); background: var(--material-thin); }
@@ -42170,24 +42198,13 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .widget-climate.size-medium .w-head > .switch span::before { width: 18px; height: 18px; }
 .widget-climate.size-medium .w-head > .switch input:checked + span::before { transform: translateX(16px); }
 .widget-climate.size-medium .w-head > .switch input:checked:active + span::before { transform: translateX(12px); }
-.widget-climate.size-medium .w-head { flex: none; gap: var(--space-6); }
-.widget-climate.size-medium .tile { width: 28px; height: 28px; border-radius: var(--radius-sm); }
-.widget-climate.size-medium:not(.widget-full) .who strong { display: block; white-space: nowrap; }
-.widget-climate.size-medium .w-body { justify-content: center; }
-.widget-climate.size-medium .climate-dashboard { padding-bottom: var(--space-12); }
-.widget-climate.size-medium .climate-dial { width: 104px; height: 104px; }
 .climate-dial .gauge-caption { font-size: var(--text-base); }
 .widget-climate.size-xlarge .w-body { display: flex; flex-direction: column; justify-content: space-between; align-items: stretch; }
 .widget-climate.size-xlarge .climate-dashboard { align-self: stretch; }
 .widget-climate.size-xlarge:has(> .w-corner) .w-body > .climate-airflow { align-self: stretch; margin-right: calc(var(--space-16) * 2); }
 .widget-climate.size-xlarge .climate-modes { margin-block: 0; transform: translateY(-20px); }
 .widget-climate .climate-modes .seg-thumb { border-radius: calc(var(--radius-md) - 3px); }
-.widget-climate.size-medium .w-body { justify-content: flex-start; padding-top: var(--space-4); }
-.widget-climate.size-medium .climate-dashboard { padding: 0 var(--space-20) 0 0; }
-.widget-climate.size-medium .climate-dial { width: 96px; height: 96px; }
 .climate-dial .gauge-value { font-size: calc(var(--text-3xl) * 2); }
-.widget-climate.size-medium .climate-dial { width: min(104px, calc(var(--tile-row) * 2 + var(--unit-gap) - 70px)); height: auto; aspect-ratio: 1; }
-.widget-climate.size-medium .climate-dial .gauge-value { font-size: calc(var(--text-3xl) * 2); }
 
 .widget-climate.size-large .setpoint { padding: var(--space-4); }
 .widget-climate.size-xlarge:has(.setpoint:not([hidden]) ~ .setpoint:not([hidden])) .climate-modes { transform: translateY(-6px); }
@@ -43080,13 +43097,38 @@ self.addEventListener("notificationclick", (event) => {
     } catch { return {}; }
   }
   /// The `count` colours a tile shows: the most used first (the colours picked on the wheel among them, the latest
-  /// first), then the defaults in their order. Each is `[name, hue, saturation, custom]`.
+  /// first), then the defaults in their order. Each is `{ name, h, s, key }`: `key` the palette hue it counts as (its
+  /// colour may have been changed on the wheel, `colourOverrides`), or `custom` its place among the custom colours.
   const shownColours = (count) => {
-    const usage = colourUsage();
-    const custom = customColours().map((one, index) => ({ colour: [t("Custom colour"), one.h, one.s, true], index: index - 100, used: one.count }));
-    return [...custom, ...palette.map((colour, index) => ({ colour, index, used: Number(usage[colour[1]]) || 0 }))]
-      .sort((a, b) => b.used - a.used || a.index - b.index).slice(0, count).map((one) => one.colour);
+    const usage = colourUsage(), overrides = colourOverrides();
+    const custom = customColours().map((one, index) => ({ colour: { name: t("Custom colour"), h: one.h, s: one.s, custom: index }, index: index - 100, used: one.count }));
+    return [...custom, ...palette.map(([name, h, s], index) => {
+      const changed = overrides[h];
+      return { colour: changed ? { name: t("Custom colour"), h: changed.h, s: changed.s, key: h } : { name, h, s, key: h }, index, used: Number(usage[h]) || 0 };
+    })].sort((a, b) => b.used - a.used || a.index - b.index).slice(0, count).map((one) => one.colour);
   };
+  /// A swatch's colour changed on the wheel (held, it opens it): a palette swatch keeps its place and its uses with the
+  /// new colour, a custom one changes in place. Kept in this browser; every light's swatches show it at once.
+  const colourOverridesKey = "homeswift.colour-overrides";
+  function colourOverrides() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(colourOverridesKey) || "{}");
+      return Object.fromEntries(palette.map(([, hue]) => [hue, saved?.[hue]]).filter(([, one]) =>
+        Number.isFinite(one?.h) && one.h >= 0 && one.h < 360 && Number.isFinite(one?.s) && one.s >= 0 && one.s <= 100).map(([hue, one]) => [hue, { h: one.h, s: one.s }]));
+    } catch { return {}; }
+  }
+  function changeSwatch(colour, h, s) {
+    try {
+      if (colour.custom !== undefined) {
+        const saved = customColours();
+        if (saved[colour.custom]) saved[colour.custom] = { ...saved[colour.custom], h, s };
+        localStorage.setItem(customColoursKey, JSON.stringify(saved));
+      } else {
+        localStorage.setItem(colourOverridesKey, JSON.stringify({ ...colourOverrides(), [colour.key]: { h, s } }));
+      }
+    } catch {}
+    dispatchEvent(new CustomEvent("homeswift-colours"));
+  }
   function rememberColour(hue) {
     const counts = colourUsage();
     counts[hue] = Math.min((counts[hue] || 0) + 1, Number.MAX_SAFE_INTEGER);
@@ -43106,7 +43148,8 @@ self.addEventListener("notificationclick", (event) => {
   /// A colour picked on the wheel, or a custom swatch pressed: counted as the palette's own colour when it is one,
   /// else kept (moved first) among the custom colours. A new pick redraws the swatches (`homeswift-colours`) so it shows.
   function rememberPick(h, s) {
-    const preset = palette.find(([, ph, ps]) => sameColour(h, s, ph, ps));
+    const overrides = colourOverrides();
+    const preset = palette.find(([, ph, ps]) => sameColour(h, s, overrides[ph]?.h ?? ph, overrides[ph]?.s ?? ps));
     if (preset) { rememberColour(preset[1]); return; }
     const saved = customColours();
     const found = saved.find((one) => sameColour(h, s, one.h, one.s));
@@ -43191,12 +43234,18 @@ self.addEventListener("notificationclick", (event) => {
           for (const one of swatches) one.swatch.setAttribute("aria-checked", String(!adaptiveOn() && s > 4 && sameColour(one.h, one.s, h, s)));
         };
         const fill = () => {
-          swatches = shownColours(count).map(([name, h, s, custom]) => {
-            const swatch = el("button", { type: "button", class: `swatch${custom ? " custom" : ""}`, role: "radio", "aria-label": name, title: name, onclick: () => {
-              pickColor(h, s);
-              if (custom) rememberPick(h, s); else rememberColour(h);
-            } });
+          swatches = shownColours(count).map((colour) => {
+            const { name, h, s } = colour;
+            const swatch = el("button", { type: "button", class: `swatch${colour.key === undefined ? " custom" : ""}`, role: "radio", "aria-label": name,
+              title: t("{name} (hold to change)", { name }), onclick: () => {
+                // The click ending a hold that opened the wheel is not a tap.
+                if (wheel.used()) return;
+                pickColor(h, s);
+                if (colour.key === undefined) rememberPick(h, s); else rememberColour(colour.key);
+              } });
             swatch.style.setProperty("--swatch", `hsl(${h} ${s}% 60%)`);
+            // Held, the colour wheel: the colour picked replaces this swatch's, and the light takes it.
+            const wheel = colourWheel(swatch, { color: { pick: (ph, ps) => { changeSwatch(colour, ph, ps); pickColor(ph, ps); } }, available: () => answers(ctx.accessory) });
             return { swatch, h, s };
           });
           node.replaceChildren(...[lead, ...swatches.map((one) => one.swatch)].filter(Boolean));
@@ -43456,8 +43505,10 @@ self.addEventListener("notificationclick", (event) => {
     const paint = () => {
       const shown = targets(), c = shown.filter(canWrite).at(-1), value = current();
       svg.classList.toggle("is-off", parts.mode() === "off");
+      svg.dataset.mode = parts.mode();
       valueText.textContent = value === null ? "–" : degrees(+value.toFixed(1));
-      targetText.textContent = shown.map(c => degrees(numberOf(c))).join(" – ");
+      // Where it is going, in the mode's colour (style.css), as the small tile writes it.
+      targetText.textContent = shown.length ? `→ ${shown.map(c => degrees(numberOf(c))).join("–")}` : "";
       svg.setAttribute("role", c ? "slider" : "img");
       svg.setAttribute("aria-label", c ? t("Target temperature") : t("Inside"));
       svg.tabIndex = c ? 0 : -1;
@@ -43732,10 +43783,14 @@ self.addEventListener("notificationclick", (event) => {
       const points = setpointControls(ctx, parts);
       const targets = () => parts.setpoints(shownMode());
       if (size === "small") {
-        const current = el("b"), target = el("span");
+        // The reading, then where it is going on the same line, in the mode's colour: "19.5° → 21.5°"; off, the word.
+        const current = el("b"), target = el("span", { class: "climate-goal" });
         ctx.watch(() => {
+          const off = mode() === "off", shown = targets();
           current.textContent = now() === null ? "–" : degrees(+now().toFixed(1));
-          target.textContent = targets().map(c => degrees(numberOf(c))).join(" – ");
+          target.textContent = off || !shown.length ? t("Off") : `→ ${shown.map(c => degrees(numberOf(c))).join("–")}`;
+          target.dataset.mode = off ? "off" : mode();
+          target.setAttribute("aria-label", off ? t("Off") : t("Target {temperature}", { temperature: shown.map(c => degrees(numberOf(c))).join(" – ") }));
         });
         built.body = [el("div", { class: "climate-compact" }, current, target)];
         return built;
@@ -44081,7 +44136,9 @@ self.addEventListener("notificationclick", (event) => {
       if (size === "small") return built;
       const actionLabel = el("span");
       const action = el("button", { type: "button", actionIcon: "play", onclick: toggleRun }, actionLabel);
-      const runningControls = el("div", { class: "valve-running-controls" }, countdown, action);
+      // Run, and under it the duration, beside the countdown.
+      const actions = el("div", { class: "valve-actions" }, action);
+      const runningControls = el("div", { class: "valve-running-controls" }, countdown, actions);
       const runControl = el("div", { class: "valve-run-control" }, runningControls);
       let shownOn;
       ctx.watch(() => {
@@ -44114,8 +44171,9 @@ self.addEventListener("notificationclick", (event) => {
           })));
         });
         durations = control;
+        actions.append(control);
       }
-      built.body = size === "medium" ? [el("div", { class: "w-row" }, runControl, el("div", { class: "w-grow" }, durations))] : [el("div", { class: "valve" }, runControl, durations)];
+      built.body = size === "medium" ? [runControl] : [el("div", { class: "valve" }, runControl)];
       if (size === "full") built.facets = facets(ctx, [primary]);
       return built;
     },
@@ -44707,7 +44765,9 @@ self.addEventListener("notificationclick", (event) => {
       open.stay = () => {
         open.sticky = true;
         addEventListener("pointerdown", (event) => {
+          // The press is the wheel's alone: a slider or a tile under it starts nothing.
           event.preventDefault();
+          event.stopPropagation();
           addEventListener("click", (click) => { click.preventDefault(); click.stopPropagation(); }, { capture: true, once: true });
           if (!at(event).inside) { close(); return; }
           open.pressed = true;

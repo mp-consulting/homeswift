@@ -27,7 +27,9 @@ All notable changes to this project are documented here. The format follows
   is taller than its large one: brightness and White across the tile, and sixteen colours under them. The colours
   are distinct hues, and once some have been picked every size shows the most used first. A tap or a long press on a light's
   icon on a large tile opens its colour wheel, which stays open for a press (a long press on a small tile too), and a
-  colour picked on the wheel is kept among the swatches.
+  colour picked on the wheel is kept among the swatches. A long press on a colour swatch opens the wheel to change that
+  swatch, kept in this browser. Small and medium climate tiles read "19.5° → 21.5°", the target in the mode's colour;
+  the medium tile gives its name two lines and its dial the room it has.
 - **History and Logbook**: compact filters, scrollable lists, alternating rows and collapsible day groups; graphs
   retain their original appearance. Dashboard plugin chips link to their pages and consumer sparklines show hover guides.
 
@@ -41,8 +43,8 @@ All notable changes to this project are documented here. The format follows
   and show only the swing axes a device can operate. Power is a switch, as on other tiles; a thermostat that was off
   resumes in Auto; the dial's keys keep to its steps. LG ThinQ shows the device's swing again after a write ignored
   while off, and Daikin Cloud no longer rebuilds the accessory when a mode lacks a swing axis.
-- **Valve timers**: the large tiles and the sheet draw again, and a run counts down from the chosen duration rather
-  than the last run's.
+- **Valve timers**: the large tiles and the sheet draw again, a run counts down from the chosen duration rather
+  than the last run's, and the duration menu sits under Run, wide enough to read.
 - **IKEA DIRIGERA**: every TRADFRI constant-voltage driver dims only, without colour controls.
 - **Design tokens**: use the shared spacing, corner and weight tokens for valve countdown digits.
 
