@@ -2546,7 +2546,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.28.1...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/mp-consulting/homeswift/compare/v0.28.1...v0.29.0
 [0.28.1]: https://github.com/mp-consulting/homeswift/compare/v0.28.0...v0.28.1
 [0.28.0]: https://github.com/mp-consulting/homeswift/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/mp-consulting/homeswift/compare/v0.26.0...v0.27.0
