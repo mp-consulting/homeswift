@@ -1944,7 +1944,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       detail.hidden = false;
       openNode = node;
       const frameBox = frame.getBoundingClientRect();
-      if (matchMedia("(max-width: 640px)").matches) {
+      if (matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches) {
         // A phone: the card is docked under the graph at full width (CSS), so it is shown there, not beside the node.
         detail.scrollIntoView({ block: "nearest", behavior: "smooth" });
       } else if (!anchored) {

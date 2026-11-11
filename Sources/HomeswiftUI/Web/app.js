@@ -264,7 +264,7 @@
   document.addEventListener("homeswift-account-menu", (event) => openUserMenu(event.detail.trigger, event.detail.keyboard));
   function openUserMenu(trigger, keyboard = false) {
     const form = auth.mode === "form";
-    const phone = matchMedia("(max-width: 640px)").matches;
+    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches;
     // Without the wide window's side menu, Homeswift's section is in this menu.
     // (A phone's ☰ panel has its own.)
     const noSideMenu = matchMedia("(min-width: 641px) and (max-width: 1179.98px)").matches;
@@ -4211,7 +4211,7 @@
       ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : []),
       // A phone floats only the search, Filters, Edit and this menu over its tab bar: the graph, Full screen and Add
       // accessories are here.
-      ...(matchMedia("(max-width: 600px)").matches && all.length ? [{ separator: true },
+      ...(matchMedia("(max-width: 600px), (max-height: 500px) and (pointer: coarse)").matches && all.length ? [{ separator: true },
         { label: t("Graph"), icon: "chart", href: (() => {
           const kept = new URLSearchParams();
           for (const [key, value] of new URLSearchParams(location.search)) if (accessoryFilterKeys.includes(key)) kept.append(key, value);
@@ -5775,7 +5775,7 @@
     const follow = el("input", { type: "checkbox", checked: true });
     const count = el("span", { class: "muted count" });
     // A phone reads the log as the page: no box of its own to scroll, its bar of actions over the tab bar.
-    const phone = matchMedia("(max-width: 640px)");
+    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
     // What the lines are about (sourceFilter): every line; the bridges' own lines (their servers': connections,
     // pairings, controllers), every bridge's or one's; or one accessory's (those of its own server and those naming
     // it, its id or its address). The server picks them before its limit (UIServer.logMatcher), so a week of one
@@ -5982,7 +5982,7 @@
       // A phone keeps its bar short: the count, Copy, Follow and Save payloads are here rather than in it.
       const saving = phone.matches && !saveToggle.classList.contains("hidden");
       return [
-        phone.matches ? { heading: count.textContent } : null,
+        phone.matches ? { heading: count.textContent, live: count } : null,
         phone.matches ? { label: t("Copy the lines shown"), icon: "copy", onSelect: () => copyLines().catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
         // Follow is on from the start; a phone turns it off here rather than in its bar.
         phone.matches ? { label: t("Follow"), icon: "pulse", toggle: true, checkbox: true, checked: follow.checked, onSelect: () => { follow.checked = !follow.checked; follow.dispatchEvent(new Event("change")); } } : null,

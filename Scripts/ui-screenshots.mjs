@@ -255,9 +255,11 @@ await send("Page.addScriptToEvaluateOnNewDocument", { source: pageScript });
 
 /// Opens `path` at the size given, waits for `ready` (a selector), runs `prepare`, and saves the page down to `tall`
 /// at most (the viewport's height when left out), or only `element` (a selector, its section, with a margin).
-async function shot(name, path, { width = 1280, height = 900, mobile = false, ready = "main h1", prepare = "", tall, element, viewportOnly = false } = {}) {
+async function shot(name, path, { width = 1280, height = 900, mobile = false, ready = "main h1", prepare = "", tall, element, viewportOnly = false, touch = false } = {}) {
   if (process.env.UI_SHOTS_ONLY && !process.env.UI_SHOTS_ONLY.split(",").includes(name)) return;
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile });
+  // A phone's touch screen (pointer: coarse): a phone held sideways is wider than 640px and still a phone.
+  await send("Emulation.setTouchEmulationEnabled", { enabled: touch, maxTouchPoints: touch ? 5 : 1 });
   await send("Page.navigate", { url: base + path });
   for (let i = 0; i < 60; i++) {
     if (await evaluate(`!!document.querySelector(${literal(ready)})`)) break;
@@ -339,6 +341,7 @@ try {
   await shot("logs", "/logs?level=trace", { ready: ".log-filter-panel", tall: 900 });
   await shot("logs-medium", "/logs?level=trace", { width: 1145, height: 867, ready: ".log-filter-panel" });
   await shot("logs-phone", "/logs?level=trace", { width: 390, height: 844, mobile: true, ready: ".log-filters-toggle", viewportOnly: true });
+  await shot("logs-phone-landscape", "/logs?level=trace", { width: 844, height: 390, mobile: true, touch: true, ready: ".log-filters-toggle", viewportOnly: true });
   await shot("logs-phone-filters", "/logs?level=trace", { width: 390, height: 844, mobile: true, ready: ".log-filters-toggle", viewportOnly: true, prepare: 'document.querySelector(".log-filters-toggle").click();' });
   await shot("appearance", "/appearance", { ready: ".wallpapers", tall: 2200 });
   await shot("backups-phone", "/settings/backups", { width: 375, height: 812, mobile: true, ready: ".drop-zone" });

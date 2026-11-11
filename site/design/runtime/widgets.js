@@ -2394,7 +2394,7 @@
     if (options.tab === "history" && tabList) choose("history");
     done.addEventListener("click", () => dialog.close());
     // On a phone a swipe down from the grabber or the name puts the sheet away, from where the finger left it.
-    if (matchMedia("(max-width: 640px)").matches) {
+    if (matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches) {
       node.prepend(el("div", { class: "sheet-grabber", "aria-hidden": "true" }));
       const dismiss = () => {
         const from = getComputedStyle(dialog).transform;

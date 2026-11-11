@@ -427,8 +427,14 @@
       // Who the menu is about (the header's account menu): a name and a line under it, not an action.
       // `callout`: a notice set apart in a tinted box with its icon (the Home Link's state), `tone` "warn" or "error".
       if (item.heading !== undefined) {
+        // `live`: a node whose text the heading follows while the menu is open (the Logs page's count of lines).
+        const strong = el("strong", { text: item.live ? item.live.textContent : item.heading });
+        if (item.live) {
+          const follow = new MutationObserver(() => { if (strong.isConnected) strong.textContent = item.live.textContent; else follow.disconnect(); });
+          follow.observe(item.live, { childList: true, characterData: true, subtree: true });
+        }
         return el("div", item.callout ? { class: `menu-heading menu-callout${item.tone ? ` ${item.tone}` : ""}`, role: "note" } : { class: "menu-heading" },
-          item.callout && item.icon ? icon(item.icon) : null, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
+          item.callout && item.icon ? icon(item.icon) : null, strong, item.detail ? el("span", { text: item.detail }) : null);
       }
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
       // `checked` may be a function, asked again after each choice of a menu that stays open (a Group's row follows
@@ -587,7 +593,7 @@
     }
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
-    const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
+    const sheet = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches && !trigger.closest("header");
     // The search and its pills stay above the items, which scroll on their own; a sheet whose items stay open as they
     // are chosen (several lights) ends with Done, within the thumb's reach.
     const head = field ? el("div", { class: "menu-head" }, field, pills) : null;
@@ -778,7 +784,7 @@
   function openSheet(build, labelledBy, { onClose = null, returnFocus = document.activeElement } = {}) {
     const dialog = el("dialog", { class: "admin-dialog card sheet", "aria-labelledby": labelledBy });
     const reduce = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const vertical = () => matchMedia("(max-width: 640px)").matches;   // a phone: a sheet from the bottom edge
+    const vertical = () => matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches;   // a phone: a sheet from the bottom edge
     let result, leaving = false;
     // Out along the edge it came from, from wherever it is now (a drag may have moved it), faster than it came.
     const dismiss = (value) => {
@@ -1660,7 +1666,7 @@
       const bars = document.querySelectorAll(".settings-bar");
       if (!bars.length) return;
       const toggle = document.querySelector(".mobile-nav-toggle");
-      const mobile = matchMedia("(max-width: 640px)").matches;
+      const mobile = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches;
       const menuRect = mobile && toggle ? toggle.getBoundingClientRect() : null;
       bars.forEach((bar) => {
         // Measured only beside a menu: a desktop page changing does not lay it out again.

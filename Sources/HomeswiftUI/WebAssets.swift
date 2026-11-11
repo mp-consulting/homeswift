@@ -1953,7 +1953,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       detail.hidden = false;
       openNode = node;
       const frameBox = frame.getBoundingClientRect();
-      if (matchMedia("(max-width: 640px)").matches) {
+      if (matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches) {
         // A phone: the card is docked under the graph at full width (CSS), so it is shown there, not beside the node.
         detail.scrollIntoView({ block: "nearest", behavior: "smooth" });
       } else if (!anchored) {
@@ -2642,7 +2642,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   document.addEventListener("homeswift-account-menu", (event) => openUserMenu(event.detail.trigger, event.detail.keyboard));
   function openUserMenu(trigger, keyboard = false) {
     const form = auth.mode === "form";
-    const phone = matchMedia("(max-width: 640px)").matches;
+    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches;
     // Without the wide window's side menu, Homeswift's section is in this menu.
     // (A phone's ☰ panel has its own.)
     const noSideMenu = matchMedia("(min-width: 641px) and (max-width: 1179.98px)").matches;
@@ -6589,7 +6589,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : []),
       // A phone floats only the search, Filters, Edit and this menu over its tab bar: the graph, Full screen and Add
       // accessories are here.
-      ...(matchMedia("(max-width: 600px)").matches && all.length ? [{ separator: true },
+      ...(matchMedia("(max-width: 600px), (max-height: 500px) and (pointer: coarse)").matches && all.length ? [{ separator: true },
         { label: t("Graph"), icon: "chart", href: (() => {
           const kept = new URLSearchParams();
           for (const [key, value] of new URLSearchParams(location.search)) if (accessoryFilterKeys.includes(key)) kept.append(key, value);
@@ -8153,7 +8153,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const follow = el("input", { type: "checkbox", checked: true });
     const count = el("span", { class: "muted count" });
     // A phone reads the log as the page: no box of its own to scroll, its bar of actions over the tab bar.
-    const phone = matchMedia("(max-width: 640px)");
+    const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
     // What the lines are about (sourceFilter): every line; the bridges' own lines (their servers': connections,
     // pairings, controllers), every bridge's or one's; or one accessory's (those of its own server and those naming
     // it, its id or its address). The server picks them before its limit (UIServer.logMatcher), so a week of one
@@ -8360,7 +8360,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // A phone keeps its bar short: the count, Copy, Follow and Save payloads are here rather than in it.
       const saving = phone.matches && !saveToggle.classList.contains("hidden");
       return [
-        phone.matches ? { heading: count.textContent } : null,
+        phone.matches ? { heading: count.textContent, live: count } : null,
         phone.matches ? { label: t("Copy the lines shown"), icon: "copy", onSelect: () => copyLines().catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
         // Follow is on from the start; a phone turns it off here rather than in its bar.
         phone.matches ? { label: t("Follow"), icon: "pulse", toggle: true, checkbox: true, checked: follow.checked, onSelect: () => { follow.checked = !follow.checked; follow.dispatchEvent(new Event("change")); } } : null,
@@ -10417,7 +10417,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const { t, tn } = HomeswiftI18n;
 
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
-  const phone = matchMedia("(max-width: 640px)");
+  const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
   const touch = matchMedia("(pointer: coarse)");
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -11750,8 +11750,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // Who the menu is about (the header's account menu): a name and a line under it, not an action.
       // `callout`: a notice set apart in a tinted box with its icon (the Home Link's state), `tone` "warn" or "error".
       if (item.heading !== undefined) {
+        // `live`: a node whose text the heading follows while the menu is open (the Logs page's count of lines).
+        const strong = el("strong", { text: item.live ? item.live.textContent : item.heading });
+        if (item.live) {
+          const follow = new MutationObserver(() => { if (strong.isConnected) strong.textContent = item.live.textContent; else follow.disconnect(); });
+          follow.observe(item.live, { childList: true, characterData: true, subtree: true });
+        }
         return el("div", item.callout ? { class: `menu-heading menu-callout${item.tone ? ` ${item.tone}` : ""}`, role: "note" } : { class: "menu-heading" },
-          item.callout && item.icon ? icon(item.icon) : null, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
+          item.callout && item.icon ? icon(item.icon) : null, strong, item.detail ? el("span", { text: item.detail }) : null);
       }
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
       // `checked` may be a function, asked again after each choice of a menu that stays open (a Group's row follows
@@ -11910,7 +11916,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
-    const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
+    const sheet = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches && !trigger.closest("header");
     // The search and its pills stay above the items, which scroll on their own; a sheet whose items stay open as they
     // are chosen (several lights) ends with Done, within the thumb's reach.
     const head = field ? el("div", { class: "menu-head" }, field, pills) : null;
@@ -12101,7 +12107,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function openSheet(build, labelledBy, { onClose = null, returnFocus = document.activeElement } = {}) {
     const dialog = el("dialog", { class: "admin-dialog card sheet", "aria-labelledby": labelledBy });
     const reduce = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const vertical = () => matchMedia("(max-width: 640px)").matches;   // a phone: a sheet from the bottom edge
+    const vertical = () => matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches;   // a phone: a sheet from the bottom edge
     let result, leaving = false;
     // Out along the edge it came from, from wherever it is now (a drag may have moved it), faster than it came.
     const dismiss = (value) => {
@@ -12983,7 +12989,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const bars = document.querySelectorAll(".settings-bar");
       if (!bars.length) return;
       const toggle = document.querySelector(".mobile-nav-toggle");
-      const mobile = matchMedia("(max-width: 640px)").matches;
+      const mobile = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches;
       const menuRect = mobile && toggle ? toggle.getBoundingClientRect() : null;
       bars.forEach((bar) => {
         // Measured only beside a menu: a desktop page changing does not lay it out again.
@@ -36194,7 +36200,7 @@ header nav a svg { display: none; }
   .tariff-card input:is([type="date"], [type="time"]) { -webkit-appearance: none; appearance: none; display: block; width: 100%; min-width: 0; text-align: start; }
   .tariff-card input:is([type="date"], [type="time"])::-webkit-date-and-time-value { text-align: start; margin: 0; }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   /* A period as a small group of its own: its name (Remove in the corner), its times side by side, its days and price
      side by side, each with its small name over it. */
   .tariff-periods { gap: var(--space-10); }
@@ -36304,7 +36310,7 @@ button.busy::after {
   button.busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
   .spinner { animation: fade var(--normal) var(--ease-out) 150ms both; border-color: var(--accent); opacity: 0.5; }
 }
-@media (max-width: 640px) { .panel-columns { grid-template-columns: 1fr; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .panel-columns { grid-template-columns: 1fr; } }
 
 /* The password strength: the ANSSI's bands along 0 to 128 bits as one gradient, from red through amber to green,
    lit up to the password's entropy as you type; the 85-bit bar marked. Its own names: the widgets' dial is .gauge. */
@@ -36388,7 +36394,7 @@ button.busy::after {
 @keyframes sheet-up { from { transform: translateY(calc(100% + 12px)); } }
 @keyframes sheet-dim { from { opacity: 0; } }
 @keyframes sheet-undim { to { opacity: 0; } }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .admin-dialog.sheet {
     margin: auto 0 0; width: 100%; max-width: 100%; max-height: 100%;
     height: calc(100% - 16px - env(safe-area-inset-top) - var(--viewport-top, 0px) - var(--keyboard, 0px));
@@ -36621,7 +36627,7 @@ label > input, label > select { margin-top: 5px; }
 .card.empty.scenes-empty.compact > p { flex: 1; max-width: none; margin: 0; }
 .scenes-empty.compact > .empty-glyph { flex: none; width: 40px; height: 40px; margin: 0; }
 /* A phone: the glyph beside the words, the button under them, rather than the words squeezed between the two. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .scenes-empty.compact { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: start; column-gap: var(--space-14); row-gap: var(--space-12); padding: var(--space-16); }
   .card.empty.scenes-empty.compact > p { font-size: var(--text-base); line-height: 1.4; }
   .scenes-empty.compact > .button { grid-column: 2; justify-self: start; margin: 0; }
@@ -36894,7 +36900,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.size-xlarge .w-footer > .chips { flex: 1; min-width: 0; margin: 0; padding: 2px var(--space-16) 2px 0; mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent); }
 .widget:not(.widget-full) .w-footer > .menu-button { flex: none; width: 36px; height: 36px; min-height: 36px; }
 .powered-off .w-footer > .chips { opacity: 0.55; }
-@media (max-width: 640px), (pointer: coarse) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse), (pointer: coarse) {
   .widget:not(.widget-full) .w-footer > .menu-button { width: 40px; height: 40px; min-height: 40px; }
 }
 .head-only { justify-content: center; }
@@ -37079,7 +37085,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget-sheet .widget-full { margin: 0; max-height: calc(100dvh - 90px); overflow-y: auto; overscroll-behavior: contain; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); }
 /* On a phone, a sheet rising from the bottom edge, within the thumb's reach, its last control above the home
    indicator. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .widget-sheet { width: 100%; max-width: none; margin: auto 0 0; max-height: calc(100dvh - max(12px, env(safe-area-inset-top))); }
   .widget-sheet[open] { animation: sheet-up 340ms cubic-bezier(0.32, 0.72, 0, 1); }
   .widget-sheet .widget-full { max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - 44px); border-radius: var(--radius-xl) var(--radius-xl) 0 0; border-bottom: 0; padding-bottom: calc(var(--space-16) + env(safe-area-inset-bottom)); }
@@ -37091,7 +37097,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 @keyframes sheet-up { from { transform: translateY(100%); } }
 .w-main, .w-side { display: grid; gap: var(--space-14); align-content: start; min-width: 0; }
 .w-split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--space-20); align-items: start; }
-@media (max-width: 640px) { .w-split { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .w-split { grid-template-columns: minmax(0, 1fr); } }
 .w-block { display: grid; gap: var(--space-10); padding-top: var(--space-12); border-top: 1px solid var(--line); }
 .w-main > .w-block:first-child, .w-side > .w-block:first-child { border-top: 0; padding-top: 0; }
 .w-block-body { display: grid; gap: var(--space-10); }
@@ -37693,7 +37699,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 @media (prefers-reduced-motion: reduce) { .energy-pulse { animation: none; stroke-dasharray: none; opacity: 0.6; } }
 
 /* A phone: tighter cards, smaller tiles, the range across the width. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .energy .chart-grid { gap: var(--space-10); }
   .energy .chart-card { padding: var(--space-14); gap: var(--space-8); }
   .energy .chart-head { gap: var(--space-10); }
@@ -37746,7 +37752,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-share-keys span { display: inline-flex; align-items: center; gap: var(--space-6); }
 .energy-share-keys .key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
 .energy-share-keys b { color: var(--text); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
-@media (max-width: 640px) { .energy-home { flex-direction: column; align-items: stretch; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .energy-home { flex-direction: column; align-items: stretch; } }
 .energy-total { display: grid; gap: 2px; align-content: start; }
 .energy-total span { display: inline-flex; align-items: center; gap: var(--space-6); font-size: var(--text-xs); color: var(--muted); }
 .energy-total .key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
@@ -37789,7 +37795,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-power { margin-top: var(--space-18); }
 .energy-power[open] > summary { margin-bottom: var(--space-12); }
 .energy-power > .chart-grid { margin-top: var(--space-12); }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .energy-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-10); }
   .energy-tile { padding: var(--space-12) var(--space-14); }
   .energy-tile > b { font-size: var(--text-3xl); }
@@ -37842,7 +37848,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   .consumers .consumer::before, .consumers .consumer-spacer { grid-column: 4; }
   .consumers-inside > span { grid-column: 1 / -1; }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .consumer.action-with-icon, .consumer.rest { grid-template-columns: auto minmax(0, 1fr) auto 16px; grid-template-areas: "name name value icon" "caption note note icon" "track track track track"; align-items: baseline; column-gap: var(--space-12); row-gap: 2px; padding: var(--space-6) var(--space-8); }
   .consumer-name, .consumer-value { display: contents; }
   .consumer-name > span { grid-area: name; }
@@ -37862,7 +37868,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumer.unmeasured { position: relative; }
 .consumer-no-data { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: var(--text-xs); background: repeating-linear-gradient(to right, var(--line) 0 3px, transparent 3px 6px) center / 100% 1px no-repeat; }
 .consumer-no-data > span { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 2px var(--space-8); border-radius: var(--radius-sm); background: var(--material-solid); white-space: nowrap; }
-@media (max-width: 640px) { .consumer-no-data { position: relative; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .consumer-no-data { position: relative; } }
 .consumer-loading { font-size: var(--text-xs); }
 .consumers-loading .consumers, .consumers-loading .actions, .consumers-loading .chart-figure, .consumers-loading .chart-detail { display: none; }
 .consumer-skeleton { display: grid; grid-template-columns: 2fr 1fr; align-items: center; gap: var(--space-16); height: 48px; padding-inline: var(--space-10); }
@@ -38090,6 +38096,8 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .log-details-toggle.action-with-icon::before { width: 11px; height: 11px; }
 
 .log-line .log-details { grid-column: 1 / -1; margin: var(--space-4) 0 var(--space-6); max-height: 420px; overflow: auto; font-size: var(--text-xs); }
+/* Every other line a shade lighter, so a long line's wrap reads as one line and the eye keeps its row. */
+.log > .log-line:nth-child(even):not(.warning, .error, .critical) { background: rgba(255, 255, 255, 0.045); }
 .log-line.warning { background: rgba(201, 115, 26, 0.08); }
 .log-line.warning .text { color: var(--warn); }
 .log-line.error, .log-line.critical { background: rgba(208, 56, 59, 0.08); }
@@ -38135,7 +38143,7 @@ details.entry > summary .entry-move:disabled { opacity: 0.35; }
 @media (hover: hover) and (pointer: fine) { details.entry > summary .entry-move:not(:disabled):hover { background: var(--callout-tint); color: var(--text); } }
 /* A phone: the row's name shortened rather than pushing Remove out, and Remove a round button of its icon, the size of
    Move up and down (its text stays its accessible name). */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   details.entry > summary { gap: var(--space-6); padding-inline: var(--space-12) var(--space-8); }
   details.entry > summary .entry-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   details.entry > summary .entry-detail { display: none; }
@@ -38177,7 +38185,7 @@ dd { margin: 0; }
   .card, header, .log, .banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
   button, input, select, textarea, .pill { border-color: var(--edge); }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   /* The header stays one line: the brand keeps its icon, the links scroll sideways. */
   header { flex-wrap: nowrap; }
   header .brand { font-size: 0; gap: 0; }
@@ -38196,7 +38204,7 @@ dd { margin: 0; }
   .device-row-body { padding-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .servers .server, .card.server { animation: fade var(--normal) ease; } }
-@media (max-width: 640px) { header { gap: var(--space-6); padding: var(--space-6) var(--space-8); } nav a { padding: var(--space-6) var(--space-10); white-space: nowrap; } main { padding: var(--space-14) var(--space-10) 30px; } input[type=range] { width: 110px; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { header { gap: var(--space-6); padding: var(--space-6) var(--space-8); } nav a { padding: var(--space-6) var(--space-10); white-space: nowrap; } main { padding: var(--space-14) var(--space-10) 30px; } input[type=range] { width: 110px; } }
 
 /* The Assistant's chat (chat.js). On a wide window a panel floats beside the page under the header, no scrim,
    so the page stays usable; on a phone it is a sheet over a scrim, dragged by its head. Thick material like
@@ -38249,7 +38257,7 @@ dd { margin: 0; }
 @media (hover: hover) and (pointer: fine) { .chat-model:hover { color: var(--text); background: var(--material-thin); } }
 .chat-model[aria-expanded="true"] { color: var(--text); background: var(--material-thin); }
 /* A phone: the sparkle beside the title goes (the header's button has it), so the model's name has the room. */
-@media (max-width: 640px) { .chat-badge { display: none; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .chat-badge { display: none; } }
 /* A finger gets a taller target than the line it sits on. */
 @media (pointer: coarse) { .chat-model.action-with-icon { padding-block: 7px; margin-block: -5px; } }
 /* A wider window with a mouse: the head is a handle the panel moves by (chat.js). */
@@ -38266,7 +38274,7 @@ dd { margin: 0; }
 .chat-tools a.chat-icon { display: grid; padding: 0; }
 .chat-tools .chat-icon svg { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 /* A phone: the tools a little tighter, so the model's name keeps room beside them. */
-@media (max-width: 640px) { .chat-tools .chat-icon { width: 36px; height: 36px; min-height: 0; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .chat-tools .chat-icon { width: 36px; height: 36px; min-height: 0; } }
 .chat-icon { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 50%; font-size: var(--text-2xl); line-height: 1; }
 .chat-icon svg, .chat-mic svg, .chat-send svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .chat-grabber { display: none; }
@@ -38364,7 +38372,7 @@ dd { margin: 0; }
 .chat-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-4) var(--space-12); margin: var(--space-6) var(--space-16) var(--space-8); min-height: 1.2em; font-size: var(--text-xs); color: var(--muted); text-align: center; letter-spacing: 0.01em; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .chat {
     top: auto; bottom: var(--keyboard, 0px); left: 0; right: 0; width: auto; transform-origin: bottom center;
     height: min(88dvh, 780px, calc(var(--visible, 100dvh) - max(12px, env(safe-area-inset-top))));
@@ -38499,7 +38507,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
    lift left behind by a tap), fields are 16px so Safari does not zoom into them, and the layout pads around the
    notch and the home indicator (viewport-fit=cover). */
 .tabbar { display: none; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   header { top: max(8px, env(safe-area-inset-top)); width: calc(100% - 20px); margin-top: max(var(--space-8), env(safe-area-inset-top)); padding: var(--space-6) var(--space-8) var(--space-6) var(--space-6); }
   header nav { display: none; }
   header .brand { font-size: var(--text-xl); gap: var(--space-8); letter-spacing: -0.015em; }
@@ -38738,7 +38746,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 /* A wall tile pans and tilts only at its large size: a smaller one has no room for the pad. */
 .camera-tile:not(.size-large) .ptz-panel, .camera-tile:not(.size-large) .ptz-toggle { display: none; }
 @media (pointer: coarse) { .ptz-chip { min-height: 40px; } .ptz-panel { bottom: 64px; } }
-@media (max-width: 640px) { .ptz-pad { width: 112px; height: 112px; } .ptz-arrow.up, .ptz-arrow.down { left: 39px; } .ptz-arrow.left, .ptz-arrow.right { top: 39px; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .ptz-pad { width: 112px; height: 112px; } .ptz-arrow.up, .ptz-arrow.down { left: 39px; } .ptz-arrow.left, .ptz-arrow.right { top: 39px; } }
 @media (prefers-reduced-motion: reduce) { .ptz-panel { animation: none; } .ptz-thumb { transition: none; } }
 @media (prefers-reduced-transparency: reduce) {
   .ptz-pad, .ptz-chip, .ptz-status { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(20, 22, 28, 0.85); }
@@ -38758,7 +38766,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   .camera-view:hover > .camera-controls, .camera-view:focus-within > .camera-controls { opacity: 1; }
 }
 @media (pointer: coarse) { .camera-button { width: 40px; height: 40px; min-height: 40px; } }
-@media (max-width: 640px) { .camera-view { margin: -6px -8px 0; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .camera-view { margin: -6px -8px 0; } }
 @media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
 @media (prefers-reduced-transparency: reduce) {
   .camera-badge, .camera-button { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(20, 22, 28, 0.85); }
@@ -38837,7 +38845,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
 .animation-colours { display: grid; gap: var(--space-12); }
 .animation-lights { display: grid; gap: var(--space-6); }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
   .quick-scenes > .scene-run, .quick-scenes > .hub-scene-tile { scroll-snap-align: start; }
 }
@@ -38879,7 +38887,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .template-card .status-line:empty { display: none; }
 /* A phone: rooms and each kind of template scroll sideways from edge to edge of the card, snapping to a pill; the input stays
    at 16px so iOS does not zoom into it. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .template-rooms, .template-buttons {
     flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none;
     margin: 0 -20px; padding: 2px var(--space-20) var(--space-6); scroll-padding: 0 20px;
@@ -38925,7 +38933,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .scene-editor .actions > button { flex: none; white-space: nowrap; }
 .scene-editor .actions > select { width: auto; flex: 0 1 auto; min-width: 0; }
 /* A phone: what the row is about (the accessory) across, the rest under it, Remove at the right end. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .editor-row { padding: var(--space-8); }
   .editor-row select { flex: 1 1 40%; }
   .editor-row > select:first-child { flex-basis: 100%; }
@@ -38944,8 +38952,8 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 .accessories-views > .subnav { margin: 0; min-width: 0; }
 /* Add accessories at the row's end; an icon alone at phone width, as in a toolbar. */
 .accessories-views .accessories-add { margin-left: auto; flex: none; min-height: 40px; }
-@media (max-width: 600px) { .accessories-views > .subnav { flex: 1 1 0; width: auto; } }
-@media (max-width: 600px) { .accessories-views .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; } }
+@media (max-width: 600px), (max-height: 500px) and (pointer: coarse) { .accessories-views > .subnav { flex: 1 1 0; width: auto; } }
+@media (max-width: 600px), (max-height: 500px) and (pointer: coarse) { .accessories-views .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; } }
 .accessories-views .accessory-options-button { display: grid; place-items: center; flex: none; width: 40px; height: 40px; min-height: 40px; padding: 0;
   color: var(--muted); background: var(--material-thin); box-shadow: none; }
 .accessories-views .accessory-options-button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; }
@@ -38963,7 +38971,7 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 /* A phone: each page its glyph over its whole name, as a tab bar. Tabs keep their width (eight would each get a
    sliver and lose their names to "Child …"): the row fills the width when they fit and scrolls when they do not,
    snapping to a tab, its edges fading where tabs are out of sight. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .subnav { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(max-content, 1fr); width: 100%; border-radius: var(--radius); scroll-snap-type: x proximity; overscroll-behavior-x: contain; }
   .subnav a { display: grid; justify-items: center; min-width: 64px; gap: var(--space-4); padding: var(--space-8) var(--space-10) 7px; border-radius: var(--radius-lg); font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: -0.01em; scroll-snap-align: center; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
   .subnav a span { white-space: nowrap; }
@@ -39004,7 +39012,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .audit-details { max-width: 420px; }
 .audit-details code { display: block; font: 0.75rem/1.4 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (prefers-reduced-transparency: reduce) { .admin-dialog::backdrop { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(10, 14, 24, 0.6); } }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .rows > .row, .rows > .row-block > .row { padding: var(--space-10) var(--space-12); }
   .admin-dialog { padding: var(--space-16); }
   .audit-details { max-width: 240px; }
@@ -39044,7 +39052,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .region-field { display: grid; justify-items: start; gap: var(--space-6); margin-top: var(--space-12); }
 .region-field .group { margin-top: 0; }
 .region-field .help { display: block; max-width: 60ch; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   /* The choices fill the card's width; one that needs two rows (the languages) stretches each row's buttons to the
      edge, so neither row is ragged; a button never shrinks below its text, it moves to the next row. */
   .appearance .group { display: flex; border-radius: var(--radius-lg); }
@@ -39209,7 +39217,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 /* A secret left in config.json stays readable but steps back, so the ones that move stand out. */
 .rows > .row.vault-move.left { opacity: 0.55; }
 .vault-shares { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .rows > .row.vault-move { grid-template-columns: auto minmax(0, 1fr); }
   .rows > .row.vault-move > :last-child { grid-column: 2 / -1; }
 }
@@ -39231,7 +39239,7 @@ span.warning, .vault-problem .warning { color: var(--warn); }
 .vault-row .who > strong { display: block; }
 /* On a phone an entry's date gives way to its name and kind; an expiry stays, it is a warning, on a line of its own
    under them so it squeezes neither. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .vault-when > .muted { display: none; }
   .vault-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--space-12); row-gap: 2px; }
   .vault-row > .tile { grid-row: 1 / span 2; }
@@ -39247,7 +39255,7 @@ span.warning, .vault-problem .warning { color: var(--warn); }
 .rows > .row.vault-problem > button { flex-shrink: 0; }
 /* On a phone a problem reads across the card, its button under it and small: beside it, the message ran down a narrow
    column five lines long. The card's rows sit on its own padding rather than adding theirs. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .rows > .row.vault-problem { flex-wrap: wrap; row-gap: var(--space-8); }
   .rows > .row.vault-problem > .who { flex-basis: 100%; }
   .rows > .row.vault-problem > button { padding: var(--space-6) var(--space-12); font-size: var(--text-sm); }
@@ -39283,7 +39291,7 @@ span.warning, .vault-problem .warning { color: var(--warn); }
 .vault-status-row[data-tone="warn"] .vault-status-says { color: var(--warn); }
 .vault-status-more { margin: 0; padding: var(--space-8) var(--space-20) 0 calc(var(--space-20) + 18px); font-size: var(--text-sm); }
 /* On a phone the button takes the card's width under its head, and a row's text goes under the entry's name. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .vault-status .server-head { flex-wrap: wrap; }
   .vault-status .server-head > .button { order: 3; flex-basis: 100%; justify-content: center; margin-left: 0; }
   .vault-status-row { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 2px; }
@@ -39428,7 +39436,7 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 /* The count, Copy, Follow and the menu stay in reach while the page scrolls: under the floating header, solid so the
    lines do not show through. */
 .log-card > .log-action-bar { position: sticky; top: 76px; z-index: 2; background: var(--material-solid); }
-@media (max-width: 640px) { .log-card > .log-action-bar { top: calc(max(var(--space-8), env(safe-area-inset-top)) + 60px); } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .log-card > .log-action-bar { top: calc(max(var(--space-8), env(safe-area-inset-top)) + 60px); } }
 .log-action-bar .count { font-variant-numeric: tabular-nums; font-size: var(--text-sm); }
 /* One line, whatever fits: the count gives way first, cut short, before a button would wrap under the others. */
 .log-card > .log-action-bar { flex-wrap: nowrap; }
@@ -39440,7 +39448,7 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 /* A level's count beside its name: lighter, digits of one width so the buttons do not shift as lines arrive. */
 .log-level-row .log-level-count { margin-inline-start: var(--space-6); font-size: var(--text-sm); font-variant-numeric: tabular-nums; opacity: .6; }
 .log-level-row .group button.on .log-level-count { opacity: .85; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   /* On a phone the filters take three short rows: the levels (the count under each name), the search with Clear
      filters as an icon (only while there is something to clear), and the two menus side by side, named by their
      aria-label rather than a caption. */
@@ -39524,7 +39532,7 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .finder .search { width: 100%; min-width: 0; }
 .finder .popup { width: 100%; max-width: none; margin: 0; }
 .finder > button { white-space: nowrap; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .finder { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 0; border-radius: 0; background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
   .finder .search { grid-column: 1 / -1; }
   .finder > button { justify-content: center; }
@@ -39549,7 +39557,7 @@ select:disabled { opacity: .5; cursor: not-allowed; }
    card each. A row of yours opens what its name opens (its page, else its settings), all of it a target that lights up
    when pressed; its state at the end, then its ⋯. Only what needs doing stands out: a note when it is not running as it
    should, and Set up when its account waits. A catalog row ends with its Add. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .grid.plugin-instances, .grid.plugin-catalog { display: block; overflow: hidden; border-radius: var(--radius-lg);
     background-color: var(--material); background-image: var(--sheen); border: 1px solid var(--edge); box-shadow: var(--shadow), inset 0 1px 0 var(--edge-light);
     -webkit-backdrop-filter: blur(var(--blur)) saturate(180%); backdrop-filter: blur(var(--blur)) saturate(180%);
@@ -39671,7 +39679,7 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) { .hub-scene-tile.compact:has(> .scene-run:active) { transform: none; } }
 /* A phone: the scenes run by name as one list, a row each with its ⋯ at the end, rather than capsules that each
    take a line of their own at a different width. A row lights up when pressed, as a list's rows do. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .scene-around > .chips { display: grid; gap: 0; overflow: hidden; border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--edge); box-shadow: var(--shadow-control); }
   .scene-around .hub-scene-tile.compact { max-width: none; border: 0; border-radius: 0; background: none; box-shadow: none; transition: background-color 120ms var(--ease-out); }
   .scene-around .hub-scene-tile.compact + .hub-scene-tile.compact::before { content: ""; position: absolute; top: 0; right: 0; left: 42px; height: 1px; background: var(--line); }
@@ -39696,7 +39704,7 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .templates[open] .templates-chevron { transform: rotate(180deg); }
 .templates .template-card { padding: 0; }
 .templates .template-rooms { padding-bottom: var(--space-14); border-bottom: 1px solid var(--line); }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   /* The moods and a mood's rooms stay a grid of two: they are the page, not a row beside it. */
   .scene-moods { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: row; grid-auto-columns: auto; overflow: visible; padding: 0; }
   .scene-moods .scene-run { min-height: 116px; }
@@ -39849,9 +39857,9 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .accessories-toolbar .accessory-options-button { display: grid; place-items: center; width: 36px; height: 36px; color: var(--muted); background: var(--material-thin); box-shadow: none; }
 .accessories-toolbar .accessory-options-button svg { fill: none; stroke: currentColor; stroke-width: 1.6; width: 19px; height: 19px; }
 @media (max-width: 650px) { .group-picker-columns { grid-template-columns: 1fr; gap: var(--space-16); } .group-picker-columns .group-member-list { max-height: 25vh; } }
-@media (max-width: 600px) { .accessories-toolbar { width: 100%; } .accessories-toolbar .search { flex: 1 1 100%; width: 100%; } }
+@media (max-width: 600px), (max-height: 500px) and (pointer: coarse) { .accessories-toolbar { width: 100%; } .accessories-toolbar .search { flex: 1 1 100%; width: 100%; } }
 /* Add accessories: its words where there is room, its plus alone beside the other round buttons on a phone. */
-@media (max-width: 600px) { .accessories-toolbar .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; } }
+@media (max-width: 600px), (max-height: 500px) and (pointer: coarse) { .accessories-toolbar .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; } }
 
 /* The Accessories page's tools (accessoriesBar): the toolbar over the views, as far apart as when the toolbar sat in the
    page's head. Its search button is a phone's. */
@@ -39864,7 +39872,7 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
    (when there is one) in the accent, asked what is typed. The wall's Graph, Full screen and Add accessories are in the
    options' menu; on the graph, the wall's button takes you back. It rises with the keyboard. */
 .accessories-ask { display: none; }
-@media (max-width: 600px) {
+@media (max-width: 600px), (max-height: 500px) and (pointer: coarse) {
   main:has(> .accessories-bar) { padding-bottom: calc(var(--tab-bar-top) + 56px + var(--space-24) + env(safe-area-inset-bottom)); }
   .accessories-bar {
     position: fixed; z-index: calc(var(--layer-tabbar) + 1); margin: 0; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
@@ -39977,7 +39985,7 @@ fieldset > .help { margin-bottom: var(--space-10); }
 /* A phone: the Assistant's button above the sections' button, the same 54px circle, in the thumb's reach (chat.js
    moves it to this dock). Hidden while the app is (the sign-in screen). */
 .chat-dock { display: none; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .chat-dock { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--float-button) + var(--space-10)); display: block; }
   body:has(#app.hidden) .chat-dock { display: none; }
   .chat-dock .chat-open { width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
@@ -39985,7 +39993,7 @@ fieldset > .help { margin-bottom: var(--space-10); }
   .chat-dock .chat-open .sparkle { width: 26px; height: 26px; }
 }
 /* Compact mobile navigation, anchored within thumb reach. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .tabbar { left: auto; right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); display: block; padding: 0; border: 0; background: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
   .mobile-nav-toggle { display: grid; place-items: center; width: var(--float-button); height: var(--float-button); min-height: var(--float-button); padding: 0; border-radius: 50%; color: var(--text); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
   .mobile-nav-toggle svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
@@ -39997,16 +40005,16 @@ fieldset > .help { margin-bottom: var(--space-10); }
   .tabbar .mobile-nav-panel a svg { width: 21px; height: 21px; flex: none; }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .mobile-nav-toggle, .mobile-nav-toggle[aria-expanded="true"] { backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); background: linear-gradient(180deg, color-mix(in srgb, var(--accent-fill-top) 72%, transparent), color-mix(in srgb, var(--accent-fill) 72%, transparent)); color: var(--accent-text); border: 1px solid var(--edge-light); box-shadow: 0 6px 22px rgba(0,0,0,.28), 0 0 0 3px var(--material-solid); }
   .mobile-nav-toggle svg { stroke-width: 2.2; }
   .mobile-nav-account { display: flex; align-items: center; gap: var(--space-12); width: 100%; min-height: 44px; padding: var(--space-10) var(--space-12); margin-top: 0; border-radius: var(--radius-md); color: var(--muted); background: transparent; border: 0; box-shadow: none; text-align: start; font-size: var(--text-md); font-weight: var(--weight-semibold); }
   .mobile-nav-account svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 }
 
-@media (max-width: 640px) { header .user-button { display: none; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { header .user-button { display: none; } }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .tabbar .mobile-nav-panel a.active,
   .tabbar .mobile-nav-panel a[aria-current="page"] {
     background: var(--control);
@@ -40055,7 +40063,7 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .status-footer > .link svg { width: 22px; height: 22px; }
 /* On a phone, a round button stacked above the menu button (and above the Assistant's, when it is there), the same
    size, within thumb reach; its words stay its accessible name. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .status-footer { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--float-button) + var(--space-10)); margin: 0; }
   body:has(.chat-dock) .status-footer { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 2 * (var(--float-button) + var(--space-10))); }
   .status-footer > .link { color: var(--text); box-shadow: var(--shadow-thick); }
@@ -40190,7 +40198,7 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .cached-search-tools { display: flex; align-items: center; gap: var(--space-8); margin-left: auto; min-width: 0; }
 .cached-search-tools .search { width: 220px; max-width: 100%; min-width: 0; }
 .cached-search-tools > button { flex-shrink: 0; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .cached-search-tools { flex: 1 1 100%; }
   .cached-search-tools .search { flex: 1; width: auto; }
 }
@@ -40347,7 +40355,7 @@ select option:disabled { color: var(--muted); }
   display: flex; align-items: center; justify-content: center; z-index: 6;
 }
 .wall.editing > .widget.lifted { opacity: .65; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .wall.editing > .widget.group-drop-target::after { font-size: var(--text-xs); }
 }
 
@@ -40513,7 +40521,7 @@ select option:disabled { color: var(--muted); }
 .setup-choices-list { display: grid; gap: var(--space-8); max-height: min(46vh, 420px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; }
 .setup-choice .setup-option { margin: 0; }
 /* On a phone the sheet scrolls, not the list within it. */
-@media (max-width: 640px) { .setup-choices-list { max-height: none; overflow: visible; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .setup-choices-list { max-height: none; overflow: visible; } }
 .setup-option strong { overflow-wrap: anywhere; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); }
 .setup-option-badge { font-size: var(--text-2xs); padding: 1px var(--space-8); }
 /* A word of caution beside a step's message (a phone's private Wi-Fi address). */
@@ -40567,7 +40575,7 @@ select option:disabled { color: var(--muted); }
 .setup-step > .actions:last-child { position: sticky; bottom: calc(-1 * var(--space-20)); margin-bottom: calc(-1 * var(--space-20)); padding: var(--space-16) 0 var(--space-20);
   background: linear-gradient(to bottom, transparent, var(--material-solid) var(--space-8)); }
 /* Opaque from 8px above the buttons: only the space above that fades, so nothing scrolls through under them. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .setup-step > .actions:last-child { bottom: 0; margin-bottom: 0; padding-bottom: calc(var(--space-18) + env(safe-area-inset-bottom, 0px)); }
 }
 .setup-pick input { margin: 0; }
@@ -40609,7 +40617,7 @@ select option:disabled { color: var(--muted); }
   .setup-check { animation: setup-check-in 320ms var(--ease-out) both; }
   @keyframes setup-check-in { from { opacity: 0; transform: scale(0.85); } }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   /* The dot and the menu stay on the name's line; a pill and a button go under the name. */
   .setup-device { grid-template-columns: auto minmax(0, 1fr) auto auto; row-gap: var(--space-8); }
   .setup-device > .status-dot { grid-row: 1; grid-column: 3; }
@@ -40824,7 +40832,7 @@ select option:disabled { color: var(--muted); }
 .detail-status.warn { color: var(--warn); }
 .detail-close, .detail-back { flex: none; width: 32px; height: 32px; min-height: 32px; padding: 0; display: inline-grid; place-items: center; }
 .detail-back { margin-left: -4px; }
-@media (max-width: 640px) { .overview-detail { position: static; width: 100%; max-height: none; margin-top: var(--space-12); box-shadow: var(--shadow-control); } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .overview-detail { position: static; width: 100%; max-height: none; margin-top: var(--space-12); box-shadow: var(--shadow-control); } }
 /* Facts, readings and accessories as inset groups: rows on a tinted panel, a hairline between them. */
 .detail-list, .detail-items { display: block; margin: 0; padding: 0 var(--space-12); list-style: none; border-radius: var(--radius-md); background: color-mix(in srgb, var(--text) 4%, transparent); font-size: var(--text-sm); }
 .detail-list > div { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-14); padding: 7px 0; }
@@ -41037,7 +41045,7 @@ select option:disabled { color: var(--muted); }
 .artwork-theme-row .artwork-choice { scroll-snap-align: start; }
 .artwork-theme[hidden] { display: none; }
 .artwork-picker .artwork-themes { max-height: 640px; overflow-y: auto; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .artwork-theme-row { grid-template-rows: auto; grid-auto-columns: 160px; overscroll-behavior-x: contain; }
 }
 
@@ -41130,7 +41138,7 @@ select option:disabled { color: var(--muted); }
 .location-search-results { display: grid; gap: var(--space-8); }
 .location-search-results button { text-align: left; justify-content: flex-start; white-space: normal; min-height: 44px; }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   :is(.scene-editor, .automation-editor) > .save-bar { position: fixed; left: max(14px, env(safe-area-inset-left)); right: calc(max(14px, env(safe-area-inset-right)) + 64px); bottom: max(14px, env(safe-area-inset-bottom)); margin: 0; padding: var(--space-4); gap: var(--space-4); }
 }
 @media (max-width: 400px) {
@@ -41153,13 +41161,13 @@ select option:disabled { color: var(--muted); }
 .location-result-copy > .muted { font-size: var(--text-sm); }
 .location-search-results button:active { background: var(--material-thick); }
 /* A filtered ancestor would anchor the fixed action bar to the form instead of the viewport. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .scene-editor.card { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--material-solid); }
 }
 
 
 /* Match gallery shelves across templates and plugin scene collections on phones. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .template-group .template-buttons, .scene-tiles:has(> .scene) {
     display: grid; grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: 160px;
     gap: var(--space-12); overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
@@ -41253,7 +41261,7 @@ html.graph-full #view { animation: none; }
 .graph-full-card .overview-zoom button::before { width: 22px; height: 22px; margin: 0; }
 .graph-full-card .overview-zoom button:active { transform: scale(0.94); }
 html.graph-full:not(.wall-awake) .overview-zoom { opacity: 0.32; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .graph-full-card .overview-detail { position: fixed; left: var(--space-8); right: var(--space-8); bottom: max(var(--space-8), env(safe-area-inset-bottom)); width: auto; max-height: 62dvh; margin: 0; box-shadow: var(--shadow-thick); }
 }
 .graph-full-filters { justify-content: flex-start; }
@@ -41292,7 +41300,7 @@ html.wall-full {
   --wall-edge: max(var(--space-16), env(safe-area-inset-right)); --wall-base: max(var(--space-16), env(safe-area-inset-bottom));
   --wall-stack: var(--wall-base);
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   html.wall-full { --wall-edge: max(14px, env(safe-area-inset-right)); --wall-base: max(14px, env(safe-area-inset-bottom)); }
   html.wall-full .chat-dock { right: var(--wall-edge); bottom: var(--wall-base); }
   html.wall-full:has(.chat-dock) { --wall-stack: calc(var(--wall-base) + var(--float-button) + var(--space-10)); }
@@ -41451,7 +41459,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 /* A plugin page's way to its Settings, at the right of its breadcrumb before Pause. */
 .breadcrumb a.button.small.settings-link { flex: none; margin-left: auto; min-height: 0; height: 28px; padding: 0 11px; gap: var(--space-6); font-size: var(--text-xs); color: var(--text); font-weight: var(--weight-medium); }
 .breadcrumb a.button.small.settings-link.action-with-icon::before { width: 12px; height: 12px; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   /* The dot and the button stay on the name's line; a pill goes under the name. */
   .settings-device { row-gap: var(--space-8); }
   .settings-device > .status-dot { grid-row: 1; grid-column: 3; }
@@ -41520,7 +41528,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .logbook-entry .source > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .logbook-entry .source::before { content: none; }
 .logbook-entry .source svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .logbook-entry { grid-template-columns: auto minmax(0, 1fr); padding: var(--space-10) var(--space-12); }
   .logbook-entry .tile { display: none; }
   .logbook-entry .source { grid-column: 2; justify-self: start; max-width: 100%; }
@@ -41556,7 +41564,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .automation-step .step-tools { display: flex; gap: var(--space-6); align-items: center; flex-wrap: wrap; }
 .automation-step .step-tools .icon-button { width: 36px; height: 36px; min-height: 36px; padding: 0; border-radius: 50%; }
 .automation-tool-fields { width: 100%; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .automation-draft-row { flex-direction: column; align-items: stretch; }
   .automation-step .step-tools .icon-button { width: 40px; height: 40px; min-height: 40px; }
 }
@@ -41604,7 +41612,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 /* Image-led house card, with a raised reading panel overlapping only the garden edge. */
 /* The picture reaches the card's edges: the card's side padding, as a variable, is what the story bleeds by. */
 .energy .chart-card.energy-flow { --flow-pad: var(--space-20); padding: 0 var(--flow-pad); border: 0; box-shadow: var(--shadow); }
-@media (max-width: 640px) { .energy .chart-card.energy-flow { --flow-pad: var(--space-14); } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .energy .chart-card.energy-flow { --flow-pad: var(--space-14); } }
 .energy-house-story { margin: 0 calc(-1 * var(--flow-pad)); }
 .energy-house-story .energy-house img { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
 .energy-house-details { position: relative; margin-top: calc(-1 * var(--space-24)); padding: calc(var(--space-24) + var(--space-16)) var(--flow-pad) var(--space-20); border-radius: var(--radius); background: var(--material-solid); box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08); }
@@ -41669,7 +41677,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 }
 /* A phone: the scene keeps the house picture's shape, too low for three or four circles. The diagram of three or more
    gets a square scene, so its circles and figures stay legible; two circles in a row keep the low one. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .energy-house.diagram .energy-house-scene:has(.energy-node ~ .energy-node ~ .energy-node) { aspect-ratio: 1 / 1 !important; }
 }
 /* Beside the title they sit at the right (the row spreads them); under it, at the left, in line with the title. */
@@ -41708,7 +41716,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
   min-height: 36px; padding: 0; border-radius: 50%; display: grid; place-items: center; color: var(--text);
   background: var(--material-thick, var(--material-solid)); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: var(--shadow-control); }
 .energy-values-toggle svg { width: 20px; height: 20px; }
-@media (pointer: coarse), (max-width: 640px) { .energy-values-toggle { width: 40px; height: 40px; min-width: 40px; min-height: 40px; } }
+@media (pointer: coarse), (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .energy-values-toggle { width: 40px; height: 40px; min-width: 40px; min-height: 40px; } }
 .energy-values-toggle.on { color: #fff; background: var(--accent); }
 .energy-house.diagram .energy-values-toggle, .energy-house:not(.photo):not(.simple) .energy-values-toggle { display: none; }
 
@@ -41828,7 +41836,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 @media (prefers-reduced-motion: reduce) {
   .dash-editing > .dash-widget:not([hidden]) { animation: none; }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   /* Beside the sections' button (54px at 14px from the right), on its line and as tall: the thumb finds both. */
   .dash-edit-bar { left: max(14px, env(safe-area-inset-left)); right: calc(max(14px, env(safe-area-inset-right)) + 62px); transform: none; justify-content: space-between;
     bottom: max(14px, env(safe-area-inset-bottom)); min-height: 54px; box-sizing: border-box; padding: var(--space-6); }
@@ -41854,7 +41862,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .dash-widget.dragging > .dash-edit > .dash-edit-shield { background: transparent; }
 
 /* Phones reorder sections as compact rows; Done restores their full contents. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .dash-editing > .dash-widget.dash-compact:not([hidden]):not(.dash-empty) { padding: 0; height: 56px; min-height: 56px; margin-top: var(--space-12); }
   .dash-widget.dash-compact > :not(.dash-edit) { display: none; }
   .dash-widget.dash-compact > .dash-edit > :not(.dash-edit-header):not(.dash-edit-shield) { display: none; }
@@ -41876,7 +41884,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .glance-meter i.tone-4 { background: var(--series-4); }
 .glance-meter i.tone-7 { background: var(--series-7); }
 .dash-edit-remove.tile { width: 26px; height: 26px; min-width: 26px; min-height: 26px; z-index: 1; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .glance-tile { padding: var(--space-12); }
   .glance-tile > b { font-size: var(--text-3xl); }
   .dash-edit-remove.tile { width: 30px; height: 30px; min-width: 30px; min-height: 30px; }
@@ -41904,7 +41912,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .energy-log-row.tone-7 > i { background: var(--series-7); }
 .energy-log-text { display: grid; gap: 2px; font-size: var(--text-base); line-height: 1.35; }
 .energy-log-text small { font-size: var(--text-xs); color: var(--muted); }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .energy-log-kinds { width: 100%; flex-wrap: nowrap; overflow-x: auto; }
   .energy-log-kinds button { flex: none; }
 }
@@ -41981,7 +41989,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .dash-gallery-toggle.remove { background: #c23a3a; }
 .dash-gallery-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; }
 .dash-gallery-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-@media (max-width: 640px) { .dash-gallery-toggle { width: 40px; height: 40px; min-width: 40px; min-height: 40px; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .dash-gallery-toggle { width: 40px; height: 40px; min-width: 40px; min-height: 40px; } }
 /* A group folds by its title: a chevron that turns, the count on the right. */
 .dash-gallery-group > summary { list-style: none; cursor: pointer; padding: var(--space-6) var(--space-4); border-radius: var(--radius-md); background: none; min-height: 40px; box-sizing: border-box; align-items: center; }
 .dash-gallery-group > summary::-webkit-details-marker { display: none; }
@@ -42015,7 +42023,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .dash-thumb .th-stroke.th-4 { stroke: var(--series-4); }
 .dash-thumb .th-stroke.th-7 { stroke: var(--series-7); }
 .dash-thumb .th-stroke.th-accent { stroke: var(--accent); }
-@media (max-width: 640px) { .dash-thumb { width: 52px; height: 36px; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .dash-thumb { width: 52px; height: 36px; } }
 
 /* Sections and widgets as an inset grouped list (iOS Settings): each group one raised card of rows with hairlines,
    its header plain above it, bold, with its count in a badge. On the page is said by the tick and the red −, not by a
@@ -42105,7 +42113,7 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
   .devices-layout > * { transition: opacity 200ms ease, visibility 0s linear 200ms; }
   .devices-layout > .device-detail[hidden], .devices-layout.pushed > .devices-main { transform: none; }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .devices-table { display: block; }
   .energy-device-row { grid-template-columns: minmax(0, 1fr) auto 18px; min-width: 0; padding-inline: var(--space-14); }
   .energy-device-row > .device-share, .energy-device-row > .device-cost { display: none; }
@@ -42133,7 +42141,7 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
 .dash-edit-remove.tile { z-index: 2; }
 .glance-tile.dragging { position: relative; z-index: 25; box-shadow: 0 16px 34px rgba(0, 0, 0, 0.22); }
 .tiles-moving .dash-tile-move, .tiles-moving .dash-tile-size, .tiles-moving .dash-edit-remove.tile { opacity: 0; }
-@media (max-width: 640px) { .dash-tile-size { width: 30px; height: 30px; min-width: 30px; min-height: 30px; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .dash-tile-size { width: 30px; height: 30px; min-width: 30px; min-height: 30px; } }
 
 /* Scene copies share a compact room selector, with separate inclusion and menu targets. */
 .scene-room-list { display: grid; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
@@ -42142,7 +42150,7 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
 .scene-room-choice { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--space-16); cursor: pointer; }
 .scene-room-choice > span:first-child { overflow-wrap: anywhere; }
 .scene-room-row > .menu-button { flex: none; width: 36px; height: 36px; min-height: 36px; }
-@media (max-width: 640px) { .scene-room-row > .menu-button { width: 40px; height: 40px; min-height: 40px; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .scene-room-row > .menu-button { width: 40px; height: 40px; min-height: 40px; } }
 
 .scene-room-selection { margin-bottom: var(--space-16); }
 .scene-room-list + .actions { margin-top: var(--space-16); }
@@ -42206,7 +42214,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .plugins-meta { grid-column: 2; }
   .plugins-open { grid-column: 3; grid-row: 1 / 3; }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .plugins-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); width: 100%; box-sizing: border-box; border-radius: calc(var(--radius) - 2px); }
   .plugins-filters button { min-height: 40px; min-width: 0; padding-inline: var(--space-6); font-size: 12px; border-radius: calc(var(--radius-md) + 1px); }
   .plugins-heading { align-items: flex-start; flex-wrap: wrap; margin-bottom: var(--space-16); }
@@ -42220,7 +42228,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .admin-dialog.sheet.plugins-inspector { box-sizing: border-box; }
 .plugins-accessory > svg { width: 18px; height: 18px; flex: 0 0 18px; }
 .plugins-accessory > .tile { flex-shrink: 0; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .plugins-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-radius: var(--radius-lg); overflow: visible; }
   .plugins-tabs button { flex-direction: column; gap: var(--space-4); min-width: 0; padding: var(--space-8) calc(var(--space-4) / 2); font-size: 11px; border-radius: var(--radius-md); }
 }
@@ -42236,7 +42244,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .plugins-settings-actions > .button > svg { flex: 0 0 18px; width: 18px; height: 18px; }
 @media (hover: hover) { .plugins-settings-actions > .button:hover { background: color-mix(in srgb, var(--accent) 8%, var(--material-solid)); } }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .plugins-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: var(--space-12); gap: var(--space-10); }
   .plugins-toolbar .plugins-filters { grid-column: 1 / -1; }
   .plugins-toolbar .search { width: 100%; min-width: 0; }
@@ -42251,7 +42259,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .plugins-toolbar .search { width: 100%; min-width: 0; }
   .plugins-toolbar:has(.clear-filters:disabled) .search { grid-column: 1 / -1; }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .plugins-toolbar:has(.clear-filters:disabled) .search { grid-column: 1 / -1; }
 }
 /* Status and count occupy the middle of the list instead of stacking under names. */
@@ -42285,7 +42293,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .logbook-card .logbook-entry .source { border: 0; background: none; padding: 0; font-size: var(--text-xs); font-weight: var(--weight-regular, 400); }
 .logbook-card .logbook > .empty, .logbook-card .logbook > .error { padding: var(--space-16); margin: 0; }
 @media (hover: hover) and (pointer: fine) { .logbook-card .logbook-entry:hover { background: var(--material-thin); } }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .logbook-card .logbook-periods button { min-width: 0; white-space: normal; font-size: var(--text-xs); }
   .logbook-card .logbook-entry { grid-template-columns: auto minmax(0, 1fr); padding: var(--space-8) var(--space-12); gap: 1px var(--space-8); }
   .logbook-toolbar .clear-filters { width: 40px; height: 40px; min-height: 40px; flex-basis: 40px; }
@@ -42349,13 +42357,13 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .history-full .history-details { padding-top: 0; }
 .history-full .history-details > summary { padding: var(--space-8) var(--space-12); font-size: var(--text-xs); }
 .history-full > .history-note, .history-full > .actions { padding: var(--space-12) var(--space-16); font-size: var(--text-xs); }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
  .history-full .history-head .tools, .history-full .history-head .group { width: 100%; }
  .history-full .history-head .group button { flex: 1; }
 }
 
 /* Logbook has three scope menus, unlike Logs' single source menu. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .logbook-card > .logbook-toolbar { display: flex; flex-direction: row; flex-wrap: wrap; gap: var(--space-8); padding: var(--space-10); }
   .logbook-toolbar > .log-scope-row { display: grid; flex: 1 1 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6); }
   .logbook-toolbar .log-scope-row > label { grid-area: auto; }
@@ -42492,7 +42500,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .tabbar-tabs { display: none; }
 .log-filters-toggle, .log-to-end { display: none; }
 :root { --tab-bar-top: calc(max(14px, env(safe-area-inset-bottom)) + 66px); --float-action: 48px; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .tabbar { left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); }
   .tabbar .mobile-nav-toggle { display: none; }
   .tabbar-tabs { display: flex; gap: 2px; padding: 5px; border-radius: var(--radius-pill); background-color: var(--material-chrome); background-image: var(--sheen);
@@ -42582,6 +42590,26 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .dash-editing { padding-bottom: calc(var(--tab-bar-top) + var(--space-10) + 64px); }
 }
 @media (prefers-reduced-motion: reduce) { .tabbar .tabbar-tabs > :is(a, button) { transition: none; } }
+
+/* A phone held sideways keeps the phone's layout with less height to spend, as iOS does: a compact tab bar (each icon
+   beside its name), and the header scrolls away with the page rather than floating over it. */
+@media (max-height: 500px) and (pointer: coarse) {
+  :root { --tab-bar-top: calc(max(8px, env(safe-area-inset-bottom)) + 46px); }
+  .tabbar { bottom: max(8px, env(safe-area-inset-bottom)); }
+  .tabbar-tabs { padding: 3px; }
+  .tabbar .tabbar-tabs > :is(a, button) { flex-direction: row; gap: var(--space-8); min-height: 38px; padding: var(--space-4) var(--space-8); font-size: var(--text-sm); }
+  .tabbar .tabbar-tabs svg { width: 21px; height: 21px; }
+  .tabbar .mobile-nav-panel { bottom: 52px; max-height: calc(100dvh - 80px); }
+  header { position: relative; top: 0; }
+  html .log-card > .log-action-bar, .accessories-bar { padding: 3px; }
+  html .log-action-bar > :is(button, .menu-button), .accessories-bar .accessories-toolbar > :is(button, a), .accessories-bar .accessories-toolbar > .accessory-options-button {
+    width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
+  html .log-card > .log-action-bar > .search, .accessories-bar .search { height: 40px; }
+  #app > main:has(> .log-card), main:has(> .accessories-bar) { padding-bottom: calc(var(--tab-bar-top) + 48px + var(--space-24)); }
+  .log-card > .log { min-height: calc(100dvh - var(--tab-bar-top) - 48px - var(--space-24) - 70px); }
+  .log-card > .log-to-end { bottom: calc(var(--tab-bar-top) + var(--space-10) + 48px + var(--space-10)); }
+  .log-card.filters-open > .log-filter-panel { bottom: calc(var(--tab-bar-top) + var(--space-10) + 48px + var(--space-10)); max-height: calc(100dvh - var(--tab-bar-top) - 80px); }
+}
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
@@ -45049,7 +45077,7 @@ self.addEventListener("notificationclick", (event) => {
     if (options.tab === "history" && tabList) choose("history");
     done.addEventListener("click", () => dialog.close());
     // On a phone a swipe down from the grabber or the name puts the sheet away, from where the finger left it.
-    if (matchMedia("(max-width: 640px)").matches) {
+    if (matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)").matches) {
       node.prepend(el("div", { class: "sheet-grabber", "aria-hidden": "true" }));
       const dismiss = () => {
         const from = getComputedStyle(dialog).transform;
