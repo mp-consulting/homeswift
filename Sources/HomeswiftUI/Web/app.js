@@ -4001,12 +4001,11 @@
           : t("Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.")}`, name);
       await applyRoomName(name, answer);
     }
-    /// Renames a room (to the trimmed `answer`, unless empty or unchanged); answers whether it was.
-    async function applyRoomName(name, answer) {
-      const to = answer?.trim();
-      if (!to || to === name) return false;
+    /// Changes the rooms (`PUT /api/rooms` with `body`), says what Apple Home or a hub refused, and moves the accessories
+    /// of `name` to `to` (null: No room); answers whether it was done.
+    async function changeRooms(body, name, to) {
       try {
-        const result = await api("/api/rooms", { method: "PUT", body: { renameRoom: { from: name, to } } });
+        const result = await api("/api/rooms", { method: "PUT", body });
         const failed = (result.hubRooms || []).filter((room) => !room.renamed);
         const refused = (result.appleHomeRefused || []).map((one) => t("Apple Home refused: {reason}", { reason: one.reason }));
         if (failed.length || refused.length) HomeswiftCommon.showAlert([...refused, ...failed.map((room) => t("Not renamed on {hub}: {error}", { hub: room.name, error: room.error }))].join("\n"));
@@ -4017,21 +4016,19 @@
         return true;
       } catch (e) { HomeswiftCommon.showAlert(e.message); return false; }
     }
+    /// Renames a room (to the trimmed `answer`, unless empty or unchanged); answers whether it was.
+    async function applyRoomName(name, answer) {
+      const to = answer?.trim();
+      if (!to || to === name) return false;
+      return changeRooms({ renameRoom: { from: name, to } }, name, to);
+    }
     /// Removes a room once confirmed: its accessories go to No room, and with the Home Link it goes from Apple Home too.
     async function removeRoom(name) {
       const count = all.filter((accessory) => accessory.room === name).length;
       const where = count ? tn("Its accessory goes to No room.", "Its {n} accessories go to No room.", count) : t("It has no accessories.");
       const confirmed = await HomeswiftCommon.confirmAction({ title: t("Remove the room {room}?", { room: name }),
         text: [where, homeLink.linked ? t("It is removed from Apple Home too.") : null], confirmLabel: t("Remove"), confirmIcon: "trash" });
-      if (!confirmed) return;
-      try {
-        const result = await api("/api/rooms", { method: "PUT", body: { removeRooms: [name] } });
-        const refused = (result.appleHomeRefused || []).map((one) => t("Apple Home refused: {reason}", { reason: one.reason }));
-        if (refused.length) HomeswiftCommon.showAlert(refused.join("\n"));
-        rooms.splice(0, rooms.length, ...result.rooms.map((room) => room.name));
-        for (const accessory of all) if (accessory.room === name) accessory.room = null;
-        render();
-      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      if (confirmed) await changeRooms({ removeRooms: [name] }, name, null);
     }
     /// A room's heading in Edit: its name as a field, renamed on Enter or when it loses focus; Escape puts it back.
     function roomNameField(name) {
@@ -4069,7 +4066,7 @@
         { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
         ...(homeLink.waiting ? [{ label: t("Link with Apple Home…"), icon: "link", onSelect: () => HomeswiftHomeLink.review(() => route()) }] : []),
         { separator: true },
-        { heading: t("Apple Home"), detail: HomeswiftHomeLink.status(homeLink).text, callout: true, tone: HomeswiftHomeLink.status(homeLink).tone, icon: "house" },
+        HomeswiftHomeLink.menuItem(homeLink),
       ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Rooms") }));
 
     function render() {
@@ -4209,7 +4206,7 @@
       // The Zones and where the rooms stand with Apple Home, without going through Edit.
       ...(isAdmin() && rooms.length ? [{ separator: true }, { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
         ...(homeLink.waiting ? [{ label: t("Link with Apple Home…"), icon: "link", onSelect: () => HomeswiftHomeLink.review(() => route()) }] : []),
-        { heading: t("Apple Home"), detail: HomeswiftHomeLink.status(homeLink).text, callout: true, tone: HomeswiftHomeLink.status(homeLink).tone, icon: "house" }] : []),
+        HomeswiftHomeLink.menuItem(homeLink)] : []),
     ]);
     more.replaceChildren(HomeswiftCommon.icon("sliders"));
     more.classList.add("accessory-options-button");

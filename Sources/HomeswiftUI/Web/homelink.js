@@ -33,6 +33,12 @@
     return { text: [...(link.state === "up" ? [] : [result.text]), ...details].join("\n"), tone: link.refused?.length ? "error" : "warn" };
   }
 
+  /// The Home Link's state as a menu's last item: a callout in the colour of its tone.
+  function menuItem(link) {
+    const { text, tone } = status(link);
+    return { heading: t("Apple Home"), detail: text, callout: true, tone, icon: "house" };
+  }
+
   function dialogShell(title, ...content) {
     const previousFocus = document.activeElement;
     const dialog = el("dialog", { class: "admin-dialog card home-link-dialog", "aria-label": title });
@@ -144,5 +150,5 @@
     dialog.showModal();
   }
 
-  window.HomeswiftHomeLink = { status, review, zones };
+  window.HomeswiftHomeLink = { status, menuItem, review, zones };
 })();

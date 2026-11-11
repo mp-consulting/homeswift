@@ -424,12 +424,11 @@
           el("span", { class: "menu-choice-label", text: item.label }), el("div", { class: "menu-choice-row" }, choices));
       }
       // Who the menu is about (the header's account menu): a name and a line under it, not an action.
-      // `callout`: a notice set apart in a tinted box (the Home Link's state), `tone` "warn" or "error" colouring it.
-      if (item.heading !== undefined && item.callout) {
-        return el("div", { class: `menu-heading menu-callout${item.tone ? ` ${item.tone}` : ""}`, role: "note" },
-          item.icon ? icon(item.icon) : null, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
+      // `callout`: a notice set apart in a tinted box with its icon (the Home Link's state), `tone` "warn" or "error".
+      if (item.heading !== undefined) {
+        return el("div", item.callout ? { class: `menu-heading menu-callout${item.tone ? ` ${item.tone}` : ""}`, role: "note" } : { class: "menu-heading" },
+          item.callout && item.icon ? icon(item.icon) : null, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
       }
-      if (item.heading !== undefined) return el("div", { class: "menu-heading" }, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
       // `checked` may be a function, asked again after each choice of a menu that stays open (a Group's row follows
       // its members'); "mixed" for some of them.
