@@ -53,6 +53,7 @@ struct Structure: Sendable {
     var bridgeHome: String?
     var homes: [Home]
     var devices: [String: Device]
+    private var unresolvedIdentityHomes: Set<String> = []
     /// The accessories Homeswift mirrors, by HomeKit id.
     var mirrored: Set<String>
     var scenes: [WingmanAPI.Scene] = []
@@ -101,6 +102,18 @@ struct Structure: Sendable {
                 } else {
                     homeswift = accessory.serialNumber.map(own.contains) == true ? .own : nil
                 }
+                // Ownership itself depends on identity. An unread serial on a Homeswift bridge (or a possible
+                // standalone accessory when this host publishes some) cannot be treated as proof of absence.
+                let hasSerial = accessory.services.contains { service in
+                    service.characteristics.contains { HAPUUID($0.type) == CharacteristicType.serialNumber.uuid }
+                }
+                let unknownBridge = accessory.bridge.map { $0.manufacturer == "Homeswift" || $0.model == "Homeswift" } == true
+                let possibleOwn = accessory.bridge == nil && !own.isEmpty && hasSerial
+                let bridgeAccessory = accessory.manufacturer == "Homeswift" || accessory.model == "Homeswift"
+                if accessory.serialNumber?.isEmpty != false,
+                   homeswift != nil || unknownBridge || possibleOwn || bridgeAccessory {
+                    unresolvedIdentityHomes.insert(homeID)
+                }
                 let information = ServiceType.accessoryInformation.uuid
                 let main = accessory.services.filter { HAPUUID($0.type) != information }.sorted { ($0.primary == true ? 0 : 1) < ($1.primary == true ? 0 : 1) }
                 let groupTypes: Set<HAPUUID> = [ServiceType.lightbulb.uuid, ServiceType.switch.uuid, ServiceType.outlet.uuid,
@@ -124,12 +137,20 @@ struct Structure: Sendable {
         homes.first { home in home.accessories.contains { $0.serialNumber.map { bridges.contains($0.uppercased()) } == true } }?.id
     }
 
+    /// A missing cached identity is not evidence that an accessory was removed from Apple Home. Do not adopt
+    /// partial groups or consume Pending Changes until Wingman has read the bridge's accessory identities.
+    var incompleteIdentityReason: String? {
+        guard let bridgeHome else { return nil }
+        guard unresolvedIdentityHomes.contains(bridgeHome) else { return nil }
+        return "Waiting for Homeswift Wingman to read Accessory Information (Serial Number) in Apple Home"
+    }
+
     // MARK: The Home Link
 
     /// The Home as Homeswift's Home Link gives it: the bridge's home, with Homeswift's ids for the accessories it has.
     /// nil when this Wingman cannot be the Home Link, or sees no home with the bridge in it.
     func homeSnapshot(in context: PluginContext) -> HomeSnapshot? {
-        guard servesHomeLink, let id = bridgeHome, let home = home(id) else { return nil }
+        guard servesHomeLink, incompleteIdentityReason == nil, let id = bridgeHome, let home = home(id) else { return nil }
         var placements: [String: String?] = [:]
         var byService: [String: String] = [:]
         let index = context.publishedIndex()
@@ -462,6 +483,7 @@ extension WingmanPlugin {
         }
         guard structure.allowed else { return .readOnly("turn on Let bridges edit rooms, scenes and automations in Homeswift Wingman's settings") }
         guard home.editable else { return .readOnly("the Mac running Homeswift Wingman is signed in to an account that does not administer \(home.name)") }
+        if let reason = structure.incompleteIdentityReason { return .down(reason) }
         return .up
     }
 
@@ -471,6 +493,8 @@ extension WingmanPlugin {
 
     public func applyHomeChange(_ change: HomeChange) async throws -> String? {
         guard let (link, structure, home) = await homeLinkOwner() else { throw HomeChangeError(.unreachable, "Homeswift Wingman is not reachable") }
+        guard structure.allowed, home.editable else { throw HomeChangeError(.refused, "Apple Home does not allow this bridge to edit \(home.name)") }
+        if let reason = structure.incompleteIdentityReason { throw HomeChangeError(.unreachable, reason) }
         func accessory(_ id: String) throws -> String {
             guard let found = structure.homeKitID(of: id, place: context.publishedPlace(ofAccessory: id)), structure.devices[found]?.home == home.id else {
                 throw HomeChangeError(.notFound, "\(id) is not in \(home.name)")

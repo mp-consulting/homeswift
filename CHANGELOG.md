@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Home Link**: wait for Wingman to read missing accessory serial numbers before applying changes or adopting
+  groups. Incomplete HomeKit identity data no longer treats present accessories as absent or drops group members;
+  Pending Changes resume when the identities arrive.
+
 ## [0.28.1] - 2026-11-11
 
 ### Fixed
