@@ -461,7 +461,7 @@ extension WingmanPlugin {
 
     /// The link that is the Home Link: of those whose Wingman serves it and sees the bridge's home, the first connected
     /// one by Wingman id, so another takes over when it goes down.
-    private func homeLinkOwner() async -> (link: Link, structure: Structure, home: Structure.Home)? {
+    func homeLinkOwner() async -> (link: Link, structure: Structure, home: Structure.Home)? {
         for (link, structure) in await structures() where structure.servesHomeLink {
             guard await link.isConnected, let id = structure.bridgeHome, let home = structure.home(id) else { continue }
             return (link, structure, home)

@@ -45,6 +45,27 @@ struct StructureTests {
         await host.stop()
     }
 
+    /// Apple Home's groups of fewer than two accessories, counted in Apple Home (a group of accessories Homeswift does not
+    /// have is not one), are listed and removed; a real group stays.
+    @Test func emptyGroupsAreListedAndRemoved() async throws {
+        let (host, plugin) = try await start()
+        try publishPlug(host)
+        environment.wingman.changeInAppleHome { _, groups in
+            groups = [
+                ["id": "group-empty", "name": "Spots Salon", "services": [String]()],
+                ["id": "group-one", "name": "Volets Salon", "services": ["svc-a"]],
+                ["id": "group-real", "name": "Not Homeswift's", "services": ["svc-b", "svc-c"]],
+            ]
+        }
+        #expect(await eventually { await plugin.emptyGroups()?.groups.count == 2 })
+        let listed = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "empty-groups", user: "test"))
+        #expect(listed.json["groups"]?.arrayValue?.compactMap { $0["name"]?.stringValue } == ["Spots Salon", "Volets Salon"])
+        let answer = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "empty-groups/remove", body: [:], user: "test"))
+        #expect(answer.json["removed"]?.arrayValue?.count == 2)
+        #expect(environment.wingman.groups.compactMap { $0["id"] as? String } == ["group-real"])
+        await host.stop()
+    }
+
     @Test func incompleteIdentityWaitsForHomeKitAndRecovers() async throws {
         environment.wingman.missingSerial("homeswift-switch", true)
         let (host, plugin) = try await start()

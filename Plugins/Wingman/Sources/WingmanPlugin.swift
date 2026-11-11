@@ -237,6 +237,10 @@ public actor WingmanPlugin: HomeswiftPlugin {
                 }
             }
             return PluginWebResponse(["wingmen": .array(list)])
+        case ("GET", "empty-groups"):
+            return await emptyGroupsResponse()
+        case ("POST", "empty-groups/remove"):
+            return await removeEmptyGroups(request.body["ids"]?.arrayValue?.compactMap(\.stringValue))
         default:
             return .error(404, "nothing at \(request.method) \(request.path)")
         }

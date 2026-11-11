@@ -9,6 +9,19 @@ extension WingmanPlugin {
             description: "The Wingmen this instance mirrors Apple Home from: address, state (connected, unreachable, unpaired), how many accessories, "
                 + "how many do not respond, the homes, the last error.",
             path: "wingmen", access: .read),
+        AssistantAction(
+            name: "list_empty_groups", title: "Look for Apple Home's empty groups",
+            description: "The groups of the bridge's home in Apple Home that hold fewer than two accessories (counted in Apple Home, "
+                + "Homeswift's or not): the Home app does not show them, and an interrupted group creation can leave one, which then "
+                + "takes its name (HMErrorDomain 13) and counts towards HomeKit's limit (HMErrorDomain 49). id, name, accessories.",
+            path: "empty-groups", access: .read),
+        AssistantAction(
+            name: "remove_empty_groups", title: "Remove Apple Home's empty groups",
+            description: "Removes from Apple Home the groups list_empty_groups gives (all of them, or those of ids) that still hold "
+                + "fewer than two accessories. Answers removed and failed.",
+            method: "POST", path: "empty-groups/remove", access: .configure,
+            inputSchema: ["type": "object", "properties": ["ids": ["type": "array", "items": ["type": "string"], "description": "Group ids from list_empty_groups; all of them when left out"]]],
+            confirm: true),
     ]
 
     public static let assistantBackground: String? = """
