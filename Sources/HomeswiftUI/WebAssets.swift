@@ -8189,9 +8189,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const box = phone.matches ? document.scrollingElement : output;
       return box.scrollHeight - box.scrollTop - (phone.matches ? innerHeight : box.clientHeight) < 40;
     };
+    // On a phone, again once laid out: the page's height is only known after the lines are drawn.
     const toEnd = () => {
-      if (phone.matches) document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
-      else output.scrollTop = output.scrollHeight;
+      if (!phone.matches) { output.scrollTop = output.scrollHeight; return; }
+      const end = () => { document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight; };
+      end();
+      requestAnimationFrame(end);
     };
     logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false, atEnd, toEnd };
     choose();
@@ -42469,9 +42472,13 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   /* The Logs page: the log is the page, scrolled as the page is, under its title alone; its actions are one glass bar
      over the tab bar (the menu, the text filter, Filters, the Assistant, Follow), and the other filters a sheet above it. */
   main:has(> .log-card) .page-head p { display: none; }
-  main:has(> .log-card) { padding-bottom: calc(var(--tab-bar-top) + 56px + var(--space-24)); }
+  #app > main:has(> .log-card) { padding-bottom: calc(var(--tab-bar-top) + 56px + var(--space-24)); }
   .log-card { overflow: visible; padding: 0; background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
-  .log-card > .log { height: auto; min-height: 50dvh; overflow: visible; padding: var(--space-12) var(--space-14); border: 1px solid var(--edge); border-radius: var(--radius-lg); }
+  /* The newest line sits just above the bar, as in a chat: the log is at least the screen's height left under the title,
+     its lines at its foot, so a short log grows upwards from the bar and new lines arrive beside it. */
+  .log-card > .log { display: flex; flex-direction: column; justify-content: flex-end; height: auto; overflow: visible;
+    min-height: calc(100dvh - var(--tab-bar-top) - 56px - var(--space-24) - 150px); padding: var(--space-12) var(--space-14); border: 1px solid var(--edge); border-radius: var(--radius-lg); }
+  .log-card > .log > .log-loading { flex: 1; }
   html .log-card > .log-action-bar {
     position: fixed; z-index: calc(var(--layer-tabbar) + 1); top: auto; margin: 0; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
     bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--keyboard, 0px));

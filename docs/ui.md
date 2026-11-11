@@ -818,8 +818,8 @@ oldest removed past 64 MB or 7 days, written in batches once a second so logging
 
 <img src="images/ui/logs-phone.png" alt="The Logs page on a phone: the log fills the screen, one glass bar of actions above the tab bar" width="300"> <img src="images/ui/logs-phone-filters.png" alt="The Logs page on a phone with Filters open: the levels, what the lines are about and the time range in a sheet above the bar" width="300">
 
-On a phone the log is the page: it scrolls as the page does, under the title alone, and Follow keeps the page's end in
-view. Its actions are one glass bar above the tab bar: the **⋯** menu (the count, Copy, Save payloads, Download, Empty
+On a phone the log is the page: it scrolls as the page does, under the title alone, its newest line just above the
+bar, where new lines arrive (a short log grows upwards from it), and Follow keeps the page's end in view. Its actions are one glass bar above the tab bar: the **⋯** menu (the count, Copy, Save payloads, Download, Empty
 the log), the text filter, **Filters** (its badge counts the filters that are not the defaults), the Assistant's
 Diagnose and Follow. **Filters** opens the levels, what the lines are about and the time range in a sheet above the bar.
 

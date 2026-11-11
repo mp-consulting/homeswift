@@ -5811,9 +5811,12 @@
       const box = phone.matches ? document.scrollingElement : output;
       return box.scrollHeight - box.scrollTop - (phone.matches ? innerHeight : box.clientHeight) < 40;
     };
+    // On a phone, again once laid out: the page's height is only known after the lines are drawn.
     const toEnd = () => {
-      if (phone.matches) document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
-      else output.scrollTop = output.scrollHeight;
+      if (!phone.matches) { output.scrollTop = output.scrollHeight; return; }
+      const end = () => { document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight; };
+      end();
+      requestAnimationFrame(end);
     };
     logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false, atEnd, toEnd };
     choose();
