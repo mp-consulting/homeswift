@@ -338,7 +338,8 @@ try {
   await shot("config", "/settings/config", { ready: ".code-editor", tall: 900 });
   await shot("logs", "/logs?level=trace", { ready: ".log-filter-panel", tall: 900 });
   await shot("logs-medium", "/logs?level=trace", { width: 1145, height: 867, ready: ".log-filter-panel" });
-  await shot("logs-phone", "/logs?level=trace", { width: 390, height: 844, mobile: true, ready: ".log-filter-panel" });
+  await shot("logs-phone", "/logs?level=trace", { width: 390, height: 844, mobile: true, ready: ".log-filters-toggle", viewportOnly: true });
+  await shot("logs-phone-filters", "/logs?level=trace", { width: 390, height: 844, mobile: true, ready: ".log-filters-toggle", viewportOnly: true, prepare: 'document.querySelector(".log-filters-toggle").click();' });
   await shot("appearance", "/appearance", { ready: ".wallpapers", tall: 2200 });
   await shot("backups-phone", "/settings/backups", { width: 375, height: 812, mobile: true, ready: ".drop-zone" });
   await shot("audit-phone", "/settings/audit?since=7d", { width: 375, height: 812, mobile: true, ready: ".audit-filter-footer" });

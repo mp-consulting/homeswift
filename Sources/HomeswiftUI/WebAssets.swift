@@ -8152,6 +8152,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const filter = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Filter the log") });
     const follow = el("input", { type: "checkbox", checked: true });
     const count = el("span", { class: "muted count" });
+    // A phone reads the log as the page: no box of its own to scroll, its bar of actions over the tab bar.
+    const phone = matchMedia("(max-width: 640px)");
     // What the lines are about (sourceFilter): every line; the bridges' own lines (their servers': connections,
     // pairings, controllers), every bridge's or one's; or one accessory's (those of its own server and those naming
     // it, its id or its address). The server picks them before its limit (UIServer.logMatcher), so a week of one
@@ -8182,7 +8184,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // `live`: new lines join the page (not while a span in the past is shown); `cap`: how many it keeps.
     filter.value = params.get("q") ?? "";
     const level = levelChoices.some(([value]) => value === params.get("level")) ? params.get("level") : "info";
-    logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false };
+    // Its end: the box's, or on a phone the page's.
+    const atEnd = () => {
+      const box = phone.matches ? document.scrollingElement : output;
+      return box.scrollHeight - box.scrollTop - (phone.matches ? innerHeight : box.clientHeight) < 40;
+    };
+    const toEnd = () => {
+      if (phone.matches) document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
+      else output.scrollTop = output.scrollHeight;
+    };
+    logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false, atEnd, toEnd };
     choose();
     const levels = el("div", { class: "group", role: "group", "aria-label": t("Levels shown") }, levelChoices.map(([level, text]) =>
       el("button", { text, class: level === logState.level ? "on" : "", "aria-pressed": String(level === logState.level), onclick: (event) => {
@@ -8210,12 +8221,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       output.replaceChildren(...(shown.length ? shown.map(lineNode) : [el("p", { class: "muted empty-log", text: t("No line matches.") })]));
       count.textContent = logState.capped ? tn("{shown} of {n} line (the latest of the range)", "{shown} of {n} lines (the latest of the range)", logState.lines.length, { shown: shown.length })
         : tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: shown.length });
-      if (follow.checked) output.scrollTop = output.scrollHeight;
+      showFilterCount();
+      if (follow.checked) toEnd();
     };
     // Typing filters once it pauses: thousands of lines are not drawn again per key.
     let typing = null;
     filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { render(); keepAddress(); }, 120); });
-    follow.addEventListener("change", () => { if (follow.checked) output.scrollTop = output.scrollHeight; });
+    follow.addEventListener("change", () => { if (follow.checked) toEnd(); });
 
     // A time range (HomeswiftCommon.rangeControl): the latest lines from memory, or a span from the log the bridge keeps on disk
     // (rotated, a week at most). A span that ends now keeps following; one in the past stays as it is.
@@ -8301,12 +8313,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const level = line.level === "info" || line.level === "notice" ? "" : ` [${line.level.toUpperCase()}]`;
       return `${line.time} [${line.label}]${level} ${line.text}`;
     };
-    const copy = el("button", { actionIcon: "copy", text: t("Copy"), title: t("Copy the lines shown"), onclick: async () => {
+    const copyLines = async () => {
       const shown = shownLines();
-      const text = shown.map(asText).join("\n");
+      await copyText(shown.map(asText).join("\n"));
+      return shown.length;
+    };
+    const copy = el("button", { actionIcon: "copy", class: "log-copy", text: t("Copy"), title: t("Copy the lines shown"), onclick: async () => {
       try {
-        await copyText(text);
-        copy.textContent = tn("Copied {n} line", "Copied {n} lines", shown.length);
+        copy.textContent = tn("Copied {n} line", "Copied {n} lines", await copyLines());
       } catch (e) {
         copy.textContent = t("Not copied");
         copy.title = e.message;
@@ -8324,11 +8338,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const chosen = range.span();
       const query = new URLSearchParams();
       if (chosen) { query.set("from", chosen[0].toISOString()); if (chosen[1]) query.set("to", chosen[1].toISOString()); }
-      // A phone keeps the toolbar short: Save payloads is here rather than beside Follow.
-      const phone = matchMedia("(max-width: 640px)").matches && !saveToggle.classList.contains("hidden");
+      // A phone keeps its bar short: the count, Copy and Save payloads are here rather than in it.
+      const saving = phone.matches && !saveToggle.classList.contains("hidden");
       return [
-        phone ? { label: t("Save payloads"), checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
-        phone ? { separator: true } : null,
+        phone.matches ? { heading: count.textContent } : null,
+        phone.matches ? { label: t("Copy the lines shown"), icon: "copy", onSelect: () => copyLines().catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
+        saving ? { label: t("Save payloads"), checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
+        phone.matches ? { separator: true } : null,
         { label: chosen ? t("Download this range") : t("Download the whole log"), icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
         { label: t("Empty the log…"), icon: "trash", danger: true, onSelect: async () => {
           if (!await HomeswiftCommon.confirmDialog(t("Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone."))) return;
@@ -8336,30 +8352,59 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         } },
       ];
     });
+    const clear = HomeswiftCommon.clearFilters([[filter, ""], [sources.picker, ""]], {
+      active: () => logState.level !== "info" || range.chosen(), events: [[levels, "click"], [range.control, "change"]],
+      reset: () => {
+        clearTimeout(typing);
+        range.reset();
+        logState.level = "info";
+        for (const [index, button] of [...levels.children].entries()) {
+          const selected = levelChoices[index][0] === "info";
+          button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
+        }
+      },
+    });
+    const levelRow = el("div", { class: "log-level-row" }, levels, filter, clear);
+    const panel = el("div", { class: "log-filter-panel", id: "log-filter-panel" }, levelRow,
+      // A div, not a label: a label would press the control's first choice when its text is clicked.
+      el("div", { class: "log-scope-row" },
+        el("div", { class: "log-time" }, el("span", { text: t("Time range") }), range.control),
+        el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker)));
+    // On a phone the filters wait behind Filters, a sheet over the bar; its count says how many are not the defaults.
+    const filterCount = el("span", { class: "toolbar-count hidden" });
+    const filtersButton = el("button", { type: "button", class: "log-filters-toggle", "aria-label": t("Filters"), title: t("Filters"), "aria-controls": "log-filter-panel", "aria-expanded": "false" },
+      HomeswiftCommon.icon("filter"), filterCount);
+    function showFilterCount() {
+      const chosen = (logState.level !== "info") + Boolean(range.chosen()) + Boolean(sources.picker.value);
+      filterCount.textContent = String(chosen);
+      filterCount.classList.toggle("hidden", !chosen);
+      filtersButton.classList.toggle("on", chosen > 0);
+    }
+    const bar = el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), filtersButton, doctor.button, copy,
+      el("label", { class: "toggle compact log-follow" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
+      saveToggle, actions);
+    const card = el("div", { class: "card log-card" }, panel, bar, output);
+    const openFilters = (open) => { card.classList.toggle("filters-open", open); filtersButton.setAttribute("aria-expanded", String(open)); };
+    filtersButton.addEventListener("click", () => openFilters(!card.classList.contains("filters-open")));
+    // The page's listeners go with it: each removes itself once the card has left.
+    const outside = (event) => {
+      if (!card.isConnected) { document.removeEventListener("pointerdown", outside); return; }
+      if (card.classList.contains("filters-open") && !panel.contains(event.target) && !filtersButton.contains(event.target)) openFilters(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    panel.addEventListener("keydown", (event) => { if (event.key === "Escape") { openFilters(false); filtersButton.focus(); } });
+    for (const [control, kind] of [[levels, "click"], [range.control, "change"], [sources.picker, "change"], [clear, "click"]]) control.addEventListener(kind, () => setTimeout(showFilterCount));
+    // The text filter stays in reach: in the phone's bar, beside the levels elsewhere.
+    const placeFilter = () => {
+      if (phone.matches) bar.prepend(filter); else levelRow.insertBefore(filter, clear);
+      if (!phone.matches) openFilters(false);
+    };
+    placeFilter();
+    const onPhone = () => { if (card.isConnected) placeFilter(); else phone.removeEventListener("change", onPhone); };
+    phone.addEventListener("change", onPhone);
     show(main,
       pageHead(t("Logs"), t("This homeswift's log, live, and up to a week back.")),
-      el("div", { class: "card log-card" },
-        el("div", { class: "log-filter-panel" },
-          el("div", { class: "log-level-row" }, levels, filter, HomeswiftCommon.clearFilters([[filter, ""], [sources.picker, ""]], {
-            active: () => logState.level !== "info" || range.chosen(), events: [[levels, "click"], [range.control, "change"]],
-            reset: () => {
-              clearTimeout(typing);
-              range.reset();
-              logState.level = "info";
-              for (const [index, button] of [...levels.children].entries()) {
-                const selected = levelChoices[index][0] === "info";
-                button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
-              }
-            },
-          })),
-          // A div, not a label: a label would press the control's first choice when its text is clicked.
-          el("div", { class: "log-scope-row" },
-            el("div", { class: "log-time" }, el("span", { text: t("Time range") }), range.control),
-            el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker))),
-        el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), doctor.button, copy,
-          el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
-          saveToggle, actions),
-        output),
+      card,
       doctor.card);
     await load();
   };
@@ -8448,11 +8493,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (!visible(line)) return;
     const output = logState.output;
     // Follow only when the reader is at the bottom: scrolling up to read stops it without a click.
-    const atBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 40;
+    const atBottom = logState.atEnd();
     $(".empty-log", output)?.remove();
     output.append(lineNode(line));
     while (output.childElementCount > logState.cap) output.firstElementChild.remove();   // the page stays the size of what it keeps
-    if (logState.follow.checked && atBottom) output.scrollTop = output.scrollHeight;
+    if (logState.follow.checked && atBottom) logState.toEnd();
     logState.count.textContent = tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: output.childElementCount });
   }
 
@@ -42405,6 +42450,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
    one in a darker pill) and More for the others, Account and the Assistant. A page's own actions float just above its
    right end (`--tab-bar-top`), each its own glass. */
 .tabbar-tabs { display: none; }
+.log-filters-toggle { display: none; }
 :root { --tab-bar-top: calc(max(14px, env(safe-area-inset-bottom)) + 66px); --float-action: 48px; }
 @media (max-width: 640px) {
   .tabbar { left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); }
@@ -42420,6 +42466,51 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .tabbar .tabbar-tabs > a.active, .tabbar .tabbar-more[aria-expanded="true"] { background: color-mix(in srgb, var(--text) 12%, transparent); color: var(--accent-ink); }
   .tabbar .tabbar-tabs > :is(a, button):active { background: color-mix(in srgb, var(--text) 8%, transparent); }
   .tabbar .mobile-nav-panel { right: 0; left: auto; bottom: 74px; }
+  /* The Logs page: the log is the page, scrolled as the page is, under its title alone; its actions are one glass bar
+     over the tab bar (the menu, the text filter, Filters, the Assistant, Follow), and the other filters a sheet above it. */
+  main:has(> .log-card) .page-head p { display: none; }
+  main:has(> .log-card) { padding-bottom: calc(var(--tab-bar-top) + 56px + var(--space-24)); }
+  .log-card { overflow: visible; padding: 0; background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .log-card > .log { height: auto; min-height: 50dvh; overflow: visible; padding: var(--space-12) var(--space-14); border: 1px solid var(--edge); border-radius: var(--radius-lg); }
+  html .log-card > .log-action-bar {
+    position: fixed; z-index: calc(var(--layer-tabbar) + 1); top: auto; margin: 0; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
+    bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--keyboard, 0px));
+    display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-6); padding: 5px; border-radius: var(--radius-pill);
+    background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
+  }
+  .log-action-bar > .menu-button { order: 0; }
+  .log-action-bar > .search { order: 1; }
+  .log-action-bar > .log-filters-toggle { order: 2; }
+  .log-action-bar > .ai-button { order: 3; }
+  .log-action-bar > .log-follow { order: 4; padding-right: var(--space-8); }
+  html .log-action-bar > :is(button, .menu-button) {
+    position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0;
+    border-radius: 50%; flex: none; color: var(--text); border: 0; box-shadow: none; background: color-mix(in srgb, var(--text) 9%, transparent);
+  }
+  html .log-action-bar > .ai-button { background: var(--accent-fill); color: var(--accent-text); }
+  html .log-action-bar > :is(.ai-button.hidden, .count, .spacer, .log-copy, .save-payloads) { display: none; }
+  .log-action-bar > .log-filters-toggle.on { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  .log-action-bar > .log-filters-toggle svg { width: 21px; height: 21px; }
+  .log-action-bar .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill);
+    display: grid; place-items: center; font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
+  .log-action-bar .toolbar-count.hidden { display: none; }
+  /* The search: the bar's field, without a box of its own; 16px, or iOS zooms the page in on focus. */
+  html .log-card > .log-action-bar > .search { display: block; flex: 1 1 0; width: auto; max-width: none; min-width: 0; height: 44px; margin: 0; padding: 0 var(--space-8); border: 0;
+    border-radius: var(--radius-pill); background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
+  .log-card > .log-action-bar > .search:focus { outline: none; box-shadow: none; }
+  .log-card > .log-filter-panel { display: none; }
+  /* In the sheet, the text filter is in the bar: the levels, what the lines are about (Clear filters beside it while
+     there is something to clear), then the time range. */
+  html .log-card > .log-filter-panel { grid-template-columns: minmax(0, 1fr); grid-template-areas: "levels" "source" "range"; }
+  html .log-card > .log-filter-panel:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "levels levels" "source clear" "range range"; }
+  .log-card.filters-open > .log-filter-panel {
+    display: grid; position: fixed; z-index: calc(var(--layer-tabbar) + 2); left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
+    bottom: calc(var(--tab-bar-top) + var(--space-10) + 56px + var(--space-10) + var(--keyboard, 0px)); max-height: calc(100dvh - var(--tab-bar-top) - 180px); overflow-y: auto;
+    padding: var(--space-16); border-radius: var(--radius-lg); background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
+  }
+  /* Open, More's panel covers the page's bar of actions above the tabs rather than slipping under it. */
+  .tabbar:has(> .mobile-nav-panel:not([hidden])) { z-index: var(--layer-panel); }
   /* More lists the sections that are not tabs. */
   .tabbar .mobile-nav-panel a:is([href="/status"], [href="/accessories"], [href="/automations"]) { display: none; }
   .tabbar .mobile-nav-assistant .sparkle { width: 21px; height: 21px; }

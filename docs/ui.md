@@ -816,11 +816,12 @@ is off until turned on, and the choice is kept in `logs/settings.json`.
 The bridge keeps its log on disk under `logs/` next to config.json: segments of 8 MB at most, a new one each day, the
 oldest removed past 64 MB or 7 days, written in batches once a second so logging never waits for the disk.
 
-<img src="images/ui/logs-phone.png" alt="The Logs page on a phone: the levels in one row, the search and the menus in short rows" width="300">
+<img src="images/ui/logs-phone.png" alt="The Logs page on a phone: the log fills the screen, one glass bar of actions above the tab bar" width="300"> <img src="images/ui/logs-phone-filters.png" alt="The Logs page on a phone with Filters open: the levels, what the lines are about and the time range in a sheet above the bar" width="300">
 
-On a phone the filters take three short rows: the levels with each count under its name, the search with Clear filters
-as an icon (shown when there is something to clear), and the time range and the menu. **Save payloads** moves into the
-**⋯** menu.
+On a phone the log is the page: it scrolls as the page does, under the title alone, and Follow keeps the page's end in
+view. Its actions are one glass bar above the tab bar: the **⋯** menu (the count, Copy, Save payloads, Download, Empty
+the log), the text filter, **Filters** (its badge counts the filters that are not the defaults), the Assistant's
+Diagnose and Follow. **Filters** opens the levels, what the lines are about and the time range in a sheet above the bar.
 
 ### Settings
 
