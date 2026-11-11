@@ -199,6 +199,56 @@ import Testing
         #expect(lampRoom(environment) == "Salon")
     }
 
+    /// A refusal names the accessory as the pages do, is settled by a later change Apple Home makes, and is not shown
+    /// once there is no Home Link.
+    @Test func refusalsNameAccessoriesAndDoNotOutliveTheirCause() async throws {
+        let environment = try await environment(bulbs: 3)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil, "Devices:bulb3": nil])
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateWall(["groups": [["name": "Bulbs", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        let group = try #require(environment.catalog.wallGroups.first)
+        let all: JSONValue = ["groups": [["id": .string(group.id), "name": "Bulbs", "members": ["Devices:bulb1", "Devices:bulb2", "Devices:bulb3"]]]]
+
+        environment.homeLink.set { $0.missing = ["Devices:bulb3"] }
+        _ = try await environment.catalog.updateWall(all)
+        let name = try #require(environment.catalog.find(id: "Devices:bulb3")?.accessory.name)
+        #expect(await environment.catalog.homeLinkJSON()["refused"]?[0]?["reason"] == .string("\(name) is not in Maison"))
+
+        environment.homeLink.set { $0.missing = [] }
+        _ = try await environment.catalog.updateWall(all)
+        #expect(environment.homeLink.home.groups.first?.members.count == 3)
+        #expect(environment.catalog.home.homeLink.value.refused.isEmpty)
+
+        environment.homeLink.set { $0.missing = ["Devices:bulb3"] }
+        _ = try await environment.catalog.updateWall(["groups": [["id": .string(group.id), "name": "Bulbs", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        _ = try await environment.catalog.updateWall(all)
+        #expect(environment.catalog.home.homeLink.value.refused.count == 1)
+        environment.homeLink.set { $0.enabled = false }
+        await environment.catalog.followHome()
+        #expect(await environment.catalog.homeLinkJSON()["state"] == "none")
+        #expect(await environment.catalog.homeLinkJSON()["refused"] == nil)
+        #expect(environment.catalog.homeLinkSummary()["refused"] == nil)
+        // Paired again, the old refusals do not come back.
+        #expect(environment.catalog.home.homeLink.value.refused.isEmpty)
+    }
+
+    /// A group removed settles the refusals of edits to it, which Apple Home names by its own id once it is gone.
+    @Test func aRemovedGroupSettlesItsRefusals() async throws {
+        let environment = try await environment(bulbs: 3)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil, "Devices:bulb3": nil])
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateWall(["groups": [["name": "Bulbs", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        let group = try #require(environment.catalog.wallGroups.first)
+        environment.homeLink.set { $0.missing = ["Devices:bulb3"] }
+        _ = try await environment.catalog.updateWall(["groups": [["id": .string(group.id), "name": "Bulbs", "members": ["Devices:bulb1", "Devices:bulb2", "Devices:bulb3"]]]])
+        #expect(environment.catalog.home.homeLink.value.refused.count == 1)
+        _ = try await environment.catalog.updateWall(["ungroup": [.string(group.id)]])
+        #expect(environment.homeLink.home.groups.isEmpty)
+        #expect(environment.catalog.home.homeLink.value.refused.isEmpty)
+    }
+
     /// Zones are kept as Rooms are: made here, they are made in Apple Home with their Rooms; made there, they are here.
     @Test func zonesAreKeptBothWays() async throws {
         let environment = try await environment()
