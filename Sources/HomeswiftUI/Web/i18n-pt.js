@@ -2378,6 +2378,8 @@ HomeswiftI18n.add("pt", {
   "Wallpaper": "Papel de parede",
   "Warm amber, each light flickering on its own.": "Âmbar quente, cada luz a tremeluzir ao seu ritmo.",
   "Warm white": "Branco quente",
+  "Cool white": "Branco frio",
+  "Lavender": "Lavanda",
   "Warnings": "Avisos",
   "Water": "Água",
   "Water Level": "Nível da água",

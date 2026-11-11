@@ -777,22 +777,30 @@
     return control.node;
   }
 
-  const presets = [
-    [t("Warm white"), 30, 55], [t("Amber"), 26, 85], [t("Red"), 2, 90], [t("Pink"), 330, 70], [t("Violet"), 275, 70], [t("Blue"), 220, 85], [t("Cyan"), 185, 75], [t("Green"), 125, 75],
-  ];
-  /// The extra-large tile's further colours, between the presets' hues.
-  const morePresets = [
-    [t("Yellow"), 50, 90], [t("Orange"), 36, 95], [t("Coral"), 12, 80], [t("Magenta"), 305, 80], [t("Indigo"), 250, 75], [t("Sky blue"), 200, 75], [t("Teal"), 170, 70], [t("Lime"), 95, 75],
+  /// The colours a light's tiles offer, each its own hue (its key in the usage counts) far enough from its neighbours to
+  /// tell apart: the first eight are a tile's defaults, the rest join them on the extra-large tile. Once colours have
+  /// been picked, every tile shows the most used first (`shownColours`).
+  const palette = [
+    [t("Warm white"), 32, 50], [t("Red"), 0, 90], [t("Orange"), 25, 95], [t("Yellow"), 50, 95],
+    [t("Green"), 125, 75], [t("Blue"), 225, 85], [t("Violet"), 275, 70], [t("Pink"), 330, 75],
+    [t("Cool white"), 210, 15], [t("Lime"), 85, 80], [t("Teal"), 165, 70], [t("Cyan"), 188, 80],
+    [t("Sky blue"), 205, 75], [t("Indigo"), 248, 80], [t("Magenta"), 300, 85], [t("Lavender"), 268, 35],
   ];
 
   const colourUsageKey = "homeswift.colour-shortcuts";
   function colourUsage() {
     try {
       const saved = JSON.parse(localStorage.getItem(colourUsageKey) || "{}");
-      return Object.fromEntries(presets.map(([, hue]) => [hue,
+      return Object.fromEntries(palette.map(([, hue]) => [hue,
         Number.isSafeInteger(saved?.[hue]) && saved[hue] > 0 ? saved[hue] : 0]));
     } catch { return {}; }
   }
+  /// The `count` colours a tile shows: the most used first, then the defaults in their order.
+  const shownColours = (count) => {
+    const usage = colourUsage();
+    return palette.map((colour, index) => ({ colour, index, used: Number(usage[colour[1]]) || 0 }))
+      .sort((a, b) => b.used - a.used || a.index - b.index).slice(0, count).map((one) => one.colour);
+  };
   function rememberColour(hue) {
     const counts = colourUsage();
     counts[hue] = Math.min((counts[hue] || 0) + 1, Number.MAX_SAFE_INTEGER);
@@ -865,10 +873,8 @@
         return control.node;
       } : null,
       swatches: pickColor ? ({ grid = false, compact = false, more = false } = {}) => {
-        const usage = colourUsage();
-        const choices = compact ? [...presets].sort((a, b) => (Number(usage[b[1]]) || 0) - (Number(usage[a[1]]) || 0)).slice(0, adaptive ? 2 : 3)
-          // The extra-large tile fills two rows of eight: Adaptive Lighting's swatch takes one colour's place.
-          : more ? [...presets, ...morePresets.slice(0, adaptive ? morePresets.length - 1 : morePresets.length)] : presets;
+        // The extra-large tile fills two rows of eight: Adaptive Lighting's swatch takes one colour's place.
+        const choices = shownColours(compact ? (adaptive ? 2 : 3) : more ? palette.length - (adaptive ? 1 : 0) : 8);
         const swatches = choices.map(([name, h, s]) => {
           const swatch = el("button", { type: "button", class: "swatch", role: "radio", "aria-label": name, title: name, onclick: () => {
             pickColor(h, s);

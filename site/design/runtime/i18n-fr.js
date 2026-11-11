@@ -2378,6 +2378,8 @@ HomeswiftI18n.add("fr", {
   "Wallpaper": "Fond d'écran",
   "Warm amber, each light flickering on its own.": "Un ambre chaud, chaque lampe vacillant à son rythme.",
   "Warm white": "Blanc chaud",
+  "Cool white": "Blanc froid",
+  "Lavender": "Lavande",
   "Warnings": "Avertissements",
   "Water": "Eau",
   "Water Level": "Niveau d'eau",
