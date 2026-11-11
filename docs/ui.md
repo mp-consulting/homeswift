@@ -256,9 +256,6 @@ screenshots, and what a plugin does to get good ones.
   colour per value. A Meter's **Consumption** comes first, a chart per Meter (named by its service on a device with
   several): bars of what it drew, and what it returned below the line, by hour over a day and by day beyond, with the
   range's kWh and, with a Tariff, its cost. **Logbook** opens the Logbook on that accessory.
-- **On a phone** the page has one bar along the bottom, within the thumb's reach: Wall and Graph, then Search and
-  Filters, then Edit, the options and Full screen, and at its end the ☰ sections' button; the Assistant's button sits
-  above that end. Below 360 px wide, Full screen moves into the options' menu, as Add accessories does on every phone.
 - **Full screen** (the toolbar's last button, or `/accessories?full=1` for a wall tablet's bookmark): the widgets alone,
   in the browser's own full screen where it has one. Grouped by room or by plugin, one group fills the screen at a time
   and the next is a swipe away (the arrow keys, the dots, the side arrows with a mouse); one button opens the toolbar

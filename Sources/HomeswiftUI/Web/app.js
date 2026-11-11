@@ -4200,9 +4200,8 @@
         render();
       } }] : []),
       ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : []),
-      // A phone's bar has no room for Add accessories' own button, nor below 360px for Full screen's: they are here.
-      ...(matchMedia("(max-width: 600px)").matches && all.length ? [{ separator: true },
-        ...(matchMedia("(max-width: 359px)").matches ? [{ label: t("Full screen"), icon: "expand", onSelect: () => setFullScreen(true) }] : []),
+      // A phone's bar has no room for Full screen's and Add accessories' own buttons: they are here.
+      ...(matchMedia("(max-width: 600px)").matches && all.length ? [{ separator: true }, { label: t("Full screen"), icon: "expand", onSelect: () => setFullScreen(true) },
         ...(addButton ? [{ label: t("Add accessories"), icon: "plus", href: "/setup" }] : [])] : []),
       // The Zones and where the rooms stand with Apple Home, without going through Edit.
       ...(isAdmin() && rooms.length ? [{ separator: true }, { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
@@ -4223,7 +4222,7 @@
     };
     // Setup, in view whatever the wall holds; the empty wall has its own, larger.
     const addButton = isAdmin() && all.length ? el("a", { class: "button primary accessories-add in-menu-on-phone", href: "/setup", actionIcon: "plus", "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }) : null;
-    const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button accessories-full-screen", "aria-label": t("Full screen"), title: t("Full screen"),
+    const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button accessories-full-screen in-menu-on-phone", "aria-label": t("Full screen"), title: t("Full screen"),
       onclick: () => setFullScreen(true) }, HomeswiftCommon.icon("expand"));
     // The chrome over the full-screen wall: Close, and when grouped the dots and, with a mouse, the side arrows.
     const chrome = el("div", { class: "wall-full-chrome" });
