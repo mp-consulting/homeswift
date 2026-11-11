@@ -2378,6 +2378,8 @@ HomeswiftI18n.add("es", {
   "Wallpaper": "Fondo de pantalla",
   "Warm amber, each light flickering on its own.": "Ámbar cálido, cada luz parpadeando a su aire.",
   "Warm white": "Blanco cálido",
+  "Custom colour": "Color personalizado",
+  "Hold for the colour wheel": "Mantén para la rueda de colores",
   "Cool white": "Blanco frío",
   "Lavender": "Lavanda",
   "Warnings": "Avisos",

@@ -1321,6 +1321,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget .round.adaptive[aria-pressed="true"] { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
 .widget .adaptive-chip { display: inline-flex; align-items: center; gap: var(--space-6); }
 .widget .adaptive.unset { opacity: 0.55; }
+/* A light's icon on a larger tile opens its colour wheel when held. */
+.widget .w-head > .tile.wheel-handle { cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
 .widget .swatch { width: 30px; height: 30px; padding: 0; border-radius: 50%; background: var(--swatch); border: 2px solid var(--edge); }
 .widget .swatch[aria-checked="true"] { outline: 2px solid var(--text); outline-offset: 1px; }
 /* Room for that ring: a box that clips (a fixed widget's body) would cut it. */

@@ -25,7 +25,8 @@ All notable changes to this project are documented here. The format follows
   A shutter's large and extra-large tiles draw its slats as the small ones do and are dragged as their slider, with
   their buttons centred. A light's tall brightness shows its figure at the top, and a colour light's extra-large tile
   is taller than its large one: brightness and White across the tile, and sixteen colours under them. The colours
-  are distinct hues, and once some have been picked every size shows the most used first.
+  are distinct hues, and once some have been picked every size shows the most used first. Holding a light's icon on a
+  large tile opens its colour wheel, and a colour picked on the wheel is kept among the swatches.
 - **History and Logbook**: compact filters, scrollable lists, alternating rows and collapsible day groups; graphs
   retain their original appearance. Dashboard plugin chips link to their pages and consumer sparklines show hover guides.
 

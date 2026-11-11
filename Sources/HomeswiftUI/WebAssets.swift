@@ -22810,6 +22810,8 @@ HomeswiftI18n.add("es", {
   "Wallpaper": "Fondo de pantalla",
   "Warm amber, each light flickering on its own.": "Ámbar cálido, cada luz parpadeando a su aire.",
   "Warm white": "Blanco cálido",
+  "Custom colour": "Color personalizado",
+  "Hold for the colour wheel": "Mantén para la rueda de colores",
   "Cool white": "Blanco frío",
   "Lavender": "Lavanda",
   "Warnings": "Avisos",
@@ -26560,6 +26562,8 @@ HomeswiftI18n.add("fr", {
   "Wallpaper": "Fond d'écran",
   "Warm amber, each light flickering on its own.": "Un ambre chaud, chaque lampe vacillant à son rythme.",
   "Warm white": "Blanc chaud",
+  "Custom colour": "Couleur personnalisée",
+  "Hold for the colour wheel": "Maintenir pour la roue des couleurs",
   "Cool white": "Blanc froid",
   "Lavender": "Lavande",
   "Warnings": "Avertissements",
@@ -30310,6 +30314,8 @@ HomeswiftI18n.add("pt", {
   "Wallpaper": "Papel de parede",
   "Warm amber, each light flickering on its own.": "Âmbar quente, cada luz a tremeluzir ao seu ritmo.",
   "Warm white": "Branco quente",
+  "Custom colour": "Cor personalizada",
+  "Hold for the colour wheel": "Manter para a roda de cores",
   "Cool white": "Branco frio",
   "Lavender": "Lavanda",
   "Warnings": "Avisos",
@@ -36994,6 +37000,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget .round.adaptive[aria-pressed="true"] { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
 .widget .adaptive-chip { display: inline-flex; align-items: center; gap: var(--space-6); }
 .widget .adaptive.unset { opacity: 0.55; }
+/* A light's icon on a larger tile opens its colour wheel when held. */
+.widget .w-head > .tile.wheel-handle { cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
 .widget .swatch { width: 30px; height: 30px; padding: 0; border-radius: 50%; background: var(--swatch); border: 2px solid var(--edge); }
 .widget .swatch[aria-checked="true"] { outline: 2px solid var(--text); outline-offset: 1px; }
 /* Room for that ring: a box that clips (a fixed widget's body) would cut it. */
@@ -43071,16 +43079,40 @@ self.addEventListener("notificationclick", (event) => {
         Number.isSafeInteger(saved?.[hue]) && saved[hue] > 0 ? saved[hue] : 0]));
     } catch { return {}; }
   }
-  /// The `count` colours a tile shows: the most used first, then the defaults in their order.
+  /// The `count` colours a tile shows: the most used first (the colours picked on the wheel among them, the latest
+  /// first), then the defaults in their order. Each is `[name, hue, saturation, custom]`.
   const shownColours = (count) => {
     const usage = colourUsage();
-    return palette.map((colour, index) => ({ colour, index, used: Number(usage[colour[1]]) || 0 }))
+    const custom = customColours().map((one, index) => ({ colour: [t("Custom colour"), one.h, one.s, true], index: index - 100, used: one.count }));
+    return [...custom, ...palette.map((colour, index) => ({ colour, index, used: Number(usage[colour[1]]) || 0 }))]
       .sort((a, b) => b.used - a.used || a.index - b.index).slice(0, count).map((one) => one.colour);
   };
   function rememberColour(hue) {
     const counts = colourUsage();
     counts[hue] = Math.min((counts[hue] || 0) + 1, Number.MAX_SAFE_INTEGER);
     try { localStorage.setItem(colourUsageKey, JSON.stringify(counts)); } catch {}
+  }
+  /// Two colours the eye takes for one: hues within 6°, saturations within 12.
+  const sameColour = (h1, s1, h2, s2) => Math.min(Math.abs(h1 - h2), 360 - Math.abs(h1 - h2)) <= 6 && Math.abs(s1 - s2) <= 12;
+  /// The colours picked on the wheel, kept in this browser: eight at most, the latest first, each with its uses.
+  const customColoursKey = "homeswift.custom-colours";
+  function customColours() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(customColoursKey) || "[]");
+      return Array.isArray(saved) ? saved.filter((one) => Number.isFinite(one?.h) && one.h >= 0 && one.h < 360 && Number.isFinite(one?.s) && one.s >= 0 && one.s <= 100)
+        .map((one) => ({ h: one.h, s: one.s, count: Number.isSafeInteger(one.count) && one.count > 0 ? one.count : 1 })).slice(0, 8) : [];
+    } catch { return []; }
+  }
+  /// A colour picked on the wheel, or a custom swatch pressed: counted as the palette's own colour when it is one,
+  /// else kept (moved first) among the custom colours. A new pick redraws the swatches (`homeswift-colours`) so it shows.
+  function rememberPick(h, s) {
+    const preset = palette.find(([, ph, ps]) => sameColour(h, s, ph, ps));
+    if (preset) { rememberColour(preset[1]); return; }
+    const saved = customColours();
+    const found = saved.find((one) => sameColour(h, s, one.h, one.s));
+    const next = [{ h, s, count: Math.min((found?.count ?? 0) + 1, Number.MAX_SAFE_INTEGER) }, ...saved.filter((one) => one !== found)].slice(0, 8);
+    try { localStorage.setItem(customColoursKey, JSON.stringify(next)); } catch {}
+    if (!found) dispatchEvent(new CustomEvent("homeswift-colours"));
   }
 
   /// A light's controls, each a function that builds it (null when the light has none): `brightness` (a level,
@@ -43150,21 +43182,32 @@ self.addEventListener("notificationclick", (event) => {
       } : null,
       swatches: pickColor ? ({ grid = false, compact = false, more = false } = {}) => {
         // The extra-large tile fills two rows of eight: Adaptive Lighting's swatch takes one colour's place.
-        const choices = shownColours(compact ? (adaptive ? 2 : 3) : more ? palette.length - (adaptive ? 1 : 0) : 8);
-        const swatches = choices.map(([name, h, s]) => {
-          const swatch = el("button", { type: "button", class: "swatch", role: "radio", "aria-label": name, title: name, onclick: () => {
-            pickColor(h, s);
-            rememberColour(h);
-          } });
-          swatch.style.setProperty("--swatch", `hsl(${h} ${s}% 60%)`);
-          return { swatch, h, s };
-        });
-        ctx.watch(() => {
+        const count = compact ? (adaptive ? 2 : 3) : more ? palette.length - (adaptive ? 1 : 0) : 8;
+        const node = el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": t("Colour") });
+        const lead = adaptive ? adaptiveControl("swatch") : null;
+        let swatches = [];
+        const paint = () => {
           const h = numberOf(hue), s = numberOf(saturation);
-          const near = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b)) <= 6;
-          for (const one of swatches) one.swatch.setAttribute("aria-checked", String(!adaptiveOn() && s > 4 && near(one.h, h) && Math.abs(one.s - s) <= 12));
-        });
-        return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": t("Colour") }, adaptive ? adaptiveControl("swatch") : null, swatches.map((one) => one.swatch));
+          for (const one of swatches) one.swatch.setAttribute("aria-checked", String(!adaptiveOn() && s > 4 && sameColour(one.h, one.s, h, s)));
+        };
+        const fill = () => {
+          swatches = shownColours(count).map(([name, h, s, custom]) => {
+            const swatch = el("button", { type: "button", class: `swatch${custom ? " custom" : ""}`, role: "radio", "aria-label": name, title: name, onclick: () => {
+              pickColor(h, s);
+              if (custom) rememberPick(h, s); else rememberColour(h);
+            } });
+            swatch.style.setProperty("--swatch", `hsl(${h} ${s}% 60%)`);
+            return { swatch, h, s };
+          });
+          node.replaceChildren(...[lead, ...swatches.map((one) => one.swatch)].filter(Boolean));
+          paint();
+        };
+        fill();
+        // A colour newly picked on the wheel joins every light's swatches; a tile no longer shown stops listening.
+        const refill = () => { if (node.isConnected) fill(); else removeEventListener("homeswift-colours", refill); };
+        addEventListener("homeswift-colours", refill);
+        ctx.watch(paint);
+        return node;
       } : null,
       white: whiteRange ? ({ vertical = false, thin = false } = {}) => {
         const { low, high } = whiteRange;
@@ -43779,7 +43822,8 @@ self.addEventListener("notificationclick", (event) => {
   /// colour temperature (the white slider's range), both when it has both; null for a light with neither.
   function lightPicks(ctx, service, on, light) {
     const turnOn = () => { if (!isOn(on)) ctx.write(service, on, onValue(on, true)); };
-    const color = light.pickColor ? { pick: (h, s) => { light.pickColor(h, s); turnOn(); } } : null;
+    // A colour picked on the wheel is kept among the swatches (rememberPick).
+    const color = light.pickColor ? { pick: (h, s) => { light.pickColor(h, s); rememberPick(h, s); turnOn(); } } : null;
     const white = light.pickWhite ? { ...light.whiteRange, pick: (k) => { light.pickWhite(k); turnOn(); } } : null;
     // A paused plugin's light, or one that does not answer, takes no colour: a hold is a tap, which says why.
     return color || white ? { color, white, available: () => answers(ctx.accessory) } : null;
@@ -44799,6 +44843,11 @@ self.addEventListener("notificationclick", (event) => {
       if (built.background) {
         const gauge = node.querySelector(".battery-gauge");
         if (gauge) node.querySelector(".w-head").append(gauge);
+      }
+      // A light's icon, held, opens its colour wheel, as a small tile does held anywhere.
+      if (built.wheel) {
+        const icon = node.querySelector(".w-head > .tile");
+        if (icon) { colourWheel(icon, built.wheel); icon.classList.add("wheel-handle"); icon.title = t("Hold for the colour wheel"); }
       }
       // A shutter's larger tile is its window as the small one is: the slats come down over its closed share, and the
       // tile is the slider (dragged anywhere but its buttons). The keys move a slider kept for the keyboard and a
