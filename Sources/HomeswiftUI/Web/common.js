@@ -937,8 +937,12 @@
     const scroller = () => document.scrollingElement;
     const away = () => scroller().scrollHeight - scroller().scrollTop - innerHeight;
     const atEnd = () => away() < 40;
-    const toEnd = (smooth = false) => scroller().scrollTo({ top: scroller().scrollHeight,
-      behavior: smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches ? "smooth" : "auto" });
+    const toEnd = (smooth = false) => {
+      const glide = smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+      scroller().scrollTo({ top: scroller().scrollHeight, behavior: glide ? "smooth" : "auto" });
+      // A jump fires no scroll event when the page was already there: the arrow is put away here.
+      if (!glide) showLatest();
+    };
     const button = el("button", { type: "button", class: "bar-button bar-only", "aria-label": t("Follow"), onclick: () => setFollowing(!following()) });
     const paint = () => {
       button.setAttribute("aria-pressed", String(following()));

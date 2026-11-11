@@ -3019,6 +3019,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       link.classList.toggle("active", current);
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
+    // A phone's More stands for the sections under it, as iOS's does: lit while one of them is shown.
+    $(".tabbar-more")?.classList.toggle("active", !$(".tabbar-tabs > a.active"));
     const view = name === "plugins" && args.length ? views.settings : name === "settings" ? HomeswiftAdmin.view : views[name] || views.status;
     // A new element per view: a slower view still loading draws into the old one, out of the page, rather than
     // over the view asked for after it.
@@ -12274,8 +12276,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const scroller = () => document.scrollingElement;
     const away = () => scroller().scrollHeight - scroller().scrollTop - innerHeight;
     const atEnd = () => away() < 40;
-    const toEnd = (smooth = false) => scroller().scrollTo({ top: scroller().scrollHeight,
-      behavior: smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches ? "smooth" : "auto" });
+    const toEnd = (smooth = false) => {
+      const glide = smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+      scroller().scrollTo({ top: scroller().scrollHeight, behavior: glide ? "smooth" : "auto" });
+      // A jump fires no scroll event when the page was already there: the arrow is put away here.
+      if (!glide) showLatest();
+    };
     const button = el("button", { type: "button", class: "bar-button bar-only", "aria-label": t("Follow"), onclick: () => setFollowing(!following()) });
     const paint = () => {
       button.setAttribute("aria-pressed", String(following()));
@@ -42532,7 +42538,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
     letter-spacing: 0.01em; text-decoration: none; transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out); }
   .tabbar .tabbar-tabs > :is(a, button) span { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.1; }
   .tabbar .tabbar-tabs svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-  .tabbar .tabbar-tabs > a.active, .tabbar .tabbar-more[aria-expanded="true"] { background: color-mix(in srgb, var(--text) 12%, transparent); color: var(--accent-ink); }
+  .tabbar .tabbar-tabs > a.active, .tabbar .tabbar-more:is(.active, [aria-expanded="true"]) { background: color-mix(in srgb, var(--text) 12%, transparent); color: var(--accent-ink); }
   .tabbar .tabbar-tabs > :is(a, button):active { background: color-mix(in srgb, var(--text) 8%, transparent); }
   .tabbar .mobile-nav-panel { right: 0; left: auto; bottom: 74px; }
   /* Open, More's panel covers the page's bar rather than slipping under it; it lists the sections that are not tabs. */
@@ -42599,6 +42605,10 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   #app .log-action-bar > .menu-button { order: 0; }
   #app .log-action-bar > .ai-button { order: 3; }
   #app .log-action-bar > :is(.count, .spacer, .log-copy, .save-payloads, .log-follow, .ai-button.hidden) { display: none; }
+
+  /* In the Logs page's sheet the time ranges wrap into two rows of four rather than scrolling out of sight. */
+  #app .log-filter-panel .log-time > .group { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; mask-image: none; -webkit-mask-image: none; }
+  #app .log-filter-panel .log-time > .group button { min-width: 0; padding-inline: var(--space-4); }
 
   /* The Plugins page: its title alone; the search, Filters (the states, one per line) and a round Add in its bar; each
      plugin's Open a round button, its name kept for assistive technology. */

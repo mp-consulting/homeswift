@@ -578,6 +578,8 @@
       link.classList.toggle("active", current);
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
+    // A phone's More stands for the sections under it, as iOS's does: lit while one of them is shown.
+    $(".tabbar-more")?.classList.toggle("active", !$(".tabbar-tabs > a.active"));
     const view = name === "plugins" && args.length ? views.settings : name === "settings" ? HomeswiftAdmin.view : views[name] || views.status;
     // A new element per view: a slower view still loading draws into the old one, out of the page, rather than
     // over the view asked for after it.
