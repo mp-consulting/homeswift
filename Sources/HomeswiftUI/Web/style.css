@@ -4319,7 +4319,7 @@ select option:disabled { color: var(--muted); }
 
 /* Editing is a layout preview with its own quiet header and bottom control strip. */
 .wall.editing > .widget:not(.lifted):not(.drag-slot) { outline: 1px solid color-mix(in srgb, var(--accent) 25%, var(--edge)); outline-offset: -1px; }
-.wall.editing > .widget::after { background: color-mix(in srgb, var(--bg) 65%, transparent); }
+.wall.editing > .widget::after { background: color-mix(in srgb, var(--bg) 40%, rgb(18 20 26 / 34%)); }
 .edit-caption { position: absolute; inset: 9px 12px auto; z-index: 3; display: flex; align-items: center; gap: 7px; font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text); pointer-events: none; }
 .edit-caption > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .edit-grip { flex: none; color: var(--muted); font-size: 19px; line-height: 1; }
