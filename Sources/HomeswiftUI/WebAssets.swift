@@ -2892,7 +2892,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     try {
       const answer = await api("/api/layout", { method: "PUT", body: layout });
       if (answer.appleHomeRefused?.length) {
-        await HomeswiftCommon.showAlert(answer.appleHomeRefused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })).join("\n"));
+        await HomeswiftCommon.showAlert(HomeswiftHomeLink.refusalLines(answer.appleHomeRefused).join("\n"));
       }
       return answer;
     }
@@ -6385,7 +6385,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       try {
         const result = await api("/api/rooms", { method: "PUT", body });
         const failed = (result.hubRooms || []).filter((room) => !room.renamed);
-        const refused = (result.appleHomeRefused || []).map((one) => t("Apple Home refused: {reason}", { reason: one.reason }));
+        const refused = HomeswiftHomeLink.refusalLines(result.appleHomeRefused);
         if (failed.length || refused.length) HomeswiftCommon.showAlert([...refused, ...failed.map((room) => t("Not renamed on {hub}: {error}", { hub: room.name, error: room.error }))].join("\n"));
         // Drawn again here rather than reloaded, so Edit stays on for the next room.
         rooms.splice(0, rooms.length, ...result.rooms.map((room) => room.name));
@@ -20194,11 +20194,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
   }
 
+  /// What Apple Home refused, a line each: the HomeKit errors people meet in plain words, others in Apple Home's own,
+  /// and the same message once with how many times it came.
+  const plainErrors = [
+    [/HMErrorDomain 13\b/, () => t("Apple Home already has one with this name. A hidden group can be it: see Hidden groups on the Wingman page.")],
+    [/HMErrorDomain 49\b/, () => t("Apple Home has reached its limit for this kind of object. Hidden groups count towards it: remove them on the Wingman page.")],
+  ];
+  function refusalLines(refused) {
+    const counts = new Map();
+    for (const one of refused || []) {
+      const reason = String(one.reason ?? "");
+      const plain = plainErrors.find(([pattern]) => pattern.test(reason));
+      const line = plain ? plain[1]() : t("Apple Home refused: {reason}", { reason });
+      counts.set(line, (counts.get(line) ?? 0) + 1);
+    }
+    return [...counts].map(([line, n]) => n > 1 ? t("{message} (×{n})", { message: line, n }) : line);
+  }
+
   function status(link) {
     const result = connectionStatus(link);
     const details = [];
     if (link?.pending) details.push(tn("{n} change is pending in Apple Home.", "{n} changes are pending in Apple Home.", link.pending));
-    if (link?.refused?.length) details.push(...link.refused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })));
+    if (link?.refused?.length) details.push(...refusalLines(link.refused));
     if (!details.length) return result;
     // A reachable link is not proof that queued writes succeeded.
     // One line per message: the pages show them with `white-space: pre-line`.
@@ -20281,7 +20298,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const answer = await api("/api/zones", { method: "PUT", body: request });
         current = answer.zones;
         const refused = answer.appleHomeRefused ?? [];
-        if (refused.length) message.textContent = refused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })).join("\n");
+        if (refused.length) message.textContent = refusalLines(refused).join("\n");
         changed = true;
         draw();
       } catch (e) { message.textContent = e.message; }
@@ -20322,7 +20339,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     dialog.showModal();
   }
 
-  window.HomeswiftHomeLink = { status, menuItem, review, zones };
+  window.HomeswiftHomeLink = { status, menuItem, refusalLines, review, zones };
 })();
 
 """#),
@@ -20824,6 +20841,9 @@ HomeswiftI18n.add("es", {
   "Its {n} accessories go to No room.": "Sus {n} accesorios pasan a Sin habitación.",
   "It has no accessories.": "No tiene accesorios.",
   "It is removed from Apple Home too.": "También se elimina de Apple Home.",
+  "Apple Home already has one with this name. A hidden group can be it: see Hidden groups on the Wingman page.": "La app Casa ya tiene uno con este nombre. Puede ser un grupo oculto: mira Grupos ocultos en la página de Wingman.",
+  "Apple Home has reached its limit for this kind of object. Hidden groups count towards it: remove them on the Wingman page.": "La app Casa ha alcanzado su límite para este tipo de elemento. Los grupos ocultos cuentan: elimínalos en la página de Wingman.",
+  "{message} (×{n})": "{message} (×{n})",
   "Rename the room": "Cambiar el nombre de la habitación",
   "Pack the widgets together": "Agrupar los widgets",
   "A new name for {room}.": "Un nombre nuevo para {room}.",
@@ -24584,6 +24604,9 @@ HomeswiftI18n.add("fr", {
   "Its {n} accessories go to No room.": "Ses {n} accessoires passent dans Sans pièce.",
   "It has no accessories.": "Elle n’a aucun accessoire.",
   "It is removed from Apple Home too.": "Elle est aussi supprimée d'Apple Home.",
+  "Apple Home already has one with this name. A hidden group can be it: see Hidden groups on the Wingman page.": "L'app Maison en a déjà un de ce nom. Un groupe masqué peut être celui-là : voyez Groupes masqués sur la page Wingman.",
+  "Apple Home has reached its limit for this kind of object. Hidden groups count towards it: remove them on the Wingman page.": "L'app Maison a atteint sa limite pour ce type d'élément. Les groupes masqués y comptent : supprimez-les sur la page Wingman.",
+  "{message} (×{n})": "{message} (×{n})",
   "Rename the room": "Renommer la pièce",
   "Pack the widgets together": "Regrouper les widgets",
   "A new name for {room}.": "Un nouveau nom pour {room}.",
@@ -28344,6 +28367,9 @@ HomeswiftI18n.add("pt", {
   "Its {n} accessories go to No room.": "Os seus {n} acessórios passam para Sem divisão.",
   "It has no accessories.": "Não tem acessórios.",
   "It is removed from Apple Home too.": "Também é removida do Apple Home.",
+  "Apple Home already has one with this name. A hidden group can be it: see Hidden groups on the Wingman page.": "A app Casa já tem um com este nome. Pode ser um grupo oculto: veja Grupos ocultos na página do Wingman.",
+  "Apple Home has reached its limit for this kind of object. Hidden groups count towards it: remove them on the Wingman page.": "A app Casa atingiu o limite para este tipo de elemento. Os grupos ocultos contam: remova-os na página do Wingman.",
+  "{message} (×{n})": "{message} (×{n})",
   "Rename the room": "Mudar o nome da divisão",
   "Pack the widgets together": "Juntar os widgets",
   "A new name for {room}.": "Um novo nome para {room}.",

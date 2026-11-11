@@ -514,7 +514,7 @@
     try {
       const answer = await api("/api/layout", { method: "PUT", body: layout });
       if (answer.appleHomeRefused?.length) {
-        await HomeswiftCommon.showAlert(answer.appleHomeRefused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })).join("\n"));
+        await HomeswiftCommon.showAlert(HomeswiftHomeLink.refusalLines(answer.appleHomeRefused).join("\n"));
       }
       return answer;
     }
@@ -4007,7 +4007,7 @@
       try {
         const result = await api("/api/rooms", { method: "PUT", body });
         const failed = (result.hubRooms || []).filter((room) => !room.renamed);
-        const refused = (result.appleHomeRefused || []).map((one) => t("Apple Home refused: {reason}", { reason: one.reason }));
+        const refused = HomeswiftHomeLink.refusalLines(result.appleHomeRefused);
         if (failed.length || refused.length) HomeswiftCommon.showAlert([...refused, ...failed.map((room) => t("Not renamed on {hub}: {error}", { hub: room.name, error: room.error }))].join("\n"));
         // Drawn again here rather than reloaded, so Edit stays on for the next room.
         rooms.splice(0, rooms.length, ...result.rooms.map((room) => room.name));
