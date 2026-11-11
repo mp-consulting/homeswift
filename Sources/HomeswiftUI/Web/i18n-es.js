@@ -1,5 +1,6 @@
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Turn off {output} on {name}? Connected devices will lose power.": "¿Apagar {output} de {name}? Los dispositivos conectados perderán la alimentación.",
   "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Solo se agrupan las luces. Los demás controles siguen disponibles en el menú del grupo. En Casa, elige « Mostrar como mosaicos separados » para cada dispositivo si el grupo no aparece.",
   "Controls for {name}": "Controles de {name}",
   "Every member of a group must be in Apple Home.": "Todos los miembros de un grupo deben estar en Apple Home.",

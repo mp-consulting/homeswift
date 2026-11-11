@@ -208,7 +208,13 @@
           : t("Its plugin is paused: resume it to control {name}", { name: accessory.name }));
         return;
       }
-      if (characteristic.security && !held) {
+      const turnsOffOutput = isStation(ctx) && ["Outlet", "Switch"].includes(service.type)
+        && characteristic.type === "On" && (value === false || value === 0);
+      if (turnsOffOutput) {
+        if (!await HomeswiftCommon.confirmDialog(t("Turn off {output} on {name}? Connected devices will lose power.", {
+          output: shortName(accessory, service), name: accessory.name,
+        }))) { ctx.paint(); return; }
+      } else if (characteristic.security && !held) {
         const label = characteristic.format === "bool" ? (value ? t("On") : t("Off")) : labelFor(characteristic.type, value);
         if (!await HomeswiftCommon.confirmDialog(t("Set {setting} of {name} to {value}?", { setting: typeName(characteristic.type).toLowerCase(), name: accessory.name, value: label }))) { ctx.paint(); return; }
       }
@@ -1162,7 +1168,7 @@
       const gauge = battery ? batteryGauge(t("Battery"), batteryGraphic()) : null;
       if (gauge) ctx.watch(() => gauge.set(clamp(Math.round(numberOf(level)), 0, 100), charging?.value === 1, isOn(low)));
 
-      const body = size === "large" || size === "full"
+      const body = size === "full" || (size === "large" && !gauge)
         ? [el("div", { class: "toggles" }, switches.map((s, i) => miniToggle(ctx, s, ons[i], shortName(ctx.accessory, s))))]
         : [chipRow(switches.map((s, i) => chipFor(ctx, s, ons[i], shortName(ctx.accessory, s))))];
       return {

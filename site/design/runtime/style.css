@@ -4922,6 +4922,8 @@ select option:disabled { color: var(--muted); }
 }
 .station-controls { display: flex; align-items: center; gap: var(--space-20); min-width: 0; }
 .station-controls > :last-child { flex: 1; min-width: 0; }
+.widget-switch-group:is(.size-large, .size-xlarge):has(> .battery-graphic) > .w-body { position: absolute; top: calc(50% + 32px); bottom: 12px; left: 12px; right: 12px; padding: 0 36px 0 0; justify-content: safe flex-end; overflow-y: auto; }
+.widget-switch-group.size-xlarge:has(> .battery-graphic) > .w-body { top: calc(50% + 40px); }
 .gauge-figure { font-size: 15px; font-weight: var(--weight-figure); font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .size-medium .gauge-figure { display: block; font-size: 16px; }
 .size-large .gauge-figure { font-size: 18px; letter-spacing: -0.01em; }

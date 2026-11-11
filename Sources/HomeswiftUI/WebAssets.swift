@@ -20426,6 +20426,7 @@ window.HomeswiftHouseEditor = function ({ preferences, api, scaledImage, saved }
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Turn off {output} on {name}? Connected devices will lose power.": "¿Apagar {output} de {name}? Los dispositivos conectados perderán la alimentación.",
   "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Solo se agrupan las luces. Los demás controles siguen disponibles en el menú del grupo. En Casa, elige « Mostrar como mosaicos separados » para cada dispositivo si el grupo no aparece.",
   "Controls for {name}": "Controles de {name}",
   "Every member of a group must be in Apple Home.": "Todos los miembros de un grupo deben estar en Apple Home.",
@@ -24158,6 +24159,7 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Turn off {output} on {name}? Connected devices will lose power.": "Éteindre {output} sur {name} ? Les appareils connectés ne seront plus alimentés.",
   "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Seules les lumières sont regroupées. Les autres commandes restent accessibles dans le menu du groupe. Dans Maison, choisissez « Afficher en tant que vignettes séparées » pour chaque appareil si le groupe n’apparaît pas.",
   "Controls for {name}": "Commandes de {name}",
   "Every member of a group must be in Apple Home.": "Tous les membres d’un groupe doivent être dans Apple Home.",
@@ -27890,6 +27892,7 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Turn off {output} on {name}? Connected devices will lose power.": "Desligar {output} em {name}? Os dispositivos ligados ficarão sem energia.",
   "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Apenas as luzes são agrupadas. Os outros controlos continuam disponíveis no menu do grupo. Na app Casa, escolha « Mostrar como mosaicos separados » para cada dispositivo se o grupo não aparecer.",
   "Controls for {name}": "Controlos de {name}",
   "Every member of a group must be in Apple Home.": "Todos os membros de um grupo têm de estar na Apple Home.",
@@ -40535,6 +40538,8 @@ select option:disabled { color: var(--muted); }
 }
 .station-controls { display: flex; align-items: center; gap: var(--space-20); min-width: 0; }
 .station-controls > :last-child { flex: 1; min-width: 0; }
+.widget-switch-group:is(.size-large, .size-xlarge):has(> .battery-graphic) > .w-body { position: absolute; top: calc(50% + 32px); bottom: 12px; left: 12px; right: 12px; padding: 0 36px 0 0; justify-content: safe flex-end; overflow-y: auto; }
+.widget-switch-group.size-xlarge:has(> .battery-graphic) > .w-body { top: calc(50% + 40px); }
 .gauge-figure { font-size: 15px; font-weight: var(--weight-figure); font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .size-medium .gauge-figure { display: block; font-size: 16px; }
 .size-large .gauge-figure { font-size: 18px; letter-spacing: -0.01em; }
@@ -42194,7 +42199,13 @@ self.addEventListener("notificationclick", (event) => {
           : t("Its plugin is paused: resume it to control {name}", { name: accessory.name }));
         return;
       }
-      if (characteristic.security && !held) {
+      const turnsOffOutput = isStation(ctx) && ["Outlet", "Switch"].includes(service.type)
+        && characteristic.type === "On" && (value === false || value === 0);
+      if (turnsOffOutput) {
+        if (!await HomeswiftCommon.confirmDialog(t("Turn off {output} on {name}? Connected devices will lose power.", {
+          output: shortName(accessory, service), name: accessory.name,
+        }))) { ctx.paint(); return; }
+      } else if (characteristic.security && !held) {
         const label = characteristic.format === "bool" ? (value ? t("On") : t("Off")) : labelFor(characteristic.type, value);
         if (!await HomeswiftCommon.confirmDialog(t("Set {setting} of {name} to {value}?", { setting: typeName(characteristic.type).toLowerCase(), name: accessory.name, value: label }))) { ctx.paint(); return; }
       }
@@ -43148,7 +43159,7 @@ self.addEventListener("notificationclick", (event) => {
       const gauge = battery ? batteryGauge(t("Battery"), batteryGraphic()) : null;
       if (gauge) ctx.watch(() => gauge.set(clamp(Math.round(numberOf(level)), 0, 100), charging?.value === 1, isOn(low)));
 
-      const body = size === "large" || size === "full"
+      const body = size === "full" || (size === "large" && !gauge)
         ? [el("div", { class: "toggles" }, switches.map((s, i) => miniToggle(ctx, s, ons[i], shortName(ctx.accessory, s))))]
         : [chipRow(switches.map((s, i) => chipFor(ctx, s, ons[i], shortName(ctx.accessory, s))))];
       return {
