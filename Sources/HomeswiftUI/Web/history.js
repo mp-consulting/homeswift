@@ -49,7 +49,7 @@
     const logbook = el("a", { class: "button", href: `/logbook?accessory=${encodeURIComponent(accessory.id)}`, actionIcon: "logs", text: t("Logbook"),
       onclick: () => document.querySelector("dialog.widget-sheet[open]")?.close() });
     const root = el("article", { class: "card accessory-card widget-full history-full" },
-      el("div", { class: "page-head history-head" },
+      el("div", { class: "editor-bar history-head" },
         el("div", { class: "who" }, el("h2", { text: accessory.name }), el("p", { class: "muted", text: t("Its values over time. The Logbook says who changed them.") })),
         el("div", { class: "tools" }, group)),
       charts, note, el("div", { class: "actions start" }, logbook));
@@ -74,7 +74,16 @@
         .map((series) => series.kind === "number" ? numberCard(series, found) : stateCard(series, found)).filter(Boolean);
       if (details.length) cards.push(el("details", { class: "history-details" },
         el("summary", { text: t("Details") }), details.map((series) => stateCard(series, found))));
-      charts.replaceChildren(...energyCards, ...cards);
+      // Only the compact state list uses the console material; charts retain their normal theme.
+      const content = [...energyCards];
+      let stateList = null;
+      for (const node of cards) {
+        if (node.matches(".history-state-row, .history-details")) {
+          if (!stateList) { stateList = el("div", { class: "log history-state-list", tabindex: 0, role: "region", "aria-label": t("History") }); content.push(stateList); }
+          stateList.append(node);
+        } else { stateList = null; content.push(node); }
+      }
+      charts.replaceChildren(...content);
       if (!cards.length && !energyCards.length) charts.append(el("p", { class: "muted", text: t("Nothing recorded in this range") }));
     }
 
@@ -187,7 +196,7 @@
     const accessories = await api("/api/accessories").catch(() => []);
     const rooms = [...new Set(accessories.map((accessory) => accessory.room).filter(Boolean))].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale));
     const select = (name, label, choices, value) => {
-      const node = el("select", { name, "aria-label": label }, choices.map(([key, text]) => el("option", { value: key, text, selected: key === value })));
+      const node = el("select", { name, class: "popup", "aria-label": label }, choices.map(([key, text]) => el("option", { value: key, text, selected: key === value })));
       node.addEventListener("change", reload);
       return node;
     };
@@ -209,14 +218,17 @@
     syncPeriods();
     const clear = HomeswiftCommon.clearFilters(controls.map((control) => [control, control === since ? "24h" : ""]),
       { active: () => controls.some((control) => control.value !== (control === since ? "24h" : "")), events: controls.map((control) => [control, "change"]), reset: reload });
-    const list = el("div", { class: "logbook" });
-    const count = el("p", { class: "muted logbook-count", "aria-live": "polite" });
+    const list = el("div", { class: "log logbook", tabindex: 0, role: "region", "aria-label": t("Logbook") });
+    const count = el("p", { class: "muted log-action-bar logbook-count", "aria-live": "polite" });
     const icons = new Map(accessories.map((one) => [one.id, HomeswiftWidgets.accessoryIcon(one) ?? "accessory"]));
     const byID = new Map(accessories.map((one) => [one.id, one]));
     app().show(main, app().pageHead(t("Logbook"), t("What changed in the home, and who or what changed it.")),
-      el("div", { class: "card logbook-card" },
-        el("div", { class: "logbook-toolbar" }, periods,
-          el("div", { class: "logbook-filters" }, room, accessory, source, clear), since), count, list));
+      el("div", { class: "card log-card logbook-card" },
+        el("div", { class: "log-filter-panel logbook-toolbar" },
+          el("div", { class: "log-scope-row" },
+            el("div", { class: "log-time" }, el("span", { text: t("Time range") }), periods),
+            ...[[t("Room"), room], [t("Accessory"), accessory], [t("Change Source"), source]].map(([label, control]) =>
+              el("label", {}, el("span", { text: label }), control))), clear, since), count, list));
 
     async function reload() {
       const query = new URLSearchParams();
@@ -242,7 +254,11 @@
         if (!days.has(key)) days.set(key, []);
         days.get(key).push(row(entry, date, timeFormat, exactFormat));
       }
-      list.replaceChildren(...[...days].map(([day, rows]) => el("section", { class: "logbook-day" }, el("h3", { text: day }), el("ul", { class: "logbook-list" }, rows))));
+      list.replaceChildren(...[...days].map(([day, rows]) => {
+        const section = el("details", { class: "logbook-day" }, el("summary", { text: day }), el("ul", { class: "logbook-list" }, rows));
+        section.open = true;
+        return section;
+      }));
     }
 
     function row(entry, date, timeFormat, exactFormat) {

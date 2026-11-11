@@ -3210,7 +3210,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         .forEach((name, index) => { if (index % 2) arranged.push(name); else arranged.unshift(name); });
       return el("div", { class: "chips plugin-cloud" }, arranged.map((name) => {
         const count = counts[name] ?? 0;
-        const tag = el("span", { class: `chip cloud-tag tone-${tone(name)}`, "aria-label": `${name}, ${tn("{n} accessory", "{n} accessories", count)}` },
+        const tag = el("a", { class: `chip cloud-tag tone-${tone(name)}`, href: pluginPage({ slug: slug(name) }), "aria-label": `${name}, ${tn("{n} accessory", "{n} accessories", count)}` },
           el("span", { text: name }), el("span", { class: "cloud-count", "aria-hidden": "true", text: String(count) }));
         tag.style.setProperty("--weight", Math.sqrt(count / most).toFixed(3));
         return tag;
@@ -5344,6 +5344,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     closeArea();
     svg.prepend(make("path", { class: "spark-area", d: area }),
       make("path", { class: "spark-baseline", d: "M3,29 H157" }), make("path", { d: path }));
+    const guide = make("path", { class: "spark-guide", visibility: "hidden" });
+    svg.append(guide);
+    const hideGuide = () => guide.setAttribute("visibility", "hidden");
+    box.addEventListener("pointermove", (event) => {
+      const rect = svg.getBoundingClientRect();
+      if (!rect.width) return;
+      const fraction = Math.max(0, Math.min(1, (160 * (event.clientX - rect.left) / rect.width - 3) / 154));
+      const index = Math.round(fraction * (values.length - 1));
+      if (values[index] == null) { hideGuide(); return; }
+      const x = values.length === 1 ? 80 : 3 + index / (values.length - 1) * 154;
+      guide.setAttribute("d", `M${x},1 V31`);
+      guide.setAttribute("visibility", "visible");
+    });
+    for (const type of ["pointerleave", "pointercancel", "pointerup"]) box.addEventListener(type, hideGuide);
     box.append(svg);
     return box;
   }
@@ -18078,7 +18092,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const logbook = el("a", { class: "button", href: `/logbook?accessory=${encodeURIComponent(accessory.id)}`, actionIcon: "logs", text: t("Logbook"),
       onclick: () => document.querySelector("dialog.widget-sheet[open]")?.close() });
     const root = el("article", { class: "card accessory-card widget-full history-full" },
-      el("div", { class: "page-head history-head" },
+      el("div", { class: "editor-bar history-head" },
         el("div", { class: "who" }, el("h2", { text: accessory.name }), el("p", { class: "muted", text: t("Its values over time. The Logbook says who changed them.") })),
         el("div", { class: "tools" }, group)),
       charts, note, el("div", { class: "actions start" }, logbook));
@@ -18103,7 +18117,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         .map((series) => series.kind === "number" ? numberCard(series, found) : stateCard(series, found)).filter(Boolean);
       if (details.length) cards.push(el("details", { class: "history-details" },
         el("summary", { text: t("Details") }), details.map((series) => stateCard(series, found))));
-      charts.replaceChildren(...energyCards, ...cards);
+      // Only the compact state list uses the console material; charts retain their normal theme.
+      const content = [...energyCards];
+      let stateList = null;
+      for (const node of cards) {
+        if (node.matches(".history-state-row, .history-details")) {
+          if (!stateList) { stateList = el("div", { class: "log history-state-list", tabindex: 0, role: "region", "aria-label": t("History") }); content.push(stateList); }
+          stateList.append(node);
+        } else { stateList = null; content.push(node); }
+      }
+      charts.replaceChildren(...content);
       if (!cards.length && !energyCards.length) charts.append(el("p", { class: "muted", text: t("Nothing recorded in this range") }));
     }
 
@@ -18216,7 +18239,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const accessories = await api("/api/accessories").catch(() => []);
     const rooms = [...new Set(accessories.map((accessory) => accessory.room).filter(Boolean))].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale));
     const select = (name, label, choices, value) => {
-      const node = el("select", { name, "aria-label": label }, choices.map(([key, text]) => el("option", { value: key, text, selected: key === value })));
+      const node = el("select", { name, class: "popup", "aria-label": label }, choices.map(([key, text]) => el("option", { value: key, text, selected: key === value })));
       node.addEventListener("change", reload);
       return node;
     };
@@ -18238,14 +18261,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     syncPeriods();
     const clear = HomeswiftCommon.clearFilters(controls.map((control) => [control, control === since ? "24h" : ""]),
       { active: () => controls.some((control) => control.value !== (control === since ? "24h" : "")), events: controls.map((control) => [control, "change"]), reset: reload });
-    const list = el("div", { class: "logbook" });
-    const count = el("p", { class: "muted logbook-count", "aria-live": "polite" });
+    const list = el("div", { class: "log logbook", tabindex: 0, role: "region", "aria-label": t("Logbook") });
+    const count = el("p", { class: "muted log-action-bar logbook-count", "aria-live": "polite" });
     const icons = new Map(accessories.map((one) => [one.id, HomeswiftWidgets.accessoryIcon(one) ?? "accessory"]));
     const byID = new Map(accessories.map((one) => [one.id, one]));
     app().show(main, app().pageHead(t("Logbook"), t("What changed in the home, and who or what changed it.")),
-      el("div", { class: "card logbook-card" },
-        el("div", { class: "logbook-toolbar" }, periods,
-          el("div", { class: "logbook-filters" }, room, accessory, source, clear), since), count, list));
+      el("div", { class: "card log-card logbook-card" },
+        el("div", { class: "log-filter-panel logbook-toolbar" },
+          el("div", { class: "log-scope-row" },
+            el("div", { class: "log-time" }, el("span", { text: t("Time range") }), periods),
+            ...[[t("Room"), room], [t("Accessory"), accessory], [t("Change Source"), source]].map(([label, control]) =>
+              el("label", {}, el("span", { text: label }), control))), clear, since), count, list));
 
     async function reload() {
       const query = new URLSearchParams();
@@ -18271,7 +18297,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         if (!days.has(key)) days.set(key, []);
         days.get(key).push(row(entry, date, timeFormat, exactFormat));
       }
-      list.replaceChildren(...[...days].map(([day, rows]) => el("section", { class: "logbook-day" }, el("h3", { text: day }), el("ul", { class: "logbook-list" }, rows))));
+      list.replaceChildren(...[...days].map(([day, rows]) => {
+        const section = el("details", { class: "logbook-day" }, el("summary", { text: day }), el("ul", { class: "logbook-list" }, rows));
+        section.open = true;
+        return section;
+      }));
     }
 
     function row(entry, date, timeFormat, exactFormat) {
@@ -37073,6 +37103,9 @@ textarea.short { min-height: 220px; }
 .cloud-tag.tone-5 { --tag: var(--series-5); }
 .cloud-tag.tone-6 { --tag: var(--series-6); }
 .cloud-tag.tone-7 { --tag: var(--series-7); }
+.cloud-tag[href] { text-decoration: none; }
+.cloud-tag[href]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (hover: hover) { .cloud-tag[href]:hover { background: color-mix(in srgb, var(--tag) 24%, transparent); } }
 /* A chip with a remove button (the Matter card's ecosystems, for an administrator). */
 .chip.removable { display: inline-flex; align-items: center; gap: 2px; padding-right: 2px; }
 /* A chip's remove button stays a 22-point disc (no button minimum stretches it) with a 40-point tap around it. */
@@ -37441,6 +37474,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumer-sparkline path { fill: none; stroke: currentColor; stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
 .consumer-sparkline .spark-area { fill: currentColor; fill-opacity: 0.12; stroke: none; }
 .consumer-sparkline .spark-baseline { stroke: var(--line); stroke-width: 1; }
+.consumer-sparkline .spark-guide { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
 .consumer-sparkline circle { fill: currentColor; }
 .consumer.nested .consumer-sparkline { color: color-mix(in srgb, var(--consumer-tone, var(--series-1)) 65%, var(--material-solid)); }
 .consumer.rest .consumer-sparkline { color: var(--muted); }
@@ -41779,32 +41813,30 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .plugins-open { grid-column: 5; grid-row: 1; }
 }
 
-/* Logbook uses the same integrated filter-and-list card as Plugins. */
-.logbook-card { padding: 0; overflow: hidden; }
-.logbook-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-12); padding: var(--space-20); border-bottom: 1px solid var(--line); }
-.logbook-periods { flex: 0 1 auto; max-width: 100%; }
-.logbook-toolbar .logbook-filters { flex: 1 1 480px; display: flex; flex-wrap: wrap; gap: var(--space-8); margin: 0; }
-.logbook-toolbar .logbook-filters select { flex: 1; width: 0; min-width: 125px; border-radius: var(--radius-pill); }
-.logbook-toolbar .clear-filters { width: 40px; height: 40px; min-height: 40px; flex: 0 0 40px; padding: 0; margin: 0; gap: 0; font-size: 0; border-radius: 50%; }
+/* Logbook shares the Logs toolbar and scrollable console, with compact event rows. */
+.logbook-card .logbook { padding: 0; }
+.logbook-card .logbook-periods { max-width: 100%; }
+.logbook-card .logbook-periods button { min-width: 0; white-space: normal; }
+.logbook-card .logbook-toolbar > select.popup { flex: 1 1 140px; min-width: 0; }
+.logbook-toolbar .clear-filters { width: 36px; height: 36px; min-height: 36px; flex: 0 0 36px; padding: 0; margin: 0; gap: 0; font-size: 0; border-radius: 50%; }
 .logbook-toolbar .clear-filters:disabled { display: none; }
-.logbook-card .logbook-count { margin: 0; padding: var(--space-12) var(--space-20); font-size: var(--text-sm); border-bottom: 1px solid var(--line); }
-.logbook-card .logbook-day h3 { margin: 0; padding: var(--space-12) var(--space-20); background: color-mix(in srgb, var(--text) 3%, transparent); border-bottom: 1px solid var(--line); }
+.logbook-card .logbook-count { margin: 0; padding: var(--space-6) var(--space-16); font-size: var(--text-xs); border-bottom: 1px solid var(--line); }
+.logbook-card .logbook-day > summary { cursor: pointer; min-height: 40px; box-sizing: border-box; align-content: center; font-weight: var(--weight-semibold); position: sticky; top: 0; z-index: 1; margin: 0; padding: var(--space-6) var(--space-16); font-size: var(--text-xs); color: #ffcfaa; background: linear-gradient(rgb(224 117 55 / 18%), rgb(224 117 55 / 18%)), var(--console); border-bottom: 1px solid rgb(224 117 55 / 25%); }
 .logbook-card .logbook-list { border: 0; border-radius: 0; background: none; }
-.logbook-card .logbook-entry { padding: var(--space-12) var(--space-20); }
-.logbook-card .logbook > .empty, .logbook-card .logbook > .error { padding: var(--space-20); margin: 0; }
+.logbook-card .logbook-entry { padding: 3px var(--space-16); gap: var(--space-8); grid-template-columns: auto minmax(0, 1fr) auto; }
+.logbook-card .logbook-entry + .logbook-entry { border-top: 0; }
+.logbook-card .logbook-entry:nth-child(even) { background: rgba(255, 255, 255, 0.055); }
+.logbook-card .logbook-entry > .tile { display: none; }
+.logbook-card .logbook-entry time { align-self: start; padding-top: 2px; min-width: 5ch; font-family: var(--mono); font-size: var(--text-xs); }
+.logbook-card .logbook-entry .who > * { white-space: normal; overflow-wrap: anywhere; }
+.logbook-card .logbook-entry .who strong { font-weight: var(--weight-medium); }
+.logbook-card .logbook-entry .source { border: 0; background: none; padding: 0; font-size: var(--text-xs); font-weight: var(--weight-regular, 400); }
+.logbook-card .logbook > .empty, .logbook-card .logbook > .error { padding: var(--space-16); margin: 0; }
+@media (hover: hover) and (pointer: fine) { .logbook-card .logbook-entry:hover { background: var(--material-thin); } }
 @media (max-width: 640px) {
-  .logbook-toolbar { padding: var(--space-12); }
-  .logbook-periods { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; border-radius: var(--radius-lg); }
-  .logbook-periods button { flex-direction: column; min-width: 0; padding: var(--space-8) var(--space-4); font-size: 12px; white-space: normal; border-radius: var(--radius-md); }
-  .logbook-toolbar .logbook-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .logbook-toolbar .logbook-filters select { width: 100%; min-width: 0; }
-  .logbook-card .logbook-entry { padding-inline: var(--space-12); }
-}
-@media (max-width: 640px) {
-  .logbook-toolbar .logbook-filters > select[name="source"] { grid-column: 1 / -1; }
-  .logbook-toolbar .logbook-filters:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px; }
-  .logbook-toolbar .logbook-filters:has(.clear-filters:not(:disabled)) > select[name="accessory"] { grid-column: 2 / 4; }
-  .logbook-toolbar .logbook-filters:has(.clear-filters:not(:disabled)) > select[name="source"] { grid-column: 1 / 3; }
+  .logbook-card .logbook-periods button { min-width: 0; white-space: normal; font-size: var(--text-xs); }
+  .logbook-card .logbook-entry { grid-template-columns: auto minmax(0, 1fr); padding: var(--space-8) var(--space-12); gap: 1px var(--space-8); }
+  .logbook-toolbar .clear-filters { width: 40px; height: 40px; min-height: 40px; flex-basis: 40px; }
 }
 
 /* Medium lights keep brightness directly reachable above the tile hit target. */
@@ -41845,6 +41877,42 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .widget-light .level:has(.level-thumb) .level-text { background: #2a2620; -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
+
+/* Accessory History uses the same console material and compact rhythm as Logs. */
+.widget-sheet .history-full { padding: 0; gap: 0; }
+.history-full .history-head { justify-content: space-between; }
+.history-full .history-head .who { min-width: 0; }
+.history-full .history-head h2 { font-size: var(--text-lg); overflow-wrap: anywhere; }
+.history-full .history-head p { margin: var(--space-4) 0 0; font-size: var(--text-sm); }
+.history-full .history-charts { padding: var(--space-12) var(--space-16); }
+.history-full .history-state-list { height: auto; min-height: 0; max-height: min(320px, 40dvh); overflow-y: auto; overscroll-behavior: contain; background: var(--console); padding: 0; border-radius: var(--radius-md); }
+.history-full .history-state-row { align-items: baseline; padding: var(--space-8) var(--space-12); border-bottom: 0; font-size: var(--text-sm); }
+.history-full .history-state-row:nth-child(even) { background: rgb(255 255 255 / 5.5%); }
+.history-full .history-state-row .who { overflow-wrap: anywhere; }
+.history-full .history-state-row .who strong { font-weight: var(--weight-medium); }
+.history-full .history-state-row .who small { font-size: var(--text-xs); }
+.history-full .history-state-row > b { flex-shrink: 0; font-family: var(--mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.history-full .history-details { padding-top: 0; }
+.history-full .history-details > summary { padding: var(--space-8) var(--space-12); font-size: var(--text-xs); }
+.history-full > .history-note, .history-full > .actions { padding: var(--space-12) var(--space-16); font-size: var(--text-xs); }
+@media (max-width: 640px) {
+ .history-full .history-head .tools, .history-full .history-head .group { width: 100%; }
+ .history-full .history-head .group button { flex: 1; }
+}
+
+/* Logbook has three scope menus, unlike Logs' single source menu. */
+@media (max-width: 640px) {
+  .logbook-card > .logbook-toolbar { display: flex; flex-direction: row; flex-wrap: wrap; gap: var(--space-8); padding: var(--space-10); }
+  .logbook-toolbar > .log-scope-row { display: grid; flex: 1 1 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6); }
+  .logbook-toolbar .log-scope-row > label { grid-area: auto; }
+  .logbook-toolbar .log-scope-row > .log-time { grid-area: auto; grid-column: 1 / -1; }
+  .logbook-toolbar .log-scope-row > label:last-child { grid-column: 1 / -1; }
+  .logbook-toolbar .logbook-periods { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; }
+  .logbook-toolbar .logbook-periods button { padding: var(--space-6) var(--space-4); gap: var(--space-4); }
+}
+
+.logbook-card .logbook-day > summary::marker { color: currentColor; }
+.logbook-card .logbook-day > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
