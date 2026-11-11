@@ -37027,7 +37027,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .hold.holding .hold-fill, .hold-chip.holding .hold-fill { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
 /* A power station's output: a chip that fills while held. */
 .hold-chip { position: relative; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
-.hold-chip .hold-fill { border-radius: inherit; font-weight: var(--weight-semibold); }
+.hold-chip .hold-fill { border-radius: inherit; font-weight: var(--weight-semibold); display: flex; align-items: center; justify-content: center; gap: var(--space-6); }
+/* The fill repeats the chip's power icon beside its name, so nothing shifts as it sweeps across. */
+.hold-chip.action-with-icon .hold-fill::before { content: ""; width: 16px; height: 16px; flex: none; background: currentColor;
+  mask: var(--action-icon) center / contain no-repeat; -webkit-mask: var(--action-icon) center / contain no-repeat; }
 
 /* Valve: a round run button whose ring empties as the time runs out. */
 .valve { display: grid; justify-items: center; gap: var(--space-14); }
@@ -44097,7 +44100,10 @@ self.addEventListener("notificationclick", (event) => {
       // Remaining Duration is sent when the valve opens; the page counts down from there.
       let endsAt = null, lastRemaining, wasRunning = false;
       // Active reflects a stop immediately; In Use may arrive later from the device.
-      const running = () => isOn(active) && (!inUse || isOn(inUse));
+      // The countdown runs from the press of Run (Active), not from In Use, which a valve may report a moment later or
+      // never; until it does, the status says it is starting. Active reflects a stop at once.
+      const running = () => isOn(active);
+      const flowing = () => !inUse || isOn(inUse);
       const left = () => endsAt ? Math.max(0, Math.round((endsAt - Date.now()) / 1000)) : numberOf(remaining);
       ctx.watch(() => {
         const on = running();
@@ -44126,7 +44132,7 @@ self.addEventListener("notificationclick", (event) => {
         on: () => running(), tap: toggleRun, tapLabel: () => isOn(active) ? t("stop") : t("run"),
         hero: () => !ctx.tall && running() ? clock(left()) : "",
         middle: ctx.tall ? countdown : null,
-        status: () => running() ? [t("Running"), "cool"] : isOn(active) ? [t("Starting…")] : [t("Off")],
+        status: () => running() ? (flowing() ? [t("Running"), "cool"] : [t("Starting…"), "cool"]) : [t("Off")],
       };
       // The figures move each second while it runs.
       const ticker = setInterval(() => {

@@ -1796,7 +1796,10 @@
       // Remaining Duration is sent when the valve opens; the page counts down from there.
       let endsAt = null, lastRemaining, wasRunning = false;
       // Active reflects a stop immediately; In Use may arrive later from the device.
-      const running = () => isOn(active) && (!inUse || isOn(inUse));
+      // The countdown runs from the press of Run (Active), not from In Use, which a valve may report a moment later or
+      // never; until it does, the status says it is starting. Active reflects a stop at once.
+      const running = () => isOn(active);
+      const flowing = () => !inUse || isOn(inUse);
       const left = () => endsAt ? Math.max(0, Math.round((endsAt - Date.now()) / 1000)) : numberOf(remaining);
       ctx.watch(() => {
         const on = running();
@@ -1825,7 +1828,7 @@
         on: () => running(), tap: toggleRun, tapLabel: () => isOn(active) ? t("stop") : t("run"),
         hero: () => !ctx.tall && running() ? clock(left()) : "",
         middle: ctx.tall ? countdown : null,
-        status: () => running() ? [t("Running"), "cool"] : isOn(active) ? [t("Starting…")] : [t("Off")],
+        status: () => running() ? (flowing() ? [t("Running"), "cool"] : [t("Starting…"), "cool"]) : [t("Off")],
       };
       // The figures move each second while it runs.
       const ticker = setInterval(() => {

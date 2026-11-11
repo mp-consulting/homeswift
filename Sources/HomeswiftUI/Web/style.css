@@ -1342,7 +1342,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .hold.holding .hold-fill, .hold-chip.holding .hold-fill { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
 /* A power station's output: a chip that fills while held. */
 .hold-chip { position: relative; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
-.hold-chip .hold-fill { border-radius: inherit; font-weight: var(--weight-semibold); }
+.hold-chip .hold-fill { border-radius: inherit; font-weight: var(--weight-semibold); display: flex; align-items: center; justify-content: center; gap: var(--space-6); }
+/* The fill repeats the chip's power icon beside its name, so nothing shifts as it sweeps across. */
+.hold-chip.action-with-icon .hold-fill::before { content: ""; width: 16px; height: 16px; flex: none; background: currentColor;
+  mask: var(--action-icon) center / contain no-repeat; -webkit-mask: var(--action-icon) center / contain no-repeat; }
 
 /* Valve: a round run button whose ring empties as the time runs out. */
 .valve { display: grid; justify-items: center; gap: var(--space-14); }

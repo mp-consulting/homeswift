@@ -44,7 +44,8 @@ All notable changes to this project are documented here. The format follows
   resumes in Auto; the dial's keys keep to its steps. LG ThinQ shows the device's swing again after a write ignored
   while off, and Daikin Cloud no longer rebuilds the accessory when a mode lacks a swing axis.
 - **Valve timers**: the large tiles and the sheet draw again, a run counts down from the chosen duration rather
-  than the last run's, and the duration menu sits under Run, wide enough to read.
+  than the last run's, the duration menu sits under Run, wide enough to read, and the countdown starts with Run rather than waiting for
+  the valve to report In Use.
 - **IKEA DIRIGERA**: every TRADFRI constant-voltage driver dims only, without colour controls.
 - **Design tokens**: use the shared spacing, corner and weight tokens for valve countdown digits.
 
