@@ -40008,14 +40008,16 @@ select option:disabled { color: var(--muted); }
 .edit-caption { position: absolute; inset: 9px 12px auto; z-index: 3; display: flex; align-items: center; gap: 7px; font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text); pointer-events: none; }
 .edit-caption > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .edit-grip { flex: none; color: var(--muted); font-size: 19px; line-height: 1; }
-.wall.editing .edit-bar { left: 8px; right: 37px; top: auto; bottom: 7px; transform: none; width: auto; max-width: none; padding: 3px; border-radius: var(--radius-sm); background: var(--material-solid); box-shadow: var(--shadow-control); }
-.wall.editing .edit-bar button { width: auto; height: 26px; flex: 1 1 0; border-radius: var(--radius-xs); font-size: var(--text-2xs); }
-.wall.editing .edit-bar button[data-step] { flex: .7 1 0; font-size: 18px; }
+/* Arranging: the size bar sits in the middle of every tile, as wide as its buttons (never wider than the tile). */
+.wall.editing .edit-bar { left: 50%; right: auto; top: 50%; bottom: auto; transform: translate(-50%, -50%); width: max-content; max-width: calc(100% - 16px); padding: 3px; border-radius: var(--radius-sm); background: var(--material-solid); box-shadow: var(--shadow-control); }
+.wall.editing .edit-bar button { width: 30px; height: 26px; flex: 0 1 30px; border-radius: var(--radius-xs); font-size: var(--text-2xs); }
+.wall.editing .edit-bar button[data-step] { width: 24px; flex: 0 1 24px; font-size: 18px; }
 .wall.editing .edit-bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .wall.editing .resize-handle { right: 4px; bottom: 8px; width: 29px; height: 29px; background: transparent; box-shadow: none; color: var(--accent-ink); }
 .wall.editing .resize-handle::after { left: 8px; top: 11px; }
 .wall.editing > .widget.size-small .edit-caption { top: 5px; font-size: var(--text-2xs); }
-.wall.editing > .widget.size-small .edit-bar { bottom: 3px; padding: 2px; }
+/* A small tile's caption takes its top: the bar sits in the middle of what is left under it. */
+.wall.editing > .widget.size-small .edit-bar { top: calc(50% + 8px); padding: 2px; }
 .wall.editing > .widget.size-small .edit-bar button { height: 22px; }
 .wall.editing > .widget.size-small .resize-handle { bottom: 3px; }
 .wall.editing > .widget-summary > .w-bottom, .wall.editing > .widget-summary > .w-middle { visibility: hidden; }
@@ -40026,8 +40028,7 @@ select option:disabled { color: var(--muted); }
 .wall.editing > .accessory-group { cursor: default; }
 .wall.editing > .accessory-group > .server-head { visibility: hidden; }
 .edit-caption > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); }
-/* A corner grip leaves more of the bottom edge for the size controls. */
-.wall.editing .edit-bar { right: 24px; }
+/* A corner grip, clear of the size controls in the middle. */
 .wall.editing .resize-handle,
 .wall.editing > .widget.size-small .resize-handle {
   right: 0; bottom: 0; width: 28px; height: 28px; border-radius: 0 0 var(--radius) 0;
