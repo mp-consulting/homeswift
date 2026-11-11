@@ -1,6 +1,7 @@
 import Foundation
 import Homeswift
 import HomeswiftAI
+import HomeswiftPlugin
 import NIOConcurrencyHelpers
 
 /// The Accessories page's wall, for every user of the bridge: the accessories' order, the size each one was given,
@@ -229,6 +230,16 @@ extension HomeswiftCatalog {
     static let groupServices: Set<String> = ["Lightbulb", "Switch", "Outlet", "Fan", "Fanv2", "WindowCovering"]
     static let groupCharacteristics: Set<String> = ["On", "Active", "Brightness", "Color Temperature", "Hue", "Saturation", "Rotation Speed", "Target Position"]
 
+    /// A single Function, or an explicitly primary light whose associated Functions stay independent.
+    /// Multiple primary Functions are ambiguous, even when one happens to be a light.
+    static func groupingFunction(_ accessory: Accessory) -> Service? {
+        let functions = Functions.of(accessory)
+        if functions.count == 1 { return functions.first }
+        let primary = functions.filter(\.isPrimary)
+        guard primary.count == 1, let light = primary.first, light.type.uuid == ServiceType.lightbulb.uuid else { return nil }
+        return light
+    }
+
     /// The characteristics a group drives on `accessory`, which `/api/accessories` marks `group` for the page: those of
     /// its primary service when that is one a group drives, else of every such service; none when two services share
     /// one (which would it be?) or when one is a security control (a switch that unlocks a door is never one tap among
@@ -426,6 +437,7 @@ extension HomeswiftCatalog {
         }
         var answer = wallJSON(layout: layout, all: all).objectValue ?? [:]
         await recordForHome(Self.groupChanges(from: groupsBefore, to: Self.groups(of: layout)), into: &answer)
+        answer["groups"] = .array(wallGroups.map(\.json))
         return .object(answer)
     }
 
@@ -456,6 +468,7 @@ extension HomeswiftCatalog {
         do { saved = try updateWallLayout { _ in .object(object) } } catch let error as WallLayout.Invalid { throw CatalogError(error.description) }
         var answer = saved.objectValue ?? [:]
         await recordForHome(Self.groupChanges(from: before, to: Self.groups(of: saved)), into: &answer)
+        answer["groups"] = .array(wallGroups.map(\.json))
         return .object(answer)
     }
 
@@ -502,8 +515,8 @@ extension HomeswiftCatalog {
                     + "groups: Groups, accessories that go together as one widget whose controls drive them all (the lights of a room, its blinds, "
                     + "a pair of lamps), the same groups as in Apple Home once the bridge is linked to it (get_home_link); without an id a group is made, with one it is changed; "
                     + "an accessory is in one group at most, and joining a group takes it out of another. Only groupable accessories (lights, switches, outlets, fans, blinds) "
-                    + "sharing an on/off or a position make a group, and as the Home app allows: of one kind, each doing one thing (separate an accessory's Functions with "
-                    + "update_settings separateFunctions to group it), all in Apple Home; never mix blinds with lights. ungroup: group ids to dissolve. appleHomeRefused lists "
+                    + "sharing an on/off or a position make a group: of one kind, with one Function or an explicitly primary light. Associated Functions stay independent. "
+                    + "All members must be in Apple Home. Lights with associated Functions may need Show as Separate Tiles in Home to display the Group. Never mix blinds with lights. ungroup: group ids to dissolve. appleHomeRefused lists "
                     + "what Apple Home refused. "
                     + "order: accessory and group ids in the order to show them; they take the places they hold together now, so the ids of "
                     + "one room sort that room and leave the rest, and every id sorts the whole wall. sizes: a size by accessory id (null: its kind's). "

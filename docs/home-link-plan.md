@@ -38,6 +38,45 @@ rooms only follow renames, as today.
 
 ## Where it stands
 
+### Group acceptance clarified on 2026-11-10
+
+Grouping accessories in Homeswift must produce one named, controllable tile in the Home app, behaving as if the user
+had chosen **Group with Other Accessories** there. Renaming, changing membership and ungrouping in either app must
+update the other. These are the confirmed user expectations, consistent with the glossary's Group definition.
+
+Homeswift must refuse a combination that the Home app cannot represent as one combined tile, explaining why it is
+unsupported. While Wingman is offline, changes remain visibly marked as Pending Changes and synchronize when it
+reconnects; they must not be presented as confirmed Home app updates.
+
+Pending Homeswift changes take precedence over conflicting Home app edits on reconnect; otherwise Apple Home's
+state wins. A pending change that cannot be applied must produce a visible failure. This retains ADR 0005's
+ownership rule rather than introducing a new conflict-resolution policy.
+
+If Apple Home deleted a Group while a rename or membership edit was pending, accept the deletion and visibly report
+that the pending edit failed; do not recreate the Group automatically. Replay membership additions and removals
+without overwriting unrelated Home-side membership changes.
+
+The existing implementation sends group changes through Wingman, which creates HomeKit service groups. The tests
+verify the requests and returned model, but do not verify the Home app's presentation. Creating a service group
+successfully is therefore not sufficient evidence that this acceptance criterion is met. Live checks now establish combined tiles and ungrouping for two lights; see Open facts below for the associated-Function
+presentation requirement and the limits of those checks.
+
+The implementation now preserves pending group edits across read-only reconnects, reports missing group links as
+failures, displays pending changes and refusals, and removes a newly created local Group when Apple Home refuses its
+creation. Membership replay uses additions and removals, preserving unrelated Home-side membership edits.
+
+The picker receives grouping eligibility from the server: one grouping Function (the sole Function or an explicitly
+primary light), the same Function type as the other members,
+shared controls, and membership in Apple Home when known. Queued creates and membership edits are checked again against
+the current Home snapshot before replay. Wingman checks that each member belongs to the linked Home and selects a
+groupable control service, never an auxiliary battery or protocol service. HomeKit remains authoritative for constraints
+such as names already in use; a refusal is reported rather than silently leaving a local-only Group.
+
+These are the existing Homeswift Group eligibility rules, not a claim that every Home app presentation constraint has
+been established. Apple's [HMServiceGroup documentation](https://developer.apple.com/documentation/homekit/hmservicegroup)
+describes service collections and Siri control; it does not establish equivalence with Home's combined tile. The live
+Home app checks below supply presentation evidence; automated transport and model tests alone do not.
+
 **Bridge (`homeswift`)**
 
 - **Rooms:** a list of names in `accessory-layout.json` (`AccessoryLayout.rooms`). Each accessory's
@@ -422,6 +461,62 @@ with grouping refusals.
 - Retaken screenshots: docs/ui.md, docs/widgets.md, and the Wingman README.
 
 ## Open facts
+
+Live diagnosis on 2026-11-10 found a separate identity failure: an unavailable light was present in Wingman's
+`/homes` with the right bridge, but its Serial Number characteristic had no value. An explicit `/read` failed;
+Apple Home's own UI still showed its cached serial. Homeswift rejected identity reads along with device-state
+reads. The HAP regression test `unavailableAccessoriesKeepTheirIdentityReadable` reproduced the missing serial
+for both unavailable and unreachable accessories. Cached, read-only Accessory Information now remains readable
+without invoking a device handler; control reads, missing identity values and paused-device writes still fail.
+The protocol suite passes locally. A subsequent real-Home check used an isolated local bridge with two Hue
+spotlights, paired to Home through an iPhone and linked to Wingman. After an explicit Wingman identity read and
+restarting only the test bridge to refresh its snapshot, Home Link was up with no pending changes. The group
+picker's backend refused the lights while optional effect services made them multi-Function. With those optional
+functions disabled on the test instance, a group created through the local web API received a HomeKit group id.
+The macOS Home app then showed **Homeswift E2E Test Group** as one tile in the Test room, with the two individual
+test lamp tiles replaced. The tile showed No Response, as expected for the unavailable Hue devices: cached
+identity and grouping work even when the device cannot answer. This validates the combined-tile path, not physical
+light control. Removing that group through the local layout API also succeeded: the response contained no groups,
+Home Link stayed up with zero pending changes, and the macOS Home app replaced the combined tile with two separate
+light tiles in the Test room. At inspection those tiles displayed the generic name Light and Updating, so this
+check establishes ungrouping, not restoration of display names or device responsiveness. Deployment to the
+production bridge remains outstanding.
+
+A further live test retained the Hue lights' associated Functions: effects, Flash and gradient points were enabled
+on the isolated plugin, and Wingman's snapshot showed one primary light and eleven switch services per test device.
+Creating a service group directly through Wingman with only the two light service ids succeeded. With Home's default
+combined-device presentation, however, the Home app still displayed two devices with twelve controls each, not the
+requested group tile. Choosing **Show as Separate Tiles** in Home for both test devices exposed one light-group tile
+and all twenty-two associated switch tiles. Deleting that temporary group through Wingman restored two separate
+light tiles and retained all twenty-two switches. All were No Response because these physical lights were unavailable;
+this verifies presentation and preservation of services, not physical commands. The temporary group was removed.
+
+The one-Function restriction is therefore a Homeswift constraint, not an absolute HomeKit grouping constraint.
+Supporting this case in Homeswift requires selecting the primary light Function consistently for eligibility and
+controls, retaining access to the other Functions, and accounting for Home's separate-tiles presentation setting.
+Homeswift now permits an explicitly primary light with associated Functions, exposes those Functions through each
+member’s controls in the Group menu, and explains the separate-tiles setting in the picker. Ambiguous multi-Function
+accessories remain blocked. Home's display setting must not be confused with Homeswift's **Separate Functions**, which changes
+the accessories published by the bridge.
+
+The rebuilt local Homeswift then completed the same cycle through `PUT /api/layout`: both lights were eligible with
+associated Functions, creation returned a HomeKit group id with Home Link up and zero pending changes, and Apple Home
+showed the combined light tile alongside all twenty-two switches. Removing the group through the same API restored
+two light tiles while retaining every switch. Home’s separate-tiles setting from the earlier check remained enabled.
+The regression suite also checks that group commands exclude effect switches and that a member’s complete controls
+remain accessible from the Group menu. The test group was removed; production deployment remains outstanding.
+
+A subsequent live run used four online Hue color lamps with twenty-two associated effect/Flash switches. The local
+bridge created their Group, and after Home’s separate-tiles setting was applied to the four test copies, Home showed
+one light tile with all twenty-two switches retained. Toggling the Group in Apple Home switched all four real lights
+off, confirmed through the Hue-backed accessory states, then restored all four on at their original 100% brightness.
+Every associated switch remained off. The Group was then removed through the local layout API with no pending changes;
+Apple Home showed all four individual color lamp tiles again at 100%, with the associated switches retained.
+After testing, all six temporary light accessories and their associated switches were removed from Apple Home by
+marking them Not in Home on the isolated bridge; the Test room retained only its pre-existing accessory.
+Live rename and membership-change checks initiated in both apps remain outstanding; the automated tests cover those
+model and transport paths, but do not establish the Home app’s presentation for them.
+
 
 Phase 1 settles these:
 

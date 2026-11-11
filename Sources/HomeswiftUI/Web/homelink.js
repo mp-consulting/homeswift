@@ -5,7 +5,7 @@
   const { t, tn } = HomeswiftI18n;
 
   /// What the link says, in a sentence, and how it shows (`tone`: "", "warn" or "error").
-  function status(link) {
+  function connectionStatus(link) {
     if (!link || link.state === "none") {
       return { text: t("These rooms are this bridge's own. Pair Homeswift Wingman to share them with Apple Home."), tone: "" };
     }
@@ -20,6 +20,16 @@
         : t("Apple Home is not reachable: {reason}", { reason: link.reason ?? "" }),
       tone: "warn",
     };
+  }
+
+  function status(link) {
+    const result = connectionStatus(link);
+    const details = [];
+    if (link?.pending) details.push(tn("{n} change is pending in Apple Home.", "{n} changes are pending in Apple Home.", link.pending));
+    if (link?.refused?.length) details.push(...link.refused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })));
+    if (!details.length) return result;
+    // A reachable link is not proof that queued writes succeeded.
+    return { text: [...(link.state === "up" ? [] : [result.text]), ...details].join(" "), tone: link.refused?.length ? "error" : "warn" };
   }
 
   function dialogShell(title, ...content) {

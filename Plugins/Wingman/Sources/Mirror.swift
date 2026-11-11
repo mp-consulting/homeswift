@@ -33,7 +33,9 @@ struct Mirror {
         var services: [Service] = []
         var characteristics: [String: Characteristic] = [:]
         let usable = source.services.filter { !Self.skippedServices.contains(HAPUUID($0.type)) }
-        let primary = usable.firstIndex { $0.primary == true } ?? usable.firstIndex { Self.isMain(HAPUUID($0.type)) }
+        // Preserve explicit primary markers, including ambiguity: grouping must never choose an arbitrary light.
+        let hasPrimary = usable.contains { $0.primary == true }
+        let fallbackPrimary = hasPrimary ? nil : usable.firstIndex { Self.isMain(HAPUUID($0.type)) }
         for (index, service) in usable.enumerated() {
             var extra: [Characteristic] = []
             for item in service.characteristics {
@@ -62,7 +64,7 @@ struct Mirror {
             let uuid = HAPUUID(service.type)
             let type = ServiceType(name: ServiceType.known(uuid: uuid)?.name ?? service.description ?? service.type, uuid: uuid, required: [])
             // Its HomeKit id keeps two services of a type apart; by position when Wingman gives none.
-            services.append(Service(type, name: service.name, subtype: service.id ?? "\(index)", extra: extra, isPrimary: index == primary))
+            services.append(Service(type, name: service.name, subtype: service.id ?? "\(index)", extra: extra, isPrimary: service.primary == true || index == fallbackPrimary))
         }
         guard !services.isEmpty else { return nil }
         let identify = source.services.first { HAPUUID($0.type) == ServiceType.accessoryInformation.uuid }?

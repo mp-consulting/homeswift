@@ -511,7 +511,13 @@
   let wallSaves = 0, wallSavedAt = 0;
   async function saveWallLayout(layout) {
     wallSaves++;
-    try { return await api("/api/layout", { method: "PUT", body: layout }); }
+    try {
+      const answer = await api("/api/layout", { method: "PUT", body: layout });
+      if (answer.appleHomeRefused?.length) {
+        await HomeswiftCommon.showAlert(answer.appleHomeRefused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })).join("\n"));
+      }
+      return answer;
+    }
     finally { wallSaves--; wallSavedAt = Date.now(); }
   }
   const ownWallChange = () => wallSaves > 0 || Date.now() - wallSavedAt < 2000;
@@ -3504,7 +3510,12 @@
         for (const accessory of movable) accessory.room = room;
       } : null,
       moveToRoom: isAdmin() ? (group) => HomeswiftHome.moveGroupToRoom(group, all) : null,
-      persist: async () => { clearTimeout(saveTimer); await saveWallLayout(layout); }, refresh: render });
+      persist: async () => {
+        clearTimeout(saveTimer);
+        const answer = await saveWallLayout(layout);
+        if (answer.groups) layout.groups = answer.groups;
+        if (answer.homeLink) { Object.assign(homeLink, answer.homeLink); updateHomeLinkNotice(); }
+      }, refresh: render });
     window.homeswiftGroupEvent = groupingControls.event;
     window.homeswiftGroupSnapshot = groupingControls.snapshot;
     const nodes = new Map();
@@ -3961,6 +3972,12 @@
     }
     // The Home Link: whether the Rooms are Apple Home's (HomeswiftHomeLink, homelink.js).
     const homeLink = home.homeLink ?? { state: "none" };
+    const homeLinkNotice = el("p", { class: "home-link-banner", role: "status" });
+    function updateHomeLinkNotice() {
+      homeLinkNotice.hidden = Boolean(homeLink.waiting || fullScreen || !(homeLink.pending || homeLink.refused?.length));
+      homeLinkNotice.textContent = HomeswiftHomeLink.status(homeLink).text;
+    }
+    updateHomeLinkNotice();
     async function renameRoom(name) {
       const answer = await HomeswiftCommon.promptDialog(t("A new name for {room}.", { room: name })
         + `\n\n${homeLink.linked ? t("Renamed in Apple Home too, and the rooms of this name on your Philips Hue, IKEA and eWeLink hubs.")
@@ -4274,6 +4291,7 @@
       homeLink.waiting && isAdmin() && !fullScreen ? el("p", { class: "home-link-banner", role: "status" },
         el("span", { text: HomeswiftHomeLink.status(homeLink).text }),
         el("button", { type: "button", class: "primary", actionIcon: "link", text: t("Review"), onclick: () => HomeswiftHomeLink.review(() => route()) })) : null,
+      homeLinkNotice,
       accessories.length ? [content, none, fullScreen ? chrome : null] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") }),
         !all.length && isAdmin() ? el("a", { class: "button primary", href: "/setup", actionIcon: "plus", text: t("Add accessories") }) : null));
   };

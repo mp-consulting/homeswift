@@ -2889,7 +2889,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   let wallSaves = 0, wallSavedAt = 0;
   async function saveWallLayout(layout) {
     wallSaves++;
-    try { return await api("/api/layout", { method: "PUT", body: layout }); }
+    try {
+      const answer = await api("/api/layout", { method: "PUT", body: layout });
+      if (answer.appleHomeRefused?.length) {
+        await HomeswiftCommon.showAlert(answer.appleHomeRefused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })).join("\n"));
+      }
+      return answer;
+    }
     finally { wallSaves--; wallSavedAt = Date.now(); }
   }
   const ownWallChange = () => wallSaves > 0 || Date.now() - wallSavedAt < 2000;
@@ -5882,7 +5888,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         for (const accessory of movable) accessory.room = room;
       } : null,
       moveToRoom: isAdmin() ? (group) => HomeswiftHome.moveGroupToRoom(group, all) : null,
-      persist: async () => { clearTimeout(saveTimer); await saveWallLayout(layout); }, refresh: render });
+      persist: async () => {
+        clearTimeout(saveTimer);
+        const answer = await saveWallLayout(layout);
+        if (answer.groups) layout.groups = answer.groups;
+        if (answer.homeLink) { Object.assign(homeLink, answer.homeLink); updateHomeLinkNotice(); }
+      }, refresh: render });
     window.homeswiftGroupEvent = groupingControls.event;
     window.homeswiftGroupSnapshot = groupingControls.snapshot;
     const nodes = new Map();
@@ -6339,6 +6350,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
     // The Home Link: whether the Rooms are Apple Home's (HomeswiftHomeLink, homelink.js).
     const homeLink = home.homeLink ?? { state: "none" };
+    const homeLinkNotice = el("p", { class: "home-link-banner", role: "status" });
+    function updateHomeLinkNotice() {
+      homeLinkNotice.hidden = Boolean(homeLink.waiting || fullScreen || !(homeLink.pending || homeLink.refused?.length));
+      homeLinkNotice.textContent = HomeswiftHomeLink.status(homeLink).text;
+    }
+    updateHomeLinkNotice();
     async function renameRoom(name) {
       const answer = await HomeswiftCommon.promptDialog(t("A new name for {room}.", { room: name })
         + `\n\n${homeLink.linked ? t("Renamed in Apple Home too, and the rooms of this name on your Philips Hue, IKEA and eWeLink hubs.")
@@ -6652,6 +6669,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       homeLink.waiting && isAdmin() && !fullScreen ? el("p", { class: "home-link-banner", role: "status" },
         el("span", { text: HomeswiftHomeLink.status(homeLink).text }),
         el("button", { type: "button", class: "primary", actionIcon: "link", text: t("Review"), onclick: () => HomeswiftHomeLink.review(() => route()) })) : null,
+      homeLinkNotice,
       accessories.length ? [content, none, fullScreen ? chrome : null] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") }),
         !all.length && isAdmin() ? el("a", { class: "button primary", href: "/setup", actionIcon: "plus", text: t("Add accessories") }) : null));
   };
@@ -17613,7 +17631,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const groupable = (a) => (a?.services || []).filter((s) => s.characteristics?.some((c) => c.group));
   const controls = (a) => new Map(groupable(a).flatMap((s) => s.characteristics.filter((c) => c.group).map((c) => [c.type, { service: s.subtype || s.type, c }])));
   const shared = (members) => types.filter((type) => members.length && members.every((a) => controls(a).has(type)));
-  const compatible = (members) => shared(members).some((type) => ['On', 'Active', 'Target Position'].includes(type));
+  const groupingProblem = (members) => {
+    if (members.some((a) => a?.grouping?.blocked === 'notInHome')) return t('Every member of a group must be in Apple Home.');
+    if (members.some((a) => a?.grouping?.blocked === 'functions')) return t('Separate accessory Functions before grouping them.');
+    if (new Set(members.map((a) => a?.grouping?.kind).filter(Boolean)).size > 1) return t('Choose accessories of the same kind.');
+    if (members.some((a) => a?.grouping?.blocked) || !shared(members).some((type) => ['On', 'Active', 'Target Position'].includes(type))) return t('Choose at least two accessories with shared controls.');
+    return null;
+  };
+  const compatible = (members) => !groupingProblem(members);
   // Follow the first visible member in saved member order, not the first wall on the page.
   // This also gives mixed-room/plugin groups a stable home without moving any accessories.
   function sectionIndex(group, sections) {
@@ -17639,6 +17664,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         [...new Set([...rooms, ...all.map((a) => a.room).filter(Boolean)])].map((room) => el('option', { value: room, text: room })));
       roomSelect.value = initialRoom;
       const message = el('p', { role: 'status', class: 'error' });
+      const associatedHint = el('p', { class: 'help', hidden: true, text: t('Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.') });
       const occupied = new Set(layout.groups.filter((g) => g !== existing && !ids.includes(g.id)).flatMap((g) => g.members));
       const choices = all.filter((a) => selected.has(a.id) || (!occupied.has(a.id) && controls(a).size));
       const roomLabels = new Map([...roomSelect.options].map((option) => [option.value, option.textContent]));
@@ -17648,15 +17674,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const selectedEmpty = el('p', { class: 'muted', text: t('Choose at least two accessories with shared controls.') });
       const rows = choices.map((a) => {
         const button = el('button', { type: 'button', class: 'group-transfer' });
-        const row = el('div', { class: 'group-member-row', 'data-search': (a.displayName || a.name).toLowerCase(), 'data-type': deviceType(a)[0], 'data-room': a.room || '' },
+        const reason = el('p', { class: 'help group-member-reason', hidden: true });
+        const row = el('div', { class: 'group-member-row', 'data-accessory': a.id, 'data-search': (a.displayName || a.name).toLowerCase(), 'data-type': deviceType(a)[0], 'data-room': a.room || '' },
           el('span', { class: 'group-device-icon', title: deviceType(a)[2], 'aria-hidden': 'true' }, HomeswiftCommon.icon(deviceType(a)[1])),
-          el('span', { class: 'group-member-name', text: a.displayName || a.name }), button);
+          el('div', { class: 'group-member-name' }, el('span', { text: a.displayName || a.name }), reason), button);
         const update = () => {
           const chosen = selected.has(a.id);
           button.textContent = chosen ? '−' : '+';
           button.setAttribute('aria-label', t(chosen ? 'Remove {name}' : 'Add {name}', { name: a.displayName || a.name }));
           (chosen ? selectedList : list).append(row);
           row.hidden = false;
+          reason.hidden = true;
           selectedCount.textContent = String(selected.size);
           selectedEmpty.hidden = selected.size > 0;
         };
@@ -17672,6 +17700,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       let activeType = '';
       const empty = el('p', { class: 'muted', hidden: true, text: t('No accessory matches.') });
       const applyFilter = () => {
+        const problem = groupingProblem([...selected].map((id) => byID.get(id)));
+        associatedHint.hidden = ![...selected].some((id) => byID.get(id)?.grouping?.associatedFunctions);
+        save.disabled = selected.size < 2 || Boolean(problem);
+        message.textContent = selected.size ? problem || '' : '';
+        for (const row of list.children) {
+          const accessory = choices.find((a) => a.id === row.dataset.accessory);
+          const reason = groupingProblem([...selected].map((id) => byID.get(id)).concat(accessory));
+          const button = row.querySelector('button');
+          button.disabled = Boolean(reason);
+          button.title = reason || '';
+          const hint = row.querySelector('.group-member-reason');
+          hint.textContent = reason || '';
+          hint.hidden = !reason;
+        }
         const query = search.value.trim().toLowerCase();
         for (const button of typeFilter.children) {
           const count = [...list.children].filter((row) => (!button.dataset.type || row.dataset.type === button.dataset.type) && (roomSelect.value === '__keep__' || row.dataset.room === roomSelect.value) && row.dataset.search.includes(query)).length;
@@ -17707,6 +17749,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       applyFilter();
       const form = el('form', {}, el('div', { class: 'group-dialog-head' }, HomeswiftCommon.tile('group', 'blue'), el('h2', { text: t('Accessory group') })), el('label', { class: 'group-name-field' }, el('span', { text: t('Name') }), name),
         setGroupRoom ? el('label', { class: 'group-room-field' }, el('span', { text: t('Room') }), roomSelect, el('span', { class: 'help', text: t('Moves the selected accessories in the Home app too once this bridge is linked to Apple Home.') })) : null,
+        associatedHint,
         el('div', { class: 'group-picker-columns' },
           el('section', {}, el('h3', { text: t('Available') }), search, typeFilter, clearFilters, list, empty),
           el('section', {}, el('div', { class: 'group-selected-heading' }, el('h3', { text: t('Selected') }), selectedCount), selectedList, selectedEmpty)), message,
@@ -17716,7 +17759,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       form.prepend(content);
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
-        if (selected.size < 2 || !compatible([...selected].map((id) => byID.get(id)))) { message.textContent = t('Choose at least two accessories with shared controls.'); return; }
+        const problem = groupingProblem([...selected].map((id) => byID.get(id)));
+        if (selected.size < 2 || problem) { message.textContent = problem || t('Choose at least two accessories with shared controls.'); return; }
         save.disabled = true;
         const before = layout.groups;
         layout.groups = before.filter((g) => g !== existing && !g.members.some((id) => selected.has(id)));
@@ -17734,6 +17778,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       dialog.append(form); document.body.append(dialog); dialog.addEventListener('close', () => dialog.remove(), { once: true }); dialog.showModal();
     }
     const cards = new Set();
+    const associatedActions = (people) => people.filter((a) => a?.grouping?.associatedFunctions).map((a) => ({
+      label: t('Controls for {name}', { name: a.displayName || a.name }), icon: 'sliders',
+      onSelect: () => HomeswiftWidgets.open(a)
+    }));
     // The service type every shared control of the members sits on (a light's Lightbulb), else null: the members then
     // differ too much to look like one of them.
     function mergedKind(present) {
@@ -17816,6 +17864,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         }
       };
       const actions = () => [
+        ...associatedActions(present),
         ...((resume) => resume.length ? [...resume, { separator: true }] : [])(resumeChoices?.(present) ?? []),
         ...(sizeChoices ? [sizeChoices(group), { separator: true }] : []),
         ...(moveToRoom ? [{ label: t('Move to room…'), icon: 'room', onSelect: () => moveToRoom(group).catch((error) => HomeswiftCommon.showAlert(error.message)) }] : []),
@@ -17946,6 +17995,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const node = el('div', { class: `widget size-${layout.sizes?.[group.id] || 'large'} accessory-group`, 'data-id': group.id, 'data-search': [group.name, ...people.map((a) => a?.name || '')].join(' ').toLowerCase() },
         el('div', { class: 'server-head' }, glyph, el('div', { class: 'who' }, el('strong', { text: group.name }), el('div', { class: 'muted', text: people.map((a) => a?.displayName || a?.name || '—').join(', ') })),
           menuButton(t('Actions for {name}', { name: group.name }), () => [
+            ...associatedActions(people),
             ...(moveToRoom ? [{ label: t('Move to room…'), icon: 'room', onSelect: async () => {
               try { await moveToRoom(group); } catch (error) { notify(error.message); }
             } }] : []),
@@ -20072,7 +20122,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const { t, tn } = HomeswiftI18n;
 
   /// What the link says, in a sentence, and how it shows (`tone`: "", "warn" or "error").
-  function status(link) {
+  function connectionStatus(link) {
     if (!link || link.state === "none") {
       return { text: t("These rooms are this bridge's own. Pair Homeswift Wingman to share them with Apple Home."), tone: "" };
     }
@@ -20087,6 +20137,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         : t("Apple Home is not reachable: {reason}", { reason: link.reason ?? "" }),
       tone: "warn",
     };
+  }
+
+  function status(link) {
+    const result = connectionStatus(link);
+    const details = [];
+    if (link?.pending) details.push(tn("{n} change is pending in Apple Home.", "{n} changes are pending in Apple Home.", link.pending));
+    if (link?.refused?.length) details.push(...link.refused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })));
+    if (!details.length) return result;
+    // A reachable link is not proof that queued writes succeeded.
+    return { text: [...(link.state === "up" ? [] : [result.text]), ...details].join(" "), tone: link.refused?.length ? "error" : "warn" };
   }
 
   function dialogShell(title, ...content) {
@@ -20336,6 +20396,13 @@ window.HomeswiftHouseEditor = function ({ preferences, api, scaledImage, saved }
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Solo se agrupan las luces. Los demás controles siguen disponibles en el menú del grupo. En Casa, elige « Mostrar como mosaicos separados » para cada dispositivo si el grupo no aparece.",
+  "Controls for {name}": "Controles de {name}",
+  "Every member of a group must be in Apple Home.": "Todos los miembros de un grupo deben estar en Apple Home.",
+  "Separate accessory Functions before grouping them.": "Separa las Funciones de los accesorios antes de agruparlos.",
+  "Choose accessories of the same kind.": "Elige accesorios del mismo tipo.",
+  "{n} change is pending in Apple Home.": "Hay {n} cambio pendiente en Apple Home.",
+  "{n} changes are pending in Apple Home.": "Hay {n} cambios pendientes en Apple Home.",
   "Recent events": "Eventos recientes",
   "No events yet.": "Todavía no hay eventos.",
   "This connection is ready.": "Esta conexión está lista.",
@@ -24061,6 +24128,13 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Seules les lumières sont regroupées. Les autres commandes restent accessibles dans le menu du groupe. Dans Maison, choisissez « Afficher en tant que vignettes séparées » pour chaque appareil si le groupe n’apparaît pas.",
+  "Controls for {name}": "Commandes de {name}",
+  "Every member of a group must be in Apple Home.": "Tous les membres d’un groupe doivent être dans Apple Home.",
+  "Separate accessory Functions before grouping them.": "Séparez les Fonctions des accessoires avant de les regrouper.",
+  "Choose accessories of the same kind.": "Choisissez des accessoires du même type.",
+  "{n} change is pending in Apple Home.": "{n} modification est en attente dans Apple Home.",
+  "{n} changes are pending in Apple Home.": "{n} modifications sont en attente dans Apple Home.",
   "Recent events": "Événements récents",
   "No events yet.": "Aucun événement pour le moment.",
   "This connection is ready.": "Cette connexion est prête.",
@@ -27786,6 +27860,13 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Apenas as luzes são agrupadas. Os outros controlos continuam disponíveis no menu do grupo. Na app Casa, escolha « Mostrar como mosaicos separados » para cada dispositivo se o grupo não aparecer.",
+  "Controls for {name}": "Controlos de {name}",
+  "Every member of a group must be in Apple Home.": "Todos os membros de um grupo têm de estar na Apple Home.",
+  "Separate accessory Functions before grouping them.": "Separe as Funções dos acessórios antes de os agrupar.",
+  "Choose accessories of the same kind.": "Escolha acessórios do mesmo tipo.",
+  "{n} change is pending in Apple Home.": "Há {n} alteração pendente na Apple Home.",
+  "{n} changes are pending in Apple Home.": "Há {n} alterações pendentes na Apple Home.",
   "Recent events": "Eventos recentes",
   "No events yet.": "Ainda não há eventos.",
   "This connection is ready.": "Esta ligação está pronta.",

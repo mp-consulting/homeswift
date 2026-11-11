@@ -1,5 +1,12 @@
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Only the lights are grouped. Other controls remain available in the group menu. In Apple Home, choose “Show as Separate Tiles” for each device if the group does not appear.": "Solo se agrupan las luces. Los demás controles siguen disponibles en el menú del grupo. En Casa, elige « Mostrar como mosaicos separados » para cada dispositivo si el grupo no aparece.",
+  "Controls for {name}": "Controles de {name}",
+  "Every member of a group must be in Apple Home.": "Todos los miembros de un grupo deben estar en Apple Home.",
+  "Separate accessory Functions before grouping them.": "Separa las Funciones de los accesorios antes de agruparlos.",
+  "Choose accessories of the same kind.": "Elige accesorios del mismo tipo.",
+  "{n} change is pending in Apple Home.": "Hay {n} cambio pendiente en Apple Home.",
+  "{n} changes are pending in Apple Home.": "Hay {n} cambios pendientes en Apple Home.",
   "Recent events": "Eventos recientes",
   "No events yet.": "Todavía no hay eventos.",
   "This connection is ready.": "Esta conexión está lista.",

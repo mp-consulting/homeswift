@@ -148,6 +148,39 @@ struct StructureTests {
         #expect(structure.devices["hub-tv"]?.homeswift == nil)
     }
 
+    @Test func groupingSelectsTheControlInsteadOfAnAuxiliaryService() throws {
+        let json: [String: Any] = ["id": "home-1", "name": "Home", "accessories": [[
+            "id": "lamp", "name": "Lamp", "services": [
+                ["id": "battery", "type": ServiceType.battery.uuid.uuidString, "characteristics": []],
+                ["id": "light", "type": ServiceType.lightbulb.uuid.uuidString, "characteristics": []],
+            ],
+        ], [
+            "id": "sensor", "name": "Sensor", "services": [
+                ["id": "temperature", "type": ServiceType.temperatureSensor.uuid.uuidString, "characteristics": []],
+            ],
+        ]]]
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
+        let structure = Structure(allowed: true, homes: [home], mirrored: ["lamp", "sensor"])
+        #expect(structure.devices["lamp"]?.groupingService == "light")
+        #expect(structure.devices["sensor"]?.groupingService == nil)
+    }
+
+    @Test func groupingRejectsMultiplePrimaryServicesAndMirrorsPreserveThem() throws {
+        let on: [String: Any] = ["type": CharacteristicType.on.uuid.uuidString, "format": "bool", "properties": ["read", "write"], "value": false]
+        let json: [String: Any] = ["id": "home-1", "name": "Home", "accessories": [[
+            "id": "ambiguous", "name": "Ambiguous", "services": [
+                ["id": "light", "type": ServiceType.lightbulb.uuid.uuidString, "primary": true, "characteristics": [on]],
+                ["id": "switch", "type": ServiceType.switch.uuid.uuidString, "primary": true, "characteristics": [on]],
+            ],
+        ]]]
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
+        let structure = Structure(allowed: true, homes: [home], mirrored: ["ambiguous"])
+        #expect(structure.devices["ambiguous"]?.groupingService == nil)
+        let source = try #require(home.accessories.first)
+        let mirror = try #require(Mirror(source) { _, _, _ in })
+        #expect(mirror.accessory.services.filter(\.isPrimary).count == 2)
+    }
+
     // MARK: Scenes
 
     @Test func scenesAreListedWithWhatHomeswiftMayDo() async throws {

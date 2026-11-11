@@ -334,6 +334,16 @@ screenshots, and what a plugin does to get good ones.
   hub and an eWeLink home, case and accents aside, and the log says so (`Room "Salon" renamed "Lounge" on Hue`); a room
   renamed in the Hue, IKEA or eWeLink app stays as Homeswift has it. Govee keeps no rooms its API can reach. A hub that
   refuses says why; the room is renamed in Homeswift all the same.
+- **Grouping constraints**: the picker explains why an accessory cannot join the selection: it is not in Apple Home,
+  has no unambiguous grouping Function, or is of a different kind. A primary light can group while its associated
+  effects and other controls remain available through **Controls for …** in the Group menu. Group commands target only
+  the lights. The picker explains that Apple Home may require **Show as Separate Tiles** on each device to display the
+  Group; this does not change published accessory identities. Save requires at least two compatible accessories. Pending group
+  edits survive a read-only reconnection and are checked again before reaching Apple Home. The wall shows pending
+  changes and Apple Home's refusals; a refused new Group is removed locally too.
+  [Desktop picker](images/ui/group-constraints.png), [phone picker](images/ui/group-constraints-phone.png),
+  [pending changes](images/ui/home-link-pending.png), [pending changes on a phone](images/ui/home-link-pending-phone.png),
+  [refused change](images/ui/home-link-refused.png).
 - **Separate Functions**, in an accessory's settings (**Where it shows**), for one that does several things (a light with
   a motion sensor): each thing becomes an accessory of its own in Apple Home, with its own name, room and group, which
   the Home app needs to group it. It asks first: Apple Home's scenes and automations on what moves need redoing.

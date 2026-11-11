@@ -239,6 +239,181 @@ import Testing
         #expect(environment.catalog.wallGroups.map(\.name) == ["Lampes"])
     }
 
+    @Test(arguments: [false, true])
+    func pendingGroupRenameSurvivesReadOnlyReconnect(deletedInHome: Bool) async throws {
+        let environment = try await environment(bulbs: 2)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil])
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateWall(["groups": [["name": "Bulbs", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        let group = try #require(environment.catalog.wallGroups.first)
+        environment.homeLink.set { $0.state = .down("asleep") }
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateWall(["groups": [["id": .string(group.id), "name": "Sofa lights", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        environment.homeLink.set {
+            $0.state = .readOnly("edits are off")
+            if deletedInHome { $0.home.groups = [] } else { $0.home.groups[0].name = "Home rename" }
+        }
+        await environment.catalog.followHome()
+        #expect(environment.catalog.wallGroups.first?.name == "Sofa lights")
+        #expect(environment.catalog.wallGroups.first?.homeKitID == group.homeKitID)
+        #expect(environment.catalog.home.homeLink.value.pending.count == 1)
+        environment.homeLink.set { $0.state = .up }
+        await environment.catalog.followHome()
+        #expect(environment.catalog.home.homeLink.value.pending.isEmpty)
+        if deletedInHome {
+            #expect(environment.catalog.wallGroups.isEmpty)
+            #expect(environment.homeLink.home.groups.isEmpty)
+            #expect(await environment.catalog.homeLinkJSON()["refused"]?[0]?["reason"] == "no group")
+        } else {
+            #expect(environment.homeLink.home.groups.first?.name == "Sofa lights")
+            #expect(environment.catalog.home.homeLink.value.refused.isEmpty)
+        }
+    }
+
+    @Test func pendingUngroupIsNotReintroducedOnReadOnlyReconnect() async throws {
+        let environment = try await environment(bulbs: 2)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil])
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateWall(["groups": [["name": "Bulbs", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        let group = try #require(environment.catalog.wallGroups.first)
+        environment.homeLink.set { $0.state = .down("asleep") }
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateWall(["ungroup": [.string(group.id)]])
+        environment.homeLink.set { $0.state = .readOnly("edits are off") }
+        await environment.catalog.followHome()
+        #expect(environment.catalog.wallGroups.isEmpty)
+        #expect(environment.catalog.home.homeLink.value.pending.count == 1)
+        environment.homeLink.set { $0.state = .up }
+        await environment.catalog.followHome()
+        #expect(environment.homeLink.home.groups.isEmpty)
+        #expect(environment.catalog.home.homeLink.value.pending.isEmpty)
+    }
+
+    @Test func pendingMembershipPreservesUnrelatedHomeEdits() async throws {
+        let environment = try await environment(bulbs: 4)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil, "Devices:bulb3": nil, "Devices:bulb4": nil])
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateWall(["groups": [["name": "Bulbs", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        let group = try #require(environment.catalog.wallGroups.first)
+        environment.homeLink.set { $0.state = .down("asleep") }
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateWall(["groups": [["id": .string(group.id), "name": "Bulbs", "members": ["Devices:bulb1", "Devices:bulb2", "Devices:bulb3"]]]])
+        environment.homeLink.set {
+            $0.state = .readOnly("edits are off")
+            $0.home.groups[0].members.append("Devices:bulb4")
+        }
+        await environment.catalog.followHome()
+        #expect(environment.catalog.wallGroups.first?.members.contains("Devices:bulb3") == true)
+        environment.homeLink.set { $0.state = .up }
+        await environment.catalog.followHome()
+        #expect(Set(environment.homeLink.home.groups[0].members) == Set(["Devices:bulb1", "Devices:bulb2", "Devices:bulb3", "Devices:bulb4"]))
+        #expect(environment.catalog.home.homeLink.value.pending.isEmpty)
+    }
+
+    @Test func refusalsAreReturnedEvenWhenHistoryIsFull() async throws {
+        let environment = try await environment()
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:lamp": nil])
+        await environment.catalog.followHome()
+        try environment.catalog.home.homeLink.update {
+            $0.refused = Array(repeating: .init(change: .createRoom(name: "Old"), reason: "old refusal"), count: 20)
+        }
+        let answer = try await move(environment, to: "Attic")
+        #expect(answer["appleHomeRefused"]?[0]?["reason"] == "that name is taken")
+        #expect(environment.catalog.home.homeLink.value.refused.count == 20)
+    }
+
+    @Test func ambiguousLightFunctionsCannotGroup() {
+        let cases: [[Service]] = [
+            [Service(.lightbulb), Service(.switch)],
+            [Service(.lightbulb, isPrimary: true), Service(.switch, isPrimary: true)],
+            [Service(.lightbulb), Service(.switch, isPrimary: true)]
+        ]
+        for services in cases {
+            let accessory = Accessory(id: "ambiguous", name: "Ambiguous", services: services)
+            #expect(HomeswiftCatalog.groupingFunction(accessory) == nil)
+        }
+    }
+
+    @Test func primaryLightGroupsPreserveAssociatedFunctions() async throws {
+        let environment = try await environment(bulbs: 2)
+        defer { Task { await environment.stop() } }
+        let ids = ["Devices:bulb1", "Devices:bulb2"]
+        for id in ids {
+            let accessory = try #require(environment.catalog.find(id: id)?.accessory)
+            accessory.append(Service(.switch, name: "Effect", subtype: "effect"))
+        }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil])
+        await environment.catalog.followHome()
+        #expect(environment.catalog.groupProblem(members: ids) == nil)
+        for id in ids {
+            let located = try #require(environment.catalog.find(id: id))
+            let json = HomeswiftCatalog.accessoryJSON(located, detailed: true)
+            #expect(json["grouping"]?["kind"] == .string(ServiceType.lightbulb.uuid.uuidString))
+            #expect(json["grouping"]?["associatedFunctions"] == true)
+            let effect = try #require(located.accessory.service(.switch, subtype: "effect"))
+            #expect(!HomeswiftCatalog.groupTargets(located.accessory).contains { $0 === effect[.on] })
+        }
+        _ = try await environment.catalog.updateWall(["groups": [["name": "Lights with effects", "members": .array(ids.map(JSONValue.string))]]])
+        #expect(environment.homeLink.home.groups.count == 1)
+        let group = try #require(environment.catalog.wallGroups.first)
+        _ = try await environment.catalog.updateWall(["ungroup": [.string(group.id)]])
+        #expect(environment.homeLink.home.groups.isEmpty)
+        for id in ids {
+            #expect(environment.catalog.find(id: id)?.accessory.service(.switch, subtype: "effect") != nil)
+        }
+    }
+
+    @Test func homeKitRefusalDoesNotLeaveALocalGroup() async throws {
+        let environment = try await environment(bulbs: 2)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil])
+        await environment.catalog.followHome()
+        let answer = try await environment.catalog.updateWall(["groups": [["name": "Attic", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        #expect(answer["appleHomeRefused"]?[0]?["reason"] == "that name is taken")
+        #expect(answer["groups"] == [])
+        #expect(environment.catalog.wallGroups.isEmpty)
+        #expect(environment.homeLink.home.groups.isEmpty)
+        let bulb = try #require(environment.catalog.find(id: "Devices:bulb1"))
+        #expect(HomeswiftCatalog.accessoryJSON(bulb, detailed: true)["grouping"]?["kind"] == .string(ServiceType.lightbulb.uuid.uuidString))
+        let lock = try #require(environment.catalog.find(id: "Devices:lock"))
+        #expect(HomeswiftCatalog.accessoryJSON(lock, detailed: true)["grouping"]?["blocked"] == "notInHome")
+    }
+
+    @Test func pendingGroupCreationRechecksHomeMembership() async throws {
+        let environment = try await environment(bulbs: 2)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil])
+        await environment.catalog.followHome()
+        environment.homeLink.set { $0.state = .down("asleep") }
+        await environment.catalog.followHome()
+        let queued = try await environment.catalog.updateWall(["groups": [["name": "Bulbs", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        #expect(queued["homeLink"]?["pending"] == 1)
+        environment.homeLink.set {
+            $0.home.placements.removeValue(forKey: "Devices:bulb2")
+            $0.state = .up
+        }
+        await environment.catalog.followHome()
+        #expect(environment.homeLink.home.groups.isEmpty)
+        #expect(!environment.homeLink.applied.contains { if case .createGroup = $0 { true } else { false } })
+        #expect(environment.catalog.wallGroups.isEmpty)
+        #expect(environment.catalog.home.homeLink.value.pending.isEmpty)
+        #expect(environment.catalog.homeLinkSummary()["refused"]?.arrayValue?.isEmpty == false)
+    }
+
+    @Test func missingGroupLinkIsReportedAsRefused() async throws {
+        let environment = try await environment()
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn()
+        await environment.catalog.followHome()
+        let refused = await environment.catalog.homeLinkRecord([.renameGroup(group: "group:missing", name: "Lights")])
+        #expect(refused.first?["reason"] == "The group is no longer linked to Apple Home")
+        #expect(environment.catalog.home.homeLink.value.pending.isEmpty)
+    }
+
     /// Groups older versions kept on the wall (`ui-layout.json`) move to `home.json`, once; the wall keeps the rest.
     @Test func groupsMoveFromTheWallToTheHomeFile() async throws {
         let environment = try await environment(bulbs: 2)

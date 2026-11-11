@@ -44,6 +44,38 @@ struct ServerTests {
         return controller
     }
 
+    @Test(arguments: [false, true])
+    func unavailableAccessoriesKeepTheirIdentityReadable(unreachable: Bool) async throws {
+        let serial = lamp.information.characteristic(.serialNumber)
+        serial.value = .string("TEST-LAMP-SERIAL")
+        serial.onRead { Issue.record("An offline identity read must not reach the device"); return .string("unexpected") }
+        let on = lightbulb.characteristic(.on)
+        on.onRead { Issue.record("An offline state read must not reach the device"); return .bool(true) }
+        if unreachable { lamp.isUnreachable = true } else { lamp.isUnavailable = true }
+        let controller = try await pairedController()
+        let read = try await controller.request("GET", "/characteristics?id=2.\(serial.iid),2.\(on.iid)")
+        let values = try #require((read.json as? [String: Any])?["characteristics"] as? [[String: Any]])
+        #expect(read.status == 207)
+        #expect(values[0]["status"] as? Int == HAPStatus.success.rawValue)
+        #expect(values[0]["value"] as? String == "TEST-LAMP-SERIAL")
+        #expect(values[1]["status"] as? Int == HAPStatus.serviceCommunicationFailure.rawValue)
+        serial.value = .null
+        let missing = try await controller.request("GET", "/characteristics?id=2.\(serial.iid)")
+        #expect(missing.status == 207)
+        let missingValues = try #require((missing.json as? [String: Any])?["characteristics"] as? [[String: Any]])
+        #expect(missingValues[0]["status"] as? Int == HAPStatus.serviceCommunicationFailure.rawValue)
+        if !unreachable {
+            let identify = lamp.information.characteristic(.identify)
+            identify.onWrite { _ in Issue.record("An offline Identify write must not reach the device") }
+            let write = try await controller.json("PUT", "/characteristics", ["characteristics": [["aid": 2, "iid": identify.iid, "value": true]]])
+            #expect(write.status == 207)
+            let written = try #require((write.json as? [String: Any])?["characteristics"] as? [[String: Any]])
+            #expect(written[0]["status"] as? Int == HAPStatus.serviceCommunicationFailure.rawValue)
+        }
+        await controller.close()
+        await server.stop()
+    }
+
     @Test func pairsAndServesTheDatabase() async throws {
         let controller = try await pairedController(throughPairSetup: true)
         #expect(server.isPaired)

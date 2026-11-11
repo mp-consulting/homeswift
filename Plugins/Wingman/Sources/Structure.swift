@@ -30,6 +30,8 @@ struct Structure: Sendable {
         var roomID: String? = nil
         /// Its services' HomeKit ids, the one doing its main thing first: what a service group holds.
         var services: [String] = []
+        /// The controllable service a Group may hold; never an auxiliary battery or protocol service.
+        var groupingService: String?
     }
 
     /// Where one of Homeswift's own accessories is in the homes.
@@ -101,9 +103,15 @@ struct Structure: Sendable {
                 }
                 let information = ServiceType.accessoryInformation.uuid
                 let main = accessory.services.filter { HAPUUID($0.type) != information }.sorted { ($0.primary == true ? 0 : 1) < ($1.primary == true ? 0 : 1) }
+                let groupTypes: Set<HAPUUID> = [ServiceType.lightbulb.uuid, ServiceType.switch.uuid, ServiceType.outlet.uuid,
+                                               ServiceType.fan.uuid, ServiceType.fanv2.uuid, ServiceType.windowCovering.uuid]
+                let candidates = main.filter { groupTypes.contains(HAPUUID($0.type)) }
+                let primary = candidates.filter { $0.primary == true }
+                let groupingService = primary.count == 1 ? primary.first?.id
+                    : (primary.isEmpty && candidates.count == 1 ? candidates.first?.id : nil)
                 devices[accessory.id] = Device(
                     name: accessory.name, room: accessory.room, home: homeID, writable: writable, serialNumber: accessory.serialNumber,
-                    homeswift: homeswift, roomID: accessory.roomID, services: main.compactMap(\.id))
+                    homeswift: homeswift, roomID: accessory.roomID, services: main.compactMap(\.id), groupingService: groupingService)
             }
         }
         self.devices = devices
@@ -143,7 +151,7 @@ struct Structure: Sendable {
 
     /// The HomeKit id of the service a group holds for one of Homeswift's accessories: the one doing its main thing.
     func groupService(of accessoryID: String, in context: PluginContext) -> String? {
-        homeKitID(of: accessoryID, place: context.publishedPlace(ofAccessory: accessoryID)).flatMap { devices[$0]?.services.first }
+        homeKitID(of: accessoryID, place: context.publishedPlace(ofAccessory: accessoryID)).flatMap { devices[$0]?.groupingService }
     }
 
     /// The HomeKit id of a Homeswift accessory in these homes: a mirror by its id, one of Homeswift's own by where it is
@@ -471,6 +479,7 @@ extension WingmanPlugin {
         }
         func services(_ ids: [String]) throws -> [JSONValue] {
             try ids.map { id in
+                _ = try accessory(id) // Services in another Home must never reach this Home's group edit.
                 guard let service = structure.groupService(of: id, in: context) else { throw HomeChangeError(.notFound, "\(id) is not in \(home.name)") }
                 return .string(service)
             }

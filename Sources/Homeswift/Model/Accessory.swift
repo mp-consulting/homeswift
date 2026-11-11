@@ -127,6 +127,7 @@ public final class Accessory: @unchecked Sendable {
     /// Whether the accessory answers: while it does not, every read and write of its characteristics fails with
     /// "No Response" and reaches none of their handlers, so nothing is sent to the device (a paused plugin).
     /// Values and handlers are kept.
+    /// HAP reads may still return cached, read-only Accessory Information, so controllers can identify the device.
     /// A change is announced with an event of a value that did not change, so the pages following the accessory (the
     /// web UI's event stream carries `unavailable`) learn it at once.
     public var isUnavailable: Bool {
