@@ -315,3 +315,7 @@ h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain s
   .log { -webkit-mask-image: none; mask-image: none; animation: none; }
   .msg.bot, .typing, .chips button, .composer, .scope, .brain, .consent { border-color: var(--line); }
 }
+/* The heating tile reads as the bridge's small climate tile: the temperature, then its target in the mode's colour. */
+.house .status.climate-reading b { color: var(--ink); font-weight: 650; font-variant-numeric: tabular-nums; }
+.house .status.climate-reading .goal { font-weight: 650; font-variant-numeric: tabular-nums; color: inherit; }
+.house .status.climate-reading.heating .goal { color: var(--accent-ink); }

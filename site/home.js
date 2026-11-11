@@ -37,11 +37,17 @@
     light('porch', state.porch, state.porch ? t('On') : t('Off'));
     light('tv', state.tv, state.tv ? t('On · HDMI 1') : t('Off'));
     light('coffee', state.coffee, state.coffee ? t('Brewing') : t('Off'));
+    // The temperature, then where it is going in the mode's colour, as the bridge's small climate tile reads.
     const h = tiles.thermo, heating = state.thermo > state.inside;
     h.querySelector('.pct').textContent = degrees(state.inside);
-    h.querySelector('.status').classList.toggle('heat', heating);
-    h.querySelector('.status').classList.toggle('ok', !heating);
-    status(h, heating ? t('Heat to {target}', { target: degrees(state.thermo) }) : t('Idle · {target}', { target: degrees(state.thermo) }));
+    const reading = h.querySelector('.status');
+    reading.classList.toggle('heating', heating);
+    const text = `${degrees(state.inside)} → ${degrees(state.thermo)}`;
+    if (reading.textContent !== text) {
+      reading.replaceChildren(Object.assign(document.createElement('b'), { textContent: degrees(state.inside) }), ' ',
+        Object.assign(document.createElement('span'), { className: 'goal', textContent: `→ ${degrees(state.thermo)}` }));
+      if (rendered) { reading.classList.remove('tick'); void reading.offsetWidth; reading.classList.add('tick'); }
+    }
     const s = tiles.shutter;
     s.style.setProperty('--closed', (100 - state.shutter) / 100);
     s.querySelector('.pct').textContent = percent(state.shutter);
