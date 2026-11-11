@@ -1283,6 +1283,30 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .gauge-target { stroke: var(--text); stroke-width: 3; stroke-linecap: round; }
 
 /* Facets: readouts, meters, chips, swatches, pills */
+/* A temperature sensor's dial thermometer: a pale face, cold and warm bands, ticks and numbers, a dark needle with a red
+   tip that turns to the reading. Large: the dial beside the figure; extra-large: a big dial, the figure under it. */
+.thermometer { display: flex; align-items: center; gap: var(--space-16); }
+.thermometer-dial { width: 132px; height: 132px; flex: none; overflow: visible; }
+.widget.size-xlarge .thermometer { flex-direction: column; gap: var(--space-8); }
+.widget.size-xlarge .thermometer-dial { width: 200px; height: 200px; }
+.widget.size-xlarge .thermometer .sensor-figure { display: none; }
+.widget:not(.size-xlarge) .thermometer-dial .figure { display: none; }
+.thermometer-dial .face { fill: color-mix(in srgb, var(--surface, #fff) 70%, transparent); stroke: color-mix(in srgb, var(--text) 10%, transparent); stroke-width: 1.5; }
+.thermometer-dial .band { fill: none; stroke-width: 5; stroke-linecap: round; }
+.thermometer-dial .band.cold { stroke: var(--cool); opacity: .55; }
+.thermometer-dial .band.warm { stroke: var(--heat); opacity: .55; }
+.thermometer-dial line.minor { stroke: color-mix(in srgb, var(--text) 35%, transparent); stroke-width: 1.2; }
+.thermometer-dial line.major { stroke: var(--text); stroke-width: 2.2; }
+.thermometer-dial .mark-number { fill: var(--text); font-size: 17px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+.thermometer-dial .unit { fill: var(--muted); font-size: 14px; font-weight: var(--weight-semibold); }
+.thermometer-dial .figure { fill: var(--text); font-size: 21px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+.thermometer-dial .needle { transform-box: view-box; transform-origin: 100px 100px; transition: transform 600ms var(--ease-out), opacity var(--fast); }
+.thermometer-dial .needle line { stroke-linecap: round; }
+.thermometer-dial .needle-body, .thermometer-dial .needle-tail { stroke: var(--text); stroke-width: 3; }
+.thermometer-dial .needle-tip { stroke: #d6322b; stroke-width: 3.4; }
+.thermometer-dial .hub { fill: var(--text); }
+@media (prefers-reduced-motion: reduce) { .thermometer-dial .needle { transition: none; } }
+
 /* A sensor's own reading on its larger tiles: the figure large, its unit and what it measures beside it. */
 .sensor-figure { display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: var(--space-6); }
 .sensor-figure b { font-size: calc(var(--text-3xl) * 1.25); font-weight: var(--weight-semibold); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1; }

@@ -36968,6 +36968,30 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .gauge-target { stroke: var(--text); stroke-width: 3; stroke-linecap: round; }
 
 /* Facets: readouts, meters, chips, swatches, pills */
+/* A temperature sensor's dial thermometer: a pale face, cold and warm bands, ticks and numbers, a dark needle with a red
+   tip that turns to the reading. Large: the dial beside the figure; extra-large: a big dial, the figure under it. */
+.thermometer { display: flex; align-items: center; gap: var(--space-16); }
+.thermometer-dial { width: 132px; height: 132px; flex: none; overflow: visible; }
+.widget.size-xlarge .thermometer { flex-direction: column; gap: var(--space-8); }
+.widget.size-xlarge .thermometer-dial { width: 200px; height: 200px; }
+.widget.size-xlarge .thermometer .sensor-figure { display: none; }
+.widget:not(.size-xlarge) .thermometer-dial .figure { display: none; }
+.thermometer-dial .face { fill: color-mix(in srgb, var(--surface, #fff) 70%, transparent); stroke: color-mix(in srgb, var(--text) 10%, transparent); stroke-width: 1.5; }
+.thermometer-dial .band { fill: none; stroke-width: 5; stroke-linecap: round; }
+.thermometer-dial .band.cold { stroke: var(--cool); opacity: .55; }
+.thermometer-dial .band.warm { stroke: var(--heat); opacity: .55; }
+.thermometer-dial line.minor { stroke: color-mix(in srgb, var(--text) 35%, transparent); stroke-width: 1.2; }
+.thermometer-dial line.major { stroke: var(--text); stroke-width: 2.2; }
+.thermometer-dial .mark-number { fill: var(--text); font-size: 17px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+.thermometer-dial .unit { fill: var(--muted); font-size: 14px; font-weight: var(--weight-semibold); }
+.thermometer-dial .figure { fill: var(--text); font-size: 21px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+.thermometer-dial .needle { transform-box: view-box; transform-origin: 100px 100px; transition: transform 600ms var(--ease-out), opacity var(--fast); }
+.thermometer-dial .needle line { stroke-linecap: round; }
+.thermometer-dial .needle-body, .thermometer-dial .needle-tail { stroke: var(--text); stroke-width: 3; }
+.thermometer-dial .needle-tip { stroke: #d6322b; stroke-width: 3.4; }
+.thermometer-dial .hub { fill: var(--text); }
+@media (prefers-reduced-motion: reduce) { .thermometer-dial .needle { transition: none; } }
+
 /* A sensor's own reading on its larger tiles: the figure large, its unit and what it measures beside it. */
 .sensor-figure { display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: var(--space-6); }
 .sensor-figure b { font-size: calc(var(--text-3xl) * 1.25); font-weight: var(--weight-semibold); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1; }
@@ -43316,6 +43340,45 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   /// A sensor service's reading: its value, its unit, a tone, and its glyph.
+  /// A temperature sensor's larger tiles: a dial thermometer. A scale of 270° (−30 to 50 °C, −20 to 120 °F, as the
+  /// user shows temperatures), its numbers every 10 °C or 20 °F, a band cold below freezing and warm above, and a needle
+  /// that turns to the reading; the figure itself under its hub.
+  function thermometerDial(main) {
+    const fahrenheit = HomeswiftCommon.temperature(0).unit === "°F";
+    const [min, max, major, minor, freezing] = fahrenheit ? [-20, 120, 20, 5, 32] : [-30, 50, 10, 2, 0];
+    const angle = (v) => 135 + 270 * (clamp(v, min, max) - min) / (max - min);
+    const at = (v, r) => { const a = angle(v) * Math.PI / 180; return [(100 + r * Math.cos(a)).toFixed(2), (100 + r * Math.sin(a)).toFixed(2)]; };
+    const arc = (from, to, r) => { const [x1, y1] = at(from, r), [x2, y2] = at(to, r); return `M${x1} ${y1} A${r} ${r} 0 ${angle(to) - angle(from) > 180 ? 1 : 0} 1 ${x2} ${y2}`; };
+    let marks = "";
+    for (let v = min; v <= max; v += minor) {
+      const isMajor = (v - min) % major === 0, [x1, y1] = at(v, 86), [x2, y2] = at(v, isMajor ? 76 : 81);
+      marks += `<line class="${isMajor ? "major" : "minor"}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+      if (isMajor) { const [x, y] = at(v, 63); marks += `<text class="mark-number" x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central">${v < 0 ? "−" + -v : v}</text>`; }
+    }
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 200 200");
+    svg.setAttribute("class", "thermometer-dial");
+    svg.setAttribute("aria-hidden", "true");
+    svg.innerHTML = `<circle class="face" cx="100" cy="100" r="97"/>` +
+      `<path class="band cold" d="${arc(min, freezing, 91)}"/><path class="band warm" d="${arc(freezing, max, 91)}"/>${marks}` +
+      `<text class="unit" x="100" y="180" text-anchor="middle">${fahrenheit ? "°F" : "°C"}</text>` +
+      `<text class="figure" x="100" y="131" text-anchor="middle"></text>` +
+      `<g class="needle"><line class="needle-tail" x1="100" y1="100" x2="${100 - 16}" y2="100"/><line class="needle-body" x1="100" y1="100" x2="${100 + 58}" y2="100"/><line class="needle-tip" x1="${100 + 50}" y1="100" x2="${100 + 74}" y2="100"/></g>` +
+      `<circle class="hub" cx="100" cy="100" r="6"/>`;
+    const needle = svg.querySelector(".needle"), figure = svg.querySelector(".figure");
+    return {
+      node: svg,
+      set() {
+        const v = main.value;
+        if (typeof v !== "number") { figure.textContent = "–"; needle.style.opacity = "0"; return; }
+        const shown = HomeswiftCommon.temperature(v).value;
+        needle.style.opacity = "";
+        needle.style.transform = `rotate(${angle(shown)}deg)`;
+        figure.textContent = shown.toFixed(1).replace(".", decimal) + "°";
+      },
+    };
+  }
+
   const readings = {
     TemperatureSensor: ["Current Temperature", "thermo"], HumiditySensor: ["Current Relative Humidity", "sensor"], LightSensor: ["Current Ambient Light Level", "sensor"],
     AirQualitySensor: ["Air Quality", "wind"], MotionSensor: ["Motion Detected", "sensor"], OccupancySensor: ["Occupancy Detected", "sensor"],
@@ -44358,7 +44421,10 @@ self.addEventListener("notificationclick", (event) => {
       };
       if (size === "small") return built;
       const f = facets(ctx, []);
-      // A larger tile shows its own reading large (the hero only a summary tile has), then any others beside it.
+      // A larger tile shows its own reading large (the hero only a summary tile has), then any others beside it; a
+      // temperature on a dial thermometer.
+      const dial = primary.type === "TemperatureSensor" && one ? thermometerDial(one.main) : null;
+      if (dial) ctx.watch(() => dial.set());
       const figure = el("div", { class: "sensor-figure" });
       ctx.watch(() => {
         const v = value();
@@ -44367,7 +44433,8 @@ self.addEventListener("notificationclick", (event) => {
           el("span", { text: typeName(one?.main.type ?? "") }));
       });
       const others = size === "medium" ? f.readouts.slice(0, 3) : f.readouts.slice(0, 6);
-      built.body = [figure, others.length ? el("div", { class: `readouts${size === "medium" ? " three" : ""}` }, others) : null, size !== "medium" ? f.meters[0] : null].filter(Boolean);
+      const lead = dial ? el("div", { class: "thermometer" }, dial.node, figure) : figure;
+      built.body = [lead, others.length ? el("div", { class: `readouts${size === "medium" ? " three" : ""}` }, others) : null, size !== "medium" ? f.meters[0] : null].filter(Boolean);
       if (size === "full") built.facets = { chips: f.chips, readouts: [], meters: f.meters.slice(1), blocks: f.blocks };
       return built;
     },
