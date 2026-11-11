@@ -238,7 +238,9 @@ extension HomeswiftCatalog {
 
     private func followHomeNow() async throws {
         guard let link = await host.homeLink() else {
+            // No Home Link: what Apple Home refused is settled, and must not come back with a new pairing.
             home.lastHome.withLockedValue { $0 = nil }
+            if !home.homeLink.value.refused.isEmpty { try home.homeLink.update { $0.refused = [] } }
             return
         }
         let snapshot = await link.plugin.homeSnapshot()
@@ -474,7 +476,7 @@ extension HomeswiftCatalog {
             return try await home.homeLinkWork.run { [self] in
                 let link = await host.homeLink()
                 if let link, let refusal = Self.refusal(link.state) {
-                    let refused = changes.map { HomeLinkFile.Refused(change: $0, reason: named(refusal)) }
+                    let refused = changes.map { HomeLinkFile.Refused(change: $0, reason: refusal) }
                     try keepRefused(refused)
                     return refused.map(\.json)
                 }
@@ -503,18 +505,30 @@ extension HomeswiftCatalog {
         }
     }
 
-    /// Drops the refusals about what `change` changes: Apple Home has it now, or no longer has it.
+    /// Drops the refusals about what `change` changes: Apple Home has it now, or no longer has it. A Zone or Group
+    /// removed (named by the Home's id) also settles the refusals of edits to the ones the bridge no longer has.
     private func settleRefusals(of change: HomeLinkFile.PendingChange) {
         let subjects = change.subjects
-        guard home.homeLink.value.refused.contains(where: { !$0.change.subjects.isDisjoint(with: subjects) }) else { return }
-        try? home.homeLink.update { file in file.refused.removeAll { !$0.change.subjects.isDisjoint(with: subjects) } }
+        let groups = Set(wallGroups.map(\.id)), zones = Set(home.homeLink.value.zones.map(\.id))
+        func settled(_ refused: HomeLinkFile.Refused) -> Bool {
+            if !refused.change.subjects.isDisjoint(with: subjects) { return true }
+            switch (change, refused.change) {
+            case (.deleteGroup, .renameGroup(let id, _)), (.deleteGroup, .setGroupMembers(let id, _, _)): return !groups.contains(id)
+            case (.deleteZone, .renameZone(let id, _)), (.deleteZone, .setZoneRooms(let id, _, _)): return !zones.contains(id)
+            default: return false
+            }
+        }
+        guard home.homeLink.value.refused.contains(where: settled) else { return }
+        try? home.homeLink.update { file in file.refused.removeAll(where: settled) }
     }
 
-    /// `reason` with the accessories it names by id (`PhilipsHue:5ecd…`) named as the pages name them.
+    /// An accessory's id as a reason may give it: `PhilipsHue:5ecd…`.
+    private static let accessoryIDPattern = try! NSRegularExpression(pattern: #"[A-Za-z][A-Za-z0-9_-]*:[^\s,;()]+"#)
+
+    /// `reason` with the accessories it names by id named as the pages name them.
     func named(_ reason: String) -> String {
-        guard let pattern = try? NSRegularExpression(pattern: #"[A-Za-z][A-Za-z0-9_-]*:[^\s,;()]+"#) else { return reason }
         var result = reason
-        for match in pattern.matches(in: reason, range: NSRange(reason.startIndex..., in: reason)).reversed() {
+        for match in Self.accessoryIDPattern.matches(in: reason, range: NSRange(reason.startIndex..., in: reason)).reversed() {
             guard let range = Range(match.range, in: reason), let located = find(id: String(reason[range])) else { continue }
             result.replaceSubrange(range, with: located.accessory.name)
         }
