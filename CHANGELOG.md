@@ -6,11 +6,37 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Apple Home's hidden groups**: the Wingman page lists the groups of fewer than two accessories that the Home app does
+  not show (counted in Apple Home), with a bin to remove one and Remove all, each confirmed first; the Assistant and MCP
+  clients have them as `list_empty_groups` and `remove_empty_groups`. The Wingman settings link to them: a plugin's schema
+  names sections of its page with `pageLinks`, shown beside Open its page.
+- **Apple Home's refusals in plain words**: "already exists" and "limit reached" (HMErrorDomain 13 and 49) say what they
+  mean and point to the Wingman page's hidden groups, and a message Apple Home gave several times shows once with a count.
+- **Remove a room**: in Edit, a red bin beside each room's name removes it once confirmed; its accessories go to No room,
+  and with the Home Link it goes from Apple Home too.
+
 ### Fixed
 
+- **Home Link waiting for confirmation**: while a first link waits to be confirmed, changes made here wait with it
+  instead of reaching a home not yet confirmed.
+- **Apple Home's Default Room**: an accessory in it is in no room here; the Default Room no longer becomes a room of the
+  bridge's.
+- **Accessories without a serial number**: one that is not on a bridge (a TV's own AirPlay entry) no longer holds the
+  Home Link down once every accessory Homeswift publishes on its own is found in Apple Home.
+- **Refused group creations**: a refusal whose group left the wall is settled by the next group change that reaches
+  Apple Home.
+- **Philips Hue serial numbers**: the device's Zigbee address as uppercase hex without separators (`001788010BC7A5E4`),
+  as every plugin spells a serial number.
 - **Home Link refusals**: the Accessories page no longer shows what Apple Home refused once there is no Home Link
   ("Pair Homeswift Wingman"); a refusal goes once a later change to the same room, zone, group or accessory reaches
   Apple Home, and names accessories rather than giving their ids.
+- **Groups Apple Home already has**: a group made on the wall whose name Apple Home already has, often a group the Home
+  app hides because an earlier attempt left it with fewer than two accessories, is linked to that group and given the
+  wall's accessories, instead of being refused ("HMErrorDomain 13: Object already exists in the home") and dropped.
+- **Home Link waiting for serial numbers**: the reason now names the accessories (and their rooms) whose Serial Number
+  Homeswift Wingman has not read, so the one holding the link down can be found in the Home app.
 
 ## [0.29.0] - 2026-11-11
 

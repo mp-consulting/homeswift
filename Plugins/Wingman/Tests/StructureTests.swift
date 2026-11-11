@@ -45,6 +45,29 @@ struct StructureTests {
         await host.stop()
     }
 
+    /// Apple Home's groups of fewer than two accessories, counted in Apple Home (a group of accessories Homeswift does not
+    /// have is not one), are listed and removed; a real group stays.
+    @Test func emptyGroupsAreListedAndRemoved() async throws {
+        let (host, plugin) = try await start()
+        try publishPlug(host)
+        environment.wingman.changeInAppleHome { _, groups in
+            groups = [
+                ["id": "group-empty", "name": "Spots Salon", "services": [String]()],
+                ["id": "group-one", "name": "Volets Salon", "services": ["svc-a"]],
+                ["id": "group-real", "name": "Not Homeswift's", "services": ["svc-b", "svc-c"]],
+            ]
+        }
+        #expect(await eventually { await plugin.emptyGroups()?.groups.count == 2 })
+        let listed = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "empty-groups", user: "test"))
+        #expect(listed.json["groups"]?.arrayValue?.compactMap { $0["name"]?.stringValue } == ["Spots Salon", "Volets Salon"])
+        let refused = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "empty-groups/remove", body: [:], user: "test"))
+        #expect(refused.status == 400)
+        let answer = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "empty-groups/remove", body: ["ids": ["group-empty", "group-one"]], user: "test"))
+        #expect(answer.json["removed"]?.arrayValue?.count == 2)
+        #expect(environment.wingman.groups.compactMap { $0["id"] as? String } == ["group-real"])
+        await host.stop()
+    }
+
     @Test func incompleteIdentityWaitsForHomeKitAndRecovers() async throws {
         environment.wingman.missingSerial("homeswift-switch", true)
         let (host, plugin) = try await start()
@@ -102,7 +125,7 @@ struct StructureTests {
         #expect(await plugin.homeSnapshot()?.zones.first { $0.id == zone }?.rooms == ["room-bureau"])
         let group = try #require(try await plugin.applyHomeChange(.createGroup(name: "Lampes", members: ["Wingman:light-1", "Meross:plug"])))
         #expect(environment.wingman.edits.last == .init(path: "groups/create", body: ["name": "Lampes", "services": ["bulb-1", "switch-1"], "home": "home-1"]))
-        #expect(await plugin.homeSnapshot()?.groups == [.init(id: group, name: "Lampes", members: ["Wingman:light-1", "Meross:plug"])])
+        #expect(await plugin.homeSnapshot()?.groups == [.init(id: group, name: "Lampes", members: ["Wingman:light-1", "Meross:plug"], accessories: 2)])
         let error = await #expect(throws: HomeChangeError.self) { try await plugin.applyHomeChange(.moveAccessory(accessoryID: "Elgato:lamp", roomID: nil)) }
         #expect(error?.kind == .notFound)
         await host.stop()
@@ -167,7 +190,51 @@ struct StructureTests {
         let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": accessories]
         let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
         let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge, "CHILD"], own: childBridge ? [] : ["TV"])
-        #expect(structure.incompleteIdentityReason != nil)
+        #expect(structure.incompleteIdentityReason?.contains("Serial Number of unresolved") == true)
+    }
+
+    /// The reason names the accessories without a Serial Number, with their room, five at most.
+    @Test func incompleteIdentitiesAreNamed() throws {
+        let bridge = TestEnvironment.bridgeID
+        var accessories = [homeAccessory("main-bridge", serialNumber: bridge)]
+        for index in 1...7 {
+            var light = homeAccessory("light-\(index)", serialNumber: "", bridge: ["id": "main-bridge", "name": "Homeswift"])
+            light["name"] = "Spot \(index)"
+            if index == 1 { light["room"] = "Salon" }
+            accessories.append(light)
+        }
+        let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": accessories]
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
+        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge])
+        #expect(structure.incompleteIdentityReason
+            == "Waiting for Homeswift Wingman to read the Serial Number of Spot 1 (Salon), Spot 2, Spot 3, Spot 4, Spot 5 and 2 more in Apple Home")
+    }
+
+    /// An accessory of no bridge whose serial number is unread (a TV's own AirPlay entry) does not hold the Home Link down
+    /// once every accessory Homeswift publishes on its own is found in Apple Home by its serial number.
+    @Test(arguments: [false, true])
+    func anotherAccessoryWithoutASerialDoesNotBlockTheLink(ownFound: Bool) throws {
+        let bridge = TestEnvironment.bridgeID
+        var accessories = [homeAccessory("main-bridge", serialNumber: bridge), homeAccessory("airplay-tv", serialNumber: "")]
+        if ownFound { accessories.append(homeAccessory("homeswift-tv", serialNumber: "tv")) }
+        let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": accessories]
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
+        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge], own: ["TV"])
+        #expect((structure.incompleteIdentityReason == nil) == ownFound)
+    }
+
+    /// A plugin that respells a serial number (Hue's 00:17:88:… as 001788…) is still found while Apple Home keeps the old
+    /// spelling, which it does until it reads the accessory's information again.
+    @Test func aRespelledSerialNumberStillMatches() throws {
+        let bridge = TestEnvironment.bridgeID
+        let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": [
+            homeAccessory("homeswift-bridge", serialNumber: bridge),
+            homeAccessory("hue-light", serialNumber: "00:17:88:01:0b:c7:a5:e4", bridge: ["id": "homeswift-bridge", "name": "Homeswift"]),
+        ]]
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
+        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge])
+        #expect(structure.homeKitID(of: "PhilipsHue:light", place: .init(bridge: bridge, serialNumber: "001788010BC7A5E4")) == "hue-light")
+        #expect(PluginContext.serialKey("00:17:88:01:0b:c7:a5:e4") == "001788010BC7A5E4")
     }
 
     /// One of Homeswift's own accessories is found behind its bridge (the home's accessory whose Serial Number is the

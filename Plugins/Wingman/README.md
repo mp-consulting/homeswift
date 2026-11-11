@@ -26,6 +26,14 @@ Pairing is done on the web UI's **Add accessories** page (Setup), or by an AI ag
 The certificate is pinned from the pairing on; the token is Wingman's to revoke (its Paired Bridges). Pairing trusts
 the network for those ten minutes, as a first connection does: the fingerprint check is what guards it.
 
+## Hidden groups
+
+The plugin's page lists **Hidden groups in Apple Home**: the groups of the bridge's home with fewer than two accessories,
+counted in Apple Home, which the Home app does not show. An interrupted group creation can leave one; it keeps its name
+(a new group of that name is refused, HMErrorDomain 13) and counts towards HomeKit's limit (HMErrorDomain 49). A bin
+removes one, **Remove all** removes them all, each confirmed first (`GET empty-groups`, `POST empty-groups/remove`; the
+tools `list_empty_groups` and `remove_empty_groups`).
+
 ## Settings
 
 ```json

@@ -9,6 +9,22 @@ extension WingmanPlugin {
             description: "The Wingmen this instance mirrors Apple Home from: address, state (connected, unreachable, unpaired), how many accessories, "
                 + "how many do not respond, the homes, the last error.",
             path: "wingmen", access: .read),
+        AssistantAction(
+            name: "list_empty_groups", title: "Look for Apple Home's empty groups",
+            description: "The groups of the bridge's home in Apple Home that hold fewer than two accessories (counted in Apple Home, "
+                + "Homeswift's or not): the Home app does not show them, and an interrupted group creation can leave one, which then "
+                + "takes its name (HMErrorDomain 13) and counts towards HomeKit's limit (HMErrorDomain 49). id, name, accessories.",
+            path: "empty-groups", access: .read),
+        AssistantAction(
+            name: "remove_empty_groups", title: "Remove Apple Home's empty groups",
+            description: "Removes from Apple Home the groups of ids, from list_empty_groups, that still hold fewer than two accessories; "
+                + "names lists their names, for the person to see what they confirm. Answers removed and failed.",
+            method: "POST", path: "empty-groups/remove", access: .configure,
+            inputSchema: ["type": "object", "required": ["ids", "names"], "properties": [
+                "ids": ["type": "array", "items": ["type": "string"], "description": "Group ids from list_empty_groups"],
+                "names": ["type": "array", "items": ["type": "string"], "description": "Their names, as list_empty_groups gives them"],
+            ]],
+            confirm: true),
     ]
 
     public static let assistantBackground: String? = """
@@ -37,6 +53,11 @@ extension WingmanPlugin {
         set_zones or a group with set_wall_layout does the same in the Home app, and the other way round. "structural edits are turned off in \
         Wingman's settings" means that setting is off; "only an administrator of the home can change it" means the Mac's \
         Apple Account is not an administrator of that home. Built-in scenes (Good Morning and the like) cannot be renamed \
-        or deleted; automations' accessory triggers and conditions, and new automations, are made in the Home app.
+        or deleted; automations' accessory triggers and conditions, and new automations, are made in the Home app. \
+        Apple Home keeps groups of fewer than two accessories that the Home app hides: an interrupted group creation \
+        leaves one, which keeps its name and counts towards HomeKit's limit. When Apple Home refuses a group with \
+        "HMErrorDomain 13: Object already exists in the home" or "HMErrorDomain 49: Reached maximum limit of objects for \
+        requested type", or the user asks to tidy groups, call list_empty_groups, tell them which, and remove them with \
+        remove_empty_groups (their ids and names), which the user confirms.
         """
 }

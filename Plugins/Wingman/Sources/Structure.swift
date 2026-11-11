@@ -53,7 +53,9 @@ struct Structure: Sendable {
     var bridgeHome: String?
     var homes: [Home]
     var devices: [String: Device]
-    private var unresolvedIdentityHomes: Set<String> = []
+    /// Why the Home Link waits for Wingman, naming the bridge's home's accessories whose Serial Number it has not read
+    /// yet; nil when it need not. Made once per read of the homes: the Home Link asks it before every edit.
+    private(set) var incompleteIdentityReason: String? = nil
     /// The accessories Homeswift mirrors, by HomeKit id.
     var mirrored: Set<String>
     var scenes: [WingmanAPI.Scene] = []
@@ -78,7 +80,12 @@ struct Structure: Sendable {
         for accessory in homes.flatMap(\.accessories) {
             if let serial = accessory.serialNumber?.uppercased(), bridges.contains(serial) { homeswiftBridges[accessory.id] = serial }
         }
+        // Homeswift's accessories published on their own that Apple Home shows with their serial number: once all are,
+        // an accessory of no bridge whose serial is unread is someone else's (a TV's own AirPlay entry), not one of them.
+        let seenOwn = Set(homes.flatMap(\.accessories).filter { $0.bridge == nil }.compactMap { $0.serialNumber.map(PluginContext.serialKey) })
+        let ownMissing = own.contains { !seenOwn.contains(PluginContext.serialKey($0)) }
         var devices: [String: Device] = [:]
+        var unresolved: [String] = []
         for home in homes {
             guard let homeID = home.id else { continue }
             for accessory in home.accessories {
@@ -100,7 +107,7 @@ struct Structure: Sendable {
                         homeswift = nil
                     }
                 } else {
-                    homeswift = accessory.serialNumber.map(own.contains) == true ? .own : nil
+                    homeswift = accessory.serialNumber.map { own.contains(PluginContext.serialKey($0)) } == true ? .own : nil
                 }
                 // Ownership itself depends on identity. An unread serial on a Homeswift bridge (or a possible
                 // standalone accessory when this host publishes some) cannot be treated as proof of absence.
@@ -108,11 +115,11 @@ struct Structure: Sendable {
                     service.characteristics.contains { HAPUUID($0.type) == CharacteristicType.serialNumber.uuid }
                 }
                 let unknownBridge = accessory.bridge.map { $0.manufacturer == "Homeswift" || $0.model == "Homeswift" } == true
-                let possibleOwn = accessory.bridge == nil && !own.isEmpty && hasSerial
+                let possibleOwn = accessory.bridge == nil && ownMissing && hasSerial
                 let bridgeAccessory = accessory.manufacturer == "Homeswift" || accessory.model == "Homeswift"
                 if accessory.serialNumber?.isEmpty != false,
                    homeswift != nil || unknownBridge || possibleOwn || bridgeAccessory {
-                    unresolvedIdentityHomes.insert(homeID)
+                    if homeID == self.bridgeHome { unresolved.append(accessory.room.map { "\(accessory.name) (\($0))" } ?? accessory.name) }
                 }
                 let information = ServiceType.accessoryInformation.uuid
                 let main = accessory.services.filter { HAPUUID($0.type) != information }.sorted { ($0.primary == true ? 0 : 1) < ($1.primary == true ? 0 : 1) }
@@ -123,11 +130,12 @@ struct Structure: Sendable {
                 let groupingService = primary.count == 1 ? primary.first?.id
                     : (primary.isEmpty && candidates.count == 1 ? candidates.first?.id : nil)
                 devices[accessory.id] = Device(
-                    name: accessory.name, room: accessory.room, home: homeID, writable: writable, serialNumber: accessory.serialNumber,
+                    name: accessory.name, room: accessory.room, home: homeID, writable: writable, serialNumber: accessory.serialNumber.map(PluginContext.serialKey),
                     homeswift: homeswift, roomID: accessory.roomID, services: main.compactMap(\.id), groupingService: groupingService)
             }
         }
         self.devices = devices
+        incompleteIdentityReason = Self.waitingReason(unresolved)
     }
 
     func home(_ id: String) -> Home? { homes.first { $0.id == id } }
@@ -139,10 +147,13 @@ struct Structure: Sendable {
 
     /// A missing cached identity is not evidence that an accessory was removed from Apple Home. Do not adopt
     /// partial groups or consume Pending Changes until Wingman has read the bridge's accessory identities.
-    var incompleteIdentityReason: String? {
-        guard let bridgeHome else { return nil }
-        guard unresolvedIdentityHomes.contains(bridgeHome) else { return nil }
-        return "Waiting for Homeswift Wingman to read Accessory Information (Serial Number) in Apple Home"
+    private static func waitingReason(_ unresolved: [String]) -> String? {
+        guard !unresolved.isEmpty else { return nil }
+        let names = unresolved.sorted()
+        // Named, so a person can find the accessory in the Home app: usually one that shows No Response there.
+        let shown = names.prefix(5).joined(separator: ", ")
+        let more = names.count > 5 ? " and \(names.count - 5) more" : ""
+        return "Waiting for Homeswift Wingman to read the Serial Number of \(shown)\(more) in Apple Home"
     }
 
     // MARK: The Home Link
@@ -162,7 +173,7 @@ struct Structure: Sendable {
         let groups = home.serviceGroups.map { group in
             var seen: Set<String> = []
             let members = group.services.compactMap { byService[$0] }.filter { seen.insert($0).inserted }
-            return HomeSnapshot.Group(id: group.id, name: group.name, members: members)
+            return HomeSnapshot.Group(id: group.id, name: group.name, members: members, accessories: group.services.count)
         }
         return HomeSnapshot(
             homeID: home.id, homeName: home.name, rooms: home.rooms.map { HomeSnapshot.Room(id: $0.id, name: $0.name) },
@@ -461,7 +472,7 @@ extension WingmanPlugin {
 
     /// The link that is the Home Link: of those whose Wingman serves it and sees the bridge's home, the first connected
     /// one by Wingman id, so another takes over when it goes down.
-    private func homeLinkOwner() async -> (link: Link, structure: Structure, home: Structure.Home)? {
+    func homeLinkOwner() async -> (link: Link, structure: Structure, home: Structure.Home)? {
         for (link, structure) in await structures() where structure.servesHomeLink {
             guard await link.isConnected, let id = structure.bridgeHome, let home = structure.home(id) else { continue }
             return (link, structure, home)

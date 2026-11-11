@@ -654,7 +654,11 @@
             instance ? [tn("{n} accessory on {bridge}", "{n} accessories on {bridge}", instance.accessories, { bridge: instance.bridge })] : []).join(" · ") })),
         el("div", { class: "tools" },
           statePill,
-          hasPage ? el("a", { class: "button", href: `/plugins/${block.slug}`, actionIcon: "open", text: t("Open its page") }) : null)),
+          hasPage ? el("a", { class: "button", href: `/plugins/${block.slug}`, actionIcon: "open", text: t("Open its page") }) : null,
+          // Sections of the plugin's page its schema names (`pageLinks`), in the schema's words for the page's language.
+          ...(hasPage ? (schemaFile?.pageLinks ?? []).filter((link) => link?.title && link?.anchor).map((link) => el("a", { class: "button",
+            href: `/plugins/${block.slug}#${encodeURIComponent(link.anchor)}`, actionIcon: link.icon ?? "open",
+            text: schemaFile?.i18n?.[HomeswiftI18n.language]?.[link.title] ?? link.title })) : []))),
       el("div", { class: "card plugin-settings" },
         accountSection,
         el("section", { class: "settings-section" },

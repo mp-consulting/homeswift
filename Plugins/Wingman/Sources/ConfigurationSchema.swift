@@ -93,8 +93,12 @@ extension WingmanPlugin {
       }
     }
   },
+  "pageLinks": [
+    { "title": "Hidden groups in Apple Home", "anchor": "hidden-groups", "icon": "grid" }
+  ],
   "i18n": {
     "fr": {
+      "Hidden groups in Apple Home": "Groupes masqués dans l'app Maison",
       "Address": "Adresse",
       "Homes": "Maisons",
       "How often names, rooms and new accessories are read again; 10 minutes by default. Value changes arrive at once.": "La fréquence à laquelle les noms, les pièces et les nouveaux accessoires sont relus ; 10 minutes par défaut. Les changements de valeur arrivent aussitôt.",
@@ -113,6 +117,7 @@ extension WingmanPlugin {
       "For a Wingman Bonjour does not reach: its address (and port), and Add accessories finds it there to pair it.": "Pour un Wingman que Bonjour n'atteint pas : son adresse (et son port), et Ajouter des accessoires l'y trouve pour le jumeler."
     },
     "es": {
+      "Hidden groups in Apple Home": "Grupos ocultos en la app Casa",
       "Address": "Dirección",
       "Homes": "Casas",
       "How often names, rooms and new accessories are read again; 10 minutes by default. Value changes arrive at once.": "Cada cuánto se vuelven a leer los nombres, las habitaciones y los accesorios nuevos; 10 minutos de forma predeterminada. Los cambios de valor llegan al instante.",
@@ -131,6 +136,7 @@ extension WingmanPlugin {
       "For a Wingman Bonjour does not reach: its address (and port), and Add accessories finds it there to pair it.": "Para un Wingman al que Bonjour no llega: su dirección (y su puerto), y Añadir accesorios lo encuentra ahí para emparejarlo."
     },
     "pt": {
+      "Hidden groups in Apple Home": "Grupos ocultos na app Casa",
       "Address": "Endereço",
       "Homes": "Casas",
       "How often names, rooms and new accessories are read again; 10 minutes by default. Value changes arrive at once.": "A frequência com que os nomes, as divisões e os acessórios novos são lidos de novo; 10 minutos por predefinição. As alterações de valores chegam de imediato.",

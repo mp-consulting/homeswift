@@ -249,6 +249,77 @@ import Testing
         #expect(environment.catalog.home.homeLink.value.refused.isEmpty)
     }
 
+    /// While a first link waits to be confirmed, a change here waits with it: nothing reaches Apple Home until confirmed.
+    @Test func changesWaitForTheFirstLinkToBeConfirmed() async throws {
+        let environment = try await environment()
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(rooms: [("hk-salon", "Salon")], placements: ["Devices:lamp": "hk-salon"])
+        await environment.catalog.followHome()
+        // A room made while Apple Home is away, then Apple Home's home back under another id (Wingman on another Mac):
+        // the bridge has a room of its own to bring, so it asks before linking.
+        environment.homeLink.set { $0.state = .down("asleep") }
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateLayout(["rooms": ["Salon", "Office"]], by: "test")
+        environment.homeLink.set { $0.state = .up; $0.home.homeID = "home-2" }
+        await environment.catalog.followHome()
+        #expect(environment.catalog.home.homeLink.value.comparison != nil)
+        let before = environment.homeLink.applied.count
+        _ = try await move(environment, to: "Office")
+        #expect(environment.homeLink.applied.count == before)
+        #expect(!environment.catalog.home.homeLink.value.pending.isEmpty)
+        _ = try await environment.catalog.confirmHomeLink(by: "test")
+        #expect(environment.catalog.home.homeLink.value.pending.isEmpty)
+        #expect(environment.homeLink.applied.contains { if case .moveAccessory("Devices:lamp", _) = $0 { true } else { false } })
+    }
+
+    /// A first link that waited for a Home whose id came back to the linked one is moot: the changes kept go out.
+    @Test func aMootFirstLinkLetsTheChangesGo() async throws {
+        let environment = try await environment()
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(rooms: [("hk-salon", "Salon")], placements: ["Devices:lamp": "hk-salon"])
+        await environment.catalog.followHome()
+        environment.homeLink.set { $0.state = .down("asleep") }
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateLayout(["rooms": ["Salon", "Office"]], by: "test")
+        environment.homeLink.set { $0.state = .up; $0.home.homeID = "home-2" }
+        await environment.catalog.followHome()
+        #expect(environment.catalog.home.homeLink.value.comparison != nil)
+        environment.homeLink.set { $0.home.homeID = "home-1" }
+        await environment.catalog.followHome()
+        #expect(environment.catalog.home.homeLink.value.comparison == nil)
+        #expect(environment.catalog.home.homeLink.value.pending.isEmpty)
+        #expect(environment.homeLink.home.rooms.contains { $0.name == "Office" })
+    }
+
+    /// A refusal in a replay is kept even when a later change of the same replay reaches Apple Home.
+    @Test func aRefusalSurvivesItsOwnReplay() async throws {
+        let environment = try await environment(bulbs: 4)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil, "Devices:bulb3": nil, "Devices:bulb4": nil])
+        await environment.catalog.followHome()
+        environment.homeLink.set { $0.missing = ["Devices:bulb2"] }
+        _ = try await environment.catalog.updateWall(["groups": [
+            ["name": "Refused", "members": ["Devices:bulb1", "Devices:bulb2"]], ["name": "Made", "members": ["Devices:bulb3", "Devices:bulb4"]]]])
+        #expect(environment.homeLink.home.groups.map(\.name) == ["Made"])
+        #expect(environment.catalog.home.homeLink.value.refused.count == 1)
+    }
+
+    /// A refused group creation, whose group leaves the wall, is settled once a later group change reaches Apple Home.
+    @Test func aRefusedCreationIsSettledByALaterGroupChange() async throws {
+        let environment = try await environment(bulbs: 3)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil, "Devices:bulb3": nil])
+        await environment.catalog.followHome()
+        environment.homeLink.set { $0.missing = ["Devices:bulb2"] }
+        _ = try await environment.catalog.updateWall(["groups": [["name": "Spots", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        #expect(environment.catalog.home.homeLink.value.refused.count == 1)
+        #expect(environment.catalog.wallGroups.isEmpty)
+        environment.homeLink.set { $0.missing = [] }
+        _ = try await environment.catalog.updateWall(["groups": [["name": "Spots", "members": ["Devices:bulb1", "Devices:bulb3"]]]])
+        #expect(environment.homeLink.home.groups.count == 1)
+        #expect(environment.catalog.home.homeLink.value.refused.isEmpty)
+    }
+
     /// Zones are kept as Rooms are: made here, they are made in Apple Home with their Rooms; made there, they are here.
     @Test func zonesAreKeptBothWays() async throws {
         let environment = try await environment()
@@ -287,6 +358,45 @@ import Testing
         environment.homeLink.set { $0.home.groups[0].name = "Lampes" }
         await environment.catalog.followHome()
         #expect(environment.catalog.wallGroups.map(\.name) == ["Lampes"])
+    }
+
+    /// A group Apple Home already has by that name, which the Home app hides with fewer than two accessories (an earlier
+    /// attempt can leave one), becomes the wall's group with its members, rather than a second one Apple Home refuses.
+    @Test func aHiddenGroupOfTheSameNameIsReused() async throws {
+        let environment = try await environment(bulbs: 2)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil])
+        environment.homeLink.set { $0.home.groups = [.init(id: "hk-leftover", name: "Spots Salon", members: ["Devices:bulb1"])] }
+        await environment.catalog.followHome()
+        let answer = try await environment.catalog.updateWall(["groups": [["name": "Spots Salon", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        #expect(answer["appleHomeRefused"] == nil)
+        #expect(environment.homeLink.home.groups.map(\.id) == ["hk-leftover"])
+        #expect(environment.homeLink.home.groups.first?.members == ["Devices:bulb1", "Devices:bulb2"])
+        #expect(environment.catalog.wallGroups.map(\.homeKitID) == ["hk-leftover"])
+        #expect(!environment.homeLink.applied.contains { if case .createGroup = $0 { true } else { false } })
+    }
+
+    /// A group of that name with accessories of its own in Apple Home (another bridge's) is the user's: never taken over.
+    @Test func aVisibleGroupOfTheSameNameIsNotTakenOver() async throws {
+        let environment = try await environment(bulbs: 2)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil])
+        environment.homeLink.set { $0.home.groups = [.init(id: "hk-users", name: "Spots Salon", members: [], accessories: 3)] }
+        await environment.catalog.followHome()
+        let answer = try await environment.catalog.updateWall(["groups": [["name": "Spots Salon", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        #expect(answer["appleHomeRefused"]?.arrayValue?.isEmpty == false)
+        #expect(environment.homeLink.home.groups.first { $0.id == "hk-users" }?.members == [])
+    }
+
+    /// A hidden group of that name that holds another bridge's accessory is not this one: it is never taken over.
+    @Test func aHiddenGroupWithAnotherBridgesAccessoryIsNotTakenOver() async throws {
+        let environment = try await environment(bulbs: 2)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil])
+        environment.homeLink.set { $0.home.groups = [.init(id: "hk-other", name: "Spots Salon", members: [], accessories: 1)] }
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateWall(["groups": [["name": "Spots Salon", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        #expect(environment.homeLink.home.groups.first { $0.id == "hk-other" }?.members == [])
     }
 
     @Test(arguments: [false, true])

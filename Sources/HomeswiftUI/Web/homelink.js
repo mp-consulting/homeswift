@@ -22,14 +22,38 @@
     };
   }
 
+  /// What Apple Home refused, a line each: the HomeKit errors people meet in plain words, others in Apple Home's own,
+  /// and the same message once with how many times it came.
+  const plainErrors = [
+    [/HMErrorDomain 13\b/, () => t("Apple Home already has one with this name. A hidden group can be it: see Hidden groups on the Wingman page.")],
+    [/HMErrorDomain 49\b/, () => t("Apple Home has reached its limit for this kind of object. Hidden groups count towards it: remove them on the Wingman page.")],
+  ];
+  function refusalLines(refused) {
+    const counts = new Map();
+    for (const one of refused || []) {
+      const reason = String(one.reason ?? "");
+      const plain = plainErrors.find(([pattern]) => pattern.test(reason));
+      const line = plain ? plain[1]() : t("Apple Home refused: {reason}", { reason });
+      counts.set(line, (counts.get(line) ?? 0) + 1);
+    }
+    return [...counts].map(([line, n]) => n > 1 ? t("{message} (×{n})", { message: line, n }) : line);
+  }
+
   function status(link) {
     const result = connectionStatus(link);
     const details = [];
     if (link?.pending) details.push(tn("{n} change is pending in Apple Home.", "{n} changes are pending in Apple Home.", link.pending));
-    if (link?.refused?.length) details.push(...link.refused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })));
+    if (link?.refused?.length) details.push(...refusalLines(link.refused));
     if (!details.length) return result;
     // A reachable link is not proof that queued writes succeeded.
-    return { text: [...(link.state === "up" ? [] : [result.text]), ...details].join(" "), tone: link.refused?.length ? "error" : "warn" };
+    // One line per message: the pages show them with `white-space: pre-line`.
+    return { text: [...(link.state === "up" ? [] : [result.text]), ...details].join("\n"), tone: link.refused?.length ? "error" : "warn" };
+  }
+
+  /// The Home Link's state as a menu's last item: a callout in the colour of its tone.
+  function menuItem(link) {
+    const { text, tone } = status(link);
+    return { heading: t("Apple Home"), detail: text, callout: true, tone, icon: "house" };
   }
 
   function dialogShell(title, ...content) {
@@ -102,7 +126,7 @@
         const answer = await api("/api/zones", { method: "PUT", body: request });
         current = answer.zones;
         const refused = answer.appleHomeRefused ?? [];
-        if (refused.length) message.textContent = refused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })).join("\n");
+        if (refused.length) message.textContent = refusalLines(refused).join("\n");
         changed = true;
         draw();
       } catch (e) { message.textContent = e.message; }
@@ -143,5 +167,5 @@
     dialog.showModal();
   }
 
-  window.HomeswiftHomeLink = { status, review, zones };
+  window.HomeswiftHomeLink = { status, menuItem, refusalLines, review, zones };
 })();

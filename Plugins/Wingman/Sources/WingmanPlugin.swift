@@ -185,7 +185,7 @@ public actor WingmanPlugin: HomeswiftPlugin {
     /// Whether an Apple Home accessory is one Homeswift may mirror at all: not Homeswift's own, in a chosen home. What
     /// discovery lists, Excluded or not.
     nonisolated func isCandidate(_ accessory: WingmanAPI.Accessory, home: WingmanAPI.Home, homeswift: Set<String>) -> Bool {
-        if let serial = accessory.serialNumber, homeswift.contains(serial) { return false }
+        if let serial = accessory.serialNumber, homeswift.contains(PluginContext.serialKey(serial)) { return false }
         if !includesHome(home.name) { return false }
         if let bridge = accessory.bridge, bridge.manufacturer == "Homeswift" || bridge.model == "Homeswift" { return false }
         return true
@@ -237,6 +237,12 @@ public actor WingmanPlugin: HomeswiftPlugin {
                 }
             }
             return PluginWebResponse(["wingmen": .array(list)])
+        case ("GET", "empty-groups"):
+            return await emptyGroupsResponse()
+        case ("POST", "empty-groups/remove"):
+            // By id only: removing all of them is a list the person saw, never an empty request.
+            guard let ids = request.body["ids"]?.arrayValue?.compactMap(\.stringValue), !ids.isEmpty else { return .error(400, "ids: the groups to remove") }
+            return await removeEmptyGroups(Set(ids))
         default:
             return .error(404, "nothing at \(request.method) \(request.path)")
         }
@@ -510,7 +516,7 @@ actor Link {
             applied = reads
             structure?.devices[moved.accessory]?.roomID = moved.roomID
             let home = structure?.devices[moved.accessory].flatMap { structure?.home($0.home) }
-            structure?.devices[moved.accessory]?.room = moved.roomID.flatMap { id in home?.rooms.first { $0.id == id }?.name } ?? home?.defaultRoom?.name
+            structure?.devices[moved.accessory]?.room = moved.roomID.flatMap { id in home?.rooms.first { $0.id == id }?.name }
             lastHome = plugin.flatMap { structure?.homeSnapshot(in: $0.context) }
         } else {
             do { try await refresh(scenes: false) } catch { lost(error) }

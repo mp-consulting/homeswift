@@ -46,11 +46,14 @@ public struct HomeSnapshot: Sendable, Equatable {
         public var name: String
         /// Its members Homeswift has, by Homeswift's accessory id.
         public var members: [String]
+        /// How many accessories it holds in Apple Home, Homeswift's or not; nil when the Home Link does not say.
+        public var accessories: Int?
 
-        public init(id: String, name: String, members: [String]) {
+        public init(id: String, name: String, members: [String], accessories: Int? = nil) {
             self.id = id
             self.name = name
             self.members = members
+            self.accessories = accessories
         }
     }
 

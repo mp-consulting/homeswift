@@ -231,6 +231,21 @@ enum WingmanAPI {
     }
 }
 
+extension WingmanAPI.Home {
+    /// The home with Apple Home's Default Room as No Room: an accessory in it has no room, by id or by name, so it never
+    /// becomes a Room of the bridge's (it is the room not among `rooms`).
+    var withoutDefaultRoom: WingmanAPI.Home {
+        guard let defaultRoom else { return self }
+        var home = self
+        for index in home.accessories.indices where home.accessories[index].roomID == defaultRoom.id
+            || (home.accessories[index].roomID == nil && home.accessories[index].room == defaultRoom.name) {
+            home.accessories[index].room = nil
+            home.accessories[index].roomID = nil
+        }
+        return home
+    }
+}
+
 enum WingmanError: Error, CustomStringConvertible, Equatable {
     /// Nothing answered, or the connection broke.
     case unreachable(String)
@@ -289,7 +304,7 @@ struct WingmanClient: Sendable {
     }
 
     func homes() async throws -> [WingmanAPI.Home] {
-        try decode(WingmanAPI.Homes.self, try await send("GET", "homes", timeout: .seconds(20))).homes
+        try decode(WingmanAPI.Homes.self, try await send("GET", "homes", timeout: .seconds(20))).homes.map(\.withoutDefaultRoom)
     }
 
     /// The value changes after `since`, waiting up to `wait` seconds for one.

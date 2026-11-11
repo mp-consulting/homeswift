@@ -893,13 +893,13 @@ struct HueSensorTests {
         await host.stop()
     }
 
-    /// HomeKit shows a device's Zigbee MAC as its serial number, not the bridge's resource id; a device without one keeps
+    /// HomeKit shows a device's Zigbee MAC (uppercase hex, no separators) as its serial number, not the bridge's resource id; a device without one keeps
     /// the id.
     @Test func serialNumbersAreTheDevicesZigbeeMACs() async throws {
         let host = try await environment.start()
         let serial = { (accessory: Accessory) in accessory.information.characteristic(.serialNumber).value }
-        #expect(serial(try await accessory(host, PhilipsHuePlugin.accessoryID(lightID: "light-2"))) == .string("00:17:88:01:0b:aa:bb:02"))
-        #expect(serial(try await accessory(host, sensorID)) == .string("00:17:88:01:0c:aa:bb:03"))
+        #expect(serial(try await accessory(host, PhilipsHuePlugin.accessoryID(lightID: "light-2"))) == .string("001788010BAABB02"))
+        #expect(serial(try await accessory(host, sensorID)) == .string("001788010CAABB03"))
         #expect(serial(try await accessory(host, PhilipsHuePlugin.accessoryID(lightID: "light-1"))) == .string("light-1"))
         #expect(serial(try await accessory(host, dimmerID)) == .string("dev-4"))
         await host.stop()
@@ -915,7 +915,7 @@ struct HueSensorTests {
             ["id": "zc-9", "type": "zigbee_connectivity", "owner": ["rid": "dev-9", "rtype": "device"], "status": "connected", "mac_address": "00:17:88:01:0d:aa:bb:09"],
         ])
         let serials = Dictionary(uniqueKeysWithValues: snapshot.lights.map { ($0.id, $0.serialNumber) })
-        #expect(serials == ["up-9": "00:17:88:01:0d:aa:bb:09-1", "down-9": "00:17:88:01:0d:aa:bb:09-2"])
+        #expect(serials == ["up-9": "001788010DAABB09-1", "down-9": "001788010DAABB09-2"])
     }
 
     @Test func theSensorsOptionAndExclusionsLeaveThemOut() async throws {

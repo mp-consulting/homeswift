@@ -2892,7 +2892,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     try {
       const answer = await api("/api/layout", { method: "PUT", body: layout });
       if (answer.appleHomeRefused?.length) {
-        await HomeswiftCommon.showAlert(answer.appleHomeRefused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })).join("\n"));
+        await HomeswiftCommon.showAlert(HomeswiftHomeLink.refusalLines(answer.appleHomeRefused).join("\n"));
       }
       return answer;
     }
@@ -6379,14 +6379,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           : t("Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.")}`, name);
       await applyRoomName(name, answer);
     }
-    /// Renames a room (to the trimmed `answer`, unless empty or unchanged); answers whether it was.
-    async function applyRoomName(name, answer) {
-      const to = answer?.trim();
-      if (!to || to === name) return false;
+    /// Changes the rooms (`PUT /api/rooms` with `body`), says what Apple Home or a hub refused, and moves the accessories
+    /// of `name` to `to` (null: No room); answers whether it was done.
+    async function changeRooms(body, name, to) {
       try {
-        const result = await api("/api/rooms", { method: "PUT", body: { renameRoom: { from: name, to } } });
+        const result = await api("/api/rooms", { method: "PUT", body });
         const failed = (result.hubRooms || []).filter((room) => !room.renamed);
-        const refused = (result.appleHomeRefused || []).map((one) => t("Apple Home refused: {reason}", { reason: one.reason }));
+        const refused = HomeswiftHomeLink.refusalLines(result.appleHomeRefused);
         if (failed.length || refused.length) HomeswiftCommon.showAlert([...refused, ...failed.map((room) => t("Not renamed on {hub}: {error}", { hub: room.name, error: room.error }))].join("\n"));
         // Drawn again here rather than reloaded, so Edit stays on for the next room.
         rooms.splice(0, rooms.length, ...result.rooms.map((room) => room.name));
@@ -6394,6 +6393,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         render();
         return true;
       } catch (e) { HomeswiftCommon.showAlert(e.message); return false; }
+    }
+    /// Renames a room (to the trimmed `answer`, unless empty or unchanged); answers whether it was.
+    async function applyRoomName(name, answer) {
+      const to = answer?.trim();
+      if (!to || to === name) return false;
+      return changeRooms({ renameRoom: { from: name, to } }, name, to);
+    }
+    /// Removes a room once confirmed: its accessories go to No room, and with the Home Link it goes from Apple Home too.
+    async function removeRoom(name) {
+      const count = all.filter((accessory) => accessory.room === name).length;
+      const where = count ? tn("Its accessory goes to No room.", "Its {n} accessories go to No room.", count) : t("It has no accessories.");
+      const confirmed = await HomeswiftCommon.confirmAction({ title: t("Remove the room {room}?", { room: name }),
+        text: [where, homeLink.linked ? t("It is removed from Apple Home too.") : null], confirmLabel: t("Remove"), confirmIcon: "trash" });
+      if (confirmed) await changeRooms({ removeRooms: [name] }, name, null);
     }
     /// A room's heading in Edit: its name as a field, renamed on Enter or when it loses focus; Escape puts it back.
     function roomNameField(name) {
@@ -6418,7 +6431,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         input.disabled = true;
         if (!await applyRoomName(name, input.value)) { input.value = name; fit(); input.disabled = false; }
       });
-      return el("h2", {}, input);
+      const remove = el("button", { type: "button", class: "icon-button danger room-remove", "aria-label": t("Remove the room {room}", { room: name }),
+        title: t("Remove the room {room}", { room: name }), onclick: () => removeRoom(name) }, HomeswiftCommon.icon("trash"));
+      return el("h2", { class: "room-heading" }, input, remove);
     }
     const roomOrderButton = el("button", { type: "button", class: "hidden", "aria-label": t("Rooms"), "aria-haspopup": "menu",
       onclick: (event) => HomeswiftCommon.menu(roomOrderButton, [
@@ -6429,7 +6444,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
         ...(homeLink.waiting ? [{ label: t("Link with Apple Home…"), icon: "link", onSelect: () => HomeswiftHomeLink.review(() => route()) }] : []),
         { separator: true },
-        { heading: t("Apple Home"), detail: HomeswiftHomeLink.status(homeLink).text },
+        HomeswiftHomeLink.menuItem(homeLink),
       ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Rooms") }));
 
     function render() {
@@ -6569,7 +6584,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // The Zones and where the rooms stand with Apple Home, without going through Edit.
       ...(isAdmin() && rooms.length ? [{ separator: true }, { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
         ...(homeLink.waiting ? [{ label: t("Link with Apple Home…"), icon: "link", onSelect: () => HomeswiftHomeLink.review(() => route()) }] : []),
-        { heading: t("Apple Home"), detail: HomeswiftHomeLink.status(homeLink).text }] : []),
+        HomeswiftHomeLink.menuItem(homeLink)] : []),
     ]);
     more.replaceChildren(HomeswiftCommon.icon("sliders"));
     more.classList.add("accessory-options-button");
@@ -11635,7 +11650,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("span", { class: "menu-choice-label", text: item.label }), el("div", { class: "menu-choice-row" }, choices));
       }
       // Who the menu is about (the header's account menu): a name and a line under it, not an action.
-      if (item.heading !== undefined) return el("div", { class: "menu-heading" }, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
+      // `callout`: a notice set apart in a tinted box with its icon (the Home Link's state), `tone` "warn" or "error".
+      if (item.heading !== undefined) {
+        return el("div", item.callout ? { class: `menu-heading menu-callout${item.tone ? ` ${item.tone}` : ""}`, role: "note" } : { class: "menu-heading" },
+          item.callout && item.icon ? icon(item.icon) : null, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
+      }
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
       // `checked` may be a function, asked again after each choice of a menu that stays open (a Group's row follows
       // its members'); "mixed" for some of them.
@@ -20175,14 +20194,38 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
   }
 
+  /// What Apple Home refused, a line each: the HomeKit errors people meet in plain words, others in Apple Home's own,
+  /// and the same message once with how many times it came.
+  const plainErrors = [
+    [/HMErrorDomain 13\b/, () => t("Apple Home already has one with this name. A hidden group can be it: see Hidden groups on the Wingman page.")],
+    [/HMErrorDomain 49\b/, () => t("Apple Home has reached its limit for this kind of object. Hidden groups count towards it: remove them on the Wingman page.")],
+  ];
+  function refusalLines(refused) {
+    const counts = new Map();
+    for (const one of refused || []) {
+      const reason = String(one.reason ?? "");
+      const plain = plainErrors.find(([pattern]) => pattern.test(reason));
+      const line = plain ? plain[1]() : t("Apple Home refused: {reason}", { reason });
+      counts.set(line, (counts.get(line) ?? 0) + 1);
+    }
+    return [...counts].map(([line, n]) => n > 1 ? t("{message} (×{n})", { message: line, n }) : line);
+  }
+
   function status(link) {
     const result = connectionStatus(link);
     const details = [];
     if (link?.pending) details.push(tn("{n} change is pending in Apple Home.", "{n} changes are pending in Apple Home.", link.pending));
-    if (link?.refused?.length) details.push(...link.refused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })));
+    if (link?.refused?.length) details.push(...refusalLines(link.refused));
     if (!details.length) return result;
     // A reachable link is not proof that queued writes succeeded.
-    return { text: [...(link.state === "up" ? [] : [result.text]), ...details].join(" "), tone: link.refused?.length ? "error" : "warn" };
+    // One line per message: the pages show them with `white-space: pre-line`.
+    return { text: [...(link.state === "up" ? [] : [result.text]), ...details].join("\n"), tone: link.refused?.length ? "error" : "warn" };
+  }
+
+  /// The Home Link's state as a menu's last item: a callout in the colour of its tone.
+  function menuItem(link) {
+    const { text, tone } = status(link);
+    return { heading: t("Apple Home"), detail: text, callout: true, tone, icon: "house" };
   }
 
   function dialogShell(title, ...content) {
@@ -20255,7 +20298,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const answer = await api("/api/zones", { method: "PUT", body: request });
         current = answer.zones;
         const refused = answer.appleHomeRefused ?? [];
-        if (refused.length) message.textContent = refused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })).join("\n");
+        if (refused.length) message.textContent = refusalLines(refused).join("\n");
         changed = true;
         draw();
       } catch (e) { message.textContent = e.message; }
@@ -20296,7 +20339,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     dialog.showModal();
   }
 
-  window.HomeswiftHomeLink = { status, review, zones };
+  window.HomeswiftHomeLink = { status, menuItem, refusalLines, review, zones };
 })();
 
 """#),
@@ -20792,6 +20835,15 @@ HomeswiftI18n.add("es", {
   "Rooms": "Habitaciones",
   "Drag to reorder, choose one to rename it.": "Arrastra para reordenar, elige una para cambiarle el nombre.",
   "Name of {room}": "Nombre de {room}",
+  "Remove the room {room}?": "¿Eliminar la habitación {room}?",
+  "Remove the room {room}": "Eliminar la habitación {room}",
+  "Its accessory goes to No room.": "Su accesorio pasa a Sin habitación.",
+  "Its {n} accessories go to No room.": "Sus {n} accesorios pasan a Sin habitación.",
+  "It has no accessories.": "No tiene accesorios.",
+  "It is removed from Apple Home too.": "También se elimina de Apple Home.",
+  "Apple Home already has one with this name. A hidden group can be it: see Hidden groups on the Wingman page.": "La app Casa ya tiene uno con este nombre. Puede ser un grupo oculto: mira Grupos ocultos en la página de Wingman.",
+  "Apple Home has reached its limit for this kind of object. Hidden groups count towards it: remove them on the Wingman page.": "La app Casa ha alcanzado su límite para este tipo de elemento. Los grupos ocultos cuentan: elimínalos en la página de Wingman.",
+  "{message} (×{n})": "{message} (×{n})",
   "Rename the room": "Cambiar el nombre de la habitación",
   "Pack the widgets together": "Agrupar los widgets",
   "A new name for {room}.": "Un nombre nuevo para {room}.",
@@ -24546,6 +24598,15 @@ HomeswiftI18n.add("fr", {
   "Rooms": "Pièces",
   "Drag to reorder, choose one to rename it.": "Faites glisser pour réorganiser, choisissez-en une pour la renommer.",
   "Name of {room}": "Nom de {room}",
+  "Remove the room {room}?": "Supprimer la pièce {room} ?",
+  "Remove the room {room}": "Supprimer la pièce {room}",
+  "Its accessory goes to No room.": "Son accessoire passe dans Sans pièce.",
+  "Its {n} accessories go to No room.": "Ses {n} accessoires passent dans Sans pièce.",
+  "It has no accessories.": "Elle n’a aucun accessoire.",
+  "It is removed from Apple Home too.": "Elle est aussi supprimée d'Apple Home.",
+  "Apple Home already has one with this name. A hidden group can be it: see Hidden groups on the Wingman page.": "L'app Maison en a déjà un de ce nom. Un groupe masqué peut être celui-là : voyez Groupes masqués sur la page Wingman.",
+  "Apple Home has reached its limit for this kind of object. Hidden groups count towards it: remove them on the Wingman page.": "L'app Maison a atteint sa limite pour ce type d'élément. Les groupes masqués y comptent : supprimez-les sur la page Wingman.",
+  "{message} (×{n})": "{message} (×{n})",
   "Rename the room": "Renommer la pièce",
   "Pack the widgets together": "Regrouper les widgets",
   "A new name for {room}.": "Un nouveau nom pour {room}.",
@@ -28300,6 +28361,15 @@ HomeswiftI18n.add("pt", {
   "Rooms": "Divisões",
   "Drag to reorder, choose one to rename it.": "Arraste para reordenar, escolha uma para lhe mudar o nome.",
   "Name of {room}": "Nome de {room}",
+  "Remove the room {room}?": "Remover a divisão {room}?",
+  "Remove the room {room}": "Remover a divisão {room}",
+  "Its accessory goes to No room.": "O seu acessório passa para Sem divisão.",
+  "Its {n} accessories go to No room.": "Os seus {n} acessórios passam para Sem divisão.",
+  "It has no accessories.": "Não tem acessórios.",
+  "It is removed from Apple Home too.": "Também é removida do Apple Home.",
+  "Apple Home already has one with this name. A hidden group can be it: see Hidden groups on the Wingman page.": "A app Casa já tem um com este nome. Pode ser um grupo oculto: veja Grupos ocultos na página do Wingman.",
+  "Apple Home has reached its limit for this kind of object. Hidden groups count towards it: remove them on the Wingman page.": "A app Casa atingiu o limite para este tipo de elemento. Os grupos ocultos contam: remova-os na página do Wingman.",
+  "{message} (×{n})": "{message} (×{n})",
   "Rename the room": "Mudar o nome da divisão",
   "Pack the widgets together": "Juntar os widgets",
   "A new name for {room}.": "Um novo nome para {room}.",
@@ -34835,7 +34905,11 @@ HomeswiftI18n.add("pt", {
             instance ? [tn("{n} accessory on {bridge}", "{n} accessories on {bridge}", instance.accessories, { bridge: instance.bridge })] : []).join(" · ") })),
         el("div", { class: "tools" },
           statePill,
-          hasPage ? el("a", { class: "button", href: `/plugins/${block.slug}`, actionIcon: "open", text: t("Open its page") }) : null)),
+          hasPage ? el("a", { class: "button", href: `/plugins/${block.slug}`, actionIcon: "open", text: t("Open its page") }) : null,
+          // Sections of the plugin's page its schema names (`pageLinks`), in the schema's words for the page's language.
+          ...(hasPage ? (schemaFile?.pageLinks ?? []).filter((link) => link?.title && link?.anchor).map((link) => el("a", { class: "button",
+            href: `/plugins/${block.slug}#${encodeURIComponent(link.anchor)}`, actionIcon: link.icon ?? "open",
+            text: schemaFile?.i18n?.[HomeswiftI18n.language]?.[link.title] ?? link.title })) : []))),
       el("div", { class: "card plugin-settings" },
         accountSection,
         el("section", { class: "settings-section" },
@@ -35956,7 +36030,17 @@ header nav a svg { display: none; }
 .user-button:has(.user-name:empty) { padding: 3px; }
 .menu-heading { display: grid; gap: 2px; padding: var(--space-8) var(--space-12) var(--space-10); margin-bottom: var(--space-4); border-bottom: 1px solid var(--line); }
 .menu-heading strong { font-size: var(--text-base); }
-.menu-heading span { color: var(--muted); font-size: var(--text-sm); }
+/* A notice in a menu (the Home Link's state): a tinted box, its icon beside the title, in the colour of its tone. */
+.menu-callout { --callout: var(--accent); grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-8); align-items: start;
+  margin: var(--space-4) 0 0; padding: var(--space-10) var(--space-12); border: 1px solid color-mix(in srgb, var(--callout) 35%, transparent);
+  border-radius: var(--radius-sm); background: color-mix(in srgb, var(--callout) 12%, transparent); }
+.menu-callout.warn { --callout: var(--warn); }
+.menu-callout.error { --callout: var(--error); }
+.menu-callout > svg { grid-row: 1 / span 2; width: 18px; height: 18px; margin-top: 1px; color: var(--callout); }
+.menu-callout > strong, .menu-callout > span { grid-column: 2; }
+.menu-callout > span { color: var(--text); opacity: .82; white-space: pre-line; }
+/* A long detail (the Home Link's refusals) wraps instead of widening the menu across the page. */
+.menu-heading span { color: var(--muted); font-size: var(--text-sm); max-width: 340px; overflow-wrap: anywhere; }
 /* A plugin's settings page: the form in a card, a save bar that floats at the bottom of the window while the
    form scrolls (a thick material, like the header), and removal set apart at the end. */
 .settings-head { align-items: center; }
@@ -36395,6 +36479,10 @@ label > input, label > select { margin-top: 5px; }
 @media (hover: hover) and (pointer: fine) { .room-name-input:hover { border-color: var(--muted); } }
 .room-name-input:focus { outline: none; border-style: solid; border-color: var(--accent); background: var(--field); }
 .room-name-input:disabled { opacity: .6; }
+.room-heading { display: flex; align-items: center; gap: var(--space-4); }
+/* Round in a section head: the touch screens' 40px min-height would make it an oval. */
+.room-heading .room-remove { width: 32px; min-width: 32px; height: 32px; min-height: 32px; color: var(--error); }
+@media (pointer: coarse) { .room-heading .room-remove { width: 40px; min-width: 40px; height: 40px; min-height: 40px; } }
 .section-head .muted { font-size: var(--text-sm); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--space-14); }
 .grid > .card { margin: 0; min-width: 0; }
@@ -37144,7 +37232,7 @@ textarea.short { min-height: 220px; }
 }
 .menu .menu-search { width: 100%; margin-bottom: var(--space-4); }
 .menu .menu-empty { margin: 0; padding: var(--space-8) var(--space-10); font-size: var(--text-sm); }
-.menu { max-height: min(480px, calc(100dvh - 24px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; grid-auto-rows: max-content; touch-action: pan-y; }
+.menu { max-width: calc(100vw - 24px); max-height: min(480px, calc(100dvh - 24px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; grid-auto-rows: max-content; touch-action: pan-y; }
 .menu:focus { outline: none; }
 .menu.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
 @keyframes menu-in { from { opacity: 0; transform: scale(0.92); } }
@@ -40995,7 +41083,7 @@ select option:disabled { color: var(--muted); }
 .home-link-zone-head { display: flex; gap: var(--space-8); align-items: center; padding: 0; width: 100%; }
 .home-link-zone-head input { min-width: 0; flex: 1; }
 .home-link-zone .choices { display: flex; flex-wrap: wrap; gap: var(--space-6) var(--space-14); }
-.home-link-banner { display: flex; flex-wrap: wrap; gap: var(--space-10); align-items: center; justify-content: space-between; margin: 0 0 var(--space-14);
+.home-link-banner { white-space: pre-line; display: flex; flex-wrap: wrap; gap: var(--space-10); align-items: center; justify-content: space-between; margin: 0 0 var(--space-14);
   padding: var(--space-10) var(--space-14); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--text);
   animation: materialize var(--normal) var(--ease-out); }
 .home-link-banner > span { flex: 1 1 16rem; min-width: 0; }
