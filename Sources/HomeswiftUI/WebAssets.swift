@@ -36978,15 +36978,13 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.size-xlarge .thermometer-dial { width: 200px; height: 200px; }
 .widget.size-xlarge .thermometer .sensor-figure { display: none; }
 .widget:not(.size-xlarge) .thermometer-dial .figure { display: none; }
-/* The extra-large dial's figure carries the unit, so the scale's own label is left out. */
-.widget.size-xlarge .thermometer-dial .unit { display: none; }
 .thermometer-dial .face { fill: color-mix(in srgb, var(--surface, #fff) 70%, transparent); stroke: color-mix(in srgb, var(--text) 10%, transparent); stroke-width: 1.5; }
 .thermometer-dial .band { fill: none; stroke-width: 11; stroke-linecap: butt; }
 .thermometer-dial line.minor { stroke: color-mix(in srgb, var(--text) 35%, transparent); stroke-width: 1.2; }
 .thermometer-dial line.major { stroke: var(--text); stroke-width: 2.2; }
 .thermometer-dial .mark-number { fill: var(--text); font-size: 17px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
 .thermometer-dial .unit { fill: var(--muted); font-size: 14px; font-weight: var(--weight-semibold); }
-.thermometer-dial .figure { fill: var(--text); font-size: 18px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+.thermometer-dial .figure { fill: var(--text); font-size: 22px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
 .thermometer-dial .needle { transform-box: view-box; transform-origin: 100px 100px; transition: transform 600ms var(--ease-out), opacity var(--fast); }
 .thermometer-dial .needle line { stroke-linecap: round; }
 .thermometer-dial .needle-body, .thermometer-dial .needle-tail { stroke: var(--text); stroke-width: 3; }
@@ -43378,8 +43376,8 @@ self.addEventListener("notificationclick", (event) => {
     svg.setAttribute("aria-hidden", "true");
     svg.innerHTML = `<circle class="face" cx="100" cy="100" r="97"/>` +
       band + marks +
-      `<text class="unit" x="100" y="180" text-anchor="middle">${fahrenheit ? "°F" : "°C"}</text>` +
-      `<text class="figure" x="100" y="128" text-anchor="middle"></text>` +
+      `<text class="unit" x="100" y="153" text-anchor="middle">${fahrenheit ? "°F" : "°C"}</text>` +
+      `<text class="figure" x="100" y="133" text-anchor="middle"></text>` +
       `<g class="needle"><line class="needle-tail" x1="100" y1="100" x2="${100 - 16}" y2="100"/><line class="needle-body" x1="100" y1="100" x2="${100 + 58}" y2="100"/><line class="needle-tip" x1="${100 + 50}" y1="100" x2="${100 + 74}" y2="100"/></g>` +
       `<circle class="hub" cx="100" cy="100" r="6"/>`;
     const needle = svg.querySelector(".needle"), figure = svg.querySelector(".figure");
@@ -43388,11 +43386,11 @@ self.addEventListener("notificationclick", (event) => {
       set() {
         const v = main.value;
         if (typeof v !== "number") { figure.textContent = "–"; needle.style.opacity = "0"; return; }
-        const { value: shown, unit } = HomeswiftCommon.temperature(v);
+        const shown = HomeswiftCommon.temperature(v).value;
         needle.style.opacity = "";
         needle.style.transform = `rotate(${angle(shown)}deg)`;
-        // In the unit the scale is drawn in, as the status line writes it.
-        figure.textContent = `${shown < 0 ? "−" : ""}${Math.abs(shown).toFixed(1).replace(".", decimal)} ${unit}`;
+        // The number alone: the unit sits under it, the scale's own label.
+        figure.textContent = `${shown < 0 ? "−" : ""}${Math.abs(shown).toFixed(1).replace(".", decimal)}`;
       },
     };
   }

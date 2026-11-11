@@ -48,7 +48,7 @@ All notable changes to this project are documented here. The format follows
   the valve to report In Use.
 - **IKEA DIRIGERA**: every TRADFRI constant-voltage driver dims only, without colour controls.
 - **Sensor tiles**: the large and extra-large tiles show the sensor's own reading large instead of an empty panel (a
-  temperature on a dial thermometer graded from cold blue to hot red, its scale and figure in the unit the user shows), and a number in the status line carries its unit.
+  temperature on a dial thermometer graded from cold blue to hot red, its scale, figure and unit label in the unit the user shows), and a number in the status line carries its unit.
 - **Design tokens**: use the shared spacing, corner and weight tokens for valve countdown digits.
 
 - **Home Link**: wait for Wingman to read missing accessory serial numbers before applying changes or adopting
