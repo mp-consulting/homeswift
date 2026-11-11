@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Remove a room**: in Edit, a red bin beside each room's name removes it once confirmed; its accessories go to No room,
+  and with the Home Link it goes from Apple Home too.
+
 ## [0.29.0] - 2026-11-11
 
 ### Added

@@ -320,7 +320,8 @@ screenshots, and what a plugin does to get good ones.
   Rooms is the bridge's own; the MCP tools filter by the Rooms (`list_accessories`, `set_accessories`), and by the Zones
   too (`?zone=<name>` on the wall, among the **Filters**).
 - **Rooms and Apple Home**: in **Edit**, with the wall **By room**, each room's heading is a field: type a new name, then
-  Enter (or click away) renames the room, Escape keeps it. A tile dragged into another room's wall moves the accessory to
+  Enter (or click away) renames the room, Escape keeps it. The red bin beside it removes the room once confirmed: its
+  accessories go to **No room**, and with the Home Link it is removed from Apple Home too. A tile dragged into another room's wall moves the accessory to
   that room, or out of any into **No room**; every room shows there, empty ones too, to take a drop. The **Rooms** menu
   orders the rooms (drag them), renames one (choose it), opens **Zones…** (Apple Home's sets of rooms, such as
   Upstairs: a name and its rooms each, a room in several at most) and says where the rooms stand with Apple Home. With

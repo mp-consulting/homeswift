@@ -710,6 +710,10 @@ label > input, label > select { margin-top: 5px; }
 @media (hover: hover) and (pointer: fine) { .room-name-input:hover { border-color: var(--muted); } }
 .room-name-input:focus { outline: none; border-style: solid; border-color: var(--accent); background: var(--field); }
 .room-name-input:disabled { opacity: .6; }
+.room-heading { display: flex; align-items: center; gap: var(--space-4); }
+/* Round in a section head: the touch screens' 40px min-height would make it an oval. */
+.room-heading .room-remove { width: 32px; min-width: 32px; height: 32px; min-height: 32px; color: var(--error); }
+@media (pointer: coarse) { .room-heading .room-remove { width: 40px; min-width: 40px; height: 40px; min-height: 40px; } }
 .section-head .muted { font-size: var(--text-sm); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--space-14); }
 .grid > .card { margin: 0; min-width: 0; }

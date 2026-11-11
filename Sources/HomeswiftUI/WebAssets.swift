@@ -6395,6 +6395,22 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         return true;
       } catch (e) { HomeswiftCommon.showAlert(e.message); return false; }
     }
+    /// Removes a room once confirmed: its accessories go to No room, and with the Home Link it goes from Apple Home too.
+    async function removeRoom(name) {
+      const count = all.filter((accessory) => accessory.room === name).length;
+      const where = count ? tn("Its accessory goes to No room.", "Its {n} accessories go to No room.", count) : t("It has no accessories.");
+      const confirmed = await HomeswiftCommon.confirmAction({ title: t("Remove the room {room}?", { room: name }),
+        text: [where, homeLink.linked ? t("It is removed from Apple Home too.") : null], confirmLabel: t("Remove"), confirmIcon: "trash" });
+      if (!confirmed) return;
+      try {
+        const result = await api("/api/rooms", { method: "PUT", body: { removeRooms: [name] } });
+        const refused = (result.appleHomeRefused || []).map((one) => t("Apple Home refused: {reason}", { reason: one.reason }));
+        if (refused.length) HomeswiftCommon.showAlert(refused.join("\n"));
+        rooms.splice(0, rooms.length, ...result.rooms.map((room) => room.name));
+        for (const accessory of all) if (accessory.room === name) accessory.room = null;
+        render();
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    }
     /// A room's heading in Edit: its name as a field, renamed on Enter or when it loses focus; Escape puts it back.
     function roomNameField(name) {
       const input = el("input", { type: "text", class: "room-name-input", value: name, maxLength: 64, spellcheck: false, autocomplete: "off",
@@ -6418,7 +6434,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         input.disabled = true;
         if (!await applyRoomName(name, input.value)) { input.value = name; fit(); input.disabled = false; }
       });
-      return el("h2", {}, input);
+      const remove = el("button", { type: "button", class: "icon-button danger room-remove", "aria-label": t("Remove the room {room}", { room: name }),
+        title: t("Remove the room {room}", { room: name }), onclick: () => removeRoom(name) }, HomeswiftCommon.icon("trash"));
+      return el("h2", { class: "room-heading" }, input, remove);
     }
     const roomOrderButton = el("button", { type: "button", class: "hidden", "aria-label": t("Rooms"), "aria-haspopup": "menu",
       onclick: (event) => HomeswiftCommon.menu(roomOrderButton, [
@@ -20792,6 +20810,12 @@ HomeswiftI18n.add("es", {
   "Rooms": "Habitaciones",
   "Drag to reorder, choose one to rename it.": "Arrastra para reordenar, elige una para cambiarle el nombre.",
   "Name of {room}": "Nombre de {room}",
+  "Remove the room {room}?": "¿Eliminar la habitación {room}?",
+  "Remove the room {room}": "Eliminar la habitación {room}",
+  "Its accessory goes to No room.": "Su accesorio pasa a Sin habitación.",
+  "Its {n} accessories go to No room.": "Sus {n} accesorios pasan a Sin habitación.",
+  "It has no accessories.": "No tiene accesorios.",
+  "It is removed from Apple Home too.": "También se elimina de Apple Home.",
   "Rename the room": "Cambiar el nombre de la habitación",
   "Pack the widgets together": "Agrupar los widgets",
   "A new name for {room}.": "Un nombre nuevo para {room}.",
@@ -24546,6 +24570,12 @@ HomeswiftI18n.add("fr", {
   "Rooms": "Pièces",
   "Drag to reorder, choose one to rename it.": "Faites glisser pour réorganiser, choisissez-en une pour la renommer.",
   "Name of {room}": "Nom de {room}",
+  "Remove the room {room}?": "Supprimer la pièce {room} ?",
+  "Remove the room {room}": "Supprimer la pièce {room}",
+  "Its accessory goes to No room.": "Son accessoire passe dans Sans pièce.",
+  "Its {n} accessories go to No room.": "Ses {n} accessoires passent dans Sans pièce.",
+  "It has no accessories.": "Elle n’a aucun accessoire.",
+  "It is removed from Apple Home too.": "Elle est aussi supprimée d'Apple Home.",
   "Rename the room": "Renommer la pièce",
   "Pack the widgets together": "Regrouper les widgets",
   "A new name for {room}.": "Un nouveau nom pour {room}.",
@@ -28300,6 +28330,12 @@ HomeswiftI18n.add("pt", {
   "Rooms": "Divisões",
   "Drag to reorder, choose one to rename it.": "Arraste para reordenar, escolha uma para lhe mudar o nome.",
   "Name of {room}": "Nome de {room}",
+  "Remove the room {room}?": "Remover a divisão {room}?",
+  "Remove the room {room}": "Remover a divisão {room}",
+  "Its accessory goes to No room.": "O seu acessório passa para Sem divisão.",
+  "Its {n} accessories go to No room.": "Os seus {n} acessórios passam para Sem divisão.",
+  "It has no accessories.": "Não tem acessórios.",
+  "It is removed from Apple Home too.": "Também é removida do Apple Home.",
   "Rename the room": "Mudar o nome da divisão",
   "Pack the widgets together": "Juntar os widgets",
   "A new name for {room}.": "Um novo nome para {room}.",
@@ -36395,6 +36431,10 @@ label > input, label > select { margin-top: 5px; }
 @media (hover: hover) and (pointer: fine) { .room-name-input:hover { border-color: var(--muted); } }
 .room-name-input:focus { outline: none; border-style: solid; border-color: var(--accent); background: var(--field); }
 .room-name-input:disabled { opacity: .6; }
+.room-heading { display: flex; align-items: center; gap: var(--space-4); }
+/* Round in a section head: the touch screens' 40px min-height would make it an oval. */
+.room-heading .room-remove { width: 32px; min-width: 32px; height: 32px; min-height: 32px; color: var(--error); }
+@media (pointer: coarse) { .room-heading .room-remove { width: 40px; min-width: 40px; height: 40px; min-height: 40px; } }
 .section-head .muted { font-size: var(--text-sm); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--space-14); }
 .grid > .card { margin: 0; min-width: 0; }

@@ -4017,6 +4017,22 @@
         return true;
       } catch (e) { HomeswiftCommon.showAlert(e.message); return false; }
     }
+    /// Removes a room once confirmed: its accessories go to No room, and with the Home Link it goes from Apple Home too.
+    async function removeRoom(name) {
+      const count = all.filter((accessory) => accessory.room === name).length;
+      const where = count ? tn("Its accessory goes to No room.", "Its {n} accessories go to No room.", count) : t("It has no accessories.");
+      const confirmed = await HomeswiftCommon.confirmAction({ title: t("Remove the room {room}?", { room: name }),
+        text: [where, homeLink.linked ? t("It is removed from Apple Home too.") : null], confirmLabel: t("Remove"), confirmIcon: "trash" });
+      if (!confirmed) return;
+      try {
+        const result = await api("/api/rooms", { method: "PUT", body: { removeRooms: [name] } });
+        const refused = (result.appleHomeRefused || []).map((one) => t("Apple Home refused: {reason}", { reason: one.reason }));
+        if (refused.length) HomeswiftCommon.showAlert(refused.join("\n"));
+        rooms.splice(0, rooms.length, ...result.rooms.map((room) => room.name));
+        for (const accessory of all) if (accessory.room === name) accessory.room = null;
+        render();
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    }
     /// A room's heading in Edit: its name as a field, renamed on Enter or when it loses focus; Escape puts it back.
     function roomNameField(name) {
       const input = el("input", { type: "text", class: "room-name-input", value: name, maxLength: 64, spellcheck: false, autocomplete: "off",
@@ -4040,7 +4056,9 @@
         input.disabled = true;
         if (!await applyRoomName(name, input.value)) { input.value = name; fit(); input.disabled = false; }
       });
-      return el("h2", {}, input);
+      const remove = el("button", { type: "button", class: "icon-button danger room-remove", "aria-label": t("Remove the room {room}", { room: name }),
+        title: t("Remove the room {room}", { room: name }), onclick: () => removeRoom(name) }, HomeswiftCommon.icon("trash"));
+      return el("h2", { class: "room-heading" }, input, remove);
     }
     const roomOrderButton = el("button", { type: "button", class: "hidden", "aria-label": t("Rooms"), "aria-haspopup": "menu",
       onclick: (event) => HomeswiftCommon.menu(roomOrderButton, [
