@@ -2379,7 +2379,7 @@ HomeswiftI18n.add("pt", {
   "Warm amber, each light flickering on its own.": "Âmbar quente, cada luz a tremeluzir ao seu ritmo.",
   "Warm white": "Branco quente",
   "Custom colour": "Cor personalizada",
-  "Hold for the colour wheel": "Manter para a roda de cores",
+  "Colour wheel": "Roda de cores",
   "Cool white": "Branco frio",
   "Lavender": "Lavanda",
   "Warnings": "Avisos",

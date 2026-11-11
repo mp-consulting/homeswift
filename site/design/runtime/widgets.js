@@ -2347,7 +2347,8 @@
   /// A haptic tick, where the device has them and the page may (a browser refuses before the first tap on it, and says
   /// so in the console).
   const buzz = (ms) => { if (navigator.userActivation?.hasBeenActive ?? true) navigator.vibrate?.(ms); };
-  function colourWheel(hit, picks) {
+  /// `tapOpens`: a tap opens the picker and leaves it open (a light's icon); a press then picks, a press off it closes.
+  function colourWheel(hit, picks, { tapOpens = false } = {}) {
     const radius = WHEEL_SIZE / 2, { color, white } = picks;
     // The white bar sits under the wheel when the light has both.
     const bar = color && white ? WHITE_BAR : null;
@@ -2388,7 +2389,7 @@
       const h = Math.round((Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360), s = Math.round(share * 100);
       return { inside, h, s, css: wheelColor(h, s), left, top };
     };
-    const show = () => {
+    const show = (sticky = false) => {
       timer = null;
       used = true;
       tile()?.classList.remove("arming");
@@ -2412,10 +2413,24 @@
       document.body.append(node);
       // Followed on the window: the tile may be drawn again while the picker is open (an event from the device).
       const listening = new AbortController(), options = { signal: listening.signal };
-      open = { node, mark, preview, reading, x, y, moved: false, choice: null, listening };
+      open = { node, mark, preview, reading, x, y, moved: false, choice: null, listening, sticky: false, pressed: false };
       try { hit.setPointerCapture(start.id); } catch {}
       addEventListener("pointermove", follow, options);
       addEventListener("pointerup", release, options);
+      // Opened by a tap: a press on the wheel picks (dragged, it follows), a press off it closes.
+      // Left open (opened by a tap, or let go without moving): a press on the wheel picks (dragged, it follows), a press
+      // off it closes. The press's click goes nowhere: not to a control under the wheel, nor to one it was closed over.
+      open.stay = () => {
+        open.sticky = true;
+        addEventListener("pointerdown", (event) => {
+          event.preventDefault();
+          addEventListener("click", (click) => { click.preventDefault(); click.stopPropagation(); }, { capture: true, once: true });
+          if (!at(event).inside) { close(); return; }
+          open.pressed = true;
+          follow(event);
+        }, { ...options, capture: true });
+      };
+      if (sticky) open.stay();
       addEventListener("pointercancel", (event) => { if (event.pointerId === start?.id) close(); }, options);
       addEventListener("blur", close, options);
       addEventListener("keydown", (event) => { if (event.key === "Escape") close(); }, options);
@@ -2424,10 +2439,15 @@
       buzz(8);
     };
     const follow = (event) => {
-      if (event.pointerId !== start?.id) return;
-      // A mouse let go where no pointerup reached the page (outside the window): nothing is picked.
-      if (event.buttons === 0) { close(); return; }
-      if (!open.moved && Math.hypot(event.clientX - start.x, event.clientY - start.y) < PRESS_SLOP) return;
+      if (open.sticky) {
+        // Opened by a tap: a mouse previews where it hovers, a finger once it presses.
+        if (event.pointerType !== "mouse" && !open.pressed) return;
+      } else {
+        if (event.pointerId !== start?.id) return;
+        // A mouse let go where no pointerup reached the page (outside the window): nothing is picked.
+        if (event.buttons === 0) { close(); return; }
+        if (!open.moved && Math.hypot(event.clientX - start.x, event.clientY - start.y) < PRESS_SLOP) return;
+      }
       open.moved = true;
       const choice = open.choice = at(event);
       open.node.classList.toggle("outside", !choice.inside);
@@ -2438,8 +2458,10 @@
       if (open.reading) open.reading.textContent = choice.white !== undefined ? `${num(choice.white)} K` : "";
     };
     const release = (event) => {
-      if (event.pointerId !== start?.id) return;
-      const choice = open.moved ? open.choice : null;
+      if (open.sticky ? !open.pressed : event.pointerId !== start?.id) return;
+      // Held, then let go without moving: the wheel stays open for a press, as after a tap.
+      if (!open.sticky && !open.moved) { open.stay(); return; }
+      const choice = open.sticky ? at(event) : open.moved ? open.choice : null;
       close();
       if (!choice?.inside) return;
       // The pick lands with a tick, as the picker opened with one.
@@ -2460,7 +2482,8 @@
       const up = (other) => {
         if (other.pointerId !== id) return;
         removeEventListener("pointerup", up);
-        if (!open && start?.id === id) close();
+        if (open || start?.id !== id) return;
+        if (tapOpens && timer) { clearTimeout(timer); show(true); } else close();
       };
       addEventListener("pointerup", up);
     });
@@ -2563,7 +2586,7 @@
       // A light's icon, held, opens its colour wheel, as a small tile does held anywhere.
       if (built.wheel) {
         const icon = node.querySelector(".w-head > .tile");
-        if (icon) { colourWheel(icon, built.wheel); icon.classList.add("wheel-handle"); icon.title = t("Hold for the colour wheel"); }
+        if (icon) { colourWheel(icon, built.wheel, { tapOpens: true }); icon.classList.add("wheel-handle"); icon.title = t("Colour wheel"); }
       }
       // A shutter's larger tile is its window as the small one is: the slats come down over its closed share, and the
       // tile is the slider (dragged anywhere but its buttons). The keys move a slider kept for the keyboard and a
