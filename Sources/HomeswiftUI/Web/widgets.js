@@ -780,6 +780,10 @@
   const presets = [
     [t("Warm white"), 30, 55], [t("Amber"), 26, 85], [t("Red"), 2, 90], [t("Pink"), 330, 70], [t("Violet"), 275, 70], [t("Blue"), 220, 85], [t("Cyan"), 185, 75], [t("Green"), 125, 75],
   ];
+  /// The extra-large tile's further colours, between the presets' hues.
+  const morePresets = [
+    [t("Yellow"), 50, 90], [t("Orange"), 36, 95], [t("Coral"), 12, 80], [t("Magenta"), 305, 80], [t("Indigo"), 250, 75], [t("Sky blue"), 200, 75], [t("Teal"), 170, 70], [t("Lime"), 95, 75],
+  ];
 
   const colourUsageKey = "homeswift.colour-shortcuts";
   function colourUsage() {
@@ -860,9 +864,11 @@
         });
         return control.node;
       } : null,
-      swatches: pickColor ? ({ grid = false, compact = false } = {}) => {
+      swatches: pickColor ? ({ grid = false, compact = false, more = false } = {}) => {
         const usage = colourUsage();
-        const choices = compact ? [...presets].sort((a, b) => (Number(usage[b[1]]) || 0) - (Number(usage[a[1]]) || 0)).slice(0, adaptive ? 2 : 3) : presets;
+        const choices = compact ? [...presets].sort((a, b) => (Number(usage[b[1]]) || 0) - (Number(usage[a[1]]) || 0)).slice(0, adaptive ? 2 : 3)
+          // The extra-large tile fills two rows of eight: Adaptive Lighting's swatch takes one colour's place.
+          : more ? [...presets, ...morePresets.slice(0, adaptive ? morePresets.length - 1 : morePresets.length)] : presets;
         const swatches = choices.map(([name, h, s]) => {
           const swatch = el("button", { type: "button", class: "swatch", role: "radio", "aria-label": name, title: name, onclick: () => {
             pickColor(h, s);
@@ -1528,10 +1534,10 @@
         built.body = [light.brightness?.(), white, light.swatches?.()].filter(Boolean);
       }
       if (size === "large") {
-        // A tall brightness beside the white and the colours under it, or beside a tall white (and the Adaptive chip).
-        const tall = light.brightness?.({ vertical: true });
-        const side = light.swatches ? [light.white?.({ thin: true }), light.swatches({ grid: true })] : [light.white?.({ vertical: true }), light.adaptive?.("chip")];
-        built.body = [el("div", { class: "light-large" }, tall, el("div", { class: light.swatches ? "light-colours" : "light-tall" }, side.filter(Boolean)))];
+        // With colours: the brightness and the white across the tile, every colour under them. Without: a tall
+        // brightness beside a tall white (and the Adaptive chip).
+        if (light.swatches) built.body = [el("div", { class: "light-full" }, [light.brightness?.(), light.white?.(), light.swatches({ more: true })].filter(Boolean))];
+        else built.body = [el("div", { class: "light-large" }, light.brightness?.({ vertical: true }), el("div", { class: "light-tall" }, [light.white?.({ vertical: true }), light.adaptive?.("chip")].filter(Boolean)))];
       }
       if (size === "full") Object.assign(built, { body: lightBody(ctx, primary).nodes, facets: facets(ctx, [primary]) });
       return built;

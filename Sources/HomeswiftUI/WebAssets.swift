@@ -21152,6 +21152,14 @@ HomeswiftI18n.add("es", {
   "Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do.": "Además, cambiar config.json, los plugins y los ajustes, y reiniciar el puente: todo lo que puede hacer esta interfaz web.",
   "Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.": "Además, encender y apagar accesorios y ejecutar escenas. Las cerraduras, puertas de garaje y alarmas te siguen preguntando antes.",
   "Amber": "Ámbar",
+  "Yellow": "Amarillo",
+  "Orange": "Naranja",
+  "Coral": "Coral",
+  "Magenta": "Magenta",
+  "Indigo": "Índigo",
+  "Sky blue": "Azul cielo",
+  "Teal": "Verde azulado",
+  "Lime": "Lima",
   "Amber and soft orange, a little different on each light.": "Ámbar y naranja suave, un poco distintos en cada luz.",
   "Ambiances and light shows for a room's lights.": "Ambientes y juegos de luces para las luces de una habitación.",
   "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.": "Un administrador cambia ajustes, plugins y usuarios; el resto ve el puente y controla los accesorios.",
@@ -24892,6 +24900,14 @@ HomeswiftI18n.add("fr", {
   "Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do.": "Modifier aussi config.json, les plugins et les réglages, et redémarrer le pont : tout ce que peut faire cette interface web.",
   "Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.": "Allumer et éteindre aussi les accessoires, et lancer des scènes. Les serrures, portes de garage et alarmes demandent toujours votre accord.",
   "Amber": "Ambre",
+  "Yellow": "Jaune",
+  "Orange": "Orange",
+  "Coral": "Corail",
+  "Magenta": "Magenta",
+  "Indigo": "Indigo",
+  "Sky blue": "Bleu ciel",
+  "Teal": "Bleu canard",
+  "Lime": "Citron vert",
   "Amber and soft orange, a little different on each light.": "Ambre et orange doux, un peu différents sur chaque lampe.",
   "Ambiances and light shows for a room's lights.": "Atmosphères et jeux de lumière pour les lampes d'une pièce.",
   "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.": "Un administrateur modifie les réglages, les plugins et les utilisateurs ; les autres voient le pont et commandent les accessoires.",
@@ -28632,6 +28648,14 @@ HomeswiftI18n.add("pt", {
   "Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do.": "Também alterar o config.json, os plugins e as definições, e reiniciar a ponte: tudo o que esta interface web pode fazer.",
   "Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.": "Também ligar e desligar acessórios e executar cenas. Fechaduras, portas de garagem e alarmes continuam a pedir confirmação primeiro.",
   "Amber": "Âmbar",
+  "Yellow": "Amarelo",
+  "Orange": "Laranja",
+  "Coral": "Coral",
+  "Magenta": "Magenta",
+  "Indigo": "Índigo",
+  "Sky blue": "Azul-céu",
+  "Teal": "Verde-azulado",
+  "Lime": "Lima",
   "Amber and soft orange, a little different on each light.": "Âmbar e laranja suave, um pouco diferentes em cada luz.",
   "Ambiances and light shows for a room's lights.": "Ambientes e jogos de luz para as luzes de uma divisão.",
   "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.": "Um administrador altera definições, plugins e utilizadores; os restantes veem a ponte e controlam os acessórios.",
@@ -36772,10 +36796,11 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .light-tall { display: flex; flex-direction: column; gap: var(--space-8); flex: none; width: 96px; }
 .light-tall > .level { flex: 1; }
 .light-tall > .adaptive-chip { justify-content: center; }
-.light-colours { flex: 1; display: grid; align-content: center; gap: var(--space-12); min-width: 0; }
-/* The white spans to the tile's edge above the colours; only the colours keep clear of the corner menu. */
-.widget-light.size-xlarge > .w-body > .light-large { margin-right: 0; }
-.widget-light.size-xlarge .light-colours > .swatches { margin-right: 36px; }
+/* An extra-large colour light: the brightness and the white across the tile, then every colour, clear of the menu. */
+.light-full { display: grid; gap: var(--space-10); align-content: start; }
+.widget-light.size-xlarge > .w-body > .light-full { margin-right: 0; }
+.widget-light.size-xlarge > .w-body:has(> .light-full) { justify-content: flex-start; }
+.light-full > .swatches { margin-right: 36px; }
 /* The shutter fills the tile like the window it covers; its buttons stand in a column beside it. */
 .cover-large > .level.vertical { flex: 1; min-width: 112px; border-radius: var(--radius-md); }
 .cover-buttons { display: grid; align-content: center; gap: var(--space-10); flex: none; min-width: 0; }
@@ -43025,6 +43050,10 @@ self.addEventListener("notificationclick", (event) => {
   const presets = [
     [t("Warm white"), 30, 55], [t("Amber"), 26, 85], [t("Red"), 2, 90], [t("Pink"), 330, 70], [t("Violet"), 275, 70], [t("Blue"), 220, 85], [t("Cyan"), 185, 75], [t("Green"), 125, 75],
   ];
+  /// The extra-large tile's further colours, between the presets' hues.
+  const morePresets = [
+    [t("Yellow"), 50, 90], [t("Orange"), 36, 95], [t("Coral"), 12, 80], [t("Magenta"), 305, 80], [t("Indigo"), 250, 75], [t("Sky blue"), 200, 75], [t("Teal"), 170, 70], [t("Lime"), 95, 75],
+  ];
 
   const colourUsageKey = "homeswift.colour-shortcuts";
   function colourUsage() {
@@ -43105,9 +43134,11 @@ self.addEventListener("notificationclick", (event) => {
         });
         return control.node;
       } : null,
-      swatches: pickColor ? ({ grid = false, compact = false } = {}) => {
+      swatches: pickColor ? ({ grid = false, compact = false, more = false } = {}) => {
         const usage = colourUsage();
-        const choices = compact ? [...presets].sort((a, b) => (Number(usage[b[1]]) || 0) - (Number(usage[a[1]]) || 0)).slice(0, adaptive ? 2 : 3) : presets;
+        const choices = compact ? [...presets].sort((a, b) => (Number(usage[b[1]]) || 0) - (Number(usage[a[1]]) || 0)).slice(0, adaptive ? 2 : 3)
+          // The extra-large tile fills two rows of eight: Adaptive Lighting's swatch takes one colour's place.
+          : more ? [...presets, ...morePresets.slice(0, adaptive ? morePresets.length - 1 : morePresets.length)] : presets;
         const swatches = choices.map(([name, h, s]) => {
           const swatch = el("button", { type: "button", class: "swatch", role: "radio", "aria-label": name, title: name, onclick: () => {
             pickColor(h, s);
@@ -43773,10 +43804,10 @@ self.addEventListener("notificationclick", (event) => {
         built.body = [light.brightness?.(), white, light.swatches?.()].filter(Boolean);
       }
       if (size === "large") {
-        // A tall brightness beside the white and the colours under it, or beside a tall white (and the Adaptive chip).
-        const tall = light.brightness?.({ vertical: true });
-        const side = light.swatches ? [light.white?.({ thin: true }), light.swatches({ grid: true })] : [light.white?.({ vertical: true }), light.adaptive?.("chip")];
-        built.body = [el("div", { class: "light-large" }, tall, el("div", { class: light.swatches ? "light-colours" : "light-tall" }, side.filter(Boolean)))];
+        // With colours: the brightness and the white across the tile, every colour under them. Without: a tall
+        // brightness beside a tall white (and the Adaptive chip).
+        if (light.swatches) built.body = [el("div", { class: "light-full" }, [light.brightness?.(), light.white?.(), light.swatches({ more: true })].filter(Boolean))];
+        else built.body = [el("div", { class: "light-large" }, light.brightness?.({ vertical: true }), el("div", { class: "light-tall" }, [light.white?.({ vertical: true }), light.adaptive?.("chip")].filter(Boolean)))];
       }
       if (size === "full") Object.assign(built, { body: lightBody(ctx, primary).nodes, facets: facets(ctx, [primary]) });
       return built;

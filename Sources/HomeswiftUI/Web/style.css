@@ -1129,10 +1129,11 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .light-tall { display: flex; flex-direction: column; gap: var(--space-8); flex: none; width: 96px; }
 .light-tall > .level { flex: 1; }
 .light-tall > .adaptive-chip { justify-content: center; }
-.light-colours { flex: 1; display: grid; align-content: center; gap: var(--space-12); min-width: 0; }
-/* The white spans to the tile's edge above the colours; only the colours keep clear of the corner menu. */
-.widget-light.size-xlarge > .w-body > .light-large { margin-right: 0; }
-.widget-light.size-xlarge .light-colours > .swatches { margin-right: 36px; }
+/* An extra-large colour light: the brightness and the white across the tile, then every colour, clear of the menu. */
+.light-full { display: grid; gap: var(--space-10); align-content: start; }
+.widget-light.size-xlarge > .w-body > .light-full { margin-right: 0; }
+.widget-light.size-xlarge > .w-body:has(> .light-full) { justify-content: flex-start; }
+.light-full > .swatches { margin-right: 36px; }
 /* The shutter fills the tile like the window it covers; its buttons stand in a column beside it. */
 .cover-large > .level.vertical { flex: 1; min-width: 112px; border-radius: var(--radius-md); }
 .cover-buttons { display: grid; align-content: center; gap: var(--space-10); flex: none; min-width: 0; }

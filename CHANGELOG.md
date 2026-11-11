@@ -23,8 +23,8 @@ All notable changes to this project are documented here. The format follows
 - **Accessory controls**: full-width light sliders, temperature controls for supported colour lights, consistent
   Adaptive Lighting icons, centred shutter controls and accessory settings drawers opened without leaving the page.
   A shutter's large and extra-large tiles draw its slats as the small ones do and are dragged as their slider, with
-  their buttons centred. A light's tall brightness shows its figure at the top, and the extra-large tile's White runs
-  full width above the colours.
+  their buttons centred. A light's tall brightness shows its figure at the top, and a colour light's extra-large tile
+  is taller than its large one: brightness and White across the tile, and sixteen colours under them.
 - **History and Logbook**: compact filters, scrollable lists, alternating rows and collapsible day groups; graphs
   retain their original appearance. Dashboard plugin chips link to their pages and consumer sparklines show hover guides.
 
