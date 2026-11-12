@@ -1256,27 +1256,45 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       paint();
       return control;
     };
+    const phone = HomeswiftCommon.phone;
+    // A phone follows new entries as the Logs page does (HomeswiftCommon.followControls): a pause button beside Filters
+    // (play once paused), the page at its end, a round arrow back to it while scrolled away.
+    let following = true;
+    const followUI = HomeswiftCommon.followControls({ following: () => following, setFollowing: (on) => {
+      following = on;
+      followUI.paint();
+      if (on) { followUI.toEnd(true); load(true); }
+    } });
     const outcome = select(outcomes, params.get("outcome") ?? "", t("Outcome"));
     const since = select(spans, params.has("since") ? params.get("since") : "7d", t("Time range"));
     const count = el("span", { class: "muted count", role: "status", "aria-live": "polite" });
     const body = el("div", {});
     let loads = 0;   // the answer drawn is the last request's, however they arrive
-    async function load() {
+    let drawn = "";   // the entries drawn (their count and both ends): a refresh that finds the same draws nothing
+    const rowsByKey = new Map();   // the rows drawn, by entry, kept across refreshes
+    /// `quiet`: the phone's live refresh. It asks for no counts, leaves the address and the pickers as they are, and
+    /// draws only when the entries changed.
+    async function load(quiet = false) {
       const own = ++loads;
       const query = new URLSearchParams();
       if (search.value.trim()) query.set(scope.value, search.value.trim());
       if (outcome.value) query.set("outcome", outcome.value);
       query.set("since", since.value);
-      window.history.replaceState(null, "", `/settings/audit?${query}`);
+      if (!quiet) window.history.replaceState(null, "", `/settings/audit?${query}`);
       if (!since.value) query.delete("since");
-      count.textContent = t("Loading…");
-      for (const control of [outcome, since]) { control.counts.clear(); control.paint(); }
-      // The server counts each alternative against the current text and the other selected filter, in the same pass.
-      query.set("spans", spans.map(([value]) => value).join(","));
+      if (!quiet) {
+        count.textContent = t("Loading…");
+        for (const control of [outcome, since]) { control.counts.clear(); control.paint(); }
+        // The server counts each alternative against the current text and the other selected filter, in the same pass.
+        query.set("spans", spans.map(([value]) => value).join(","));
+      }
       let found;
-      try { found = await api(`/api/audit?${query}`); } catch (e) { if (own === loads) count.textContent = e.message; return; }
+      try { found = await api(`/api/audit?${query}`); } catch (e) { if (own === loads && !quiet) count.textContent = e.message; return; }
       if (own !== loads) return;
-      for (const [control, key] of [[outcome, "outcome"], [since, "since"]]) {
+      const shape = `${phone.matches}|${found.enabled}|${found.total}|${found.entries[0]?.ts ?? ""}|${found.entries.at(-1)?.ts ?? ""}|${found.entries.length}`;
+      if (quiet && shape === drawn) return;
+      drawn = shape;
+      if (!quiet) for (const [control, key] of [[outcome, "outcome"], [since, "since"]]) {
         control.counts = new Map(Object.entries(found.counts?.[key] ?? {}));
         control.paint();
       }
@@ -1285,28 +1303,73 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         body.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false.") })));
         return;
       }
+      // A refresh's count is not read out each time it changes, only one asked for.
+      count.setAttribute("aria-live", quiet ? "off" : "polite");
       count.textContent = t("{shown} of {total}", { shown: found.entries.length, total: found.total });
-      body.replaceChildren(found.entries.length ? el("div", { class: "card audit-results" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
+      // On a phone the newest is at the foot, by the bar, where new entries arrive (as the Logs page); elsewhere, first.
+      const ordered = phone.matches ? [...found.entries].reverse() : found.entries;
+      const atEnd = followUI.atEnd();
+      // Each entry keeps its row from one draw to the next (by its time, who and what): a refresh adds the new ones and
+      // drops those gone, so an open Details stays open and the entry being read stays where it is.
+      const keyOf = (entry) => `${entry.ts}|${entry.principal}|${entry.client}|${entry.tool}|${entry.ok}|${entry.notConfirmed}`;
+      const kept = new Map(rowsByKey);
+      rowsByKey.clear();
+      const rows = ordered.map((entry) => {
+        const key = keyOf(entry);
+        const row = kept.get(key) ?? auditRow(entry);
+        rowsByKey.set(key, row);
+        return row;
+      });
+      const tbody = $(".audit-results tbody", body);
+      if (rows.length && tbody) {
+        tbody.replaceChildren(...rows);
+        $(".audit-results .note", body).textContent = found.path;
+      } else body.replaceChildren(rows.length ? el("div", { class: "card audit-results" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
         el("thead", {}, el("tr", {}, [t("Time"), t("Who"), t("What"), t("Outcome"), t("Details")].map((text) => el("th", { text })))),
-        el("tbody", {}, found.entries.map(auditRow)))), el("p", { class: "muted note", text: found.path }))
+        el("tbody", {}, rows))), el("p", { class: "muted note", text: found.path }))
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("shield")), el("p", { class: "muted", text: t("Nothing in this range matches.") })));
+      // Following, from the end (or a first draw), the page stays at the newest; there, the arrow back is not needed.
+      if (phone.matches && following && (!quiet || atEnd)) followUI.toEnd(); else followUI.showLatest();
     }
     let typing = null;
     search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
     for (const choice of [outcome, since, scope]) choice.addEventListener("change", () => { clearTimeout(typing); typing = setTimeout(load, 0); });
+    const searchLabel = el("label", {}, el("span", { class: "visually-hidden", text: t("Search") }), search);
+    const filtersCard = el("div", { class: "card audit-filters" },
+      el("div", { class: "audit-filter-grid" },
+        el("label", {}, el("span", { text: t("Time range") }), since),
+        el("label", {}, el("span", { text: t("Outcome") }), outcome),
+        el("div", { class: "audit-search" },
+          el("label", {}, el("span", { class: "visually-hidden", text: t("Search scope") }), scope),
+          searchLabel)),
+      el("div", { class: "audit-filter-footer" }, count,
+        HomeswiftCommon.clearFilters([[search, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) })));
+    // A phone (as the Logs and Plugins pages): one glass bar above the tab bar, the search, Filters (the filters card as
+    // a sheet over the bar, its badge counting the range and outcome that are not the defaults) and Follow.
+    const filters = HomeswiftCommon.filtersToggle(filtersCard);
+    const bar = el("div", { class: "audit-bar phone-bar" }, filters.button, followUI.button);
+    const showCount = () => filters.count(Number(outcome.value !== "") + Number(since.value !== "7d"));
+    for (const choice of [outcome, since]) choice.addEventListener("change", showCount);
+    showCount();
+    // While following, a phone reads the entries again every few seconds, unless the filters or a menu cover the page
+    // or the tab is hidden. The timer goes with the page.
+    // A page still loading when another view was asked for never reaches the document: its timer stops at the first tick.
+    const refresh = setInterval(() => {
+      if (!bar.isConnected) { clearInterval(refresh); return; }
+      if (phone.matches && following && !document.hidden && !filters.isOpen() && !HomeswiftCommon.menuOpen()) load(true);
+    }, 4000);
+    HomeswiftCommon.viewSignal().addEventListener("abort", () => clearInterval(refresh));
+    // The search sits in the bar on a phone, with the filters elsewhere.
+    const placeSearch = () => {
+      if (phone.matches) bar.prepend(search);
+      else { searchLabel.append(search); filters.open(false); }
+    };
+    // Between a phone and a wider window the entries change order (the newest at the foot, or first): drawn again.
+    phone.addEventListener("change", () => { placeSearch(); load(true); }, { signal: HomeswiftCommon.viewSignal() });
+    placeSearch();
     app().show(main,
       app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
-      subnav("audit"),
-      el("div", { class: "card audit-filters" },
-        el("div", { class: "audit-filter-grid" },
-          el("label", {}, el("span", { text: t("Time range") }), since),
-          el("label", {}, el("span", { text: t("Outcome") }), outcome),
-          el("div", { class: "audit-search" },
-            el("label", {}, el("span", { class: "visually-hidden", text: t("Search scope") }), scope),
-            el("label", {}, el("span", { class: "visually-hidden", text: t("Search") }), search))),
-        el("div", { class: "audit-filter-footer" }, count,
-          HomeswiftCommon.clearFilters([[search, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) }))),
-      body);
+      subnav("audit"), filtersCard, body, bar, followUI.latest);
     await load();
   }
 
@@ -1944,7 +2007,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       detail.hidden = false;
       openNode = node;
       const frameBox = frame.getBoundingClientRect();
-      if (matchMedia("(max-width: 640px)").matches) {
+      if (HomeswiftCommon.phone.matches) {
         // A phone: the card is docked under the graph at full width (CSS), so it is shown there, not beside the node.
         detail.scrollIntoView({ block: "nearest", behavior: "smooth" });
       } else if (!anchored) {

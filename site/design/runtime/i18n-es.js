@@ -962,6 +962,7 @@ HomeswiftI18n.add("es", {
   "Copied {n} lines": "{n} líneas copiadas",
   "Copy": "Copiar",
   "Copy it now: it is shown once. Send it as {header}.": "Cópialo ahora: solo se muestra una vez. Envíalo como {header}.",
+  "Go to the latest lines": "Ir a las últimas líneas",
   "Copy the lines shown": "Copiar las líneas mostradas",
   "Cost": "Coste",
   "Cost this month": "Coste este mes",

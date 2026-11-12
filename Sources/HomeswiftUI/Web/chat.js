@@ -13,7 +13,7 @@
   const { t, tn } = HomeswiftI18n;
 
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
-  const phone = matchMedia("(max-width: 640px)");
+  const phone = HomeswiftCommon.phone;
   const touch = matchMedia("(pointer: coarse)");
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 

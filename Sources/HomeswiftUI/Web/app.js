@@ -264,10 +264,10 @@
   document.addEventListener("homeswift-account-menu", (event) => openUserMenu(event.detail.trigger, event.detail.keyboard));
   function openUserMenu(trigger, keyboard = false) {
     const form = auth.mode === "form";
-    const phone = matchMedia("(max-width: 640px)").matches;
+    const phone = HomeswiftCommon.phone.matches;
     // Without the wide window's side menu, Homeswift's section is in this menu.
     // (A phone's ☰ panel has its own.)
-    const noSideMenu = matchMedia("(min-width: 641px) and (max-width: 1179.98px)").matches;
+    const noSideMenu = !phone && matchMedia("(max-width: 1179.98px)").matches;
     HomeswiftCommon.menu(trigger, [
       form ? { heading: shownName(), detail: isAdmin() ? t("{username} · Administrator", { username: auth.username }) : auth.username } : { heading: t("No sign-in"), detail: t("Anyone who opens this web UI uses it") },
       { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
@@ -553,6 +553,8 @@
   };
   let shownPath = null;
   function route() {
+    // The last view's listeners and timers go with it (HomeswiftCommon.viewSignal).
+    HomeswiftCommon.nextView();
     // A dialog belongs to the view it opened on (an accessory's sheet, whose menu links to its log): a new view closes
     // it, or it would stay over the next one. The restart overlay outlives views.
     for (const dialog of document.querySelectorAll("dialog[open]")) if (dialog !== restartOverlay) dialog.close();
@@ -576,6 +578,8 @@
       link.classList.toggle("active", current);
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
+    // A phone's More stands for the sections under it, as iOS's does: lit while one of them is shown.
+    $(".tabbar-more")?.classList.toggle("active", !$(".tabbar-tabs > a.active"));
     const view = name === "plugins" && args.length ? views.settings : name === "settings" ? HomeswiftAdmin.view : views[name] || views.status;
     // A new element per view: a slower view still loading draws into the old one, out of the page, rather than
     // over the view asked for after it.
@@ -3379,52 +3383,20 @@
     return el("div", { class: "accessories-views" }, nav, ...extra.filter(Boolean));
   };
   /// The Accessories page's tools as one bar, the same in both views: `toolbar` (the search, Filters and the rest) over
-  /// `views` (the tabs, Full screen, Add). On a phone it is a row of round buttons at the bottom, beside the sections'
-  /// button and within the thumb's reach, the views first, so filtering, arranging and switching views stay at hand; the
-  /// search opens over the row from its own button, rises with the on-screen keyboard, and stays open while it holds a
-  /// search.
+  /// `views` (the tabs, Full screen, Add). On a phone it is the page's glass bar over the tab bar (`.phone-bar`): the
+  /// options, the search, Filters, Edit and the Assistant, risen with the on-screen keyboard.
   const accessoriesBar = (toolbar, views) => {
-    const bar = el("div", { class: "accessories-bar" }, toolbar, views);
-    // Reserve the bar's actual footprint, including its expanded search and wrapped buttons.
-    // The observer also runs when the bar is removed, so it does not retain departed views.
-    const clearance = new ResizeObserver(() => {
-      if (!bar.isConnected) { clearance.disconnect(); return; }
-      const height = bar.getBoundingClientRect().height;
-      bar.parentElement.style.setProperty("--accessories-bar-height", `${Math.ceil(height)}px`);
-    });
-    clearance.observe(bar);
+    const bar = el("div", { class: "accessories-bar phone-bar" }, toolbar, views);
     const search = toolbar.querySelector(".search");
     if (!search) return bar;
-    const toggle = el("button", { type: "button", class: "icon-button accessories-search-toggle", "aria-label": t("Search accessories"), title: t("Search accessories"),
-      "aria-expanded": "false" }, HomeswiftCommon.icon("search"));
-    const open = (on) => {
-      bar.classList.toggle("searching", on);
-      toggle.classList.toggle("on", on);
-      toggle.setAttribute("aria-expanded", String(on));
-    };
-    toggle.addEventListener("click", () => {
-      const on = !bar.classList.contains("searching");
-      open(on);
-      if (on) search.focus(); else if (search.value) { search.value = ""; search.dispatchEvent(new Event("input")); }
-    });
-    // Left empty, it folds away again.
-    search.addEventListener("blur", () => { if (!search.value.trim()) open(false); });
-    open(Boolean(search.value.trim()));
-    search.after(toggle);
-    // Safari keeps a fixed bar's bottom under the on-screen keyboard: the bar sits on the keyboard while the search is
-    // typed in (`--keyboard`, what it covers), as the chat's sheet does.
-    const view = window.visualViewport;
-    if (view) {
-      const fit = () => {
-        if (!bar.isConnected) { view.removeEventListener("resize", fit); view.removeEventListener("scroll", fit); return; }
-        const covered = document.activeElement === search ? Math.max(0, Math.round(window.innerHeight - view.height - view.offsetTop)) : 0;
-        bar.style.setProperty("--keyboard", `${covered}px`);
-      };
-      view.addEventListener("resize", fit);
-      view.addEventListener("scroll", fit);
-      search.addEventListener("focus", fit);
-      search.addEventListener("blur", () => bar.style.setProperty("--keyboard", "0px"));
-    }
+    // A phone's bar ends with the Assistant, when there is one: what is typed in the search becomes the question.
+    const ask = el("button", { type: "button", class: "icon-button accessories-ask", "aria-label": t("Ask the Assistant"), title: t("Ask the Assistant"),
+      onclick: () => window.HomeswiftChat?.ask(search.value.trim()) }, HomeswiftCommon.sparkle());
+    const showAsk = () => { ask.hidden = !window.HomeswiftChat?.available(); };
+    showAsk();
+    setTimeout(showAsk, 1500);
+    search.addEventListener("focus", showAsk);
+    toolbar.append(ask);
     return bar;
   };
   /// The address with `key` set to `value` (removed when empty), the page left as it is: what a search box types.
@@ -4200,8 +4172,15 @@
         render();
       } }] : []),
       ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : []),
-      // A phone's bar has no room for Full screen's and Add accessories' own buttons: they are here.
-      ...(matchMedia("(max-width: 600px)").matches && all.length ? [{ separator: true }, { label: t("Full screen"), icon: "expand", onSelect: () => setFullScreen(true) },
+      // A phone floats only the search, Filters, Edit and this menu over its tab bar: the graph, Full screen and Add
+      // accessories are here.
+      ...(HomeswiftCommon.phone.matches && all.length ? [{ separator: true },
+        { label: t("Graph"), icon: "chart", href: (() => {
+          const kept = new URLSearchParams();
+          for (const [key, value] of new URLSearchParams(location.search)) if (accessoryFilterKeys.includes(key)) kept.append(key, value);
+          return `/accessories/graph${kept.size ? `?${kept}` : ""}`;
+        })() },
+        { label: t("Full screen"), icon: "expand", onSelect: () => setFullScreen(true) },
         ...(addButton ? [{ label: t("Add accessories"), icon: "plus", href: "/setup" }] : [])] : []),
       // The Zones and where the rooms stand with Apple Home, without going through Edit.
       ...(isAdmin() && rooms.length ? [{ separator: true }, { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
@@ -4498,6 +4477,7 @@
       return order(a) - order(b) || blockTitle(a).localeCompare(blockTitle(b));
     });
     let filter = "all";
+    let sheet = null;   // the phone's Filters sheet (filtersToggle), made with the bar below
     const search = el("input", { type: "search", class: "search", placeholder: t("Search your plugins"), "aria-label": t("Search your plugins"), oninput: render });
     const filters = el("div", { class: "group plugins-filters", role: "group", "aria-label": t("Status") });
     const matches = (block, value) => value === "all" || blockState(block, byPlatform.get(block.platform), running(block))[1] === value;
@@ -4513,6 +4493,7 @@
         const selected = ["all", "away", "on", "paused"][i] === filter;
         button.setAttribute("aria-pressed", String(selected)); button.classList.toggle("on", selected);
       });
+      sheet?.count(filter === "all" ? 0 : 1);
     }
     const add = el("button", { class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: () => {
       const dialog = openSheet((dismiss) => el("div", { class: "plugins-panel" },
@@ -4521,17 +4502,32 @@
       dialog.classList.add("plugins-inspector");
       dialog.addEventListener("click", (event) => { if (event.target.closest("a[href]")) dialog.close(); });
     } });
+    // A phone (as the Logs page): one glass bar above the tab bar, the search, Filters (the states in a sheet over the
+    // bar, a badge while one is chosen) and a round Add; the toolbar leaves the card for the page to be fixed there.
+    const phone = HomeswiftCommon.phone;
+    sheet = HomeswiftCommon.filtersToggle(filters);
+    const addRound = el("button", { type: "button", class: "bar-button bar-only accent", "aria-label": t("Add a plugin"), title: t("Add a plugin"), onclick: () => add.click() },
+      HomeswiftCommon.icon("plus"));
+    const toolbar = el("div", { class: "plugins-toolbar phone-bar" }, filters, search, HomeswiftCommon.clearFilters([[search, ""]], {
+      active: () => filter !== "all", events: [[filters, "click"]], reset: () => { filter = "all"; render(); }
+    }), sheet.button, addRound);
+    const listCard = el("div", { class: "card plugins-card" }, toolbar, list);
+    // A state chosen closes the sheet.
+    filters.addEventListener("click", () => setTimeout(() => sheet.open(false)));
+    const placeToolbar = () => {
+      if (phone.matches) main.append(toolbar);
+      else { listCard.prepend(toolbar); sheet.open(false); }
+    };
+    phone.addEventListener("change", placeToolbar, { signal: HomeswiftCommon.viewSignal() });
     const builtIn = plugins.blocks.filter((block) => block.system);
     show(main, el("div", { class: "plugins-heading" }, pageHead(t("Plugins"), t("Your connections, devices and services.")), add),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("{names}: no plugin compiled into this homeswift runs these blocks, so they are ignored.",
         { names: plugins.blocks.filter((block) => plugins.unknownPlatforms.includes(block.platform)).map((block) => block.name).join(", ") }) })) : null,
-      el("div", { class: "card plugins-card" },
-        el("div", { class: "plugins-toolbar" }, filters, search, HomeswiftCommon.clearFilters([[search, ""]], {
-          active: () => filter !== "all", events: [[filters, "click"]], reset: () => { filter = "all"; render(); }
-        })), list),
+      listCard,
       !custom.length ? window.HomeswiftImport.offer() : null,
       builtIn.length ? el("details", { class: "plugins-built-in" }, el("summary", { text: `${t("Built-in services")} · ${builtIn.length}` }),
         el("div", { class: "card plugins-list" }, ...builtIn.map(blockCard))) : null);
+    placeToolbar();
     render();
   };
 
@@ -5758,6 +5754,9 @@
     const filter = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Filter the log") });
     const follow = el("input", { type: "checkbox", checked: true });
     const count = el("span", { class: "muted count" });
+    // A phone reads the log as the page: no box of its own to scroll, its bar of actions over the tab bar.
+    const phone = HomeswiftCommon.phone;
+    let filters = null, followUI = null;   // the phone's Filters sheet and Follow controls, made with the bar below
     // What the lines are about (sourceFilter): every line; the bridges' own lines (their servers': connections,
     // pairings, controllers), every bridge's or one's; or one accessory's (those of its own server and those naming
     // it, its id or its address). The server picks them before its limit (UIServer.logMatcher), so a week of one
@@ -5788,7 +5787,24 @@
     // `live`: new lines join the page (not while a span in the past is shown); `cap`: how many it keeps.
     filter.value = params.get("q") ?? "";
     const level = levelChoices.some(([value]) => value === params.get("level")) ? params.get("level") : "info";
-    logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false };
+    // Its end: the box's, or on a phone the page's. While a menu or the Filters sheet covers the page, a phone holds the
+    // page where it is (scrolling it under their glass made them flicker with each line) and catches up once they close.
+    let held = false;
+    const covered = () => phone.matches && (HomeswiftCommon.menuOpen() || Boolean(filters?.isOpen()));
+    const atEnd = () => held || (phone.matches ? followUI.atEnd() : output.scrollHeight - output.scrollTop - output.clientHeight < 40);
+    // On a phone, again once laid out: the page's height is only known after the lines are drawn.
+    const toEnd = () => {
+      if (!phone.matches) { output.scrollTop = output.scrollHeight; return; }
+      if (covered()) { held = true; return; }
+      followUI.toEnd();
+      requestAnimationFrame(() => followUI.toEnd());
+    };
+    document.addEventListener("homeswift-covering", () => {
+      if (!held || covered()) return;
+      held = false;
+      if (follow.checked) toEnd();
+    }, { signal: HomeswiftCommon.viewSignal() });
+    logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false, atEnd, toEnd };
     choose();
     const levels = el("div", { class: "group", role: "group", "aria-label": t("Levels shown") }, levelChoices.map(([level, text]) =>
       el("button", { text, class: level === logState.level ? "on" : "", "aria-pressed": String(level === logState.level), onclick: (event) => {
@@ -5816,12 +5832,17 @@
       output.replaceChildren(...(shown.length ? shown.map(lineNode) : [el("p", { class: "muted empty-log", text: t("No line matches.") })]));
       count.textContent = logState.capped ? tn("{shown} of {n} line (the latest of the range)", "{shown} of {n} lines (the latest of the range)", logState.lines.length, { shown: shown.length })
         : tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: shown.length });
-      if (follow.checked) output.scrollTop = output.scrollHeight;
+      showFilterCount();
+      if (follow.checked) toEnd();
     };
     // Typing filters once it pauses: thousands of lines are not drawn again per key.
     let typing = null;
     filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { render(); keepAddress(); }, 120); });
-    follow.addEventListener("change", () => { if (follow.checked) output.scrollTop = output.scrollHeight; });
+    // Following again: back to the end, on a phone scrolled there (the arrow, Play) rather than jumped to.
+    follow.addEventListener("change", () => {
+      if (!follow.checked) return;
+      if (phone.matches && followUI) followUI.toEnd(true); else toEnd();
+    });
 
     // A time range (HomeswiftCommon.rangeControl): the latest lines from memory, or a span from the log the bridge keeps on disk
     // (rotated, a week at most). A span that ends now keeps following; one in the past stays as it is.
@@ -5907,12 +5928,14 @@
       const level = line.level === "info" || line.level === "notice" ? "" : ` [${line.level.toUpperCase()}]`;
       return `${line.time} [${line.label}]${level} ${line.text}`;
     };
-    const copy = el("button", { actionIcon: "copy", text: t("Copy"), title: t("Copy the lines shown"), onclick: async () => {
+    const copyLines = async () => {
       const shown = shownLines();
-      const text = shown.map(asText).join("\n");
+      await copyText(shown.map(asText).join("\n"));
+      return shown.length;
+    };
+    const copy = el("button", { actionIcon: "copy", class: "log-copy", text: t("Copy"), title: t("Copy the lines shown"), onclick: async () => {
       try {
-        await copyText(text);
-        copy.textContent = tn("Copied {n} line", "Copied {n} lines", shown.length);
+        copy.textContent = tn("Copied {n} line", "Copied {n} lines", await copyLines());
       } catch (e) {
         copy.textContent = t("Not copied");
         copy.title = e.message;
@@ -5930,11 +5953,13 @@
       const chosen = range.span();
       const query = new URLSearchParams();
       if (chosen) { query.set("from", chosen[0].toISOString()); if (chosen[1]) query.set("to", chosen[1].toISOString()); }
-      // A phone keeps the toolbar short: Save payloads is here rather than beside Follow.
-      const phone = matchMedia("(max-width: 640px)").matches && !saveToggle.classList.contains("hidden");
+      // A phone keeps its bar short: the count, Copy and Save payloads are here rather than in it.
+      const saving = phone.matches && !saveToggle.classList.contains("hidden");
       return [
-        phone ? { label: t("Save payloads"), checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
-        phone ? { separator: true } : null,
+        phone.matches ? { heading: count.textContent, live: count } : null,
+        phone.matches ? { label: t("Copy the lines shown"), icon: "copy", onSelect: () => copyLines().catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
+        saving ? { label: t("Save payloads"), icon: "archive", toggle: true, checkbox: true, checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
+        phone.matches ? { separator: true } : null,
         { label: chosen ? t("Download this range") : t("Download the whole log"), icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
         { label: t("Empty the log…"), icon: "trash", danger: true, onSelect: async () => {
           if (!await HomeswiftCommon.confirmDialog(t("Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone."))) return;
@@ -5942,30 +5967,54 @@
         } },
       ];
     });
+    const clear = HomeswiftCommon.clearFilters([[filter, ""], [sources.picker, ""]], {
+      active: () => logState.level !== "info" || range.chosen(), events: [[levels, "click"], [range.control, "change"]],
+      reset: () => {
+        clearTimeout(typing);
+        range.reset();
+        logState.level = "info";
+        for (const [index, button] of [...levels.children].entries()) {
+          const selected = levelChoices[index][0] === "info";
+          button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
+        }
+      },
+    });
+    const levelRow = el("div", { class: "log-level-row" }, levels, filter, clear);
+    const panel = el("div", { class: "log-filter-panel" }, levelRow,
+      // A div, not a label: a label would press the control's first choice when its text is clicked.
+      el("div", { class: "log-scope-row" },
+        el("div", { class: "log-time" }, el("span", { text: t("Time range") }), range.control),
+        el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker)));
+    // On a phone the filters wait behind Filters, a sheet over the bar, its badge counting those that are not the
+    // defaults; Follow is a pause button beside it (play once paused), on from the start, and a round arrow over the
+    // bar goes back to the latest lines while the page is away from them.
+    filters = HomeswiftCommon.filtersToggle(panel);
+    filters.button.classList.add("log-filters-toggle");
+    function showFilterCount() {
+      filters?.count((logState.level !== "info") + Boolean(range.chosen()) + Boolean(sources.picker.value));
+    }
+    followUI = HomeswiftCommon.followControls({ following: () => follow.checked,
+      setFollowing: (on) => { follow.checked = on; follow.dispatchEvent(new Event("change")); } });
+    followUI.button.classList.add("log-follow-button");
+    follow.addEventListener("change", followUI.paint);
+    logState.showLatest = followUI.showLatest;
+    actions.classList.add("bar-button");
+    doctor.button.classList.add("bar-button", "accent");
+    const bar = el("div", { class: "editor-bar log-action-bar phone-bar" }, count, el("span", { class: "spacer" }), filters.button, followUI.button, doctor.button, copy,
+      el("label", { class: "toggle compact log-follow" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
+      saveToggle, actions);
+    const card = el("div", { class: "card log-card" }, panel, bar, followUI.latest, output);
+    for (const [control, kind] of [[levels, "click"], [range.control, "change"], [sources.picker, "change"], [clear, "click"]]) control.addEventListener(kind, () => setTimeout(showFilterCount));
+    // The text filter stays in reach: in the phone's bar, beside the levels elsewhere.
+    const placeFilter = () => {
+      if (phone.matches) bar.prepend(filter);
+      else { levelRow.insertBefore(filter, clear); filters.open(false); }
+    };
+    placeFilter();
+    phone.addEventListener("change", placeFilter, { signal: HomeswiftCommon.viewSignal() });
     show(main,
       pageHead(t("Logs"), t("This homeswift's log, live, and up to a week back.")),
-      el("div", { class: "card log-card" },
-        el("div", { class: "log-filter-panel" },
-          el("div", { class: "log-level-row" }, levels, filter, HomeswiftCommon.clearFilters([[filter, ""], [sources.picker, ""]], {
-            active: () => logState.level !== "info" || range.chosen(), events: [[levels, "click"], [range.control, "change"]],
-            reset: () => {
-              clearTimeout(typing);
-              range.reset();
-              logState.level = "info";
-              for (const [index, button] of [...levels.children].entries()) {
-                const selected = levelChoices[index][0] === "info";
-                button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
-              }
-            },
-          })),
-          // A div, not a label: a label would press the control's first choice when its text is clicked.
-          el("div", { class: "log-scope-row" },
-            el("div", { class: "log-time" }, el("span", { text: t("Time range") }), range.control),
-            el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker))),
-        el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), doctor.button, copy,
-          el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
-          saveToggle, actions),
-        output),
+      card,
       doctor.card);
     await load();
   };
@@ -6054,12 +6103,13 @@
     if (!visible(line)) return;
     const output = logState.output;
     // Follow only when the reader is at the bottom: scrolling up to read stops it without a click.
-    const atBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 40;
+    const atBottom = logState.atEnd();
     $(".empty-log", output)?.remove();
     output.append(lineNode(line));
     while (output.childElementCount > logState.cap) output.firstElementChild.remove();   // the page stays the size of what it keeps
-    if (logState.follow.checked && atBottom) output.scrollTop = output.scrollHeight;
+    if (logState.follow.checked && atBottom) logState.toEnd();
     logState.count.textContent = tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: output.childElementCount });
+    logState.showLatest?.();
   }
 
   // A hidden tab keeps no stream open; back in view, the live pages reload their values.

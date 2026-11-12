@@ -1265,27 +1265,45 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       paint();
       return control;
     };
+    const phone = HomeswiftCommon.phone;
+    // A phone follows new entries as the Logs page does (HomeswiftCommon.followControls): a pause button beside Filters
+    // (play once paused), the page at its end, a round arrow back to it while scrolled away.
+    let following = true;
+    const followUI = HomeswiftCommon.followControls({ following: () => following, setFollowing: (on) => {
+      following = on;
+      followUI.paint();
+      if (on) { followUI.toEnd(true); load(true); }
+    } });
     const outcome = select(outcomes, params.get("outcome") ?? "", t("Outcome"));
     const since = select(spans, params.has("since") ? params.get("since") : "7d", t("Time range"));
     const count = el("span", { class: "muted count", role: "status", "aria-live": "polite" });
     const body = el("div", {});
     let loads = 0;   // the answer drawn is the last request's, however they arrive
-    async function load() {
+    let drawn = "";   // the entries drawn (their count and both ends): a refresh that finds the same draws nothing
+    const rowsByKey = new Map();   // the rows drawn, by entry, kept across refreshes
+    /// `quiet`: the phone's live refresh. It asks for no counts, leaves the address and the pickers as they are, and
+    /// draws only when the entries changed.
+    async function load(quiet = false) {
       const own = ++loads;
       const query = new URLSearchParams();
       if (search.value.trim()) query.set(scope.value, search.value.trim());
       if (outcome.value) query.set("outcome", outcome.value);
       query.set("since", since.value);
-      window.history.replaceState(null, "", `/settings/audit?${query}`);
+      if (!quiet) window.history.replaceState(null, "", `/settings/audit?${query}`);
       if (!since.value) query.delete("since");
-      count.textContent = t("Loading…");
-      for (const control of [outcome, since]) { control.counts.clear(); control.paint(); }
-      // The server counts each alternative against the current text and the other selected filter, in the same pass.
-      query.set("spans", spans.map(([value]) => value).join(","));
+      if (!quiet) {
+        count.textContent = t("Loading…");
+        for (const control of [outcome, since]) { control.counts.clear(); control.paint(); }
+        // The server counts each alternative against the current text and the other selected filter, in the same pass.
+        query.set("spans", spans.map(([value]) => value).join(","));
+      }
       let found;
-      try { found = await api(`/api/audit?${query}`); } catch (e) { if (own === loads) count.textContent = e.message; return; }
+      try { found = await api(`/api/audit?${query}`); } catch (e) { if (own === loads && !quiet) count.textContent = e.message; return; }
       if (own !== loads) return;
-      for (const [control, key] of [[outcome, "outcome"], [since, "since"]]) {
+      const shape = `${phone.matches}|${found.enabled}|${found.total}|${found.entries[0]?.ts ?? ""}|${found.entries.at(-1)?.ts ?? ""}|${found.entries.length}`;
+      if (quiet && shape === drawn) return;
+      drawn = shape;
+      if (!quiet) for (const [control, key] of [[outcome, "outcome"], [since, "since"]]) {
         control.counts = new Map(Object.entries(found.counts?.[key] ?? {}));
         control.paint();
       }
@@ -1294,28 +1312,73 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         body.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false.") })));
         return;
       }
+      // A refresh's count is not read out each time it changes, only one asked for.
+      count.setAttribute("aria-live", quiet ? "off" : "polite");
       count.textContent = t("{shown} of {total}", { shown: found.entries.length, total: found.total });
-      body.replaceChildren(found.entries.length ? el("div", { class: "card audit-results" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
+      // On a phone the newest is at the foot, by the bar, where new entries arrive (as the Logs page); elsewhere, first.
+      const ordered = phone.matches ? [...found.entries].reverse() : found.entries;
+      const atEnd = followUI.atEnd();
+      // Each entry keeps its row from one draw to the next (by its time, who and what): a refresh adds the new ones and
+      // drops those gone, so an open Details stays open and the entry being read stays where it is.
+      const keyOf = (entry) => `${entry.ts}|${entry.principal}|${entry.client}|${entry.tool}|${entry.ok}|${entry.notConfirmed}`;
+      const kept = new Map(rowsByKey);
+      rowsByKey.clear();
+      const rows = ordered.map((entry) => {
+        const key = keyOf(entry);
+        const row = kept.get(key) ?? auditRow(entry);
+        rowsByKey.set(key, row);
+        return row;
+      });
+      const tbody = $(".audit-results tbody", body);
+      if (rows.length && tbody) {
+        tbody.replaceChildren(...rows);
+        $(".audit-results .note", body).textContent = found.path;
+      } else body.replaceChildren(rows.length ? el("div", { class: "card audit-results" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
         el("thead", {}, el("tr", {}, [t("Time"), t("Who"), t("What"), t("Outcome"), t("Details")].map((text) => el("th", { text })))),
-        el("tbody", {}, found.entries.map(auditRow)))), el("p", { class: "muted note", text: found.path }))
+        el("tbody", {}, rows))), el("p", { class: "muted note", text: found.path }))
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("shield")), el("p", { class: "muted", text: t("Nothing in this range matches.") })));
+      // Following, from the end (or a first draw), the page stays at the newest; there, the arrow back is not needed.
+      if (phone.matches && following && (!quiet || atEnd)) followUI.toEnd(); else followUI.showLatest();
     }
     let typing = null;
     search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
     for (const choice of [outcome, since, scope]) choice.addEventListener("change", () => { clearTimeout(typing); typing = setTimeout(load, 0); });
+    const searchLabel = el("label", {}, el("span", { class: "visually-hidden", text: t("Search") }), search);
+    const filtersCard = el("div", { class: "card audit-filters" },
+      el("div", { class: "audit-filter-grid" },
+        el("label", {}, el("span", { text: t("Time range") }), since),
+        el("label", {}, el("span", { text: t("Outcome") }), outcome),
+        el("div", { class: "audit-search" },
+          el("label", {}, el("span", { class: "visually-hidden", text: t("Search scope") }), scope),
+          searchLabel)),
+      el("div", { class: "audit-filter-footer" }, count,
+        HomeswiftCommon.clearFilters([[search, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) })));
+    // A phone (as the Logs and Plugins pages): one glass bar above the tab bar, the search, Filters (the filters card as
+    // a sheet over the bar, its badge counting the range and outcome that are not the defaults) and Follow.
+    const filters = HomeswiftCommon.filtersToggle(filtersCard);
+    const bar = el("div", { class: "audit-bar phone-bar" }, filters.button, followUI.button);
+    const showCount = () => filters.count(Number(outcome.value !== "") + Number(since.value !== "7d"));
+    for (const choice of [outcome, since]) choice.addEventListener("change", showCount);
+    showCount();
+    // While following, a phone reads the entries again every few seconds, unless the filters or a menu cover the page
+    // or the tab is hidden. The timer goes with the page.
+    // A page still loading when another view was asked for never reaches the document: its timer stops at the first tick.
+    const refresh = setInterval(() => {
+      if (!bar.isConnected) { clearInterval(refresh); return; }
+      if (phone.matches && following && !document.hidden && !filters.isOpen() && !HomeswiftCommon.menuOpen()) load(true);
+    }, 4000);
+    HomeswiftCommon.viewSignal().addEventListener("abort", () => clearInterval(refresh));
+    // The search sits in the bar on a phone, with the filters elsewhere.
+    const placeSearch = () => {
+      if (phone.matches) bar.prepend(search);
+      else { searchLabel.append(search); filters.open(false); }
+    };
+    // Between a phone and a wider window the entries change order (the newest at the foot, or first): drawn again.
+    phone.addEventListener("change", () => { placeSearch(); load(true); }, { signal: HomeswiftCommon.viewSignal() });
+    placeSearch();
     app().show(main,
       app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
-      subnav("audit"),
-      el("div", { class: "card audit-filters" },
-        el("div", { class: "audit-filter-grid" },
-          el("label", {}, el("span", { text: t("Time range") }), since),
-          el("label", {}, el("span", { text: t("Outcome") }), outcome),
-          el("div", { class: "audit-search" },
-            el("label", {}, el("span", { class: "visually-hidden", text: t("Search scope") }), scope),
-            el("label", {}, el("span", { class: "visually-hidden", text: t("Search") }), search))),
-        el("div", { class: "audit-filter-footer" }, count,
-          HomeswiftCommon.clearFilters([[search, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) }))),
-      body);
+      subnav("audit"), filtersCard, body, bar, followUI.latest);
     await load();
   }
 
@@ -1953,7 +2016,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       detail.hidden = false;
       openNode = node;
       const frameBox = frame.getBoundingClientRect();
-      if (matchMedia("(max-width: 640px)").matches) {
+      if (HomeswiftCommon.phone.matches) {
         // A phone: the card is docked under the graph at full width (CSS), so it is shown there, not beside the node.
         detail.scrollIntoView({ block: "nearest", behavior: "smooth" });
       } else if (!anchored) {
@@ -2642,10 +2705,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   document.addEventListener("homeswift-account-menu", (event) => openUserMenu(event.detail.trigger, event.detail.keyboard));
   function openUserMenu(trigger, keyboard = false) {
     const form = auth.mode === "form";
-    const phone = matchMedia("(max-width: 640px)").matches;
+    const phone = HomeswiftCommon.phone.matches;
     // Without the wide window's side menu, Homeswift's section is in this menu.
     // (A phone's ☰ panel has its own.)
-    const noSideMenu = matchMedia("(min-width: 641px) and (max-width: 1179.98px)").matches;
+    const noSideMenu = !phone && matchMedia("(max-width: 1179.98px)").matches;
     HomeswiftCommon.menu(trigger, [
       form ? { heading: shownName(), detail: isAdmin() ? t("{username} · Administrator", { username: auth.username }) : auth.username } : { heading: t("No sign-in"), detail: t("Anyone who opens this web UI uses it") },
       { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
@@ -2931,6 +2994,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   };
   let shownPath = null;
   function route() {
+    // The last view's listeners and timers go with it (HomeswiftCommon.viewSignal).
+    HomeswiftCommon.nextView();
     // A dialog belongs to the view it opened on (an accessory's sheet, whose menu links to its log): a new view closes
     // it, or it would stay over the next one. The restart overlay outlives views.
     for (const dialog of document.querySelectorAll("dialog[open]")) if (dialog !== restartOverlay) dialog.close();
@@ -2954,6 +3019,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       link.classList.toggle("active", current);
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
+    // A phone's More stands for the sections under it, as iOS's does: lit while one of them is shown.
+    $(".tabbar-more")?.classList.toggle("active", !$(".tabbar-tabs > a.active"));
     const view = name === "plugins" && args.length ? views.settings : name === "settings" ? HomeswiftAdmin.view : views[name] || views.status;
     // A new element per view: a slower view still loading draws into the old one, out of the page, rather than
     // over the view asked for after it.
@@ -5757,52 +5824,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return el("div", { class: "accessories-views" }, nav, ...extra.filter(Boolean));
   };
   /// The Accessories page's tools as one bar, the same in both views: `toolbar` (the search, Filters and the rest) over
-  /// `views` (the tabs, Full screen, Add). On a phone it is a row of round buttons at the bottom, beside the sections'
-  /// button and within the thumb's reach, the views first, so filtering, arranging and switching views stay at hand; the
-  /// search opens over the row from its own button, rises with the on-screen keyboard, and stays open while it holds a
-  /// search.
+  /// `views` (the tabs, Full screen, Add). On a phone it is the page's glass bar over the tab bar (`.phone-bar`): the
+  /// options, the search, Filters, Edit and the Assistant, risen with the on-screen keyboard.
   const accessoriesBar = (toolbar, views) => {
-    const bar = el("div", { class: "accessories-bar" }, toolbar, views);
-    // Reserve the bar's actual footprint, including its expanded search and wrapped buttons.
-    // The observer also runs when the bar is removed, so it does not retain departed views.
-    const clearance = new ResizeObserver(() => {
-      if (!bar.isConnected) { clearance.disconnect(); return; }
-      const height = bar.getBoundingClientRect().height;
-      bar.parentElement.style.setProperty("--accessories-bar-height", `${Math.ceil(height)}px`);
-    });
-    clearance.observe(bar);
+    const bar = el("div", { class: "accessories-bar phone-bar" }, toolbar, views);
     const search = toolbar.querySelector(".search");
     if (!search) return bar;
-    const toggle = el("button", { type: "button", class: "icon-button accessories-search-toggle", "aria-label": t("Search accessories"), title: t("Search accessories"),
-      "aria-expanded": "false" }, HomeswiftCommon.icon("search"));
-    const open = (on) => {
-      bar.classList.toggle("searching", on);
-      toggle.classList.toggle("on", on);
-      toggle.setAttribute("aria-expanded", String(on));
-    };
-    toggle.addEventListener("click", () => {
-      const on = !bar.classList.contains("searching");
-      open(on);
-      if (on) search.focus(); else if (search.value) { search.value = ""; search.dispatchEvent(new Event("input")); }
-    });
-    // Left empty, it folds away again.
-    search.addEventListener("blur", () => { if (!search.value.trim()) open(false); });
-    open(Boolean(search.value.trim()));
-    search.after(toggle);
-    // Safari keeps a fixed bar's bottom under the on-screen keyboard: the bar sits on the keyboard while the search is
-    // typed in (`--keyboard`, what it covers), as the chat's sheet does.
-    const view = window.visualViewport;
-    if (view) {
-      const fit = () => {
-        if (!bar.isConnected) { view.removeEventListener("resize", fit); view.removeEventListener("scroll", fit); return; }
-        const covered = document.activeElement === search ? Math.max(0, Math.round(window.innerHeight - view.height - view.offsetTop)) : 0;
-        bar.style.setProperty("--keyboard", `${covered}px`);
-      };
-      view.addEventListener("resize", fit);
-      view.addEventListener("scroll", fit);
-      search.addEventListener("focus", fit);
-      search.addEventListener("blur", () => bar.style.setProperty("--keyboard", "0px"));
-    }
+    // A phone's bar ends with the Assistant, when there is one: what is typed in the search becomes the question.
+    const ask = el("button", { type: "button", class: "icon-button accessories-ask", "aria-label": t("Ask the Assistant"), title: t("Ask the Assistant"),
+      onclick: () => window.HomeswiftChat?.ask(search.value.trim()) }, HomeswiftCommon.sparkle());
+    const showAsk = () => { ask.hidden = !window.HomeswiftChat?.available(); };
+    showAsk();
+    setTimeout(showAsk, 1500);
+    search.addEventListener("focus", showAsk);
+    toolbar.append(ask);
     return bar;
   };
   /// The address with `key` set to `value` (removed when empty), the page left as it is: what a search box types.
@@ -6578,8 +6613,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         render();
       } }] : []),
       ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : []),
-      // A phone's bar has no room for Full screen's and Add accessories' own buttons: they are here.
-      ...(matchMedia("(max-width: 600px)").matches && all.length ? [{ separator: true }, { label: t("Full screen"), icon: "expand", onSelect: () => setFullScreen(true) },
+      // A phone floats only the search, Filters, Edit and this menu over its tab bar: the graph, Full screen and Add
+      // accessories are here.
+      ...(HomeswiftCommon.phone.matches && all.length ? [{ separator: true },
+        { label: t("Graph"), icon: "chart", href: (() => {
+          const kept = new URLSearchParams();
+          for (const [key, value] of new URLSearchParams(location.search)) if (accessoryFilterKeys.includes(key)) kept.append(key, value);
+          return `/accessories/graph${kept.size ? `?${kept}` : ""}`;
+        })() },
+        { label: t("Full screen"), icon: "expand", onSelect: () => setFullScreen(true) },
         ...(addButton ? [{ label: t("Add accessories"), icon: "plus", href: "/setup" }] : [])] : []),
       // The Zones and where the rooms stand with Apple Home, without going through Edit.
       ...(isAdmin() && rooms.length ? [{ separator: true }, { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
@@ -6876,6 +6918,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       return order(a) - order(b) || blockTitle(a).localeCompare(blockTitle(b));
     });
     let filter = "all";
+    let sheet = null;   // the phone's Filters sheet (filtersToggle), made with the bar below
     const search = el("input", { type: "search", class: "search", placeholder: t("Search your plugins"), "aria-label": t("Search your plugins"), oninput: render });
     const filters = el("div", { class: "group plugins-filters", role: "group", "aria-label": t("Status") });
     const matches = (block, value) => value === "all" || blockState(block, byPlatform.get(block.platform), running(block))[1] === value;
@@ -6891,6 +6934,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const selected = ["all", "away", "on", "paused"][i] === filter;
         button.setAttribute("aria-pressed", String(selected)); button.classList.toggle("on", selected);
       });
+      sheet?.count(filter === "all" ? 0 : 1);
     }
     const add = el("button", { class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: () => {
       const dialog = openSheet((dismiss) => el("div", { class: "plugins-panel" },
@@ -6899,17 +6943,32 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       dialog.classList.add("plugins-inspector");
       dialog.addEventListener("click", (event) => { if (event.target.closest("a[href]")) dialog.close(); });
     } });
+    // A phone (as the Logs page): one glass bar above the tab bar, the search, Filters (the states in a sheet over the
+    // bar, a badge while one is chosen) and a round Add; the toolbar leaves the card for the page to be fixed there.
+    const phone = HomeswiftCommon.phone;
+    sheet = HomeswiftCommon.filtersToggle(filters);
+    const addRound = el("button", { type: "button", class: "bar-button bar-only accent", "aria-label": t("Add a plugin"), title: t("Add a plugin"), onclick: () => add.click() },
+      HomeswiftCommon.icon("plus"));
+    const toolbar = el("div", { class: "plugins-toolbar phone-bar" }, filters, search, HomeswiftCommon.clearFilters([[search, ""]], {
+      active: () => filter !== "all", events: [[filters, "click"]], reset: () => { filter = "all"; render(); }
+    }), sheet.button, addRound);
+    const listCard = el("div", { class: "card plugins-card" }, toolbar, list);
+    // A state chosen closes the sheet.
+    filters.addEventListener("click", () => setTimeout(() => sheet.open(false)));
+    const placeToolbar = () => {
+      if (phone.matches) main.append(toolbar);
+      else { listCard.prepend(toolbar); sheet.open(false); }
+    };
+    phone.addEventListener("change", placeToolbar, { signal: HomeswiftCommon.viewSignal() });
     const builtIn = plugins.blocks.filter((block) => block.system);
     show(main, el("div", { class: "plugins-heading" }, pageHead(t("Plugins"), t("Your connections, devices and services.")), add),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("{names}: no plugin compiled into this homeswift runs these blocks, so they are ignored.",
         { names: plugins.blocks.filter((block) => plugins.unknownPlatforms.includes(block.platform)).map((block) => block.name).join(", ") }) })) : null,
-      el("div", { class: "card plugins-card" },
-        el("div", { class: "plugins-toolbar" }, filters, search, HomeswiftCommon.clearFilters([[search, ""]], {
-          active: () => filter !== "all", events: [[filters, "click"]], reset: () => { filter = "all"; render(); }
-        })), list),
+      listCard,
       !custom.length ? window.HomeswiftImport.offer() : null,
       builtIn.length ? el("details", { class: "plugins-built-in" }, el("summary", { text: `${t("Built-in services")} · ${builtIn.length}` }),
         el("div", { class: "card plugins-list" }, ...builtIn.map(blockCard))) : null);
+    placeToolbar();
     render();
   };
 
@@ -8136,6 +8195,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const filter = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Filter the log") });
     const follow = el("input", { type: "checkbox", checked: true });
     const count = el("span", { class: "muted count" });
+    // A phone reads the log as the page: no box of its own to scroll, its bar of actions over the tab bar.
+    const phone = HomeswiftCommon.phone;
+    let filters = null, followUI = null;   // the phone's Filters sheet and Follow controls, made with the bar below
     // What the lines are about (sourceFilter): every line; the bridges' own lines (their servers': connections,
     // pairings, controllers), every bridge's or one's; or one accessory's (those of its own server and those naming
     // it, its id or its address). The server picks them before its limit (UIServer.logMatcher), so a week of one
@@ -8166,7 +8228,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // `live`: new lines join the page (not while a span in the past is shown); `cap`: how many it keeps.
     filter.value = params.get("q") ?? "";
     const level = levelChoices.some(([value]) => value === params.get("level")) ? params.get("level") : "info";
-    logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false };
+    // Its end: the box's, or on a phone the page's. While a menu or the Filters sheet covers the page, a phone holds the
+    // page where it is (scrolling it under their glass made them flicker with each line) and catches up once they close.
+    let held = false;
+    const covered = () => phone.matches && (HomeswiftCommon.menuOpen() || Boolean(filters?.isOpen()));
+    const atEnd = () => held || (phone.matches ? followUI.atEnd() : output.scrollHeight - output.scrollTop - output.clientHeight < 40);
+    // On a phone, again once laid out: the page's height is only known after the lines are drawn.
+    const toEnd = () => {
+      if (!phone.matches) { output.scrollTop = output.scrollHeight; return; }
+      if (covered()) { held = true; return; }
+      followUI.toEnd();
+      requestAnimationFrame(() => followUI.toEnd());
+    };
+    document.addEventListener("homeswift-covering", () => {
+      if (!held || covered()) return;
+      held = false;
+      if (follow.checked) toEnd();
+    }, { signal: HomeswiftCommon.viewSignal() });
+    logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false, atEnd, toEnd };
     choose();
     const levels = el("div", { class: "group", role: "group", "aria-label": t("Levels shown") }, levelChoices.map(([level, text]) =>
       el("button", { text, class: level === logState.level ? "on" : "", "aria-pressed": String(level === logState.level), onclick: (event) => {
@@ -8194,12 +8273,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       output.replaceChildren(...(shown.length ? shown.map(lineNode) : [el("p", { class: "muted empty-log", text: t("No line matches.") })]));
       count.textContent = logState.capped ? tn("{shown} of {n} line (the latest of the range)", "{shown} of {n} lines (the latest of the range)", logState.lines.length, { shown: shown.length })
         : tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: shown.length });
-      if (follow.checked) output.scrollTop = output.scrollHeight;
+      showFilterCount();
+      if (follow.checked) toEnd();
     };
     // Typing filters once it pauses: thousands of lines are not drawn again per key.
     let typing = null;
     filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { render(); keepAddress(); }, 120); });
-    follow.addEventListener("change", () => { if (follow.checked) output.scrollTop = output.scrollHeight; });
+    // Following again: back to the end, on a phone scrolled there (the arrow, Play) rather than jumped to.
+    follow.addEventListener("change", () => {
+      if (!follow.checked) return;
+      if (phone.matches && followUI) followUI.toEnd(true); else toEnd();
+    });
 
     // A time range (HomeswiftCommon.rangeControl): the latest lines from memory, or a span from the log the bridge keeps on disk
     // (rotated, a week at most). A span that ends now keeps following; one in the past stays as it is.
@@ -8285,12 +8369,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const level = line.level === "info" || line.level === "notice" ? "" : ` [${line.level.toUpperCase()}]`;
       return `${line.time} [${line.label}]${level} ${line.text}`;
     };
-    const copy = el("button", { actionIcon: "copy", text: t("Copy"), title: t("Copy the lines shown"), onclick: async () => {
+    const copyLines = async () => {
       const shown = shownLines();
-      const text = shown.map(asText).join("\n");
+      await copyText(shown.map(asText).join("\n"));
+      return shown.length;
+    };
+    const copy = el("button", { actionIcon: "copy", class: "log-copy", text: t("Copy"), title: t("Copy the lines shown"), onclick: async () => {
       try {
-        await copyText(text);
-        copy.textContent = tn("Copied {n} line", "Copied {n} lines", shown.length);
+        copy.textContent = tn("Copied {n} line", "Copied {n} lines", await copyLines());
       } catch (e) {
         copy.textContent = t("Not copied");
         copy.title = e.message;
@@ -8308,11 +8394,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const chosen = range.span();
       const query = new URLSearchParams();
       if (chosen) { query.set("from", chosen[0].toISOString()); if (chosen[1]) query.set("to", chosen[1].toISOString()); }
-      // A phone keeps the toolbar short: Save payloads is here rather than beside Follow.
-      const phone = matchMedia("(max-width: 640px)").matches && !saveToggle.classList.contains("hidden");
+      // A phone keeps its bar short: the count, Copy and Save payloads are here rather than in it.
+      const saving = phone.matches && !saveToggle.classList.contains("hidden");
       return [
-        phone ? { label: t("Save payloads"), checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
-        phone ? { separator: true } : null,
+        phone.matches ? { heading: count.textContent, live: count } : null,
+        phone.matches ? { label: t("Copy the lines shown"), icon: "copy", onSelect: () => copyLines().catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
+        saving ? { label: t("Save payloads"), icon: "archive", toggle: true, checkbox: true, checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
+        phone.matches ? { separator: true } : null,
         { label: chosen ? t("Download this range") : t("Download the whole log"), icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
         { label: t("Empty the log…"), icon: "trash", danger: true, onSelect: async () => {
           if (!await HomeswiftCommon.confirmDialog(t("Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone."))) return;
@@ -8320,30 +8408,54 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         } },
       ];
     });
+    const clear = HomeswiftCommon.clearFilters([[filter, ""], [sources.picker, ""]], {
+      active: () => logState.level !== "info" || range.chosen(), events: [[levels, "click"], [range.control, "change"]],
+      reset: () => {
+        clearTimeout(typing);
+        range.reset();
+        logState.level = "info";
+        for (const [index, button] of [...levels.children].entries()) {
+          const selected = levelChoices[index][0] === "info";
+          button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
+        }
+      },
+    });
+    const levelRow = el("div", { class: "log-level-row" }, levels, filter, clear);
+    const panel = el("div", { class: "log-filter-panel" }, levelRow,
+      // A div, not a label: a label would press the control's first choice when its text is clicked.
+      el("div", { class: "log-scope-row" },
+        el("div", { class: "log-time" }, el("span", { text: t("Time range") }), range.control),
+        el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker)));
+    // On a phone the filters wait behind Filters, a sheet over the bar, its badge counting those that are not the
+    // defaults; Follow is a pause button beside it (play once paused), on from the start, and a round arrow over the
+    // bar goes back to the latest lines while the page is away from them.
+    filters = HomeswiftCommon.filtersToggle(panel);
+    filters.button.classList.add("log-filters-toggle");
+    function showFilterCount() {
+      filters?.count((logState.level !== "info") + Boolean(range.chosen()) + Boolean(sources.picker.value));
+    }
+    followUI = HomeswiftCommon.followControls({ following: () => follow.checked,
+      setFollowing: (on) => { follow.checked = on; follow.dispatchEvent(new Event("change")); } });
+    followUI.button.classList.add("log-follow-button");
+    follow.addEventListener("change", followUI.paint);
+    logState.showLatest = followUI.showLatest;
+    actions.classList.add("bar-button");
+    doctor.button.classList.add("bar-button", "accent");
+    const bar = el("div", { class: "editor-bar log-action-bar phone-bar" }, count, el("span", { class: "spacer" }), filters.button, followUI.button, doctor.button, copy,
+      el("label", { class: "toggle compact log-follow" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
+      saveToggle, actions);
+    const card = el("div", { class: "card log-card" }, panel, bar, followUI.latest, output);
+    for (const [control, kind] of [[levels, "click"], [range.control, "change"], [sources.picker, "change"], [clear, "click"]]) control.addEventListener(kind, () => setTimeout(showFilterCount));
+    // The text filter stays in reach: in the phone's bar, beside the levels elsewhere.
+    const placeFilter = () => {
+      if (phone.matches) bar.prepend(filter);
+      else { levelRow.insertBefore(filter, clear); filters.open(false); }
+    };
+    placeFilter();
+    phone.addEventListener("change", placeFilter, { signal: HomeswiftCommon.viewSignal() });
     show(main,
       pageHead(t("Logs"), t("This homeswift's log, live, and up to a week back.")),
-      el("div", { class: "card log-card" },
-        el("div", { class: "log-filter-panel" },
-          el("div", { class: "log-level-row" }, levels, filter, HomeswiftCommon.clearFilters([[filter, ""], [sources.picker, ""]], {
-            active: () => logState.level !== "info" || range.chosen(), events: [[levels, "click"], [range.control, "change"]],
-            reset: () => {
-              clearTimeout(typing);
-              range.reset();
-              logState.level = "info";
-              for (const [index, button] of [...levels.children].entries()) {
-                const selected = levelChoices[index][0] === "info";
-                button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
-              }
-            },
-          })),
-          // A div, not a label: a label would press the control's first choice when its text is clicked.
-          el("div", { class: "log-scope-row" },
-            el("div", { class: "log-time" }, el("span", { text: t("Time range") }), range.control),
-            el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker))),
-        el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), doctor.button, copy,
-          el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
-          saveToggle, actions),
-        output),
+      card,
       doctor.card);
     await load();
   };
@@ -8432,12 +8544,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (!visible(line)) return;
     const output = logState.output;
     // Follow only when the reader is at the bottom: scrolling up to read stops it without a click.
-    const atBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 40;
+    const atBottom = logState.atEnd();
     $(".empty-log", output)?.remove();
     output.append(lineNode(line));
     while (output.childElementCount > logState.cap) output.firstElementChild.remove();   // the page stays the size of what it keeps
-    if (logState.follow.checked && atBottom) output.scrollTop = output.scrollHeight;
+    if (logState.follow.checked && atBottom) logState.toEnd();
     logState.count.textContent = tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: output.childElementCount });
+    logState.showLatest?.();
   }
 
   // A hidden tab keeps no stream open; back in view, the live pages reload their values.
@@ -10320,7 +10433,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const { t, tn } = HomeswiftI18n;
 
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
-  const phone = matchMedia("(max-width: 640px)");
+  const phone = HomeswiftCommon.phone;
   const touch = matchMedia("(pointer: coarse)");
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -11266,6 +11379,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     wingman: '<g transform="translate(0 4.32) scale(.048)"><g fill="currentColor" stroke="none"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/><g transform="translate(500 0) scale(-1 1)"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/></g></g><path d="M136 220L250 104L364 220M153 205V305H347V205" fill="none" stroke="currentColor" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/></g>',
     power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
     // Full screen: a frame with its corners pulled out, top right and bottom left.
+    arrowDown: '<path d="M12 5v14M6 13l6 6 6-6"/>',
     expand: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M13.5 7.5h3v3M10.5 16.5h-3v-3"/>',
     // Leaving full screen: expand's corners turned inward.
     collapse: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M16.5 10.5h-3v-3M7.5 13.5h3v3"/>',
@@ -11619,6 +11733,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // It grows out of its button and goes back into it; the arrow keys move between items, Escape and a click
   // elsewhere close it, and focus returns to the button.
 
+  /// What the pages call a phone: a narrow window, or a short touch screen (a phone held sideways). style.css's phone
+  /// rules use the same query; this is the one the scripts read (`.matches`, and its `change` event).
+  const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
+
+  /// A view's lifetime: aborted when the next one is drawn (`nextView`, the router's), so a page's listeners and timers
+  /// given `{ signal: viewSignal() }` go with it rather than holding the page until they next fire.
+  let viewController = new AbortController();
+  const viewSignal = () => viewController.signal;
+  const nextView = () => { viewController.abort(); viewController = new AbortController(); };
+
+  /// Something now covers the page, or stops covering it (a menu, a phone's sheet of filters): `homeswift-covering` on the
+  /// document, so a page following its end holds still under it and catches up after (the Logs page).
+  const covering = () => document.dispatchEvent(new Event("homeswift-covering"));
+
   let openMenu = null;
 
   /// Text as searches compare it: without accents or case, so "salon" finds "Salón".
@@ -11634,6 +11762,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (openMenu?.trigger === trigger) { openMenu.close(); return; }
     openMenu?.close(true);
     let pending = false, cancelDrag = null;
+    const liveHeadings = [];   // the headings following a node's text (`live`), let go when the menu closes
     const refreshDisabled = [], refreshChecked = [];
     const searchable = [];
     const given = items.filter(Boolean);
@@ -11652,8 +11781,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // Who the menu is about (the header's account menu): a name and a line under it, not an action.
       // `callout`: a notice set apart in a tinted box with its icon (the Home Link's state), `tone` "warn" or "error".
       if (item.heading !== undefined) {
+        // `live`: a node whose text the heading follows while the menu is open (the Logs page's count of lines).
+        const strong = el("strong", { text: item.live ? item.live.textContent : item.heading });
+        if (item.live) {
+          const follow = new MutationObserver(() => { strong.textContent = item.live.textContent; });
+          follow.observe(item.live, { childList: true, characterData: true, subtree: true });
+          liveHeadings.push(follow);
+        }
         return el("div", item.callout ? { class: `menu-heading menu-callout${item.tone ? ` ${item.tone}` : ""}`, role: "note" } : { class: "menu-heading" },
-          item.callout && item.icon ? icon(item.icon) : null, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
+          item.callout && item.icon ? icon(item.icon) : null, strong, item.detail ? el("span", { text: item.detail }) : null);
       }
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
       // `checked` may be a function, asked again after each choice of a menu that stays open (a Group's row follows
@@ -11812,7 +11948,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
-    const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
+    const sheet = phone.matches && !trigger.closest("header");
     // The search and its pills stay above the items, which scroll on their own; a sheet whose items stay open as they
     // are chosen (several lights) ends with Done, within the thumb's reach.
     const head = field ? el("div", { class: "menu-head" }, field, pills) : null;
@@ -11873,6 +12009,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (openMenu?.list !== list) return;
       cancelDrag?.();
       openMenu = null;
+      covering();
+      liveHeadings.forEach((observer) => observer.disconnect());
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("pointerdown", onPointer, true);
       removeEventListener("resize", onResize);
@@ -11890,6 +12028,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     document.addEventListener("pointerdown", onPointer, true);
     addEventListener("resize", onResize);
     openMenu = { trigger, list, close };
+    covering();
     // A search field takes the focus, but not on a phone's sheet, where the keyboard would cover the items.
     if (field && !sheet) field.focus({ preventScroll: true });
     else if (keyboard) focusAt(0); else list.focus({ preventScroll: true });
@@ -12003,7 +12142,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function openSheet(build, labelledBy, { onClose = null, returnFocus = document.activeElement } = {}) {
     const dialog = el("dialog", { class: "admin-dialog card sheet", "aria-labelledby": labelledBy });
     const reduce = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const vertical = () => matchMedia("(max-width: 640px)").matches;   // a phone: a sheet from the bottom edge
+    const vertical = () => phone.matches;   // a phone: a sheet from the bottom edge
     let result, leaving = false;
     // Out along the edge it came from, from wherever it is now (a drag may have moved it), faster than it came.
     const dismiss = (value) => {
@@ -12085,6 +12224,76 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     viewport.addEventListener("resize", fit);
     viewport.addEventListener("scroll", fit);
     return () => { viewport.removeEventListener("resize", fit); viewport.removeEventListener("scroll", fit); };
+  }
+
+  // The page follows the phone's keyboard once, for every bar that sits on the bottom (`--keyboard`): iOS covers the
+  // page rather than resizing it. Only while a field is typed in: zooming in shrinks the visual viewport too, and the
+  // bars would float up the page with it.
+  {
+    const root = document.documentElement, viewport = window.visualViewport;
+    const typing = () => document.activeElement?.matches?.("input:not([type=checkbox], [type=radio], [type=range], [type=button]), textarea, [contenteditable]");
+    const fit = () => root.style.setProperty("--keyboard",
+      viewport && typing() ? `${Math.max(0, Math.round(innerHeight - viewport.height - viewport.offsetTop))}px` : "0px");
+    viewport?.addEventListener("resize", fit);
+    viewport?.addEventListener("scroll", fit);
+    document.addEventListener("focusin", fit);
+    document.addEventListener("focusout", () => setTimeout(fit));
+  }
+
+  /// A phone's Filters button for a page's bar (`.phone-bar`): it opens `sheet` over the bar (`.phone-sheet`, `open`),
+  /// a badge counting the filters that are not the defaults (`count(n)`). A tap elsewhere, but not in a menu one of the
+  /// sheet's pickers opened, or Escape closes it.
+  function filtersToggle(sheet) {
+    sheet.classList.add("phone-sheet");
+    sheet.id ||= `phone-sheet-${Math.random().toString(36).slice(2)}`;
+    const badge = el("span", { class: "toolbar-count hidden" });
+    const button = el("button", { type: "button", class: "bar-button bar-only", "aria-label": t("Filters"), title: t("Filters"),
+      "aria-controls": sheet.id, "aria-expanded": "false" }, icon("filter"), badge);
+    const isOpen = () => sheet.classList.contains("open");
+    const open = (state) => {
+      if (state === isOpen()) return;
+      sheet.classList.toggle("open", state);
+      button.setAttribute("aria-expanded", String(state));
+      covering();
+    };
+    button.addEventListener("click", () => open(!isOpen()));
+    document.addEventListener("pointerdown", (event) => {
+      if (isOpen() && !sheet.contains(event.target) && !button.contains(event.target) && !event.target.closest?.('[role="menu"], .menu-scrim')) open(false);
+    }, { signal: viewSignal() });
+    sheet.addEventListener("keydown", (event) => { if (event.key === "Escape" && isOpen()) { open(false); button.focus(); } });
+    const count = (n) => {
+      badge.textContent = String(n);
+      badge.classList.toggle("hidden", !n);
+      button.classList.toggle("on", n > 0);
+    };
+    return { button, open, isOpen, count };
+  }
+
+  /// A phone's way of following a page that grows at its foot (the Logs page, the Audit log), as a chat does: a pause
+  /// button for the page's bar (play once paused) and a round arrow over the bar while the page is away from its end,
+  /// back to it. `following()` and `setFollowing(on)` keep the state; `paint()` redraws the button after a change.
+  function followControls({ following, setFollowing }) {
+    const scroller = () => document.scrollingElement;
+    const away = () => scroller().scrollHeight - scroller().scrollTop - innerHeight;
+    const atEnd = () => away() < 40;
+    const toEnd = (smooth = false) => {
+      const glide = smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+      scroller().scrollTo({ top: scroller().scrollHeight, behavior: glide ? "smooth" : "auto" });
+      // A jump fires no scroll event when the page was already there: the arrow is put away here.
+      if (!glide) showLatest();
+    };
+    const button = el("button", { type: "button", class: "bar-button bar-only", "aria-label": t("Follow"), onclick: () => setFollowing(!following()) });
+    const paint = () => {
+      button.setAttribute("aria-pressed", String(following()));
+      button.title = following() ? t("Pause") : t("Follow");
+      button.replaceChildren(icon(following() ? "pause" : "play"));
+    };
+    const latest = el("button", { type: "button", class: "to-end", "aria-label": t("Go to the latest lines"), title: t("Go to the latest lines"),
+      onclick: () => { setFollowing(true); toEnd(true); } }, icon("arrowDown"));
+    const showLatest = () => latest.classList.toggle("shown", phone.matches && away() > 120);
+    addEventListener("scroll", () => { if (phone.matches) showLatest(); }, { passive: true, signal: viewSignal() });
+    paint();
+    return { button, latest, paint, atEnd, toEnd, showLatest };
   }
 
   /// Where floating UI opened from `anchor` goes: the open modal dialog it is in (an accessory's sheet), which is in the
@@ -12640,32 +12849,53 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   const sections = [["/status", t("Status"), "bridge"], ["/energy", t("Energy"), "bolt"], ["/accessories", t("Accessories"), "bulb"], ["/automations", t("Automations"), "workflow"], ["/logbook", t("Logbook"), "history"], ["/plugins", t("Plugins"), "plugin"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
 
+  /// The sections a phone's tab bar shows as tabs; the others are under More.
+  const tabSections = new Set(["/status", "/accessories", "/automations"]);
+
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
   /// none). Hidden on wider windows, where the header holds them.
   function tabBar({ active, parent = document.body } = {}) {
     const existing = document.querySelector("nav.tabbar");
     if (existing) return existing;
+    // More lists the sections that are not tabs (`is-tab` hides the others there).
     const panel = el("div", { class: "mobile-nav-panel", id: "mobile-nav-panel", hidden: true }, sections.map(([path, text, glyph]) =>
-      el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
-    const toggle = el("button", { type: "button", class: "mobile-nav-toggle", "aria-label": t("Sections"), "aria-expanded": "false", "aria-controls": "mobile-nav-panel" });
-    toggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/></svg>';
-    const setOpen = (open) => { panel.hidden = !open; toggle.setAttribute("aria-expanded", String(open)); };
+      el("a", { href: path, class: [path === active ? "active" : "", tabSections.has(path) ? "is-tab" : ""].filter(Boolean).join(" "),
+        "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
+    // A phone's tab bar: the sections used most as tabs, an icon over its name each, and More for the others (the
+    // panel, which also has Account and the Assistant).
+    const more = el("button", { type: "button", class: "tabbar-more", "aria-controls": "mobile-nav-panel", "aria-expanded": "false" }, icon("more"), el("span", { text: t("More") }));
+    const tabs = el("div", { class: "tabbar-tabs" },
+      sections.filter(([path]) => tabSections.has(path)).map(([path, text, glyph]) =>
+        el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))),
+      more);
+    const setOpen = (open) => {
+      panel.hidden = !open;
+      more.setAttribute("aria-expanded", String(open));
+    };
+    // The Assistant, when there is one: on a phone it has no button of its own over the page.
+    const assistant = el("button", { type: "button", class: "mobile-nav-account mobile-nav-assistant", hidden: true, onclick: (event) => {
+      event.stopPropagation();
+      setOpen(false);
+      window.HomeswiftChat?.open();
+    } }, sparkle(), el("span", { text: t("Assistant") }));
+    panel.append(assistant);
     panel.append(el("hr", { class: "mobile-nav-divider" }));
     panel.append(el("button", { type: "button", class: "mobile-nav-account", onclick: (event) => {
       event.stopPropagation();
       setOpen(false);
-      document.dispatchEvent(new CustomEvent("homeswift-account-menu", { detail: { trigger: toggle, keyboard: event.detail === 0 } }));
+      document.dispatchEvent(new CustomEvent("homeswift-account-menu", { detail: { trigger: more, keyboard: event.detail === 0 } }));
     } }, icon("user"), el("span", { text: t("Account") })));
     // Homeswift's section under Account, as at the side menu's foot; the page draws it (`.side-about`).
     panel.append(el("details", { class: "side-about mobile-nav-about", hidden: true }));
-    toggle.addEventListener("click", () => setOpen(panel.hidden));
+    const openPanel = () => { assistant.hidden = !window.HomeswiftChat?.available(); setOpen(panel.hidden); };
+    more.addEventListener("click", openPanel);
     panel.addEventListener("click", (event) => { if (event.target.closest("a")) setOpen(false); });
-    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, toggle);
+    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, tabs);
     document.addEventListener("pointerdown", (event) => { if (!bar.contains(event.target)) setOpen(false); });
     bar.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") { setOpen(false); toggle.focus(); }
-      if (event.target === toggle && event.key === "ArrowUp") {
+      if (event.key === "Escape") { setOpen(false); more.focus(); }
+      if (event.target === more && event.key === "ArrowUp") {
         event.preventDefault(); setOpen(true); panel.querySelector("a:not(.hidden)")?.focus();
       }
     });
@@ -12852,31 +13082,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       event.preventDefault(); openSelectMenu(select, true);
     }
   });
-
-  // Reserve horizontal space only when a sticky save bar shares the floating menu's height.
-  let saveBarFrame = 0;
-  function updateSaveBarPosition() {
-    if (saveBarFrame) return;
-    saveBarFrame = requestAnimationFrame(() => {
-      saveBarFrame = 0;
-      const bars = document.querySelectorAll(".settings-bar");
-      if (!bars.length) return;
-      const toggle = document.querySelector(".mobile-nav-toggle");
-      const mobile = matchMedia("(max-width: 640px)").matches;
-      const menuRect = mobile && toggle ? toggle.getBoundingClientRect() : null;
-      bars.forEach((bar) => {
-        // Measured only beside a menu: a desktop page changing does not lay it out again.
-        if (!menuRect) { bar.classList.remove("beside-mobile-menu"); return; }
-        const rect = bar.getBoundingClientRect();
-        const beside = menuRect && menuRect.height > 0 && rect.bottom > menuRect.top && rect.top < menuRect.bottom;
-        bar.classList.toggle("beside-mobile-menu", Boolean(beside));
-      });
-    });
-  }
-  document.addEventListener("scroll", updateSaveBarPosition, { passive: true, capture: true });
-  window.addEventListener("resize", updateSaveBarPosition, { passive: true });
-  new MutationObserver(updateSaveBarPosition).observe(document.body, { childList: true, subtree: true });
-  updateSaveBarPosition();
 
   const decorateStaticActions = () => document.querySelectorAll("[data-action-icon]").forEach((node) => decorateAction(node, node.dataset.actionIcon));
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", decorateStaticActions);
@@ -13273,6 +13478,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   window.HomeswiftCommon = {
     foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
     openSheet, confirmAction,
+    phone, viewSignal, nextView, filtersToggle, followControls, menuOpen: () => Boolean(openMenu),
     $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -21437,6 +21643,7 @@ HomeswiftI18n.add("es", {
   "Copied {n} lines": "{n} líneas copiadas",
   "Copy": "Copiar",
   "Copy it now: it is shown once. Send it as {header}.": "Cópialo ahora: solo se muestra una vez. Envíalo como {header}.",
+  "Go to the latest lines": "Ir a las últimas líneas",
   "Copy the lines shown": "Copiar las líneas mostradas",
   "Cost": "Coste",
   "Cost this month": "Coste este mes",
@@ -25200,6 +25407,7 @@ HomeswiftI18n.add("fr", {
   "Copied {n} lines": "{n} lignes copiées",
   "Copy": "Copier",
   "Copy it now: it is shown once. Send it as {header}.": "Copiez-le maintenant : il n'est affiché qu'une fois. Envoyez-le sous la forme {header}.",
+  "Go to the latest lines": "Aller aux dernières lignes",
   "Copy the lines shown": "Copier les lignes affichées",
   "Cost": "Coût",
   "Cost this month": "Coût ce mois-ci",
@@ -28963,6 +29171,7 @@ HomeswiftI18n.add("pt", {
   "Copied {n} lines": "{n} linhas copiadas",
   "Copy": "Copiar",
   "Copy it now: it is shown once. Send it as {header}.": "Copie-o agora: só é mostrado uma vez. Envie-o como {header}.",
+  "Go to the latest lines": "Ir para as últimas linhas",
   "Copy the lines shown": "Copiar as linhas mostradas",
   "Cost": "Custo",
   "Cost this month": "Custo este mês",
@@ -32942,7 +33151,7 @@ HomeswiftI18n.add("pt", {
         { label: t("Appearance"), icon: "sliders", href: "/appearance" },
         form && auth.admin ? { label: t("Users and tokens"), icon: "users", href: "/users" } : null,
         // Homeswift's health, version and updates, which the side menu holds on a wide window.
-        ...(matchMedia("(min-width: 641px) and (max-width: 1179.98px)").matches && aboutStatus ? [{ separator: true },
+        ...(!HomeswiftCommon.phone.matches && matchMedia("(max-width: 1179.98px)").matches && aboutStatus ? [{ separator: true },
           { heading: t("Homeswift {version}", { version: aboutStatus.version }), detail: healthOf(aboutStatus)[0] },
           auth.admin ? { label: aboutStatus.update?.available ? t("Update available") : t("Updates"), icon: "download", href: "/settings/updates" } : null,
           { label: t("Send feedback"), icon: "bug", onSelect: () => window.open("https://github.com/mp-consulting/homeswift/issues", "_blank", "noopener") }] : []),
@@ -35932,7 +36141,7 @@ header nav { min-width: 0; overflow-x: auto; scrollbar-width: none; }
 header nav::-webkit-scrollbar { display: none; }
 header nav a { flex: none; white-space: nowrap; }
 header .spacer { min-width: 0; }
-@media (min-width: 641px) and (max-width: 900px) {
+@media (min-width: 641px) and (max-width: 900px) and (min-height: 501px), (min-width: 641px) and (max-width: 900px) and (pointer: fine) {
   header { gap: var(--space-8); padding-left: var(--space-10); }
   header nav { flex: 1 1 auto; }
   header .spacer { display: none; }
@@ -36070,7 +36279,7 @@ header nav a svg { display: none; }
   .tariff-card input:is([type="date"], [type="time"]) { -webkit-appearance: none; appearance: none; display: block; width: 100%; min-width: 0; text-align: start; }
   .tariff-card input:is([type="date"], [type="time"])::-webkit-date-and-time-value { text-align: start; margin: 0; }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   /* A period as a small group of its own: its name (Remove in the corner), its times side by side, its days and price
      side by side, each with its small name over it. */
   .tariff-periods { gap: var(--space-10); }
@@ -36180,7 +36389,7 @@ button.busy::after {
   button.busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
   .spinner { animation: fade var(--normal) var(--ease-out) 150ms both; border-color: var(--accent); opacity: 0.5; }
 }
-@media (max-width: 640px) { .panel-columns { grid-template-columns: 1fr; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .panel-columns { grid-template-columns: 1fr; } }
 
 /* The password strength: the ANSSI's bands along 0 to 128 bits as one gradient, from red through amber to green,
    lit up to the password's entropy as you type; the 85-bit bar marked. Its own names: the widgets' dial is .gauge. */
@@ -36264,7 +36473,7 @@ button.busy::after {
 @keyframes sheet-up { from { transform: translateY(calc(100% + 12px)); } }
 @keyframes sheet-dim { from { opacity: 0; } }
 @keyframes sheet-undim { to { opacity: 0; } }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .admin-dialog.sheet {
     margin: auto 0 0; width: 100%; max-width: 100%; max-height: 100%;
     height: calc(100% - 16px - env(safe-area-inset-top) - var(--viewport-top, 0px) - var(--keyboard, 0px));
@@ -36497,7 +36706,7 @@ label > input, label > select { margin-top: 5px; }
 .card.empty.scenes-empty.compact > p { flex: 1; max-width: none; margin: 0; }
 .scenes-empty.compact > .empty-glyph { flex: none; width: 40px; height: 40px; margin: 0; }
 /* A phone: the glyph beside the words, the button under them, rather than the words squeezed between the two. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .scenes-empty.compact { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: start; column-gap: var(--space-14); row-gap: var(--space-12); padding: var(--space-16); }
   .card.empty.scenes-empty.compact > p { font-size: var(--text-base); line-height: 1.4; }
   .scenes-empty.compact > .button { grid-column: 2; justify-self: start; margin: 0; }
@@ -36955,7 +37164,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget-sheet .widget-full { margin: 0; max-height: calc(100dvh - 90px); overflow-y: auto; overscroll-behavior: contain; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); }
 /* On a phone, a sheet rising from the bottom edge, within the thumb's reach, its last control above the home
    indicator. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .widget-sheet { width: 100%; max-width: none; margin: auto 0 0; max-height: calc(100dvh - max(12px, env(safe-area-inset-top))); }
   .widget-sheet[open] { animation: sheet-up 340ms cubic-bezier(0.32, 0.72, 0, 1); }
   .widget-sheet .widget-full { max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - 44px); border-radius: var(--radius-xl) var(--radius-xl) 0 0; border-bottom: 0; padding-bottom: calc(var(--space-16) + env(safe-area-inset-bottom)); }
@@ -36967,7 +37176,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 @keyframes sheet-up { from { transform: translateY(100%); } }
 .w-main, .w-side { display: grid; gap: var(--space-14); align-content: start; min-width: 0; }
 .w-split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--space-20); align-items: start; }
-@media (max-width: 640px) { .w-split { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .w-split { grid-template-columns: minmax(0, 1fr); } }
 .w-block { display: grid; gap: var(--space-10); padding-top: var(--space-12); border-top: 1px solid var(--line); }
 .w-main > .w-block:first-child, .w-side > .w-block:first-child { border-top: 0; padding-top: 0; }
 .w-block-body { display: grid; gap: var(--space-10); }
@@ -37569,7 +37778,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 @media (prefers-reduced-motion: reduce) { .energy-pulse { animation: none; stroke-dasharray: none; opacity: 0.6; } }
 
 /* A phone: tighter cards, smaller tiles, the range across the width. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .energy .chart-grid { gap: var(--space-10); }
   .energy .chart-card { padding: var(--space-14); gap: var(--space-8); }
   .energy .chart-head { gap: var(--space-10); }
@@ -37622,7 +37831,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-share-keys span { display: inline-flex; align-items: center; gap: var(--space-6); }
 .energy-share-keys .key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
 .energy-share-keys b { color: var(--text); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
-@media (max-width: 640px) { .energy-home { flex-direction: column; align-items: stretch; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .energy-home { flex-direction: column; align-items: stretch; } }
 .energy-total { display: grid; gap: 2px; align-content: start; }
 .energy-total span { display: inline-flex; align-items: center; gap: var(--space-6); font-size: var(--text-xs); color: var(--muted); }
 .energy-total .key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
@@ -37665,7 +37874,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-power { margin-top: var(--space-18); }
 .energy-power[open] > summary { margin-bottom: var(--space-12); }
 .energy-power > .chart-grid { margin-top: var(--space-12); }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .energy-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-10); }
   .energy-tile { padding: var(--space-12) var(--space-14); }
   .energy-tile > b { font-size: var(--text-3xl); }
@@ -37710,7 +37919,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumer-sparkline circle { fill: currentColor; }
 .consumer.nested .consumer-sparkline { color: color-mix(in srgb, var(--consumer-tone, var(--series-1)) 65%, var(--material-solid)); }
 .consumer.rest .consumer-sparkline { color: var(--muted); }
-@media (min-width: 641px) {
+@media (min-width: 641px) and (min-height: 501px), (min-width: 641px) and (pointer: fine) {
   .consumers { grid-template-columns: min(30%, var(--consumer-name-width, 11rem)) minmax(0, 1fr) min(8rem, var(--consumer-value-width, 8rem)) 16px 10px; column-gap: var(--space-8); padding-inline: var(--space-10); }
   .consumers > li { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; }
   .consumers .consumer { grid-column: 1 / -1; grid-template-columns: subgrid; padding-inline: 0; }
@@ -37718,7 +37927,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   .consumers .consumer::before, .consumers .consumer-spacer { grid-column: 4; }
   .consumers-inside > span { grid-column: 1 / -1; }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .consumer.action-with-icon, .consumer.rest { grid-template-columns: auto minmax(0, 1fr) auto 16px; grid-template-areas: "name name value icon" "caption note note icon" "track track track track"; align-items: baseline; column-gap: var(--space-12); row-gap: 2px; padding: var(--space-6) var(--space-8); }
   .consumer-name, .consumer-value { display: contents; }
   .consumer-name > span { grid-area: name; }
@@ -37738,7 +37947,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumer.unmeasured { position: relative; }
 .consumer-no-data { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: var(--text-xs); background: repeating-linear-gradient(to right, var(--line) 0 3px, transparent 3px 6px) center / 100% 1px no-repeat; }
 .consumer-no-data > span { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 2px var(--space-8); border-radius: var(--radius-sm); background: var(--material-solid); white-space: nowrap; }
-@media (max-width: 640px) { .consumer-no-data { position: relative; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .consumer-no-data { position: relative; } }
 .consumer-loading { font-size: var(--text-xs); }
 .consumers-loading .consumers, .consumers-loading .actions, .consumers-loading .chart-figure, .consumers-loading .chart-detail { display: none; }
 .consumer-skeleton { display: grid; grid-template-columns: 2fr 1fr; align-items: center; gap: var(--space-16); height: 48px; padding-inline: var(--space-10); }
@@ -37966,6 +38175,11 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .log-details-toggle.action-with-icon::before { width: 11px; height: 11px; }
 
 .log-line .log-details { grid-column: 1 / -1; margin: var(--space-4) 0 var(--space-6); max-height: 420px; overflow: auto; font-size: var(--text-xs); }
+/* Every other line a shade lighter, so a long line's wrap reads as one line and the eye keeps its row. */
+.log > .log-line:nth-child(even):not(.warning, .error, .critical) { background: rgba(255, 255, 255, 0.045); }
+/* Dark mode's console is darker: the shade has to be stronger to be seen. */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .log > .log-line:nth-child(even):not(.warning, .error, .critical) { background: rgba(255, 255, 255, 0.075); } }
+:root[data-theme="dark"] .log > .log-line:nth-child(even):not(.warning, .error, .critical) { background: rgba(255, 255, 255, 0.075); }
 .log-line.warning { background: rgba(201, 115, 26, 0.08); }
 .log-line.warning .text { color: var(--warn); }
 .log-line.error, .log-line.critical { background: rgba(208, 56, 59, 0.08); }
@@ -38011,7 +38225,7 @@ details.entry > summary .entry-move:disabled { opacity: 0.35; }
 @media (hover: hover) and (pointer: fine) { details.entry > summary .entry-move:not(:disabled):hover { background: var(--callout-tint); color: var(--text); } }
 /* A phone: the row's name shortened rather than pushing Remove out, and Remove a round button of its icon, the size of
    Move up and down (its text stays its accessible name). */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   details.entry > summary { gap: var(--space-6); padding-inline: var(--space-12) var(--space-8); }
   details.entry > summary .entry-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   details.entry > summary .entry-detail { display: none; }
@@ -38053,7 +38267,7 @@ dd { margin: 0; }
   .card, header, .log, .banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
   button, input, select, textarea, .pill { border-color: var(--edge); }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   /* The header stays one line: the brand keeps its icon, the links scroll sideways. */
   header { flex-wrap: nowrap; }
   header .brand { font-size: 0; gap: 0; }
@@ -38072,7 +38286,7 @@ dd { margin: 0; }
   .device-row-body { padding-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .servers .server, .card.server { animation: fade var(--normal) ease; } }
-@media (max-width: 640px) { header { gap: var(--space-6); padding: var(--space-6) var(--space-8); } nav a { padding: var(--space-6) var(--space-10); white-space: nowrap; } main { padding: var(--space-14) var(--space-10) 30px; } input[type=range] { width: 110px; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { header { gap: var(--space-6); padding: var(--space-6) var(--space-8); } nav a { padding: var(--space-6) var(--space-10); white-space: nowrap; } main { padding: var(--space-14) var(--space-10) 30px; } input[type=range] { width: 110px; } }
 
 /* The Assistant's chat (chat.js). On a wide window a panel floats beside the page under the header, no scrim,
    so the page stays usable; on a phone it is a sheet over a scrim, dragged by its head. Thick material like
@@ -38125,7 +38339,7 @@ dd { margin: 0; }
 @media (hover: hover) and (pointer: fine) { .chat-model:hover { color: var(--text); background: var(--material-thin); } }
 .chat-model[aria-expanded="true"] { color: var(--text); background: var(--material-thin); }
 /* A phone: the sparkle beside the title goes (the header's button has it), so the model's name has the room. */
-@media (max-width: 640px) { .chat-badge { display: none; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .chat-badge { display: none; } }
 /* A finger gets a taller target than the line it sits on. */
 @media (pointer: coarse) { .chat-model.action-with-icon { padding-block: 7px; margin-block: -5px; } }
 /* A wider window with a mouse: the head is a handle the panel moves by (chat.js). */
@@ -38142,7 +38356,7 @@ dd { margin: 0; }
 .chat-tools a.chat-icon { display: grid; padding: 0; }
 .chat-tools .chat-icon svg { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 /* A phone: the tools a little tighter, so the model's name keeps room beside them. */
-@media (max-width: 640px) { .chat-tools .chat-icon { width: 36px; height: 36px; min-height: 0; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .chat-tools .chat-icon { width: 36px; height: 36px; min-height: 0; } }
 .chat-icon { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 50%; font-size: var(--text-2xl); line-height: 1; }
 .chat-icon svg, .chat-mic svg, .chat-send svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .chat-grabber { display: none; }
@@ -38240,7 +38454,7 @@ dd { margin: 0; }
 .chat-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-4) var(--space-12); margin: var(--space-6) var(--space-16) var(--space-8); min-height: 1.2em; font-size: var(--text-xs); color: var(--muted); text-align: center; letter-spacing: 0.01em; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .chat {
     top: auto; bottom: var(--keyboard, 0px); left: 0; right: 0; width: auto; transform-origin: bottom center;
     height: min(88dvh, 780px, calc(var(--visible, 100dvh) - max(12px, env(safe-area-inset-top))));
@@ -38375,7 +38589,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
    lift left behind by a tap), fields are 16px so Safari does not zoom into them, and the layout pads around the
    notch and the home indicator (viewport-fit=cover). */
 .tabbar { display: none; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   header { top: max(8px, env(safe-area-inset-top)); width: calc(100% - 20px); margin-top: max(var(--space-8), env(safe-area-inset-top)); padding: var(--space-6) var(--space-8) var(--space-6) var(--space-6); }
   header nav { display: none; }
   header .brand { font-size: var(--text-xl); gap: var(--space-8); letter-spacing: -0.015em; }
@@ -38408,7 +38622,6 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
     min-height: 54px; padding: var(--space-6) var(--space-8) var(--space-6) var(--space-16);
     flex-wrap: wrap; border-radius: var(--radius-xl);
   }
-  .settings-bar.beside-mobile-menu { margin-right: calc(70px + env(safe-area-inset-right)); }
   .settings-bar > span:first-child { flex-basis: 60px; }
   .settings-bar > button { flex-shrink: 0; }
   /* Revert as an icon, so the status, Revert and Save fit on one row beside the menu button. */
@@ -38428,7 +38641,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   button:is(.icon-button, .menu-button) { min-width: var(--round-target, 40px); }
   button.link { padding-top: var(--space-10); padding-bottom: var(--space-10); }
   .group button, .chat-suggestions button, .tabbar a { min-height: 0; min-width: 0; }
-  .menu [role="menuitem"] { padding: 11px var(--space-14); font-size: var(--text-lg); }
+  .menu :is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]) { padding: 11px var(--space-14); font-size: var(--text-lg); }
   /* A page's heading beside its tile, smaller; its tools under it. */
   .page-head { flex-wrap: nowrap; align-items: center; gap: var(--space-12); margin: var(--space-4) 0 var(--space-16); }
   .page-head:has(.tools) { flex-wrap: wrap; }
@@ -38614,7 +38827,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 /* A wall tile pans and tilts only at its large size: a smaller one has no room for the pad. */
 .camera-tile:not(.size-large) .ptz-panel, .camera-tile:not(.size-large) .ptz-toggle { display: none; }
 @media (pointer: coarse) { .ptz-chip { min-height: 40px; } .ptz-panel { bottom: 64px; } }
-@media (max-width: 640px) { .ptz-pad { width: 112px; height: 112px; } .ptz-arrow.up, .ptz-arrow.down { left: 39px; } .ptz-arrow.left, .ptz-arrow.right { top: 39px; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .ptz-pad { width: 112px; height: 112px; } .ptz-arrow.up, .ptz-arrow.down { left: 39px; } .ptz-arrow.left, .ptz-arrow.right { top: 39px; } }
 @media (prefers-reduced-motion: reduce) { .ptz-panel { animation: none; } .ptz-thumb { transition: none; } }
 @media (prefers-reduced-transparency: reduce) {
   .ptz-pad, .ptz-chip, .ptz-status { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(20, 22, 28, 0.85); }
@@ -38634,7 +38847,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   .camera-view:hover > .camera-controls, .camera-view:focus-within > .camera-controls { opacity: 1; }
 }
 @media (pointer: coarse) { .camera-button { width: 40px; height: 40px; min-height: 40px; } }
-@media (max-width: 640px) { .camera-view { margin: -6px -8px 0; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .camera-view { margin: -6px -8px 0; } }
 @media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
 @media (prefers-reduced-transparency: reduce) {
   .camera-badge, .camera-button { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(20, 22, 28, 0.85); }
@@ -38713,7 +38926,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
 .animation-colours { display: grid; gap: var(--space-12); }
 .animation-lights { display: grid; gap: var(--space-6); }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
   .quick-scenes > .scene-run, .quick-scenes > .hub-scene-tile { scroll-snap-align: start; }
 }
@@ -38755,7 +38968,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .template-card .status-line:empty { display: none; }
 /* A phone: rooms and each kind of template scroll sideways from edge to edge of the card, snapping to a pill; the input stays
    at 16px so iOS does not zoom into it. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .template-rooms, .template-buttons {
     flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none;
     margin: 0 -20px; padding: 2px var(--space-20) var(--space-6); scroll-padding: 0 20px;
@@ -38801,7 +39014,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .scene-editor .actions > button { flex: none; white-space: nowrap; }
 .scene-editor .actions > select { width: auto; flex: 0 1 auto; min-width: 0; }
 /* A phone: what the row is about (the accessory) across, the rest under it, Remove at the right end. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .editor-row { padding: var(--space-8); }
   .editor-row select { flex: 1 1 40%; }
   .editor-row > select:first-child { flex-basis: 100%; }
@@ -38820,8 +39033,8 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 .accessories-views > .subnav { margin: 0; min-width: 0; }
 /* Add accessories at the row's end; an icon alone at phone width, as in a toolbar. */
 .accessories-views .accessories-add { margin-left: auto; flex: none; min-height: 40px; }
-@media (max-width: 600px) { .accessories-views > .subnav { flex: 1 1 0; width: auto; } }
-@media (max-width: 600px) { .accessories-views .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .accessories-views > .subnav { flex: 1 1 0; width: auto; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .accessories-views .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; } }
 .accessories-views .accessory-options-button { display: grid; place-items: center; flex: none; width: 40px; height: 40px; min-height: 40px; padding: 0;
   color: var(--muted); background: var(--material-thin); box-shadow: none; }
 .accessories-views .accessory-options-button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; }
@@ -38839,7 +39052,7 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 /* A phone: each page its glyph over its whole name, as a tab bar. Tabs keep their width (eight would each get a
    sliver and lose their names to "Child …"): the row fills the width when they fit and scrolls when they do not,
    snapping to a tab, its edges fading where tabs are out of sight. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .subnav { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(max-content, 1fr); width: 100%; border-radius: var(--radius); scroll-snap-type: x proximity; overscroll-behavior-x: contain; }
   .subnav a { display: grid; justify-items: center; min-width: 64px; gap: var(--space-4); padding: var(--space-8) var(--space-10) 7px; border-radius: var(--radius-lg); font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: -0.01em; scroll-snap-align: center; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
   .subnav a span { white-space: nowrap; }
@@ -38880,7 +39093,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .audit-details { max-width: 420px; }
 .audit-details code { display: block; font: 0.75rem/1.4 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (prefers-reduced-transparency: reduce) { .admin-dialog::backdrop { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(10, 14, 24, 0.6); } }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .rows > .row, .rows > .row-block > .row { padding: var(--space-10) var(--space-12); }
   .admin-dialog { padding: var(--space-16); }
   .audit-details { max-width: 240px; }
@@ -38920,7 +39133,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .region-field { display: grid; justify-items: start; gap: var(--space-6); margin-top: var(--space-12); }
 .region-field .group { margin-top: 0; }
 .region-field .help { display: block; max-width: 60ch; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   /* The choices fill the card's width; one that needs two rows (the languages) stretches each row's buttons to the
      edge, so neither row is ragged; a button never shrinks below its text, it moves to the next row. */
   .appearance .group { display: flex; border-radius: var(--radius-lg); }
@@ -39085,7 +39298,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 /* A secret left in config.json stays readable but steps back, so the ones that move stand out. */
 .rows > .row.vault-move.left { opacity: 0.55; }
 .vault-shares { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .rows > .row.vault-move { grid-template-columns: auto minmax(0, 1fr); }
   .rows > .row.vault-move > :last-child { grid-column: 2 / -1; }
 }
@@ -39107,7 +39320,7 @@ span.warning, .vault-problem .warning { color: var(--warn); }
 .vault-row .who > strong { display: block; }
 /* On a phone an entry's date gives way to its name and kind; an expiry stays, it is a warning, on a line of its own
    under them so it squeezes neither. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .vault-when > .muted { display: none; }
   .vault-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--space-12); row-gap: 2px; }
   .vault-row > .tile { grid-row: 1 / span 2; }
@@ -39123,7 +39336,7 @@ span.warning, .vault-problem .warning { color: var(--warn); }
 .rows > .row.vault-problem > button { flex-shrink: 0; }
 /* On a phone a problem reads across the card, its button under it and small: beside it, the message ran down a narrow
    column five lines long. The card's rows sit on its own padding rather than adding theirs. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .rows > .row.vault-problem { flex-wrap: wrap; row-gap: var(--space-8); }
   .rows > .row.vault-problem > .who { flex-basis: 100%; }
   .rows > .row.vault-problem > button { padding: var(--space-6) var(--space-12); font-size: var(--text-sm); }
@@ -39159,7 +39372,7 @@ span.warning, .vault-problem .warning { color: var(--warn); }
 .vault-status-row[data-tone="warn"] .vault-status-says { color: var(--warn); }
 .vault-status-more { margin: 0; padding: var(--space-8) var(--space-20) 0 calc(var(--space-20) + 18px); font-size: var(--text-sm); }
 /* On a phone the button takes the card's width under its head, and a row's text goes under the entry's name. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .vault-status .server-head { flex-wrap: wrap; }
   .vault-status .server-head > .button { order: 3; flex-basis: 100%; justify-content: center; margin-left: 0; }
   .vault-status-row { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 2px; }
@@ -39266,7 +39479,7 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 .log-scope-row label > span, .log-scope-row .log-time > span { font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
 .log-scope-row select.popup { width: 100%; max-width: none; min-width: 0; }
 /* Intermediate widths use both columns instead of reserving a whole row for time. */
-@media (min-width: 641px) and (max-width: 1179px) {
+@media (min-width: 641px) and (max-width: 1179px) and (min-height: 501px), (min-width: 641px) and (max-width: 1179px) and (pointer: fine) {
   .log-filter-panel { gap: var(--space-12); padding: var(--space-16) var(--space-20); }
   .log-scope-row { grid-template-columns: minmax(0, 1fr) minmax(200px, .4fr); align-items: start; gap: var(--space-16); }
   .log-scope-row .log-time { grid-column: auto; }
@@ -39304,7 +39517,6 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 /* The count, Copy, Follow and the menu stay in reach while the page scrolls: under the floating header, solid so the
    lines do not show through. */
 .log-card > .log-action-bar { position: sticky; top: 76px; z-index: 2; background: var(--material-solid); }
-@media (max-width: 640px) { .log-card > .log-action-bar { top: calc(max(var(--space-8), env(safe-area-inset-top)) + 60px); } }
 .log-action-bar .count { font-variant-numeric: tabular-nums; font-size: var(--text-sm); }
 /* One line, whatever fits: the count gives way first, cut short, before a button would wrap under the others. */
 .log-card > .log-action-bar { flex-wrap: nowrap; }
@@ -39316,17 +39528,16 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 /* A level's count beside its name: lighter, digits of one width so the buttons do not shift as lines arrive. */
 .log-level-row .log-level-count { margin-inline-start: var(--space-6); font-size: var(--text-sm); font-variant-numeric: tabular-nums; opacity: .6; }
 .log-level-row .group button.on .log-level-count { opacity: .85; }
-@media (max-width: 640px) {
-  /* On a phone the filters take three short rows: the levels (the count under each name), the search with Clear
-     filters as an icon (only while there is something to clear), and the two menus side by side, named by their
-     aria-label rather than a caption. */
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  /* On a phone the filters are the bar's sheet (the text filter is in the bar): the levels (the count under each name),
+     what the lines are about with Clear filters as an icon beside it (only while there is something to clear), then the
+     time range; the menus named by their aria-label rather than a caption. */
   .log-filter-panel { padding: var(--space-12); gap: var(--space-10); }
   .log-level-row { gap: var(--space-8); }
   .log-level-row > .group { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex: 1 1 100%; border-radius: calc(var(--radius-md) + 3px); }
   .log-level-row > .group button { display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 0; padding: 5px var(--space-4); border-radius: var(--radius-md); line-height: 1.15; }
   .log-level-row .log-level-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
   .log-level-row .log-level-count { margin: 0; font-size: var(--text-2xs); }
-  .log-level-row .search { flex: 1 1 0; width: auto; max-width: none; min-width: 0; }
   .log-level-row .clear-filters { flex: none; width: 40px; height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; }
   .log-level-row .clear-filters:disabled { display: none; }
   /* The History sheet's periods and Clear filters on one row: the button round, its icon alone. */
@@ -39336,24 +39547,13 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .log-scope-row label { gap: 0; margin: 0; }
   .log-scope-row label > span, .log-scope-row .log-time > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .log-scope-row select.popup { margin: 0; padding-block: var(--space-8); }
-  /* Three rows rather than four, so the log starts higher: the levels, then the search and what the lines are about
-     side by side (Clear filters after them while there is something to clear), then the time range. */
-  .log-filter-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 9.5rem);
-    grid-template-areas: "levels levels" "search source" "range range"; column-gap: var(--space-8); }
-  .log-filter-panel:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) minmax(0, 9.5rem) auto;
-    grid-template-areas: "levels levels levels" "search source clear" "range range range"; }
+  .log-filter-panel { grid-template-columns: minmax(0, 1fr); grid-template-areas: "levels" "source" "range"; column-gap: var(--space-8); }
+  .log-filter-panel:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "levels levels" "source clear" "range range"; }
   .log-filter-panel > :is(.log-level-row, .log-scope-row) { display: contents; }
   .log-level-row > .group { grid-area: levels; }
-  .log-level-row .search { grid-area: search; }
   .log-level-row .clear-filters { grid-area: clear; }
   .log-scope-row > label { grid-area: source; min-width: 0; }
   .log-scope-row > .log-time { grid-area: range; min-width: 0; }
-  /* The action bar on one row: the count, then Copy as an icon, Follow and the menu (which has Save payloads). */
-  .log-card .log-action-bar { padding: var(--space-8) var(--space-12); gap: var(--space-8); }
-  .log-card .log-action-bar > .count { flex: 1 1 auto; }
-  /* The count may take two short lines rather than lose its end ("15 of 15 li…"). */
-  .log-card > .log-action-bar > .count { white-space: normal; overflow: visible; text-overflow: clip; font-size: var(--text-xs); line-height: 1.2; }
-  .log-card .log-action-bar > button.action-with-icon { width: 40px; height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; }
 }
 }
 
@@ -39400,7 +39600,7 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .finder .search { width: 100%; min-width: 0; }
 .finder .popup { width: 100%; max-width: none; margin: 0; }
 .finder > button { white-space: nowrap; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .finder { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 0; border-radius: 0; background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
   .finder .search { grid-column: 1 / -1; }
   .finder > button { justify-content: center; }
@@ -39425,7 +39625,7 @@ select:disabled { opacity: .5; cursor: not-allowed; }
    card each. A row of yours opens what its name opens (its page, else its settings), all of it a target that lights up
    when pressed; its state at the end, then its ⋯. Only what needs doing stands out: a note when it is not running as it
    should, and Set up when its account waits. A catalog row ends with its Add. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .grid.plugin-instances, .grid.plugin-catalog { display: block; overflow: hidden; border-radius: var(--radius-lg);
     background-color: var(--material); background-image: var(--sheen); border: 1px solid var(--edge); box-shadow: var(--shadow), inset 0 1px 0 var(--edge-light);
     -webkit-backdrop-filter: blur(var(--blur)) saturate(180%); backdrop-filter: blur(var(--blur)) saturate(180%);
@@ -39547,7 +39747,7 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) { .hub-scene-tile.compact:has(> .scene-run:active) { transform: none; } }
 /* A phone: the scenes run by name as one list, a row each with its ⋯ at the end, rather than capsules that each
    take a line of their own at a different width. A row lights up when pressed, as a list's rows do. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .scene-around > .chips { display: grid; gap: 0; overflow: hidden; border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--edge); box-shadow: var(--shadow-control); }
   .scene-around .hub-scene-tile.compact { max-width: none; border: 0; border-radius: 0; background: none; box-shadow: none; transition: background-color 120ms var(--ease-out); }
   .scene-around .hub-scene-tile.compact + .hub-scene-tile.compact::before { content: ""; position: absolute; top: 0; right: 0; left: 42px; height: 1px; background: var(--line); }
@@ -39572,7 +39772,7 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .templates[open] .templates-chevron { transform: rotate(180deg); }
 .templates .template-card { padding: 0; }
 .templates .template-rooms { padding-bottom: var(--space-14); border-bottom: 1px solid var(--line); }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   /* The moods and a mood's rooms stay a grid of two: they are the page, not a row beside it. */
   .scene-moods { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: row; grid-auto-columns: auto; overflow: visible; padding: 0; }
   .scene-moods .scene-run { min-height: 116px; }
@@ -39725,71 +39925,43 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .accessories-toolbar .accessory-options-button { display: grid; place-items: center; width: 36px; height: 36px; color: var(--muted); background: var(--material-thin); box-shadow: none; }
 .accessories-toolbar .accessory-options-button svg { fill: none; stroke: currentColor; stroke-width: 1.6; width: 19px; height: 19px; }
 @media (max-width: 650px) { .group-picker-columns { grid-template-columns: 1fr; gap: var(--space-16); } .group-picker-columns .group-member-list { max-height: 25vh; } }
-@media (max-width: 600px) { .accessories-toolbar { width: 100%; } .accessories-toolbar .search { flex: 1 1 100%; width: 100%; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .accessories-toolbar { width: 100%; } .accessories-toolbar .search { flex: 1 1 100%; width: 100%; } }
 /* Add accessories: its words where there is room, its plus alone beside the other round buttons on a phone. */
-@media (max-width: 600px) { .accessories-toolbar .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .accessories-toolbar .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; } }
 
 /* The Accessories page's tools (accessoriesBar): the toolbar over the views, as far apart as when the toolbar sat in the
    page's head. Its search button is a phone's. */
 .page-head:has(+ .accessories-bar) { margin-bottom: var(--space-16); }
 .accessories-bar { display: grid; row-gap: var(--space-14); margin: 0 0 var(--space-18); }
 .accessories-bar > .accessories-views { margin: 0; }
-.accessories-bar .accessories-search-toggle { display: none; }
-/* A phone: one bar of glass along the bottom, within the thumb's reach, beside the sections' button (54px at 14px from
-   the right): the views first, then round buttons (the search, Filters with its count, Edit, the options). Full screen and
-   Add are in the options' menu on the wall. The search opens over the row, and the bar rises with the keyboard. */
-@media (max-width: 600px) {
-  main:has(> .accessories-bar) { padding-bottom: calc(max(96px, var(--accessories-bar-height, 54px) + 30px) + env(safe-area-inset-bottom)); }
-  body:has(.chat-dock) main:has(> .accessories-bar) { padding-bottom: calc(max(150px, var(--accessories-bar-height, 54px) + 30px) + env(safe-area-inset-bottom)); }
-  .accessories-bar {
-    position: fixed; z-index: var(--layer-header); left: max(14px, env(safe-area-inset-left)); right: calc(max(14px, env(safe-area-inset-right)) + 62px);
-    bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--keyboard, 0px));
-    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); margin: 0; padding: var(--space-6);
-    border-radius: var(--radius-xl); background-color: var(--material-chrome); background-image: var(--sheen);
-    -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
-    border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
-  }
-  .page-head:has(+ .accessories-bar) { margin-bottom: var(--space-16); }
+/* A phone: the page's bar (`.phone-bar`): the options at its start, the search across the middle, then Filters with its
+   count and Edit, and at its end the Assistant (when there is one) in the accent, asked what is typed. The wall's Graph,
+   Full screen and Add accessories are in the options' menu; on the graph, the wall's button takes you back. */
+.accessories-ask { display: none; }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .accessories-bar > .accessories-toolbar, .accessories-bar > .accessories-views { display: contents; }
-  /* The views as two glyphs, their names for assistive technology. */
-  .accessories-bar .subnav { order: 0; flex: none; width: auto; margin: 0 auto 0 0; padding: 2px; display: flex; overflow: visible; mask-image: none; -webkit-mask-image: none; }
-  .accessories-bar .subnav a { display: grid; place-items: center; width: 40px; min-width: 40px; height: 36px; padding: 0; border-radius: var(--radius-pill); }
-  .accessories-bar .subnav a span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .accessories-bar .subnav svg { width: 20px; height: 20px; }
-  /* Anything else of the toolbar (the Rooms button of Edit by room) after Edit. */
-  .accessories-bar .accessories-toolbar > * { order: 4; }
-  .accessories-bar .accessories-search-toggle { display: grid; order: 1; }
-  .accessories-bar .accessories-filters { order: 2; }
-  .accessories-bar .accessories-edit { order: 3; }
-  .accessories-bar .accessory-options-button.menu-button { order: 5; }
-  .accessories-bar .accessories-full-screen { order: 6; }
-  .accessories-bar .accessories-add { order: 7; }
-  .accessories-bar .in-menu-on-phone { display: none; }
-  /* Every button a 40px circle, as round buttons are at phone width, its glyph in the middle; Filters keeps its count
-     as a badge. (Above the toolbar's own button rule, which lays a glyph and its words side by side.) */
-  .accessories-bar .accessories-toolbar > :is(button, a).accessories-search-toggle, .accessories-bar .accessories-toolbar > :is(button, a).accessories-filters,
-  .accessories-bar .accessories-toolbar > :is(button, a).accessories-edit, .accessories-bar .accessories-toolbar > :is(button, a)[aria-label],
-  .accessories-bar .accessories-toolbar > .accessory-options-button, .accessories-bar .accessories-views > :is(button, a):not(.subnav) {
-    position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; gap: 0; border-radius: 50%; font-size: 0; flex: none;
+  .accessories-bar .subnav { order: 1; flex: none; width: auto; margin: 0; padding: 0; display: flex; background: none; border: 0; box-shadow: none; overflow: visible; mask-image: none; -webkit-mask-image: none; }
+  #app .accessories-bar .subnav:has(> a:first-child.on), #app .accessories-bar .subnav > a.on { display: none; }
+  .accessories-bar .subnav a span, .accessories-bar .accessories-filters .toolbar-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #app .accessories-bar.phone-bar .accessories-toolbar > * { order: 5; }
+  #app .accessories-bar.phone-bar .accessory-options-button.menu-button { order: 0; }
+  #app .accessories-bar.phone-bar .search { order: 2; }
+  #app .accessories-bar.phone-bar .accessories-filters { order: 3; }
+  #app .accessories-bar.phone-bar .accessories-edit { order: 4; }
+  #app .accessories-bar.phone-bar .accessories-ask { order: 6; }
+  #app .accessories-bar :is(.accessories-views, .accessories-toolbar) > :is(button, a):is(.accessories-full-screen, .in-menu-on-phone),
+  #app .accessories-bar .accessories-toolbar > :is(button, a).hidden, #app .accessories-bar .accessories-toolbar > .accessories-ask[hidden] { display: none; }
+  /* Its buttons are the bar's round ones (`.bar-button`'s look), the Assistant's in the accent. */
+  #app .accessories-bar .accessories-toolbar > :is(button, a), #app .accessories-bar .accessories-toolbar > .accessory-options-button, #app .accessories-bar .subnav a {
+    position: relative; display: flex; align-items: center; justify-content: center; width: var(--bar-control); height: var(--bar-control);
+    min-width: var(--bar-control); min-height: var(--bar-control); padding: 0; gap: 0; border-radius: 50%; font-size: 0; flex: none; color: var(--text); border: 0; box-shadow: none;
+    background: color-mix(in srgb, var(--text) 9%, transparent);
   }
-  .accessories-bar .accessories-toolbar > :is(button, a).hidden, .accessories-bar .accessories-views > :is(button, a).in-menu-on-phone { display: none; }
-  .accessories-bar .accessories-filters .toolbar-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .accessories-bar .accessories-filters .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill); font-size: var(--text-2xs); }
-  .accessories-bar .accessories-toolbar button > svg, .accessories-bar .accessory-options-button svg { width: 18px; height: 18px; margin: 0; color: currentColor; opacity: 1; }
-  .accessories-bar .accessories-edit.action-with-icon::before, .accessories-bar .accessories-add.action-with-icon::before { width: 18px; height: 18px; margin: 0; }
-  .accessories-bar .search { order: -1; flex: 1 1 100%; width: 100%; display: none; }
-  /* The field rises out of the row it opens from, briefly; reduced motion shows it at once. */
-  .accessories-bar.searching .search { display: block; animation: accessories-search-in 180ms var(--ease-out); }
-  /* Its buttons are controls: a long press neither selects their names nor opens a callout. */
-  .accessories-bar :is(button, a) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
-}
-@keyframes accessories-search-in { from { opacity: 0; transform: translateY(6px); } }
-@media (prefers-reduced-motion: reduce) { .accessories-bar.searching .search { animation: none; } }
-/* A narrow phone: the buttons a little smaller, so the row still fits beside the sections' button. */
-@media (max-width: 359px) {
-  .accessories-bar { gap: var(--space-4); padding: var(--space-4); }
-  .accessories-bar .accessories-toolbar > :is(button, a, .accessory-options-button), .accessories-bar .accessories-views > :is(button, a):not(.subnav) { width: 36px; height: 36px; min-width: 36px; min-height: 36px; }
-  .accessories-bar .subnav a { width: 36px; min-width: 36px; }
+  #app .accessories-bar .accessories-toolbar > .accessories-ask { display: flex; background: var(--accent-fill); color: var(--accent-text); }
+  .accessories-bar .accessories-ask .sparkle { width: 22px; height: 22px; }
+  #app .accessories-bar :is(.accessories-filters.on, .accessories-edit[aria-pressed="true"]) { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  .accessories-bar .accessories-toolbar button > svg, .accessories-bar .accessory-options-button svg, .accessories-bar .subnav svg { width: 21px; height: 21px; margin: 0; color: currentColor; opacity: 1; }
+  .accessories-bar .accessories-edit.action-with-icon::before { width: 21px; height: 21px; margin: 0; }
 }
 /* Toolbar glyphs stay lighter than their labels. */
 .accessories-toolbar button > svg,
@@ -39859,22 +40031,11 @@ fieldset > .help { margin-bottom: var(--space-10); }
   .restart-overlay.restart-leaving, .restart-overlay.restart-leaving::backdrop { animation: none; }
 }
 
-/* A phone: the Assistant's button above the sections' button, the same 54px circle, in the thumb's reach (chat.js
-   moves it to this dock). Hidden while the app is (the sign-in screen). */
+/* A phone: chat.js keeps the Assistant's button out of the header in this dock; More's panel has the Assistant there. */
 .chat-dock { display: none; }
-@media (max-width: 640px) {
-  .chat-dock { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--float-button) + var(--space-10)); display: block; }
-  body:has(#app.hidden) .chat-dock { display: none; }
-  .chat-dock .chat-open { width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
-    -webkit-backdrop-filter: blur(20px) saturate(140%); backdrop-filter: blur(20px) saturate(140%); }
-  .chat-dock .chat-open .sparkle { width: 26px; height: 26px; }
-}
-/* Compact mobile navigation, anchored within thumb reach. */
-@media (max-width: 640px) {
+/* A phone's navigation (tabBar): More's panel, within thumb reach. */
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .tabbar { left: auto; right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); display: block; padding: 0; border: 0; background: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .mobile-nav-toggle { display: grid; place-items: center; width: var(--float-button); height: var(--float-button); min-height: var(--float-button); padding: 0; border-radius: 50%; color: var(--text); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
-  .mobile-nav-toggle svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-  .mobile-nav-toggle[aria-expanded="true"] { color: var(--accent-ink); }
   .mobile-nav-panel { position: absolute; bottom: 66px; right: 0; width: min(240px, calc(100vw - 28px)); max-height: calc(100dvh - 150px); overflow-y: auto; padding: var(--space-8); border-radius: var(--radius); background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
   .tabbar .mobile-nav-panel a { display: flex; align-items: center; justify-content: flex-start; gap: var(--space-12); min-height: 44px; padding: var(--space-10) var(--space-12); border-radius: var(--radius-md); font-size: var(--text-md); letter-spacing: normal; }
   .tabbar .mobile-nav-panel a.hidden { display: none; }
@@ -39882,16 +40043,14 @@ fieldset > .help { margin-bottom: var(--space-10); }
   .tabbar .mobile-nav-panel a svg { width: 21px; height: 21px; flex: none; }
 }
 
-@media (max-width: 640px) {
-  .mobile-nav-toggle, .mobile-nav-toggle[aria-expanded="true"] { backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); background: linear-gradient(180deg, color-mix(in srgb, var(--accent-fill-top) 72%, transparent), color-mix(in srgb, var(--accent-fill) 72%, transparent)); color: var(--accent-text); border: 1px solid var(--edge-light); box-shadow: 0 6px 22px rgba(0,0,0,.28), 0 0 0 3px var(--material-solid); }
-  .mobile-nav-toggle svg { stroke-width: 2.2; }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .mobile-nav-account { display: flex; align-items: center; gap: var(--space-12); width: 100%; min-height: 44px; padding: var(--space-10) var(--space-12); margin-top: 0; border-radius: var(--radius-md); color: var(--muted); background: transparent; border: 0; box-shadow: none; text-align: start; font-size: var(--text-md); font-weight: var(--weight-semibold); }
   .mobile-nav-account svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 }
 
-@media (max-width: 640px) { header .user-button { display: none; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { header .user-button { display: none; } }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .tabbar .mobile-nav-panel a.active,
   .tabbar .mobile-nav-panel a[aria-current="page"] {
     background: var(--control);
@@ -39915,9 +40074,6 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .port-stepper-buttons button:hover { background: var(--material-regular); color: var(--accent-ink); }
 .port-stepper-buttons svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
-@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  .mobile-nav-toggle, .mobile-nav-toggle[aria-expanded="true"] { background: var(--accent-fill); backdrop-filter: none; -webkit-backdrop-filter: none; }
-}
 
 /* The Status page's Edit button: floating at the window's bottom right while the page scrolls; on a phone,
    at the page's end, clear of the menu button. */
@@ -39940,9 +40096,8 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .status-footer > .link svg { width: 22px; height: 22px; }
 /* On a phone, a round button stacked above the menu button (and above the Assistant's, when it is there), the same
    size, within thumb reach; its words stay its accessible name. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .status-footer { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--float-button) + var(--space-10)); margin: 0; }
-  body:has(.chat-dock) .status-footer { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 2 * (var(--float-button) + var(--space-10))); }
   .status-footer > .link { color: var(--text); box-shadow: var(--shadow-thick); }
   /* Room at the page's end, so its last card scrolls clear of the button. */
   #app > main:has(> .status-footer)::after { content: ""; display: block; height: calc(var(--float-button) + var(--space-10)); }
@@ -40075,7 +40230,7 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .cached-search-tools { display: flex; align-items: center; gap: var(--space-8); margin-left: auto; min-width: 0; }
 .cached-search-tools .search { width: 220px; max-width: 100%; min-width: 0; }
 .cached-search-tools > button { flex-shrink: 0; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .cached-search-tools { flex: 1 1 100%; }
   .cached-search-tools .search { flex: 1; width: auto; }
 }
@@ -40232,7 +40387,7 @@ select option:disabled { color: var(--muted); }
   display: flex; align-items: center; justify-content: center; z-index: 6;
 }
 .wall.editing > .widget.lifted { opacity: .65; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .wall.editing > .widget.group-drop-target::after { font-size: var(--text-xs); }
 }
 
@@ -40398,7 +40553,7 @@ select option:disabled { color: var(--muted); }
 .setup-choices-list { display: grid; gap: var(--space-8); max-height: min(46vh, 420px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; }
 .setup-choice .setup-option { margin: 0; }
 /* On a phone the sheet scrolls, not the list within it. */
-@media (max-width: 640px) { .setup-choices-list { max-height: none; overflow: visible; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .setup-choices-list { max-height: none; overflow: visible; } }
 .setup-option strong { overflow-wrap: anywhere; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); }
 .setup-option-badge { font-size: var(--text-2xs); padding: 1px var(--space-8); }
 /* A word of caution beside a step's message (a phone's private Wi-Fi address). */
@@ -40452,7 +40607,7 @@ select option:disabled { color: var(--muted); }
 .setup-step > .actions:last-child { position: sticky; bottom: calc(-1 * var(--space-20)); margin-bottom: calc(-1 * var(--space-20)); padding: var(--space-16) 0 var(--space-20);
   background: linear-gradient(to bottom, transparent, var(--material-solid) var(--space-8)); }
 /* Opaque from 8px above the buttons: only the space above that fades, so nothing scrolls through under them. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .setup-step > .actions:last-child { bottom: 0; margin-bottom: 0; padding-bottom: calc(var(--space-18) + env(safe-area-inset-bottom, 0px)); }
 }
 .setup-pick input { margin: 0; }
@@ -40494,7 +40649,7 @@ select option:disabled { color: var(--muted); }
   .setup-check { animation: setup-check-in 320ms var(--ease-out) both; }
   @keyframes setup-check-in { from { opacity: 0; transform: scale(0.85); } }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   /* The dot and the menu stay on the name's line; a pill and a button go under the name. */
   .setup-device { grid-template-columns: auto minmax(0, 1fr) auto auto; row-gap: var(--space-8); }
   .setup-device > .status-dot { grid-row: 1; grid-column: 3; }
@@ -40709,7 +40864,7 @@ select option:disabled { color: var(--muted); }
 .detail-status.warn { color: var(--warn); }
 .detail-close, .detail-back { flex: none; width: 32px; height: 32px; min-height: 32px; padding: 0; display: inline-grid; place-items: center; }
 .detail-back { margin-left: -4px; }
-@media (max-width: 640px) { .overview-detail { position: static; width: 100%; max-height: none; margin-top: var(--space-12); box-shadow: var(--shadow-control); } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .overview-detail { position: static; width: 100%; max-height: none; margin-top: var(--space-12); box-shadow: var(--shadow-control); } }
 /* Facts, readings and accessories as inset groups: rows on a tinted panel, a hairline between them. */
 .detail-list, .detail-items { display: block; margin: 0; padding: 0 var(--space-12); list-style: none; border-radius: var(--radius-md); background: color-mix(in srgb, var(--text) 4%, transparent); font-size: var(--text-sm); }
 .detail-list > div { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-14); padding: 7px 0; }
@@ -40922,7 +41077,7 @@ select option:disabled { color: var(--muted); }
 .artwork-theme-row .artwork-choice { scroll-snap-align: start; }
 .artwork-theme[hidden] { display: none; }
 .artwork-picker .artwork-themes { max-height: 640px; overflow-y: auto; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .artwork-theme-row { grid-template-rows: auto; grid-auto-columns: 160px; overscroll-behavior-x: contain; }
 }
 
@@ -41015,7 +41170,7 @@ select option:disabled { color: var(--muted); }
 .location-search-results { display: grid; gap: var(--space-8); }
 .location-search-results button { text-align: left; justify-content: flex-start; white-space: normal; min-height: 44px; }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   :is(.scene-editor, .automation-editor) > .save-bar { position: fixed; left: max(14px, env(safe-area-inset-left)); right: calc(max(14px, env(safe-area-inset-right)) + 64px); bottom: max(14px, env(safe-area-inset-bottom)); margin: 0; padding: var(--space-4); gap: var(--space-4); }
 }
 @media (max-width: 400px) {
@@ -41038,13 +41193,13 @@ select option:disabled { color: var(--muted); }
 .location-result-copy > .muted { font-size: var(--text-sm); }
 .location-search-results button:active { background: var(--material-thick); }
 /* A filtered ancestor would anchor the fixed action bar to the form instead of the viewport. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .scene-editor.card { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--material-solid); }
 }
 
 
 /* Match gallery shelves across templates and plugin scene collections on phones. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .template-group .template-buttons, .scene-tiles:has(> .scene) {
     display: grid; grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: 160px;
     gap: var(--space-12); overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
@@ -41138,7 +41293,7 @@ html.graph-full #view { animation: none; }
 .graph-full-card .overview-zoom button::before { width: 22px; height: 22px; margin: 0; }
 .graph-full-card .overview-zoom button:active { transform: scale(0.94); }
 html.graph-full:not(.wall-awake) .overview-zoom { opacity: 0.32; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .graph-full-card .overview-detail { position: fixed; left: var(--space-8); right: var(--space-8); bottom: max(var(--space-8), env(safe-area-inset-bottom)); width: auto; max-height: 62dvh; margin: 0; box-shadow: var(--shadow-thick); }
 }
 .graph-full-filters { justify-content: flex-start; }
@@ -41171,16 +41326,13 @@ html.wall-full:not(.wall-awake) .wall-full-chrome button { opacity: 0.32; }
   -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
 }
 /* At the bottom right on every screen, in the thumb's reach and off the first widgets: Filters, then Leave full screen
-   above it; on a phone the Assistant's button at the bottom and these above it. The page dots sit centred on the
-   bottom button's line. */
+   above it. The page dots sit centred on the bottom button's line. */
 html.wall-full {
   --wall-edge: max(var(--space-16), env(safe-area-inset-right)); --wall-base: max(var(--space-16), env(safe-area-inset-bottom));
   --wall-stack: var(--wall-base);
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   html.wall-full { --wall-edge: max(14px, env(safe-area-inset-right)); --wall-base: max(14px, env(safe-area-inset-bottom)); }
-  html.wall-full .chat-dock { right: var(--wall-edge); bottom: var(--wall-base); }
-  html.wall-full:has(.chat-dock) { --wall-stack: calc(var(--wall-base) + var(--float-button) + var(--space-10)); }
 }
 .wall-full-options { right: var(--wall-edge); bottom: var(--wall-stack); }
 .wall-full-exit { right: var(--wall-edge); bottom: calc(var(--wall-stack) + var(--float-button) + var(--space-10)); }
@@ -41336,7 +41488,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 /* A plugin page's way to its Settings, at the right of its breadcrumb before Pause. */
 .breadcrumb a.button.small.settings-link { flex: none; margin-left: auto; min-height: 0; height: 28px; padding: 0 11px; gap: var(--space-6); font-size: var(--text-xs); color: var(--text); font-weight: var(--weight-medium); }
 .breadcrumb a.button.small.settings-link.action-with-icon::before { width: 12px; height: 12px; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   /* The dot and the button stay on the name's line; a pill goes under the name. */
   .settings-device { row-gap: var(--space-8); }
   .settings-device > .status-dot { grid-row: 1; grid-column: 3; }
@@ -41405,7 +41557,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .logbook-entry .source > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .logbook-entry .source::before { content: none; }
 .logbook-entry .source svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .logbook-entry { grid-template-columns: auto minmax(0, 1fr); padding: var(--space-10) var(--space-12); }
   .logbook-entry .tile { display: none; }
   .logbook-entry .source { grid-column: 2; justify-self: start; max-width: 100%; }
@@ -41441,7 +41593,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .automation-step .step-tools { display: flex; gap: var(--space-6); align-items: center; flex-wrap: wrap; }
 .automation-step .step-tools .icon-button { width: 36px; height: 36px; min-height: 36px; padding: 0; border-radius: 50%; }
 .automation-tool-fields { width: 100%; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .automation-draft-row { flex-direction: column; align-items: stretch; }
   .automation-step .step-tools .icon-button { width: 40px; height: 40px; min-height: 40px; }
 }
@@ -41489,7 +41641,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 /* Image-led house card, with a raised reading panel overlapping only the garden edge. */
 /* The picture reaches the card's edges: the card's side padding, as a variable, is what the story bleeds by. */
 .energy .chart-card.energy-flow { --flow-pad: var(--space-20); padding: 0 var(--flow-pad); border: 0; box-shadow: var(--shadow); }
-@media (max-width: 640px) { .energy .chart-card.energy-flow { --flow-pad: var(--space-14); } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .energy .chart-card.energy-flow { --flow-pad: var(--space-14); } }
 .energy-house-story { margin: 0 calc(-1 * var(--flow-pad)); }
 .energy-house-story .energy-house img { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
 .energy-house-details { position: relative; margin-top: calc(-1 * var(--space-24)); padding: calc(var(--space-24) + var(--space-16)) var(--flow-pad) var(--space-20); border-radius: var(--radius); background: var(--material-solid); box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08); }
@@ -41554,7 +41706,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 }
 /* A phone: the scene keeps the house picture's shape, too low for three or four circles. The diagram of three or more
    gets a square scene, so its circles and figures stay legible; two circles in a row keep the low one. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .energy-house.diagram .energy-house-scene:has(.energy-node ~ .energy-node ~ .energy-node) { aspect-ratio: 1 / 1 !important; }
 }
 /* Beside the title they sit at the right (the row spreads them); under it, at the left, in line with the title. */
@@ -41713,7 +41865,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 @media (prefers-reduced-motion: reduce) {
   .dash-editing > .dash-widget:not([hidden]) { animation: none; }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   /* Beside the sections' button (54px at 14px from the right), on its line and as tall: the thumb finds both. */
   .dash-edit-bar { left: max(14px, env(safe-area-inset-left)); right: calc(max(14px, env(safe-area-inset-right)) + 62px); transform: none; justify-content: space-between;
     bottom: max(14px, env(safe-area-inset-bottom)); min-height: 54px; box-sizing: border-box; padding: var(--space-6); }
@@ -41739,7 +41891,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .dash-widget.dragging > .dash-edit > .dash-edit-shield { background: transparent; }
 
 /* Phones reorder sections as compact rows; Done restores their full contents. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .dash-editing > .dash-widget.dash-compact:not([hidden]):not(.dash-empty) { padding: 0; height: 56px; min-height: 56px; margin-top: var(--space-12); }
   .dash-widget.dash-compact > :not(.dash-edit) { display: none; }
   .dash-widget.dash-compact > .dash-edit > :not(.dash-edit-header):not(.dash-edit-shield) { display: none; }
@@ -41761,7 +41913,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .glance-meter i.tone-4 { background: var(--series-4); }
 .glance-meter i.tone-7 { background: var(--series-7); }
 .dash-edit-remove.tile { width: 26px; height: 26px; min-width: 26px; min-height: 26px; z-index: 1; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .glance-tile { padding: var(--space-12); }
   .glance-tile > b { font-size: var(--text-3xl); }
   .dash-edit-remove.tile { width: 30px; height: 30px; min-width: 30px; min-height: 30px; }
@@ -41789,7 +41941,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .energy-log-row.tone-7 > i { background: var(--series-7); }
 .energy-log-text { display: grid; gap: 2px; font-size: var(--text-base); line-height: 1.35; }
 .energy-log-text small { font-size: var(--text-xs); color: var(--muted); }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .energy-log-kinds { width: 100%; flex-wrap: nowrap; overflow-x: auto; }
   .energy-log-kinds button { flex: none; }
 }
@@ -41866,7 +42018,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .dash-gallery-toggle.remove { background: #c23a3a; }
 .dash-gallery-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; }
 .dash-gallery-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-@media (max-width: 640px) { .dash-gallery-toggle { width: 40px; height: 40px; min-width: 40px; min-height: 40px; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .dash-gallery-toggle { width: 40px; height: 40px; min-width: 40px; min-height: 40px; } }
 /* A group folds by its title: a chevron that turns, the count on the right. */
 .dash-gallery-group > summary { list-style: none; cursor: pointer; padding: var(--space-6) var(--space-4); border-radius: var(--radius-md); background: none; min-height: 40px; box-sizing: border-box; align-items: center; }
 .dash-gallery-group > summary::-webkit-details-marker { display: none; }
@@ -41900,7 +42052,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .dash-thumb .th-stroke.th-4 { stroke: var(--series-4); }
 .dash-thumb .th-stroke.th-7 { stroke: var(--series-7); }
 .dash-thumb .th-stroke.th-accent { stroke: var(--accent); }
-@media (max-width: 640px) { .dash-thumb { width: 52px; height: 36px; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .dash-thumb { width: 52px; height: 36px; } }
 
 /* Sections and widgets as an inset grouped list (iOS Settings): each group one raised card of rows with hairlines,
    its header plain above it, bold, with its count in a badge. On the page is said by the tick and the red −, not by a
@@ -41990,7 +42142,7 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
   .devices-layout > * { transition: opacity 200ms ease, visibility 0s linear 200ms; }
   .devices-layout > .device-detail[hidden], .devices-layout.pushed > .devices-main { transform: none; }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .devices-table { display: block; }
   .energy-device-row { grid-template-columns: minmax(0, 1fr) auto 18px; min-width: 0; padding-inline: var(--space-14); }
   .energy-device-row > .device-share, .energy-device-row > .device-cost { display: none; }
@@ -42018,7 +42170,7 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
 .dash-edit-remove.tile { z-index: 2; }
 .glance-tile.dragging { position: relative; z-index: 25; box-shadow: 0 16px 34px rgba(0, 0, 0, 0.22); }
 .tiles-moving .dash-tile-move, .tiles-moving .dash-tile-size, .tiles-moving .dash-edit-remove.tile { opacity: 0; }
-@media (max-width: 640px) { .dash-tile-size { width: 30px; height: 30px; min-width: 30px; min-height: 30px; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .dash-tile-size { width: 30px; height: 30px; min-width: 30px; min-height: 30px; } }
 
 /* Scene copies share a compact room selector, with separate inclusion and menu targets. */
 .scene-room-list { display: grid; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
@@ -42027,7 +42179,7 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
 .scene-room-choice { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--space-16); cursor: pointer; }
 .scene-room-choice > span:first-child { overflow-wrap: anywhere; }
 .scene-room-row > .menu-button { flex: none; width: 36px; height: 36px; min-height: 36px; }
-@media (max-width: 640px) { .scene-room-row > .menu-button { width: 40px; height: 40px; min-height: 40px; } }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .scene-room-row > .menu-button { width: 40px; height: 40px; min-height: 40px; } }
 
 .scene-room-selection { margin-bottom: var(--space-16); }
 .scene-room-list + .actions { margin-top: var(--space-16); }
@@ -42091,7 +42243,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .plugins-meta { grid-column: 2; }
   .plugins-open { grid-column: 3; grid-row: 1 / 3; }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .plugins-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); width: 100%; box-sizing: border-box; border-radius: calc(var(--radius) - 2px); }
   .plugins-filters button { min-height: 40px; min-width: 0; padding-inline: var(--space-6); font-size: 12px; border-radius: calc(var(--radius-md) + 1px); }
   .plugins-heading { align-items: flex-start; flex-wrap: wrap; margin-bottom: var(--space-16); }
@@ -42105,7 +42257,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .admin-dialog.sheet.plugins-inspector { box-sizing: border-box; }
 .plugins-accessory > svg { width: 18px; height: 18px; flex: 0 0 18px; }
 .plugins-accessory > .tile { flex-shrink: 0; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .plugins-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-radius: var(--radius-lg); overflow: visible; }
   .plugins-tabs button { flex-direction: column; gap: var(--space-4); min-width: 0; padding: var(--space-8) calc(var(--space-4) / 2); font-size: 11px; border-radius: var(--radius-md); }
 }
@@ -42121,26 +42273,17 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .plugins-settings-actions > .button > svg { flex: 0 0 18px; width: 18px; height: 18px; }
 @media (hover: hover) { .plugins-settings-actions > .button:hover { background: color-mix(in srgb, var(--accent) 8%, var(--material-solid)); } }
 
-@media (max-width: 640px) {
-  .plugins-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: var(--space-12); gap: var(--space-10); }
-  .plugins-toolbar .plugins-filters { grid-column: 1 / -1; }
-  .plugins-toolbar .search { width: 100%; min-width: 0; }
-  .plugins-toolbar .clear-filters { width: 40px; height: 40px; min-height: 40px; padding: 0; font-size: 0; gap: 0; }
-}
 /* Reset never creates an otherwise empty toolbar row. */
 .plugins-toolbar .clear-filters:disabled { display: none; }
 .plugins-toolbar .clear-filters { flex: 0 0 40px; width: 40px; height: 40px; min-height: 40px; padding: 0; margin: 0; gap: 0; font-size: 0; border-radius: 50%; }
-@media (min-width: 641px) and (max-width: 1100px) {
+@media (min-width: 641px) and (max-width: 1100px) and (min-height: 501px), (min-width: 641px) and (max-width: 1100px) and (pointer: fine) {
   .plugins-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: var(--space-10); }
   .plugins-toolbar .plugins-filters { grid-column: 1 / -1; }
   .plugins-toolbar .search { width: 100%; min-width: 0; }
   .plugins-toolbar:has(.clear-filters:disabled) .search { grid-column: 1 / -1; }
 }
-@media (max-width: 640px) {
-  .plugins-toolbar:has(.clear-filters:disabled) .search { grid-column: 1 / -1; }
-}
 /* Status and count occupy the middle of the list instead of stacking under names. */
-@media (min-width: 641px) {
+@media (min-width: 641px) and (min-height: 501px), (min-width: 641px) and (pointer: fine) {
   .plugins-row { grid-template-columns: 40px minmax(0, 1fr) minmax(90px, .35fr) minmax(90px, .35fr) auto; gap: var(--space-12); padding-block: var(--space-12); }
   .plugins-row > .tile { grid-column: 1; grid-row: 1; }
   .plugins-identity { grid-column: 2; grid-row: 1; }
@@ -42170,7 +42313,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .logbook-card .logbook-entry .source { border: 0; background: none; padding: 0; font-size: var(--text-xs); font-weight: var(--weight-regular, 400); }
 .logbook-card .logbook > .empty, .logbook-card .logbook > .error { padding: var(--space-16); margin: 0; }
 @media (hover: hover) and (pointer: fine) { .logbook-card .logbook-entry:hover { background: var(--material-thin); } }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .logbook-card .logbook-periods button { min-width: 0; white-space: normal; font-size: var(--text-xs); }
   .logbook-card .logbook-entry { grid-template-columns: auto minmax(0, 1fr); padding: var(--space-8) var(--space-12); gap: 1px var(--space-8); }
   .logbook-toolbar .clear-filters { width: 40px; height: 40px; min-height: 40px; flex-basis: 40px; }
@@ -42234,13 +42377,13 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .history-full .history-details { padding-top: 0; }
 .history-full .history-details > summary { padding: var(--space-8) var(--space-12); font-size: var(--text-xs); }
 .history-full > .history-note, .history-full > .actions { padding: var(--space-12) var(--space-16); font-size: var(--text-xs); }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
  .history-full .history-head .tools, .history-full .history-head .group { width: 100%; }
  .history-full .history-head .group button { flex: 1; }
 }
 
 /* Logbook has three scope menus, unlike Logs' single source menu. */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .logbook-card > .logbook-toolbar { display: flex; flex-direction: row; flex-wrap: wrap; gap: var(--space-8); padding: var(--space-10); }
   .logbook-toolbar > .log-scope-row { display: grid; flex: 1 1 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6); }
   .logbook-toolbar .log-scope-row > label { grid-area: auto; }
@@ -42370,6 +42513,163 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .widget-climate .climate-airflow > .w-row { box-sizing: border-box; height: var(--airflow-size); }
 .widget-climate .climate-airflow > .chips { align-items: stretch; }
 .widget-climate .climate-airflow .climate-swing.action-with-icon { width: var(--airflow-size); height: var(--airflow-size); min-height: var(--airflow-size); }
+
+/* A phone: a tab bar along the bottom, as iOS has it: the sections used most as tabs (an icon over its name, the current
+   one in a darker pill) and More for the others, Account and the Assistant. */
+.tabbar-tabs { display: none; }
+/* A page's bar on a phone (`.phone-bar`: HomeswiftCommon.filtersToggle, followControls) and what it alone shows. */
+.bar-only, .to-end { display: none; }
+:root {
+  --tab-bar-top: calc(max(14px, env(safe-area-inset-bottom)) + 66px); --float-action: 48px;
+  /* The page's bar over the tab bar: its round controls' size, its height (a control, its padding and border) and where
+     it sits; what it opens and the arrow back to the end sit over it (`--page-bar-top`). */
+  --bar-control: 44px; --page-bar-padding: 5px;
+  --page-bar-height: calc(var(--bar-control) + 2 * var(--page-bar-padding) + 2px);
+  --page-bar-bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--keyboard, 0px));
+  --page-bar-top: calc(var(--page-bar-bottom) + var(--page-bar-height));
+}
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  .tabbar { left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); }
+  .tabbar-tabs { display: flex; gap: 2px; padding: 5px; border-radius: var(--radius-pill); background-color: var(--material-chrome); background-image: var(--sheen);
+    -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light); }
+  .tabbar .tabbar-tabs > :is(a, button) { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 54px;
+    padding: var(--space-6) 2px 5px; border: 0; border-radius: var(--radius-pill); background: none; box-shadow: none; color: var(--text); font-size: 11px; font-weight: var(--weight-semibold);
+    letter-spacing: 0.01em; text-decoration: none; transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out); }
+  .tabbar .tabbar-tabs > :is(a, button) span { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.1; }
+  .tabbar .tabbar-tabs svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .tabbar .tabbar-tabs > a.active, .tabbar .tabbar-more:is(.active, [aria-expanded="true"]) { background: color-mix(in srgb, var(--text) 12%, transparent); color: var(--accent-ink); }
+  .tabbar .tabbar-tabs > :is(a, button):active { background: color-mix(in srgb, var(--text) 8%, transparent); }
+  .tabbar .mobile-nav-panel { right: 0; left: auto; bottom: 74px; }
+  /* Open, More's panel covers the page's bar rather than slipping under it; it lists the sections that are not tabs. */
+  .tabbar:has(> .mobile-nav-panel:not([hidden])) { z-index: var(--layer-panel); }
+  .tabbar .mobile-nav-panel a.is-tab { display: none; }
+  .tabbar .mobile-nav-assistant .sparkle { width: 21px; height: 21px; }
+  #app > main { padding-bottom: calc(var(--tab-bar-top) + var(--space-24)); }
+
+  /* A page's bar: one glass capsule over the tab bar, its search across it (16px, or iOS zooms the page in on focus),
+     its buttons tinted circles (the one that adds or asks in the accent, one switched on tinted with it), a badge on
+     Filters; it rises with the keyboard. #app outweighs the toolbars' own rules on wider windows. */
+  #app > main:has(.phone-bar) { padding-bottom: calc(var(--page-bar-top) + var(--space-24)); }
+  #app .phone-bar {
+    position: fixed; z-index: calc(var(--layer-tabbar) + 1); top: auto; margin: 0; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
+    bottom: var(--page-bar-bottom); display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-6); padding: var(--page-bar-padding);
+    border: 1px solid var(--edge); border-radius: var(--radius-pill);
+    background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
+  }
+  #app .phone-bar .search { order: 1; display: block; flex: 1 1 0; width: auto; max-width: none; min-width: 0; height: var(--bar-control); margin: 0; padding: 0 var(--space-8) 0 var(--space-14);
+    border: 0; border-radius: var(--radius-pill); background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
+  #app .phone-bar .search:focus { outline: none; box-shadow: none; }
+  #app .phone-bar .bar-button {
+    order: 2; position: relative; display: flex; align-items: center; justify-content: center; width: var(--bar-control); height: var(--bar-control);
+    min-width: var(--bar-control); min-height: var(--bar-control); padding: 0; gap: 0; flex: none; font-size: 0; border: 0; border-radius: 50%; box-shadow: none;
+    color: var(--text); background: color-mix(in srgb, var(--text) 9%, transparent);
+  }
+  #app .phone-bar .bar-button:is(.on, [aria-pressed="true"]) { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  #app .phone-bar .bar-button.accent { color: var(--accent-text); background: var(--accent-fill); }
+  #app .phone-bar .bar-button svg { width: 21px; height: 21px; margin: 0; }
+  #app .phone-bar .toolbar-count { position: absolute; top: -3px; right: -3px; display: grid; place-items: center; min-width: 17px; height: 17px; padding: 0 var(--space-4);
+    border-radius: var(--radius-pill); font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
+  #app .phone-bar :is(button, a) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+  /* What Filters opens: a sheet over the bar, closed until then; within the bar itself (the Plugins page's states), just above it. */
+  #app .phone-sheet:not(.open) { display: none; }
+  #app .phone-sheet.open {
+    display: grid; position: fixed; z-index: calc(var(--layer-tabbar) + 2); margin: 0; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
+    bottom: calc(var(--page-bar-top) + var(--space-10)); max-height: calc(100dvh - var(--page-bar-top) - 100px); overflow-y: auto;
+    padding: var(--space-16); border: 1px solid var(--edge); border-radius: var(--radius-lg); background: var(--material-solid); box-shadow: var(--shadow-thick);
+  }
+  #app .phone-bar > .phone-sheet.open { position: absolute; left: 0; right: 0; bottom: calc(100% + var(--space-10)); padding: var(--space-8); }
+  /* Back to the end: a round glass button centred over the bar, there only while the page is away from it. */
+  #app .to-end {
+    display: grid; place-items: center; position: fixed; z-index: calc(var(--layer-tabbar) + 1); left: 50%; width: var(--bar-control); height: var(--bar-control);
+    min-width: var(--bar-control); min-height: var(--bar-control); padding: 0; bottom: calc(var(--page-bar-top) + var(--space-12)); border-radius: 50%; color: var(--text);
+    background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
+    opacity: 0; pointer-events: none; transform: translateX(-50%) scale(.85); transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out);
+  }
+  #app .to-end.shown { opacity: 1; pointer-events: auto; transform: translateX(-50%); }
+  #app:has(.phone-sheet.open) .to-end { opacity: 0; pointer-events: none; }
+  #app .to-end svg, #app .phone-bar .bar-button[aria-pressed] svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  #app .to-end svg { width: 22px; height: 22px; }
+
+  /* The Logs page: the log is the page, scrolled as the page is, under its title alone; its bar has the menu, the text
+     filter, Filters, Follow and the Assistant, and the other filters are its sheet. */
+  main:has(> .log-card) .page-head p { display: none; }
+  .log-card { overflow: visible; padding: 0; background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  /* The newest line sits just above the bar, as in a chat: the log is at least the screen's height left under the title,
+     its lines at its foot, so a short log grows upwards from the bar and new lines arrive beside it. */
+  .log-card > .log { display: flex; flex-direction: column; justify-content: flex-end; height: auto; overflow: visible;
+    min-height: calc(100dvh - var(--page-bar-top) - var(--space-24) - 150px); padding: var(--space-12) var(--space-14); border: 1px solid var(--edge); border-radius: var(--radius-lg); }
+  .log-card > .log > .log-loading { flex: 1; }
+  #app .log-action-bar > .menu-button { order: 0; }
+  #app .log-action-bar > .ai-button { order: 3; }
+  #app .log-action-bar > :is(.count, .spacer, .log-copy, .save-payloads, .log-follow, .ai-button.hidden) { display: none; }
+
+  /* In the Logs page's sheet the time ranges wrap into two rows of four rather than scrolling out of sight. */
+  #app .log-filter-panel .log-time > .group { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; mask-image: none; -webkit-mask-image: none; }
+  #app .log-filter-panel .log-time > .group button { min-width: 0; padding-inline: var(--space-4); }
+
+  /* The Plugins page: its title alone; the search, Filters (the states, one per line) and a round Add in its bar; each
+     plugin's Open a round button, its name kept for assistive technology. */
+  main:has(> .plugins-toolbar) .page-head p, main:has(> .plugins-toolbar) .plugins-heading > .primary { display: none; }
+  #app main > .plugins-toolbar > .clear-filters { display: none; }
+  #app main > .plugins-toolbar > .plugins-filters { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  #app main > .plugins-toolbar > .plugins-filters button { justify-content: flex-start; gap: var(--space-12); min-height: 44px; padding: var(--space-10) var(--space-12);
+    border-radius: var(--radius-md); font-size: var(--text-md); }
+  .plugins-row .plugins-open { width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; border-radius: 50%; justify-content: center; }
+  .plugins-row .plugins-open.action-with-icon::before { margin: 0; }
+
+  /* The Audit log: its title and the settings' tabs; the search, Filters (the filters card) and Follow in its bar; each
+     entry a short card rather than a table row: what was done and its outcome, who, when, then its details. */
+  main:has(> .audit-bar) .page-head p { display: none; }
+  main:has(> .audit-bar) .audit-filter-grid, main:has(> .audit-bar) .audit-search { grid-template-columns: minmax(0, 1fr); }
+  main:has(> .audit-bar) .audit-results .data-table, main:has(> .audit-bar) .audit-results .data-table tbody { display: block; }
+  main:has(> .audit-bar) .audit-results .data-table thead { display: none; }
+  main:has(> .audit-bar) .audit-results .data-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "what outcome" "who who" "time time" "details details";
+    gap: var(--space-4) var(--space-10); padding: var(--space-14) var(--space-16); border-bottom: 1px solid var(--line); }
+  main:has(> .audit-bar) .audit-results .data-table td { display: block; padding: 0; border: 0; min-width: 0; }
+  main:has(> .audit-bar) .audit-results .data-table td:nth-child(1) { grid-area: time; color: var(--muted); font-size: var(--text-sm); }
+  main:has(> .audit-bar) .audit-results .data-table td:nth-child(2) { grid-area: who; display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-6); }
+  main:has(> .audit-bar) .audit-results .data-table td:nth-child(2) .muted { margin: 0; }
+  main:has(> .audit-bar) .audit-results .data-table td:nth-child(3) { grid-area: what; min-width: 0; font-weight: var(--weight-semibold); }
+  main:has(> .audit-bar) .audit-results .data-table td:nth-child(4) { grid-area: outcome; align-self: start; }
+  main:has(> .audit-bar) .audit-results .data-table td:nth-child(5) { grid-area: details; }
+  main:has(> .audit-bar) .audit-results .data-table td:nth-child(5):empty { display: none; }
+  /* Its details' JSON across the card, not held to the table column's width; no box of its own to scroll. */
+  main:has(> .audit-bar) .audit-results .data-table td.audit-details { max-width: none; }
+  main:has(> .audit-bar) .audit-details pre.json { min-width: 0; max-width: none; width: 100%; box-sizing: border-box; }
+  main:has(> .audit-bar) .audit-results .table-scroll { overflow: visible; max-height: none; }
+
+  /* The Status page's button floats over the tab bar's end, as the Accessories page's actions do. */
+  .status-footer { right: max(14px, env(safe-area-inset-right)); bottom: calc(var(--tab-bar-top) + var(--space-10)); }
+  .status-footer > .link { width: var(--float-action); height: var(--float-action); min-width: var(--float-action); min-height: var(--float-action);
+    background-color: var(--material-chrome); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); }
+  #app > main:has(> .status-footer)::after { height: calc(var(--float-action) + var(--space-10)); }
+  .dash-edit-bar { left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: calc(var(--tab-bar-top) + var(--space-10)); }
+  /* Room under the last card for the arranging bar and the tab bar both. */
+  .dash-editing { padding-bottom: calc(var(--tab-bar-top) + var(--space-10) + 64px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tabbar .tabbar-tabs > :is(a, button) { transition: none; }
+  #app .to-end, #app .to-end.shown { transform: translateX(-50%); transition: opacity 160ms linear; }
+}
+
+/* A phone held sideways keeps the phone's layout with less height to spend, as iOS does: a compact tab bar (each icon
+   beside its name), smaller controls in a page's bar, and the header scrolls away with the page rather than floating
+   over it. */
+@media (max-height: 500px) and (pointer: coarse) {
+  :root { --tab-bar-top: calc(max(8px, env(safe-area-inset-bottom)) + 46px); --bar-control: 40px; --page-bar-padding: 3px; }
+  .tabbar { bottom: max(8px, env(safe-area-inset-bottom)); }
+  .tabbar-tabs { padding: 3px; }
+  .tabbar .tabbar-tabs > :is(a, button) { flex-direction: row; gap: var(--space-8); min-height: 38px; padding: var(--space-4) var(--space-8); font-size: var(--text-sm); }
+  .tabbar .tabbar-tabs svg { width: 21px; height: 21px; }
+  .tabbar .mobile-nav-panel { bottom: 52px; max-height: calc(100dvh - 80px); }
+  header { position: relative; top: 0; }
+  .log-card > .log { min-height: calc(100dvh - var(--page-bar-top) - var(--space-24) - 70px); }
+  #app .phone-sheet.open { max-height: calc(100dvh - var(--page-bar-top) - 20px); }
+}
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
@@ -44837,7 +45137,7 @@ self.addEventListener("notificationclick", (event) => {
     if (options.tab === "history" && tabList) choose("history");
     done.addEventListener("click", () => dialog.close());
     // On a phone a swipe down from the grabber or the name puts the sheet away, from where the finger left it.
-    if (matchMedia("(max-width: 640px)").matches) {
+    if (HomeswiftCommon.phone.matches) {
       node.prepend(el("div", { class: "sheet-grabber", "aria-hidden": "true" }));
       const dismiss = () => {
         const from = getComputedStyle(dialog).transform;

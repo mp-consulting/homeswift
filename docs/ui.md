@@ -648,6 +648,12 @@ Escape, the close button, or a swipe on the phone's grabber closes it and return
 ![Plugin inspector on desktop](images/ui/plugins-inspector.png)
 ![Plugin drawer on a phone](images/ui/plugins-drawer.png)
 
+On a phone, as on the Logs page, the page shows its title alone and its actions are one glass bar above the tab bar:
+the search, **Filters** (the states in a sheet over the bar, with a badge while one is chosen) and a round **+** that
+adds a plugin. Each plugin's **Open** is a round button. A phone held sideways keeps this layout.
+
+<img src="images/ui/plugins-phone.png" alt="The Plugins page on a phone: the list, one glass bar with the search, Filters and Add above the tab bar" width="300"> <img src="images/ui/plugins-phone-filters.png" alt="The Plugins page on a phone with Filters open: All, Needs attention, Running and Paused in a sheet over the bar" width="300">
+
 A plugin whose account Needs Authorization says **Needs sign-in**, **Needs pairing** or **Needs keys**.
 Its Overview offers **Set up** or **Set up again**, using the existing Setup flow. One whose every accessory shows
 No Response says **Not responding** and its Events tab provides the log.
@@ -816,11 +822,15 @@ is off until turned on, and the choice is kept in `logs/settings.json`.
 The bridge keeps its log on disk under `logs/` next to config.json: segments of 8 MB at most, a new one each day, the
 oldest removed past 64 MB or 7 days, written in batches once a second so logging never waits for the disk.
 
-<img src="images/ui/logs-phone.png" alt="The Logs page on a phone: the levels in one row, the search and the menus in short rows" width="300">
+<img src="images/ui/logs-phone.png" alt="The Logs page on a phone: the log fills the screen, one glass bar of actions above the tab bar" width="300"> <img src="images/ui/logs-phone-filters.png" alt="The Logs page on a phone with Filters open: the levels, what the lines are about and the time range in a sheet above the bar" width="300">
 
-On a phone the filters take three short rows: the levels with each count under its name, the search with Clear filters
-as an icon (shown when there is something to clear), and the time range and the menu. **Save payloads** moves into the
-**⋯** menu.
+<img src="images/ui/logs-phone-landscape.png" alt="The Logs page on a phone held sideways: the same bar of actions and a compact tab bar" width="600">
+
+On a phone the log is the page: it scrolls as the page does, under the title alone, its newest line just above the
+bar, where new lines arrive (a short log grows upwards from it), and Follow keeps the page's end in view. Scrolled up, a round arrow over the bar goes back to the latest lines. A phone held sideways keeps this layout, with a compact tab bar, and the
+header scrolls away with the page. Every other line is a shade lighter, so a wrapped line reads as one. Its actions are one glass bar above the tab bar: the **⋯** menu (the count, Copy, Save payloads, Download, Empty
+the log), the text filter, **Filters** (its badge counts the filters that are not the defaults), Follow as a pause
+button (play once paused; on from the start) and the Assistant's Diagnose. **Filters** opens the levels, what the lines are about and the time range in a sheet above the bar.
 
 ### Settings
 
@@ -913,6 +923,10 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
   and every change made in this UI (client `web UI`, the user, the route, a small body with its secrets masked), newest
   first, filtered by time, outcome, tool and client (`/settings/audit?since=7d&outcome=failed&tool=…&client=…`).
   `auditLog: false` in the MCP block turns it off.
+  On a phone, as the Logs page, the search and **Filters** (the time range, outcome and scope in a sheet over the bar,
+  with a badge while they are not the defaults) are one glass bar above the tab bar, and each entry is a short card.
+  The newest entry is at the foot, by the bar, and new ones arrive there every few seconds while Follow (the pause
+  button beside Filters, play once paused) is on; scrolled up, a round arrow goes back to the newest.
 - **Assistant** (`/settings/assistant`): the HomeswiftAiKit block's whole form (the provider, model and key, the MCP
   server and the rest) with its save bar, under a card with **Test connection** (it takes the form's settings, saved or
   not), what the Assistant used today and this month against its budgets, by model and by user, and **Edit the budgets**,

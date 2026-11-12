@@ -40,6 +40,7 @@
     wingman: '<g transform="translate(0 4.32) scale(.048)"><g fill="currentColor" stroke="none"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/><g transform="translate(500 0) scale(-1 1)"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/></g></g><path d="M136 220L250 104L364 220M153 205V305H347V205" fill="none" stroke="currentColor" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/></g>',
     power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
     // Full screen: a frame with its corners pulled out, top right and bottom left.
+    arrowDown: '<path d="M12 5v14M6 13l6 6 6-6"/>',
     expand: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M13.5 7.5h3v3M10.5 16.5h-3v-3"/>',
     // Leaving full screen: expand's corners turned inward.
     collapse: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M16.5 10.5h-3v-3M7.5 13.5h3v3"/>',
@@ -393,6 +394,20 @@
   // It grows out of its button and goes back into it; the arrow keys move between items, Escape and a click
   // elsewhere close it, and focus returns to the button.
 
+  /// What the pages call a phone: a narrow window, or a short touch screen (a phone held sideways). style.css's phone
+  /// rules use the same query; this is the one the scripts read (`.matches`, and its `change` event).
+  const phone = matchMedia("(max-width: 640px), (max-height: 500px) and (pointer: coarse)");
+
+  /// A view's lifetime: aborted when the next one is drawn (`nextView`, the router's), so a page's listeners and timers
+  /// given `{ signal: viewSignal() }` go with it rather than holding the page until they next fire.
+  let viewController = new AbortController();
+  const viewSignal = () => viewController.signal;
+  const nextView = () => { viewController.abort(); viewController = new AbortController(); };
+
+  /// Something now covers the page, or stops covering it (a menu, a phone's sheet of filters): `homeswift-covering` on the
+  /// document, so a page following its end holds still under it and catches up after (the Logs page).
+  const covering = () => document.dispatchEvent(new Event("homeswift-covering"));
+
   let openMenu = null;
 
   /// Text as searches compare it: without accents or case, so "salon" finds "Salón".
@@ -408,6 +423,7 @@
     if (openMenu?.trigger === trigger) { openMenu.close(); return; }
     openMenu?.close(true);
     let pending = false, cancelDrag = null;
+    const liveHeadings = [];   // the headings following a node's text (`live`), let go when the menu closes
     const refreshDisabled = [], refreshChecked = [];
     const searchable = [];
     const given = items.filter(Boolean);
@@ -426,8 +442,15 @@
       // Who the menu is about (the header's account menu): a name and a line under it, not an action.
       // `callout`: a notice set apart in a tinted box with its icon (the Home Link's state), `tone` "warn" or "error".
       if (item.heading !== undefined) {
+        // `live`: a node whose text the heading follows while the menu is open (the Logs page's count of lines).
+        const strong = el("strong", { text: item.live ? item.live.textContent : item.heading });
+        if (item.live) {
+          const follow = new MutationObserver(() => { strong.textContent = item.live.textContent; });
+          follow.observe(item.live, { childList: true, characterData: true, subtree: true });
+          liveHeadings.push(follow);
+        }
         return el("div", item.callout ? { class: `menu-heading menu-callout${item.tone ? ` ${item.tone}` : ""}`, role: "note" } : { class: "menu-heading" },
-          item.callout && item.icon ? icon(item.icon) : null, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
+          item.callout && item.icon ? icon(item.icon) : null, strong, item.detail ? el("span", { text: item.detail }) : null);
       }
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
       // `checked` may be a function, asked again after each choice of a menu that stays open (a Group's row follows
@@ -586,7 +609,7 @@
     }
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
-    const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
+    const sheet = phone.matches && !trigger.closest("header");
     // The search and its pills stay above the items, which scroll on their own; a sheet whose items stay open as they
     // are chosen (several lights) ends with Done, within the thumb's reach.
     const head = field ? el("div", { class: "menu-head" }, field, pills) : null;
@@ -647,6 +670,8 @@
       if (openMenu?.list !== list) return;
       cancelDrag?.();
       openMenu = null;
+      covering();
+      liveHeadings.forEach((observer) => observer.disconnect());
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("pointerdown", onPointer, true);
       removeEventListener("resize", onResize);
@@ -664,6 +689,7 @@
     document.addEventListener("pointerdown", onPointer, true);
     addEventListener("resize", onResize);
     openMenu = { trigger, list, close };
+    covering();
     // A search field takes the focus, but not on a phone's sheet, where the keyboard would cover the items.
     if (field && !sheet) field.focus({ preventScroll: true });
     else if (keyboard) focusAt(0); else list.focus({ preventScroll: true });
@@ -777,7 +803,7 @@
   function openSheet(build, labelledBy, { onClose = null, returnFocus = document.activeElement } = {}) {
     const dialog = el("dialog", { class: "admin-dialog card sheet", "aria-labelledby": labelledBy });
     const reduce = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const vertical = () => matchMedia("(max-width: 640px)").matches;   // a phone: a sheet from the bottom edge
+    const vertical = () => phone.matches;   // a phone: a sheet from the bottom edge
     let result, leaving = false;
     // Out along the edge it came from, from wherever it is now (a drag may have moved it), faster than it came.
     const dismiss = (value) => {
@@ -859,6 +885,76 @@
     viewport.addEventListener("resize", fit);
     viewport.addEventListener("scroll", fit);
     return () => { viewport.removeEventListener("resize", fit); viewport.removeEventListener("scroll", fit); };
+  }
+
+  // The page follows the phone's keyboard once, for every bar that sits on the bottom (`--keyboard`): iOS covers the
+  // page rather than resizing it. Only while a field is typed in: zooming in shrinks the visual viewport too, and the
+  // bars would float up the page with it.
+  {
+    const root = document.documentElement, viewport = window.visualViewport;
+    const typing = () => document.activeElement?.matches?.("input:not([type=checkbox], [type=radio], [type=range], [type=button]), textarea, [contenteditable]");
+    const fit = () => root.style.setProperty("--keyboard",
+      viewport && typing() ? `${Math.max(0, Math.round(innerHeight - viewport.height - viewport.offsetTop))}px` : "0px");
+    viewport?.addEventListener("resize", fit);
+    viewport?.addEventListener("scroll", fit);
+    document.addEventListener("focusin", fit);
+    document.addEventListener("focusout", () => setTimeout(fit));
+  }
+
+  /// A phone's Filters button for a page's bar (`.phone-bar`): it opens `sheet` over the bar (`.phone-sheet`, `open`),
+  /// a badge counting the filters that are not the defaults (`count(n)`). A tap elsewhere, but not in a menu one of the
+  /// sheet's pickers opened, or Escape closes it.
+  function filtersToggle(sheet) {
+    sheet.classList.add("phone-sheet");
+    sheet.id ||= `phone-sheet-${Math.random().toString(36).slice(2)}`;
+    const badge = el("span", { class: "toolbar-count hidden" });
+    const button = el("button", { type: "button", class: "bar-button bar-only", "aria-label": t("Filters"), title: t("Filters"),
+      "aria-controls": sheet.id, "aria-expanded": "false" }, icon("filter"), badge);
+    const isOpen = () => sheet.classList.contains("open");
+    const open = (state) => {
+      if (state === isOpen()) return;
+      sheet.classList.toggle("open", state);
+      button.setAttribute("aria-expanded", String(state));
+      covering();
+    };
+    button.addEventListener("click", () => open(!isOpen()));
+    document.addEventListener("pointerdown", (event) => {
+      if (isOpen() && !sheet.contains(event.target) && !button.contains(event.target) && !event.target.closest?.('[role="menu"], .menu-scrim')) open(false);
+    }, { signal: viewSignal() });
+    sheet.addEventListener("keydown", (event) => { if (event.key === "Escape" && isOpen()) { open(false); button.focus(); } });
+    const count = (n) => {
+      badge.textContent = String(n);
+      badge.classList.toggle("hidden", !n);
+      button.classList.toggle("on", n > 0);
+    };
+    return { button, open, isOpen, count };
+  }
+
+  /// A phone's way of following a page that grows at its foot (the Logs page, the Audit log), as a chat does: a pause
+  /// button for the page's bar (play once paused) and a round arrow over the bar while the page is away from its end,
+  /// back to it. `following()` and `setFollowing(on)` keep the state; `paint()` redraws the button after a change.
+  function followControls({ following, setFollowing }) {
+    const scroller = () => document.scrollingElement;
+    const away = () => scroller().scrollHeight - scroller().scrollTop - innerHeight;
+    const atEnd = () => away() < 40;
+    const toEnd = (smooth = false) => {
+      const glide = smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+      scroller().scrollTo({ top: scroller().scrollHeight, behavior: glide ? "smooth" : "auto" });
+      // A jump fires no scroll event when the page was already there: the arrow is put away here.
+      if (!glide) showLatest();
+    };
+    const button = el("button", { type: "button", class: "bar-button bar-only", "aria-label": t("Follow"), onclick: () => setFollowing(!following()) });
+    const paint = () => {
+      button.setAttribute("aria-pressed", String(following()));
+      button.title = following() ? t("Pause") : t("Follow");
+      button.replaceChildren(icon(following() ? "pause" : "play"));
+    };
+    const latest = el("button", { type: "button", class: "to-end", "aria-label": t("Go to the latest lines"), title: t("Go to the latest lines"),
+      onclick: () => { setFollowing(true); toEnd(true); } }, icon("arrowDown"));
+    const showLatest = () => latest.classList.toggle("shown", phone.matches && away() > 120);
+    addEventListener("scroll", () => { if (phone.matches) showLatest(); }, { passive: true, signal: viewSignal() });
+    paint();
+    return { button, latest, paint, atEnd, toEnd, showLatest };
   }
 
   /// Where floating UI opened from `anchor` goes: the open modal dialog it is in (an accessory's sheet), which is in the
@@ -1414,32 +1510,53 @@
 
   const sections = [["/status", t("Status"), "bridge"], ["/energy", t("Energy"), "bolt"], ["/accessories", t("Accessories"), "bulb"], ["/automations", t("Automations"), "workflow"], ["/logbook", t("Logbook"), "history"], ["/plugins", t("Plugins"), "plugin"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
 
+  /// The sections a phone's tab bar shows as tabs; the others are under More.
+  const tabSections = new Set(["/status", "/accessories", "/automations"]);
+
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
   /// none). Hidden on wider windows, where the header holds them.
   function tabBar({ active, parent = document.body } = {}) {
     const existing = document.querySelector("nav.tabbar");
     if (existing) return existing;
+    // More lists the sections that are not tabs (`is-tab` hides the others there).
     const panel = el("div", { class: "mobile-nav-panel", id: "mobile-nav-panel", hidden: true }, sections.map(([path, text, glyph]) =>
-      el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
-    const toggle = el("button", { type: "button", class: "mobile-nav-toggle", "aria-label": t("Sections"), "aria-expanded": "false", "aria-controls": "mobile-nav-panel" });
-    toggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/></svg>';
-    const setOpen = (open) => { panel.hidden = !open; toggle.setAttribute("aria-expanded", String(open)); };
+      el("a", { href: path, class: [path === active ? "active" : "", tabSections.has(path) ? "is-tab" : ""].filter(Boolean).join(" "),
+        "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
+    // A phone's tab bar: the sections used most as tabs, an icon over its name each, and More for the others (the
+    // panel, which also has Account and the Assistant).
+    const more = el("button", { type: "button", class: "tabbar-more", "aria-controls": "mobile-nav-panel", "aria-expanded": "false" }, icon("more"), el("span", { text: t("More") }));
+    const tabs = el("div", { class: "tabbar-tabs" },
+      sections.filter(([path]) => tabSections.has(path)).map(([path, text, glyph]) =>
+        el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))),
+      more);
+    const setOpen = (open) => {
+      panel.hidden = !open;
+      more.setAttribute("aria-expanded", String(open));
+    };
+    // The Assistant, when there is one: on a phone it has no button of its own over the page.
+    const assistant = el("button", { type: "button", class: "mobile-nav-account mobile-nav-assistant", hidden: true, onclick: (event) => {
+      event.stopPropagation();
+      setOpen(false);
+      window.HomeswiftChat?.open();
+    } }, sparkle(), el("span", { text: t("Assistant") }));
+    panel.append(assistant);
     panel.append(el("hr", { class: "mobile-nav-divider" }));
     panel.append(el("button", { type: "button", class: "mobile-nav-account", onclick: (event) => {
       event.stopPropagation();
       setOpen(false);
-      document.dispatchEvent(new CustomEvent("homeswift-account-menu", { detail: { trigger: toggle, keyboard: event.detail === 0 } }));
+      document.dispatchEvent(new CustomEvent("homeswift-account-menu", { detail: { trigger: more, keyboard: event.detail === 0 } }));
     } }, icon("user"), el("span", { text: t("Account") })));
     // Homeswift's section under Account, as at the side menu's foot; the page draws it (`.side-about`).
     panel.append(el("details", { class: "side-about mobile-nav-about", hidden: true }));
-    toggle.addEventListener("click", () => setOpen(panel.hidden));
+    const openPanel = () => { assistant.hidden = !window.HomeswiftChat?.available(); setOpen(panel.hidden); };
+    more.addEventListener("click", openPanel);
     panel.addEventListener("click", (event) => { if (event.target.closest("a")) setOpen(false); });
-    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, toggle);
+    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, tabs);
     document.addEventListener("pointerdown", (event) => { if (!bar.contains(event.target)) setOpen(false); });
     bar.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") { setOpen(false); toggle.focus(); }
-      if (event.target === toggle && event.key === "ArrowUp") {
+      if (event.key === "Escape") { setOpen(false); more.focus(); }
+      if (event.target === more && event.key === "ArrowUp") {
         event.preventDefault(); setOpen(true); panel.querySelector("a:not(.hidden)")?.focus();
       }
     });
@@ -1626,31 +1743,6 @@
       event.preventDefault(); openSelectMenu(select, true);
     }
   });
-
-  // Reserve horizontal space only when a sticky save bar shares the floating menu's height.
-  let saveBarFrame = 0;
-  function updateSaveBarPosition() {
-    if (saveBarFrame) return;
-    saveBarFrame = requestAnimationFrame(() => {
-      saveBarFrame = 0;
-      const bars = document.querySelectorAll(".settings-bar");
-      if (!bars.length) return;
-      const toggle = document.querySelector(".mobile-nav-toggle");
-      const mobile = matchMedia("(max-width: 640px)").matches;
-      const menuRect = mobile && toggle ? toggle.getBoundingClientRect() : null;
-      bars.forEach((bar) => {
-        // Measured only beside a menu: a desktop page changing does not lay it out again.
-        if (!menuRect) { bar.classList.remove("beside-mobile-menu"); return; }
-        const rect = bar.getBoundingClientRect();
-        const beside = menuRect && menuRect.height > 0 && rect.bottom > menuRect.top && rect.top < menuRect.bottom;
-        bar.classList.toggle("beside-mobile-menu", Boolean(beside));
-      });
-    });
-  }
-  document.addEventListener("scroll", updateSaveBarPosition, { passive: true, capture: true });
-  window.addEventListener("resize", updateSaveBarPosition, { passive: true });
-  new MutationObserver(updateSaveBarPosition).observe(document.body, { childList: true, subtree: true });
-  updateSaveBarPosition();
 
   const decorateStaticActions = () => document.querySelectorAll("[data-action-icon]").forEach((node) => decorateAction(node, node.dataset.actionIcon));
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", decorateStaticActions);
@@ -2047,6 +2139,7 @@
   window.HomeswiftCommon = {
     foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
     openSheet, confirmAction,
+    phone, viewSignal, nextView, filtersToggle, followControls, menuOpen: () => Boolean(openMenu),
     $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };

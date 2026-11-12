@@ -255,9 +255,11 @@ await send("Page.addScriptToEvaluateOnNewDocument", { source: pageScript });
 
 /// Opens `path` at the size given, waits for `ready` (a selector), runs `prepare`, and saves the page down to `tall`
 /// at most (the viewport's height when left out), or only `element` (a selector, its section, with a margin).
-async function shot(name, path, { width = 1280, height = 900, mobile = false, ready = "main h1", prepare = "", tall, element, viewportOnly = false } = {}) {
+async function shot(name, path, { width = 1280, height = 900, mobile = false, ready = "main h1", prepare = "", tall, element, viewportOnly = false, touch = false } = {}) {
   if (process.env.UI_SHOTS_ONLY && !process.env.UI_SHOTS_ONLY.split(",").includes(name)) return;
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile });
+  // A phone's touch screen (pointer: coarse): a phone held sideways is wider than 640px and still a phone.
+  await send("Emulation.setTouchEmulationEnabled", { enabled: touch, maxTouchPoints: touch ? 5 : 1 });
   await send("Page.navigate", { url: base + path });
   for (let i = 0; i < 60; i++) {
     if (await evaluate(`!!document.querySelector(${literal(ready)})`)) break;
@@ -324,6 +326,8 @@ try {
   await shot("plugins", "/plugins", { ready: ".plugins-row", tall: 1000 });
   await shot("plugins-inspector", "/plugins", { ready: ".plugins-row", prepare: 'document.querySelector(".plugins-name").click();' });
   await shot("plugins-phone", "/plugins", { width: 375, height: 812, mobile: true, ready: ".plugins-row" });
+  await shot("plugins-phone-filters", "/plugins", { width: 375, height: 812, mobile: true, ready: ".plugins-row", prepare: 'document.querySelector(".phone-bar [aria-controls]").click();' });
+  await shot("plugins-phone-landscape", "/plugins", { width: 844, height: 390, mobile: true, touch: true, ready: ".plugins-row", viewportOnly: true });
   await shot("plugins-drawer", "/plugins", { width: 375, height: 812, mobile: true, ready: ".plugins-row", prepare: 'document.querySelector(".plugins-name").click();' });
   await shot("plugins-accessories", "/plugins", { ready: ".plugins-row", prepare: 'document.querySelector("[data-plugin=demo] .plugins-name").click(); document.querySelector("#plugins-tab-1").click();' });
   await shot("plugins-events", "/plugins", { ready: ".plugins-row", prepare: 'document.querySelector("[data-plugin=demo] .plugins-name").click(); document.querySelector("#plugins-tab-3").click();' });
@@ -338,10 +342,14 @@ try {
   await shot("config", "/settings/config", { ready: ".code-editor", tall: 900 });
   await shot("logs", "/logs?level=trace", { ready: ".log-filter-panel", tall: 900 });
   await shot("logs-medium", "/logs?level=trace", { width: 1145, height: 867, ready: ".log-filter-panel" });
-  await shot("logs-phone", "/logs?level=trace", { width: 390, height: 844, mobile: true, ready: ".log-filter-panel" });
+  await shot("logs-phone", "/logs?level=trace", { width: 390, height: 844, mobile: true, ready: ".phone-bar [aria-controls]", viewportOnly: true });
+  await shot("logs-phone-landscape", "/logs?level=trace", { width: 844, height: 390, mobile: true, touch: true, ready: ".phone-bar [aria-controls]", viewportOnly: true });
+  await shot("logs-phone-filters", "/logs?level=trace", { width: 390, height: 844, mobile: true, ready: ".phone-bar [aria-controls]", viewportOnly: true, prepare: 'document.querySelector(".phone-bar [aria-controls]").click();' });
   await shot("appearance", "/appearance", { ready: ".wallpapers", tall: 2200 });
   await shot("backups-phone", "/settings/backups", { width: 375, height: 812, mobile: true, ready: ".drop-zone" });
   await shot("audit-phone", "/settings/audit?since=7d", { width: 375, height: 812, mobile: true, ready: ".audit-filter-footer" });
+  await shot("audit-phone-filters", "/settings/audit?since=7d", { width: 375, height: 812, mobile: true, ready: ".phone-bar [aria-controls]", prepare: 'document.querySelector(".phone-bar [aria-controls]").click();' });
+  await shot("audit-phone-landscape", "/settings/audit?since=7d", { width: 844, height: 390, mobile: true, touch: true, ready: ".phone-bar [aria-controls]", viewportOnly: true });
   await shot("backups", "/settings/backups", { ready: ".drop-zone", tall: 1000 });
   await shot("vault", "/settings/vault", { ready: ".vault-move", tall: 800 });
   // An accessory's History tab, and the Logbook (the demonstration's day, from writeHistory).

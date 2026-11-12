@@ -16,9 +16,18 @@ All notable changes to this project are documented here. The format follows
   mean and point to the Wingman page's hidden groups, and a message Apple Home gave several times shows once with a count.
 - **Remove a room**: in Edit, a red bin beside each room's name removes it once confirmed; its accessories go to No room,
   and with the Home Link it goes from Apple Home too.
+- **A phone's tab bar**: Status, Accessories and Automations as tabs along the bottom and More for the other sections,
+  Account and the Assistant, lit while one of them is shown.
+- **A phone's page bar**: the Accessories, Logs, Plugins and Audit log pages keep their actions in one glass bar above
+  the tab bar (the search, Filters with a badge opening a sheet of the other filters, and the page's own buttons), which
+  rises with the keyboard. A phone held sideways keeps this layout, with a compact tab bar.
+- **Logs and the Audit log follow live on a phone**: the newest line or entry sits just above the bar and new ones arrive
+  there; Follow is a pause button beside Filters, and a round arrow goes back to the newest while scrolled up. The log
+  is the whole page, every other line a shade lighter; audit entries are short cards, and an open Details stays open.
 
 ### Fixed
 
+- **Search zoom on iPhone**: the phone's search fields are 16px, so iOS no longer zooms the page in when one is tapped.
 - **Home Link waiting for confirmation**: while a first link waits to be confirmed, changes made here wait with it
   instead of reaching a home not yet confirmed.
 - **Apple Home's Default Room**: an accessory in it is in no room here; the Default Room no longer becomes a room of the
