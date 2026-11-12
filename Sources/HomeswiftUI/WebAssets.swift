@@ -41764,8 +41764,8 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .automation-step .step-tools { display: flex; gap: var(--space-6); align-items: center; flex-wrap: wrap; }
 .automation-step .step-tools .icon-button { width: 36px; height: 36px; min-height: 36px; padding: 0; border-radius: 50%; }
 .automation-tool-fields { width: 100%; }
-/* A Step that starts with the one before: its own line at the row's foot, and a bar joining its number to the one above. */
-.automation-step .step-together { flex-basis: 100%; margin: 0; font-weight: var(--weight-regular); color: var(--muted); }
+/* A Step that starts with the one before: its own line at the top of the row, beside the bar joining its number to the one above. */
+.automation-step .step-together { order: -1; flex-basis: 100%; margin: 0; font-weight: var(--weight-regular); color: var(--muted); }
 .automation-step.joined::after { content: ""; position: absolute; left: 10px; top: calc(-1 * var(--space-8) - 1px); height: calc(var(--space-12) + var(--space-8) + 1px);
   width: 2px; border-radius: 1px; background: var(--accent); }
 .automation-step.joined::before { border-color: var(--accent); }

@@ -205,10 +205,10 @@ enum AutomationRules {
             throw CatalogError("\(label): the type must be scene, set, wait, waitUntil, notify or tool")
         }
         var step = AutomationStep(type: type)
+        // Kept where it can apply only (`automation(from:)` drops it on the first Step and right after a wait).
         if let value = object["withPrevious"], !value.isNull {
             guard let on = value.boolValue else { throw CatalogError("\(label): withPrevious is true or false") }
-            guard !on || !step.isWait else { throw CatalogError("\(label): a wait does not start with the step before") }
-            step.withPrevious = on ? true : nil
+            step.withPrevious = on && !step.isWait ? true : nil
         }
         switch type {
         case "scene":
@@ -546,8 +546,15 @@ extension HomeswiftCatalog {
                 before = current.last?.task
             }
             let task = Task<Void, Never>.detached {
-                // Queued: after the run before it, however it ends.
-                await before?.value
+                if let before {
+                    // Queued: after the run before it, however it ends, and only if a trigger's conditions still hold.
+                    await before.value
+                    if !manual, let reason = catalog.conditionsFail(automation.conditions) {
+                        catalog.noteSkip(automation, trigger: trigger, reason: "queued, then: \(reason)")
+                        catalog.forgetRun(run, of: automation.id)
+                        return
+                    }
+                }
                 await ChangeSource.automation(automation.name).run { await catalog.runSteps(of: automation, trigger: trigger, run: run) }
             }
             runs[automation.id, default: []].append(AutomationRunning(run: run, task: task))
@@ -565,6 +572,34 @@ extension HomeswiftCatalog {
         home.automationRuns.withLockedValue { $0.removeValue(forKey: id) }?.forEach { $0.task.cancel() }
     }
 
+    /// Takes an ended run out of the Automation's runs.
+    func forgetRun(_ run: UUID, of id: String) {
+        home.automationRuns.withLockedValue { runs in
+            runs[id]?.removeAll { $0.run == run }
+            if runs[id]?.isEmpty == true { runs.removeValue(forKey: id) }
+        }
+    }
+
+    /// The groups a run starts one after the other: `stepGroups`, with a plugin action that changes lights on its own,
+    /// since two at once would each hold the other's changes for stop_scene (`holdLightChanges`).
+    func runGroups(of automation: Automation) -> [[Int]] {
+        let tools = automationTools
+        return automation.stepGroups.flatMap { group -> [[Int]] in
+            guard group.count > 1 else { return [group] }
+            var groups: [[Int]] = [[]]
+            for index in group {
+                let step = automation.steps[index]
+                if step.type == "tool", tools[step.tool ?? ""]?.action.changesLights == true {
+                    groups.append([index])
+                    groups.append([])
+                } else {
+                    groups[groups.count - 1].append(index)
+                }
+            }
+            return groups.filter { !$0.isEmpty }
+        }
+    }
+
     /// Whether `run` is still one of the Automation's: a restart, a stop or a deletion takes it out.
     private func isCurrent(_ run: UUID, of id: String) -> Bool {
         home.automationRuns.withLockedValue { $0[id]?.contains { $0.run == run } == true }
@@ -575,13 +610,8 @@ extension HomeswiftCatalog {
 
     private func runSteps(of automation: Automation, trigger: String, run: UUID) async {
         var results: [AutomationStepResult] = []
-        defer {
-            home.automationRuns.withLockedValue { runs in
-                runs[automation.id]?.removeAll { $0.run == run }
-                if runs[automation.id]?.isEmpty == true { runs.removeValue(forKey: automation.id) }
-            }
-        }
-        for group in automation.stepGroups {
+        defer { forgetRun(run, of: automation.id) }
+        for group in runGroups(of: automation) {
             if Task.isCancelled { break }
             // A group's Steps start together; their results are noted in step order. A nil one was cancelled.
             let done = await withTaskGroup(of: AutomationStepResult?.self) { tasks in

@@ -135,9 +135,9 @@ struct AutomationTests {
         #expect(Set(order.prefix(2)) == ["bulb1.on", "bulb2.on"])
         #expect(Array(order.suffix(2)) == ["bulb3.on", "bulb4.on"])
 
-        #expect(throws: CatalogError.self) {
-            try catalog.saveAutomation(["name": "Bad", "triggers": [["type": "time", "at": "07:00"]], "steps": [on(1), ["type": "wait", "seconds": 1, "withPrevious": true]]])
-        }
+        // On a wait it is dropped, as where nothing comes before.
+        _ = try catalog.saveAutomation(["name": "Wait", "triggers": [["type": "time", "at": "07:00"]], "steps": [on(1), ["type": "wait", "seconds": 1, "withPrevious": true]]])
+        #expect(try catalog.automation("Wait").steps[1].withPrevious == nil)
     }
 
     @Test func overlapRunsBesideAndQueuedRunsAfter() async throws {
@@ -174,6 +174,35 @@ struct AutomationTests {
         #expect(catalog.home.automations.value.automations.first { $0.id == overlap.id }?.lastSkipped?.reason?.contains("runs already under way") == true)
         catalog.cancelAutomation(overlap.id)
         for task in many { await task.value }
+
+        // Turning it off cancels a queued run still waiting: neither it nor the run before it writes.
+        let before = lampWrites(environment, "lamp.brightness").count
+        let running = try #require(catalog.start(queued, trigger: "time"))
+        let waiting = try #require(catalog.start(queued, trigger: "time"))
+        try catalog.setAutomationEnabled(queued.id, false)
+        await running.value
+        await waiting.value
+        #expect(lampWrites(environment, "lamp.brightness").count == before)
+        #expect(catalog.home.automationRuns.withLockedValue { $0[queued.id] } == nil)
+    }
+
+    @Test func aQueuedRunChecksItsConditionsWhenItStarts() async throws {
+        let environment = try await environment()
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        let lamp = try #require(catalog.find(id: "Devices:lamp"))
+        _ = try await catalog.write(lamp, service: nil, characteristic: "On", value: true, allowSecurity: false)
+        let queued = try catalog.automation(try #require(catalog.saveAutomation(["name": "While on", "mode": "queued", "triggers": [["type": "time", "at": "09:00"]],
+            "conditions": [["type": "characteristic", "id": "Devices:lamp", "characteristic": "On", "operator": "eq", "value": true]],
+            "steps": [["type": "wait", "seconds": 30], ["type": "set", "id": "Devices:lamp", "characteristic": "Brightness", "value": 60]]])["id"]?.stringValue))
+        let first = try #require(catalog.start(queued, trigger: "time"))
+        let second = try #require(catalog.start(queued, trigger: "time"))
+        // The lamp goes off while the first run waits: the second, queued behind it, no longer runs.
+        _ = try await catalog.write(lamp, service: nil, characteristic: "On", value: false, allowSecurity: false)
+        await first.value
+        await second.value
+        #expect(lampWrites(environment, "lamp.brightness") == [.int(60)])
+        #expect(catalog.home.automations.value.automations.first { $0.id == queued.id }?.lastSkipped?.reason?.contains("queued, then") == true)
     }
 
     @Test func aValueThatStaysRunsItAndOneThatChangesBackDoesNot() async throws {
