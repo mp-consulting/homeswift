@@ -119,6 +119,8 @@ struct AmbilightMenuTests {
         defer { Task { await host.stop() } }
         let bridge = host.bridges[1]
         #expect(await eventually { bridge.server.primary.service(.television)?[.active]?.value == .int(1) })
+        // The apps the TV lists rebuild the accessory: the tile is taken from the rebuilt one, which the device updates.
+        #expect(await eventually { bridge.server.primary.service(.inputSource, subtype: "input-14") != nil })
         let ambilight = try #require(bridge.server.primary.service(.lightbulb, subtype: "ambilight"))
         #expect(await eventually { await tv.menuReads.count > 0 })
 
