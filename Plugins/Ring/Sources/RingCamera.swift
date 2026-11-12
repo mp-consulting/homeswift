@@ -224,8 +224,9 @@ final class RingCamera: CameraStreamingDelegate, @unchecked Sendable {
         updateMotion()
     }
 
-    private func expireNotifications() {
-        state.withLockedValue { state in state.active.removeAll { $0.expires <= .now } }
+    /// Drops the notifications ended by `now`: the timer calls it as each one ends, a test with a later instant.
+    func expireNotifications(at now: ContinuousClock.Instant = .now) {
+        state.withLockedValue { state in state.active.removeAll { $0.expires <= now } }
         updateMotion()
     }
 

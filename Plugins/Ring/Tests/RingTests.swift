@@ -258,7 +258,11 @@ struct RingPluginTests {
     }
 
     @Test func pushesDriveMotionAndTheDoorbell() async throws {
-        let host = try await environment.start()
+        // Motion shows once the event snapshot is loaded, which can take seconds on a loaded runner: the notification
+        // lasts until the test ends it, rather than racing the snapshot (it did with 2 s).
+        var timing = TestEnvironment.timing
+        timing.notificationLifetime = .seconds(3600)
+        let host = try await environment.start(timing: timing)
         #expect(await eventually { host.accessory("1002camera") != nil && host.accessory("1001camera") != nil })
         let motion = try #require(host.accessory("1002camera")?.service(.motionSensor)?[.motionDetected])
         try environment.push.push([
@@ -269,6 +273,8 @@ struct RingPluginTests {
         #expect(await eventually { motion.value == .bool(true) })
         #expect(environment.cloud.count("snapshots/next/1002?uuid=5e1f-aaaa") == 1)
         // The notification expires: no more motion.
+        let camera = try #require(await environment.plugin?.cameraList.first { $0.id == "1002" })
+        camera.expireNotifications(at: .now + timing.notificationLifetime)
         #expect(await eventually { motion.value == .bool(false) })
 
         try environment.push.push([

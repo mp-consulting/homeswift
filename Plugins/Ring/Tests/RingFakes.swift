@@ -176,7 +176,8 @@ final class TestEnvironment: Sendable {
         timing.gatewayRetry = .milliseconds(10)
         timing.knownErrorRetry = .milliseconds(10)
         timing.hubReconnect = .milliseconds(10)
-        // Long enough for an event snapshot on a slow runner: motion shows once it is loaded.
+        // A test that checks motion sets a lifetime it ends itself (`expireNotifications(at:)`): motion shows only
+        // once the event snapshot is loaded, which a loaded runner can delay past any short lifetime.
         timing.notificationLifetime = .seconds(2)
         timing.pushQuiet = .zero
         timing.levelDebounce = .milliseconds(20)
