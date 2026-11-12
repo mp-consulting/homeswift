@@ -1347,7 +1347,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // A phone (as the Logs and Plugins pages): one glass bar above the tab bar, the search, Filters (the filters card as
     // a sheet over the bar, its badge counting the range and outcome that are not the defaults) and Follow.
     const filters = HomeswiftCommon.filtersToggle(filtersCard);
-    const bar = el("div", { class: "audit-bar phone-bar" }, filters.button, followUI.button);
+    const bar = el("div", { class: "audit-bar phone-bar" }, filters.button, followUI.button, HomeswiftCommon.assistantButton());
     const showCount = () => filters.count(Number(outcome.value !== "") + Number(since.value !== "7d"));
     for (const choice of [outcome, since]) choice.addEventListener("change", showCount);
     showCount();
