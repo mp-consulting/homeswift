@@ -40152,6 +40152,8 @@ fieldset > .help { margin-bottom: var(--space-10); }
 /* A scene's values on the wall's sliders (home.js valueInput, colorInput): coloured as a light's, as wide as their row; a
    colour is its swatch beside its hue and saturation. */
 .scene-value-slider { display: block; width: 100%; }
+/* In an editor row the value slot shrinks to its content, so a slider there needs a width of its own. */
+.editor-row .scene-value-slider { width: 200px; max-width: 100%; }
 .scene-value-slider > .level, .scene-color-sliders > .level, .animation-settings .level { width: 100%; }
 .scene-color { display: flex; align-items: center; gap: var(--space-10); width: 100%; }
 .scene-color-swatch { flex: none; width: 32px; height: 32px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--edge), var(--shadow-control); }
