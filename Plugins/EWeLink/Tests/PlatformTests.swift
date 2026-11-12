@@ -521,11 +521,16 @@ struct AccessoryTests {
     @Test func garageDoorsPulseTheSwitch() async throws {
         let host = try await start([device("1000aaaaaa", uiid: 1)], ["singleDevices": [["deviceId": "1000aaaaaa", "showAs": "garage"]]])
         let door = try #require(environment.accessory(host, "1000aaaaaa")?.service(.garageDoorOpener))
+        // The pulse and the move run on the plugin's timers: a loaded machine may have released the switch and
+        // finished the move by the time the write returns, so check every command and state, not the latest.
+        let states = NIOLockedValueBox<[HAPValue]>([])
+        _ = door.characteristic(.currentDoorState).observe { change in
+            if change.newValue != change.oldValue { states.withLockedValue { $0.append(change.newValue) } }
+        }
         try await door.characteristic(.targetDoorState).homeKitWrite(0)
-        #expect(door[.currentDoorState]?.value == 2)
-        #expect(environment.socket.commands.last == ["switch": "on"])
-        #expect(await eventually { environment.socket.commands.last == ["switch": "off"] })
-        #expect(await eventually { door[.currentDoorState]?.value == 0 })
+        #expect(await eventually { environment.socket.commands == [["switch": "on"], ["switch": "off"]] })
+        // Opening, then open.
+        #expect(await eventually { states.withLockedValue { $0 } == [2, 0] })
 
         environment.socket.update { $0.commandError = 500 }
         await #expect(throws: HAPStatusError(.serviceCommunicationFailure)) { try await door.characteristic(.targetDoorState).homeKitWrite(1) }
