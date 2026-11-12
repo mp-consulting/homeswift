@@ -550,7 +550,7 @@ extension HomeswiftCatalog {
                     // Queued: after the run before it, however it ends, and only if a trigger's conditions still hold.
                     await before.value
                     if !manual, let reason = catalog.conditionsFail(automation.conditions) {
-                        catalog.noteSkip(automation, trigger: trigger, reason: "queued, then: \(reason)")
+                        catalog.noteSkip(automation, trigger: trigger, reason: "when its turn came: \(reason)")
                         catalog.forgetRun(run, of: automation.id)
                         return
                     }

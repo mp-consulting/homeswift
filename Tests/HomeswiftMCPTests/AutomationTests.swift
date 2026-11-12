@@ -202,7 +202,7 @@ struct AutomationTests {
         await first.value
         await second.value
         #expect(lampWrites(environment, "lamp.brightness") == [.int(60)])
-        #expect(catalog.home.automations.value.automations.first { $0.id == queued.id }?.lastSkipped?.reason?.contains("queued, then") == true)
+        #expect(catalog.home.automations.value.automations.first { $0.id == queued.id }?.lastSkipped?.reason?.contains("when its turn came") == true)
     }
 
     @Test func aValueThatStaysRunsItAndOneThatChangesBackDoesNot() async throws {

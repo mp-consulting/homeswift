@@ -9233,7 +9233,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// The modes: value, the card's word, the editor's choice.
   function modes() {
     return [["restart", t("Restart"), t("Restart: a new trigger starts it again")], ["single", t("Single"), t("Single: a new trigger is ignored while it runs")],
-      ["overlap", t("Overlap"), t("Overlap: a new trigger starts another run beside it")], ["queued", t("Queued"), t("Queued: a new trigger runs it after the run under way")]];
+      ["overlap", t("Overlapping"), t("Overlapping: a new trigger starts another run alongside it")], ["queued", t("Queued"), t("Queued: a new trigger runs it again once it finishes")]];
   }
 
   function stepRow(step, { accessories, scenes, tools, changed }) {
@@ -9308,7 +9308,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Shown where the Step may start with the one before; the bridge keeps it only there.
     row.withPrevious = el("input", { type: "checkbox", checked: Boolean(step.withPrevious), onchange: () => changed() });
     row.together = el("label", { class: "check step-together" }, row.withPrevious, el("span", { text: t("Starts with the step before") }));
-    row.append(row.together);
+    // First in the row, as it is drawn: the keyboard reaches it before the Step's fields.
+    row.prepend(row.together);
     row.kind = () => type.value;
     row.read = () => ({ type: type.value, ...row.readBody(), ...(row.withPrevious.checked ? { withPrevious: true } : {}) });
     return row;
@@ -24147,10 +24148,10 @@ HomeswiftI18n.add("es", {
   "Steps at the same time": "Pasos a la vez",
   "Run the steps at the same time": "Ejecutar los pasos a la vez",
   "The steps between two waits start together rather than one after the other. A wait still holds back the steps after it.": "Los pasos entre dos esperas empiezan juntos en lugar de uno tras otro. Una espera sigue reteniendo los pasos que la siguen.",
-  "Overlap": "Superpuesta",
+  "Overlapping": "Superpuesta",
   "Queued": "En cola",
-  "Overlap: a new trigger starts another run beside it": "Superpuesta: un nuevo disparador inicia otra ejecución a la vez",
-  "Queued: a new trigger runs it after the run under way": "En cola: un nuevo disparador la ejecuta tras la ejecución en curso",
+  "Overlapping: a new trigger starts another run alongside it": "Superpuesta: un nuevo disparador inicia otra ejecución a la vez",
+  "Queued: a new trigger runs it again once it finishes": "En cola: un nuevo disparador la vuelve a ejecutar cuando termina",
   "Starts with the step before": "Empieza con el paso anterior",
   "Restart: a new trigger starts it again": "Reiniciar: un nuevo disparador la vuelve a empezar",
   "Run in order. Locks, garage doors and alarms are left out: the last run says so.": "Se ejecutan en orden. Cerraduras, puertas de garaje y alarmas se dejan fuera: la última ejecución lo indica.",
@@ -27919,10 +27920,10 @@ HomeswiftI18n.add("fr", {
   "Steps at the same time": "Étapes simultanées",
   "Run the steps at the same time": "Exécuter les étapes en même temps",
   "The steps between two waits start together rather than one after the other. A wait still holds back the steps after it.": "Les étapes entre deux attentes démarrent ensemble plutôt que l'une après l'autre. Une attente retient toujours les étapes qui la suivent.",
-  "Overlap": "Chevauchement",
+  "Overlapping": "Chevauchante",
   "Queued": "En file",
-  "Overlap: a new trigger starts another run beside it": "Chevauchement : un nouveau déclenchement lance une autre exécution à côté",
-  "Queued: a new trigger runs it after the run under way": "En file : un nouveau déclenchement la lance après l'exécution en cours",
+  "Overlapping: a new trigger starts another run alongside it": "Chevauchante : un nouveau déclenchement lance une autre exécution en parallèle",
+  "Queued: a new trigger runs it again once it finishes": "En file : un nouveau déclenchement la relance une fois qu'elle est terminée",
   "Starts with the step before": "Démarre avec l'étape précédente",
   "Restart: a new trigger starts it again": "Redémarrer : un nouveau déclenchement la relance",
   "Run in order. Locks, garage doors and alarms are left out: the last run says so.": "Exécutées dans l'ordre. Serrures, portes de garage et alarmes sont laissées de côté : la dernière exécution le dit.",
@@ -31691,10 +31692,10 @@ HomeswiftI18n.add("pt", {
   "Steps at the same time": "Passos em simultâneo",
   "Run the steps at the same time": "Executar os passos em simultâneo",
   "The steps between two waits start together rather than one after the other. A wait still holds back the steps after it.": "Os passos entre duas esperas começam juntos em vez de um após o outro. Uma espera continua a reter os passos que vêm depois dela.",
-  "Overlap": "Sobreposta",
+  "Overlapping": "Sobreposta",
   "Queued": "Em fila",
-  "Overlap: a new trigger starts another run beside it": "Sobreposta: um novo acionador inicia outra execução em simultâneo",
-  "Queued: a new trigger runs it after the run under way": "Em fila: um novo acionador executa-a depois da execução em curso",
+  "Overlapping: a new trigger starts another run alongside it": "Sobreposta: um novo acionador inicia outra execução em simultâneo",
+  "Queued: a new trigger runs it again once it finishes": "Em fila: um novo acionador volta a executá-la quando termina",
   "Starts with the step before": "Começa com o passo anterior",
   "Restart: a new trigger starts it again": "Reiniciar: um novo acionador recomeça-a",
   "Run in order. Locks, garage doors and alarms are left out: the last run says so.": "Executados por ordem. Fechaduras, portas de garagem e alarmes ficam de fora: a última execução indica-o.",
@@ -41771,10 +41772,12 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .automation-step .step-tools .icon-button { width: 36px; height: 36px; min-height: 36px; padding: 0; border-radius: 50%; }
 .automation-tool-fields { width: 100%; }
 /* A Step that starts with the one before: its own line at the top of the row, beside the bar joining its number to the one above. */
-.automation-step .step-together { order: -1; flex-basis: 100%; margin: 0; font-weight: var(--weight-regular); color: var(--muted); }
-.automation-step.joined::after { content: ""; position: absolute; left: 10px; top: calc(-1 * var(--space-8) - 1px); height: calc(var(--space-12) + var(--space-8) + 1px);
-  width: 2px; border-radius: 1px; background: var(--accent); }
+.automation-step .step-together { flex-basis: 100%; margin: 0; font-weight: var(--weight-regular); color: var(--muted); }
+/* The bar: centred on the 22px number (half of it less half the bar), from the row above's edge across the gap. */
+.automation-step.joined::after { content: ""; position: absolute; left: calc(22px / 2 - 1px); top: calc(-1 * var(--space-8) - 1px); height: calc(var(--space-12) + var(--space-8) + 1px);
+  width: 2px; border-radius: var(--radius-pill); background: var(--accent); }
 .automation-step.joined::before { border-color: var(--accent); }
+@media (pointer: coarse) { .automation-step .step-together { min-height: 40px; } }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .automation-draft-row { flex-direction: column; align-items: stretch; }
   .automation-step .step-tools .icon-button { width: 40px; height: 40px; min-height: 40px; }

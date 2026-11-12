@@ -538,9 +538,10 @@ Deleting a scene opens a confirmation in the UI’s design system. Cancel is foc
   from the action's input schema.
 - **Mode**: **Restart** (the default): a trigger that fires during a run cancels it and starts again, as "turn the
   hall on, wait five minutes, turn it off" wants for each new motion. **Single**: a trigger during a run is ignored, and
-  the last run says so. **Overlap**: a trigger during a run starts another run beside it. **Queued**: a trigger during a
-  run starts it again once the run under way ends, if a trigger's conditions still hold then. Overlap and Queued keep at most 10 runs of one Automation at a time
-  (a queued run waiting counts); the next trigger is skipped and the last run says so.
+  the last run says so. **Overlapping**: a trigger during a run starts another run alongside it. **Queued**: a trigger
+  during a run starts it again once the run under way ends, if a trigger's conditions still hold then. Overlapping and
+  Queued keep at most 10 runs of one Automation at a time (a queued run waiting counts); the next trigger is skipped
+  and the last run says so.
 - **Run the steps at the same time**: the Steps between two waits start together rather than one after the other (ten
   lights change at once, not one by one); a wait or a wait until still holds back the Steps after it. With it off,
   **Starts with the step before** on a Step does the same for that Step alone (not on a wait, the first Step or one right

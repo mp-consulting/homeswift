@@ -210,7 +210,7 @@
   /// The modes: value, the card's word, the editor's choice.
   function modes() {
     return [["restart", t("Restart"), t("Restart: a new trigger starts it again")], ["single", t("Single"), t("Single: a new trigger is ignored while it runs")],
-      ["overlap", t("Overlap"), t("Overlap: a new trigger starts another run beside it")], ["queued", t("Queued"), t("Queued: a new trigger runs it after the run under way")]];
+      ["overlap", t("Overlapping"), t("Overlapping: a new trigger starts another run alongside it")], ["queued", t("Queued"), t("Queued: a new trigger runs it again once it finishes")]];
   }
 
   function stepRow(step, { accessories, scenes, tools, changed }) {
@@ -285,7 +285,8 @@
     // Shown where the Step may start with the one before; the bridge keeps it only there.
     row.withPrevious = el("input", { type: "checkbox", checked: Boolean(step.withPrevious), onchange: () => changed() });
     row.together = el("label", { class: "check step-together" }, row.withPrevious, el("span", { text: t("Starts with the step before") }));
-    row.append(row.together);
+    // First in the row, as it is drawn: the keyboard reaches it before the Step's fields.
+    row.prepend(row.together);
     row.kind = () => type.value;
     row.read = () => ({ type: type.value, ...row.readBody(), ...(row.withPrevious.checked ? { withPrevious: true } : {}) });
     return row;

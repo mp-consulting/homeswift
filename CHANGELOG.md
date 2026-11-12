@@ -11,8 +11,8 @@ All notable changes to this project are documented here. The format follows
 - **Automations' steps at the same time**: a toggle in the editor (and `parallel` in `save_automation`) starts the
   Steps between two waits together rather than one after the other, so a set of lights changes at once; a wait still
   holds back the Steps after it. A single Step can also start with the one before it (**Starts with the step before**).
-- **Automations' Overlap and Queued modes**: a trigger during a run starts another run beside it, or runs it again once
-  the run under way ends; at most 10 runs of one Automation at a time.
+- **Automations' Overlapping and Queued modes**: a trigger during a run starts another run alongside it, or runs it
+  again once the run under way ends; at most 10 runs of one Automation at a time.
 - **The Assistant's automation drafts** choose the mode, the steps at the same time and the steps that start together.
 
 ## [0.30.1] - 2026-11-12
