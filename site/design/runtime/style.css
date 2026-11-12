@@ -5642,7 +5642,9 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .automation-editor > .card { margin: 0; }
 .automation-steps { list-style: none; padding: 0; margin: 0 0 var(--space-10); counter-reset: step; }
 .automation-step { counter-increment: step; position: relative; padding-left: 32px; align-items: start; }
-.automation-step .step-tools { align-self: start; margin-top: 26px; }
+/* The Step's buttons centred on its menus: below a field's top margin, its title's line and the title's margin (the
+   Delete button is as tall as a menu, the round ones centre on it). On a phone they wrap to a line of their own. */
+.automation-step .step-tools { align-self: start; margin-top: calc(var(--space-10) + 1lh + var(--space-6)); }
 .automation-step textarea { font: inherit; height: 5em; min-height: 0; flex: none; resize: vertical; }
 .automation-step .field { align-self: start; }
 .automation-step::before { content: counter(step); position: absolute; left: 0; top: var(--space-12); width: 22px; height: 22px; border-radius: 50%;
@@ -5658,6 +5660,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .automation-draft-row { flex-direction: column; align-items: stretch; }
   .automation-step .step-tools .icon-button { width: 40px; height: 40px; min-height: 40px; }
+  .automation-step .step-tools { margin-top: var(--space-10); }
 }
 .automation-draft-row button { white-space: nowrap; flex: none; }
 .automation-draft .status-line:empty { display: none; }
