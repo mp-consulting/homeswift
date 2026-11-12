@@ -335,7 +335,7 @@ extension AssistantService {
     public static let automationDraftSchema: JSONValue = [
         "type": "object", "required": ["name", "triggers", "steps"],
         "properties": [
-            "name": ["type": "string"], "mode": ["type": "string", "enum": ["restart", "single"]],
+            "name": ["type": "string"], "mode": ["type": "string", "enum": ["restart", "single", "overlap", "queued"]], "parallel": ["type": "boolean"],
             "triggers": ["type": "array", "items": ["type": "object"]], "conditions": ["type": "array", "items": ["type": "object"]],
             "steps": ["type": "array", "items": ["type": "object"]],
         ],

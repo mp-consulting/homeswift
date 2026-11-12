@@ -297,7 +297,8 @@ _Avoid_: Filter, guard, if
 
 **Step**:
 One thing an Automation does: apply a Scene, set a value, wait, wait until, notify, or call a plugin's action. Steps
-run one after the other; an Automation in parallel starts the Steps between two waits together.
+run one after the other; one that starts with the previous Step runs beside it, and an Automation in parallel starts
+every Step between two waits together.
 _Avoid_: Action, task
 
 ## Remotes

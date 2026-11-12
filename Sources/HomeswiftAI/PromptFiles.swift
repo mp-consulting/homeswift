@@ -234,8 +234,12 @@ close a garage door, or arm or disarm an alarm: the bridge does not let automati
 
 Write an automation for this: {{sentence}}
 
-Reply with a JSON object {"name": "<a short title, under 40 characters>", "mode": "restart" or "single", "triggers":
-[<trigger>], "conditions": [<condition>], "steps": [<step>]}.
+Reply with a JSON object {"name": "<a short title, under 40 characters>", "mode": "restart", "single", "overlap" or
+"queued", "parallel": true or false, "triggers": [<trigger>], "conditions": [<condition>], "steps": [<step>]}.
+"mode" says what a trigger during a run does: restart starts it again (the default, as for a light on motion), single
+ignores it, overlap starts another run beside it, queued runs it after. "parallel": true starts the steps between two
+waits together, as for several lights changed at once; a step with "withPrevious": true starts together with the one
+before it alone.
 A trigger is one of: {"type": "time", "at": "HH:mm", "days": [0-6, Sunday is 0; leave out for every day]};
 {"type": "sun", "event": "sunrise" or "sunset", "offsetMinutes": -720 to 720, "days": [...]}; {"type": "cron", "cron":
 "<five fields>"}; {"type": "characteristic", "id": "<accessory id>", "characteristic": "<its name>", "operator":

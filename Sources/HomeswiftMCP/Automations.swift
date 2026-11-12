@@ -19,10 +19,13 @@ import NIOConcurrencyHelpers
 // that changes one, is skipped and the last run says so, as a scene run by a trigger did.
 //
 // Modes: `restart` (a new trigger cancels the run under way and starts again), `single` (a new trigger is ignored while
-// it runs). Every change a run makes is the Automation's in the Logbook (`ChangeSource.automation`).
+// it runs), `overlap` (a new trigger starts another run beside it), `queued` (a new trigger's run waits for the one
+// before it); at most `maxRuns` runs of one Automation at a time. Every change a run makes is the Automation's in the
+// Logbook (`ChangeSource.automation`).
 //
-// Steps run one after the other, each waiting for the last; `parallel` starts the Steps between two waits together (a
-// `wait` or `waitUntil` still holds back the Steps after it), so ten lights change at once rather than one by one.
+// Steps run one after the other, each waiting for the last. A Step `withPrevious` starts together with the one before
+// it; `parallel` does so for every Step between two waits (a `wait` or `waitUntil` always holds back the Steps after
+// it), so ten lights change at once rather than one by one.
 
 public struct AutomationStep: Codable, Sendable, Equatable {
     /// `scene`, `set`, `wait`, `waitUntil`, `notify`, `tool`.
@@ -46,12 +49,17 @@ public struct AutomationStep: Codable, Sendable, Equatable {
     public var arguments: JSONValue?
     /// `notify`: up to three buttons (`NotificationActions.swift`).
     public var buttons: [NotificationButton]?
+    /// Starts together with the Step before it rather than after it; never on a wait, the first Step or one after a wait.
+    public var withPrevious: Bool?
 
     public init(type: String) { self.type = type }
+
+    /// A `wait` or `waitUntil`: the Steps after it start once it is over.
+    public var isWait: Bool { type == "wait" || type == "waitUntil" }
 }
 
-public enum AutomationMode: String, Codable, Sendable {
-    case restart, single
+public enum AutomationMode: String, Codable, Sendable, CaseIterable {
+    case restart, single, overlap, queued
 }
 
 public struct AutomationStepResult: Codable, Sendable, Equatable {
@@ -91,22 +99,19 @@ public struct Automation: Codable, Sendable, Equatable {
     public var runMode: AutomationMode { mode ?? .restart }
     public var runsInParallel: Bool { parallel == true }
 
-    /// The Steps' indices as they run: one Step per group in order, or, in parallel, the Steps between two waits
-    /// together and each `wait` or `waitUntil` alone.
+    /// The Steps' indices as they run, a group's Steps together: a Step joins the group before it when it starts with
+    /// the previous one (`withPrevious`, or every Step in `parallel`), unless it or the previous one is a wait.
     public var stepGroups: [[Int]] {
-        guard runsInParallel else { return steps.indices.map { [$0] } }
         var groups: [[Int]] = []
-        var current: [Int] = []
-        for (index, step) in steps.enumerated() {
-            if step.type == "wait" || step.type == "waitUntil" {
-                if !current.isEmpty { groups.append(current); current = [] }
-                groups.append([index])
-            } else {
-                current.append(index)
-            }
+        for index in steps.indices {
+            if canStartWithPrevious(index) && (runsInParallel || steps[index].withPrevious == true) { groups[groups.count - 1].append(index) } else { groups.append([index]) }
         }
-        if !current.isEmpty { groups.append(current) }
         return groups
+    }
+
+    /// Whether Step `index` may start with the one before: not the first, not a wait, not right after a wait.
+    public func canStartWithPrevious(_ index: Int) -> Bool {
+        index > 0 && !steps[index].isWait && !steps[index - 1].isWait
     }
 }
 
@@ -126,6 +131,8 @@ struct AutomationRunning: Sendable {
 enum AutomationRules {
     static let maxAutomations = 200
     static let maxSteps = 30
+    /// The most runs of one Automation at a time, in `overlap` and `queued` modes (a queued one waiting counts).
+    static let maxRuns = 10
     static let triggerKinds: Set<String> = ["time", "sun", "cron", "characteristic", "stays", "threshold", "presence", "press"]
     /// A `press` trigger's kinds, as Programmable Switch Event's values.
     static let presses: [String: Int] = [
@@ -198,6 +205,11 @@ enum AutomationRules {
             throw CatalogError("\(label): the type must be scene, set, wait, waitUntil, notify or tool")
         }
         var step = AutomationStep(type: type)
+        if let value = object["withPrevious"], !value.isNull {
+            guard let on = value.boolValue else { throw CatalogError("\(label): withPrevious is true or false") }
+            guard !on || !step.isWait else { throw CatalogError("\(label): a wait does not start with the step before") }
+            step.withPrevious = on ? true : nil
+        }
         switch type {
         case "scene":
             step.scene = try SceneRules.string(object, "scene", label, max: 512)
@@ -270,7 +282,7 @@ enum AutomationRules {
         guard (1...maxSteps).contains(steps.count) else { throw CatalogError("An automation needs 1 to \(maxSteps) steps") }
         var mode = existing?.mode
         if let value = object["mode"] {
-            guard let chosen = value.stringValue.flatMap(AutomationMode.init(rawValue:)) else { throw CatalogError("mode is restart or single") }
+            guard let chosen = value.stringValue.flatMap(AutomationMode.init(rawValue:)) else { throw CatalogError("mode is restart, single, overlap or queued") }
             mode = chosen == .restart ? nil : chosen
         }
         var enabled = existing?.enabled
@@ -278,18 +290,19 @@ enum AutomationRules {
             guard let on = value.boolValue else { throw CatalogError("enabled is true or false") }
             enabled = on ? nil : false
         }
-        var homeKit = existing?.homeKit
-        if let value = object["homeKit"] {
-            guard value.isNull || value.boolValue != nil else { throw CatalogError("homeKit is true or false") }
-            homeKit = value.boolValue == true ? true : nil
-        }
-        var parallel = existing?.parallel
-        if let value = object["parallel"] {
-            guard value.isNull || value.boolValue != nil else { throw CatalogError("parallel is true or false") }
-            parallel = value.boolValue == true ? true : nil
-        }
-        return Automation(id: id, name: name, enabled: enabled, mode: mode, triggers: triggers, conditions: conditions, steps: steps, homeKit: homeKit,
-                          parallel: parallel, lastRun: existing?.lastRun, lastSkipped: existing?.lastSkipped)
+        var automation = Automation(id: id, name: name, enabled: enabled, mode: mode, triggers: triggers, conditions: conditions, steps: steps,
+                                    homeKit: try onlyTrue(object, "homeKit", else: existing?.homeKit), parallel: try onlyTrue(object, "parallel", else: existing?.parallel),
+                                    lastRun: existing?.lastRun, lastSkipped: existing?.lastSkipped)
+        // Kept only where it can apply: not the first Step, nor one right after a wait.
+        for index in automation.steps.indices where !automation.canStartWithPrevious(index) { automation.steps[index].withPrevious = nil }
+        return automation
+    }
+
+    /// A flag kept as true or left out: `key`'s true, false or null, else what it was.
+    static func onlyTrue(_ object: [String: JSONValue], _ key: String, else kept: Bool?) throws -> Bool? {
+        guard let value = object[key] else { return kept }
+        guard value.isNull || value.boolValue != nil else { throw CatalogError("\(key) is true or false") }
+        return value.boolValue == true ? true : nil
     }
 
     /// Whether `value` crosses `trigger`'s threshold from `previous`: from at or below it to above it (`above`), or the
@@ -341,19 +354,21 @@ extension HomeswiftCatalog {
     /// a lock, a garage door or an alarm.
     public func automationsJSON() -> JSONValue {
         let file = home.automations.value
+        // One look at the runs for the whole list: an Automation without a run has no entry.
+        let running = home.automationRuns.withLockedValue { Set($0.keys) }
         return withLookup {
-            ["automations": .array(file.automations.map { automationJSON($0) }), "location": locationJSON()["location"] ?? .null,
-             "running": .array(home.automationRuns.withLockedValue { Array($0.keys) }.sorted().map(JSONValue.string))]
+            ["automations": .array(file.automations.map { automationJSON($0, running: running) }), "location": locationJSON()["location"] ?? .null,
+             "running": .array(running.sorted().map(JSONValue.string))]
         }
     }
 
-    func automationJSON(_ automation: Automation) -> JSONValue {
+    func automationJSON(_ automation: Automation, running: Set<String>? = nil) -> JSONValue {
         guard var object = (try? JSONValue(encoding: automation))?.objectValue else { return .null }
         object["mode"] = .string(automation.runMode.rawValue)
         object["enabled"] = .bool(automation.isEnabled)
         object["parallel"] = .bool(automation.runsInParallel)
         object["security"] = .bool(touchesSecurity(automation))
-        object["running"] = .bool(home.automationRuns.withLockedValue { $0[automation.id] != nil })
+        object["running"] = .bool(running?.contains(automation.id) ?? home.automationRuns.withLockedValue { $0[automation.id] != nil })
         let scenes = home.scenes.value.scenes
         object["steps"] = .array(automation.steps.map { step in
             var entry = (try? JSONValue(encoding: step))?.objectValue ?? [:]
@@ -495,8 +510,9 @@ extension HomeswiftCatalog {
         return ["automation": .string(found.id), "name": .string(found.name), "started": true, "lastRun": (try? JSONValue(encoding: record)) ?? .null]
     }
 
-    /// Starts a run unless its conditions fail (a trigger's run), it is off (a trigger's run), or it already runs in
-    /// `single` mode; a `restart` one cancels the run under way. Answers the run's task.
+    /// Starts a run unless its conditions fail (a trigger's run), it is off (a trigger's run), it already runs in
+    /// `single` mode, or `maxRuns` are under way; a `restart` one cancels the runs under way, an `overlap` one runs beside
+    /// them, a `queued` one after the last. Answers the run's task.
     @discardableResult
     func start(_ automation: Automation, trigger: String) -> Task<Void, Never>? {
         let manual = trigger == "manual"
@@ -510,21 +526,35 @@ extension HomeswiftCatalog {
         }
         let run = UUID()
         let catalog = self
-        // The run is registered before its task starts: a single-mode run refused here never runs a Step, and a run
-        // that ends at once still finds itself in `automationRuns` to remove.
+        // The run is registered before its task starts: a run refused here never runs a Step, and a run that ends at
+        // once still finds itself in `automationRuns` to remove.
+        var refusal = ""
         let task: Task<Void, Never>? = home.automationRuns.withLockedValue { runs in
-            if let current = runs[automation.id] {
-                guard automation.runMode == .restart else { return nil }
-                current.task.cancel()
+            let current = runs[automation.id] ?? []
+            let full = "\(AutomationRules.maxRuns) runs already under way"
+            var before: Task<Void, Never>?
+            switch automation.runMode {
+            case .restart:
+                current.forEach { $0.task.cancel() }
+                runs[automation.id] = []
+            case .single:
+                guard current.isEmpty else { refusal = "already running (single mode)"; return nil }
+            case .overlap:
+                guard current.count < AutomationRules.maxRuns else { refusal = full; return nil }
+            case .queued:
+                guard current.count < AutomationRules.maxRuns else { refusal = full; return nil }
+                before = current.last?.task
             }
             let task = Task<Void, Never>.detached {
+                // Queued: after the run before it, however it ends.
+                await before?.value
                 await ChangeSource.automation(automation.name).run { await catalog.runSteps(of: automation, trigger: trigger, run: run) }
             }
-            runs[automation.id] = AutomationRunning(run: run, task: task)
+            runs[automation.id, default: []].append(AutomationRunning(run: run, task: task))
             return task
         }
         guard let task else {
-            noteSkip(automation, trigger: trigger, reason: "already running (single mode)")
+            noteSkip(automation, trigger: trigger, reason: refusal)
             return nil
         }
         logger.info("Running automation \"\(automation.name)\" (\(trigger))")
@@ -532,7 +562,12 @@ extension HomeswiftCatalog {
     }
 
     func cancelAutomation(_ id: String) {
-        home.automationRuns.withLockedValue { $0.removeValue(forKey: id) }?.task.cancel()
+        home.automationRuns.withLockedValue { $0.removeValue(forKey: id) }?.forEach { $0.task.cancel() }
+    }
+
+    /// Whether `run` is still one of the Automation's: a restart, a stop or a deletion takes it out.
+    private func isCurrent(_ run: UUID, of id: String) -> Bool {
+        home.automationRuns.withLockedValue { $0[id]?.contains { $0.run == run } == true }
     }
 
     /// How a Step's waits are counted: 1 is real time; tests make it shorter.
@@ -540,32 +575,24 @@ extension HomeswiftCatalog {
 
     private func runSteps(of automation: Automation, trigger: String, run: UUID) async {
         var results: [AutomationStepResult] = []
-        // Cancelled by a restart: the run that replaced it records its own.
         defer {
             home.automationRuns.withLockedValue { runs in
-                if runs[automation.id]?.run == run { runs.removeValue(forKey: automation.id) }
+                runs[automation.id]?.removeAll { $0.run == run }
+                if runs[automation.id]?.isEmpty == true { runs.removeValue(forKey: automation.id) }
             }
         }
         for group in automation.stepGroups {
             if Task.isCancelled { break }
-            // A group of one runs here; a parallel group's Steps start together and are noted in their order.
-            let done: [AutomationStepResult?]
-            if group.count == 1 {
-                done = [await runStep(group[0], of: automation)]
-            } else {
-                done = await withTaskGroup(of: (Int, AutomationStepResult?).self) { tasks in
-                    for (position, index) in group.enumerated() {
-                        tasks.addTask { (position, await self.runStep(index, of: automation)) }
-                    }
-                    var ordered = [AutomationStepResult?](repeating: nil, count: group.count)
-                    for await (position, result) in tasks { ordered[position] = result }
-                    return ordered
-                }
+            // A group's Steps start together; their results are noted in step order. A nil one was cancelled.
+            let done = await withTaskGroup(of: AutomationStepResult?.self) { tasks in
+                for index in group { tasks.addTask { await self.runStep(index, of: automation) } }
+                return await tasks.reduce(into: []) { $0.append($1) }
             }
-            results.append(contentsOf: done.compactMap { $0 })
+            results.append(contentsOf: done.compactMap { $0 }.sorted { $0.step < $1.step })
             if done.contains(where: { $0 == nil }) { break }
         }
-        if Task.isCancelled, home.automationRuns.withLockedValue({ $0[automation.id]?.run != run }) { return }
+        // Cancelled by a restart, a stop or a deletion: the run that replaced it, if any, records its own.
+        if Task.isCancelled, !isCurrent(run, of: automation.id) { return }
         let ok = results.allSatisfy(\.ok)
         let skipped = results.filter { $0.skipped == true }.count
         recordAutomation(automation.id) {
@@ -782,7 +809,7 @@ extension HomeswiftCatalog {
 
     /// Stops every run and timer (stopHome).
     func stopAutomations() {
-        for running in home.automationRuns.withLockedValue({ runs in defer { runs = [:] }; return Array(runs.values) }) { running.task.cancel() }
+        for running in home.automationRuns.withLockedValue({ runs in defer { runs = [:] }; return runs.values.flatMap { $0 } }) { running.task.cancel() }
         for timer in home.staysTimers.withLockedValue({ timers in defer { timers = [:] }; return Array(timers.values) }) { timer.cancel() }
         home.telegramPoller.withLockedValue { $0 }?.cancel()
     }
@@ -851,7 +878,7 @@ extension HomeswiftCatalog {
         "properties": [
             "id": ["type": "string", "description": "An automation's id, to change it; left out for a new one"],
             "name": ["type": "string", "minLength": 1, "maxLength": 64],
-            "enabled": ["type": "boolean"], "mode": ["type": "string", "enum": ["restart", "single"]],
+            "enabled": ["type": "boolean"], "mode": ["type": "string", "enum": .array(AutomationMode.allCases.map { .string($0.rawValue) })],
             "parallel": ["type": "boolean", "description": "The steps between two waits start together rather than one after the other; a wait or waitUntil still holds back the steps after it"],
             "homeKit": ["type": "boolean", "description": "A switch on the Homeswift Scenes accessory in the Home app turns it on and off"],
             "triggers": ["type": "array", "maxItems": 10, "items": ["type": "object"], "description": .string(
@@ -863,7 +890,7 @@ extension HomeswiftCatalog {
             "conditions": ["type": "array", "maxItems": 10, "items": ["type": "object"], "description": .string(
                 "All must hold when a trigger fires. {type: time, after, before: HH:mm|sunrise|sunset}; {type: characteristic, id, characteristic, operator, value}")],
             "steps": ["type": "array", "minItems": 1, "maxItems": 30, "items": ["type": "object"], "description": .string(
-                "Run in order (with parallel, the steps between two waits together). {type: scene, scene: <id>}; {type: set, id, characteristic, value}; {type: wait, seconds}; {type: waitUntil, id, characteristic, operator, value, seconds}; "
+                "Run in order; a step with withPrevious: true starts together with the one before it (not a wait, nor right after one), and parallel does so for every step between two waits. {type: scene, scene: <id>}; {type: set, id, characteristic, value}; {type: wait, seconds}; {type: waitUntil, id, characteristic, operator, value, seconds}; "
                 + "{type: notify, title, message, buttons: [up to 3 {label, type: scene|set|open, scene | id, characteristic, value | path}]}; {type: tool, tool: <a plugin action's tool name>, arguments}. Locks, garage doors and alarms are never set: such a step is skipped.")],
         ],
     ]
@@ -874,7 +901,7 @@ extension HomeswiftCatalog {
             MCPTool(
                 name: "list_automations", title: "List automations",
                 description: "What the bridge does on its own: each Automation's triggers (a time, the sun, cron, an accessory's change, a value that stays so for a while, a number crossing a threshold, someone arriving or leaving, a button pressed), "
-                    + "conditions, steps (apply a scene, set a value, wait, wait until, notify, a plugin's action), mode (restart or single), whether its steps run in parallel, whether it is on, whether it touches a lock, "
+                    + "conditions, steps (apply a scene, set a value, wait, wait until, notify, a plugin's action), mode (restart, single, overlap or queued), whether its steps run in parallel, whether it is on, whether it touches a lock, "
                     + "garage door or alarm (security), and its last run with each step's result. Also the plugins' actions a step may call (tools).",
                 outputSchema: Output.object(["automations": ["type": "array"]], required: ["automations"]),
                 scope: .read, idempotent: true
@@ -886,7 +913,7 @@ extension HomeswiftCatalog {
             MCPTool(
                 name: "save_automation", title: "Save automation",
                 description: "Creates an Automation, or changes one (id). It runs when any trigger fires and every condition holds, its steps in order. "
-                    + "mode restart (the default) starts again when a trigger fires during a run; single ignores it. parallel starts the steps between two waits together. Locks, garage doors and alarms are never set by an automation. "
+                    + "mode restart (the default) starts again when a trigger fires during a run; single ignores it; overlap starts another run beside it; queued runs it after the one under way (at most 10 runs at a time). parallel starts the steps between two waits together. Locks, garage doors and alarms are never set by an automation. "
                     + "One that touches them (a trigger, a condition or a step on one, or a scene that changes one) asks the user first. dryRun checks it without saving.",
                 inputSchema: Self.automationSchema, scope: .admin, supportsDryRun: true,
                 confirmsWhen: { arguments in

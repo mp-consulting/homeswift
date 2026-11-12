@@ -82,7 +82,7 @@
         el("span", { class: "tile tone-violet", "aria-hidden": "true" }, HomeswiftCommon.icon(triggerIcons[first?.type] ?? "workflow")),
         el("div", { class: "who" }, el("strong", { text: automation.name }),
           el("span", { class: "muted", text: [automation.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · "),
-            tn("{n} step", "{n} steps", automation.steps.length), automation.mode === "single" ? t("Single") : null,
+            tn("{n} step", "{n} steps", automation.steps.length), automation.mode !== "restart" ? modes().find(([value]) => value === automation.mode)?.[1] : null,
             automation.parallel ? t("Steps at the same time") : null,
             automation.homeKit ? t("In the Home app") : null].filter(Boolean).join(" · ") })),
         el("label", { class: "toggle compact" }, el("span", { class: "switch" }, enabled, el("span")))),
@@ -109,7 +109,7 @@
     const enabled = el("input", { type: "checkbox", checked: automation.enabled !== false });
     const homeKit = el("input", { type: "checkbox", checked: Boolean(automation.homeKit) });
     const parallel = el("input", { type: "checkbox", checked: Boolean(automation.parallel) });
-    const mode = el("select", {}, el("option", { value: "restart", text: t("Restart: a new trigger starts it again") }), el("option", { value: "single", text: t("Single: a new trigger is ignored while it runs") }));
+    const mode = el("select", {}, modes().map(([value, , text]) => el("option", { value, text })));
     mode.value = automation.mode || "restart";
     const toggle = (input, title, help) => el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")),
       el("span", {}, el("span", { class: "field-title", text: title }), el("p", { class: "help", text: help })));
@@ -126,9 +126,17 @@
       conditions.add(row);
       conditionList.append(row);
     };
-    const redraw = () => stepList.replaceChildren(...steps);
-    const addStep = (value = { type: "set" }) => {
-      const row = stepRow(value, { accessories, scenes: scenes.scenes ?? [], tools: data.tools ?? [] });
+    // Which Steps may start with the one before (not the first, not a wait, not right after one), and which do.
+    const isWait = (row) => ["wait", "waitUntil"].includes(row.kind());
+    const syncSteps = () => steps.forEach((row, index) => {
+      const can = index > 0 && !isWait(row) && !isWait(steps[index - 1]);
+      row.together.hidden = !can || parallel.checked;
+      row.classList.toggle("joined", can && (parallel.checked || row.withPrevious.checked));
+    });
+    parallel.addEventListener("change", syncSteps);
+    const redraw = () => { stepList.replaceChildren(...steps); syncSteps(); };
+    const addStep = (value = { type: "set" }, { drawn = true } = {}) => {
+      const row = stepRow(value, { accessories, scenes: scenes.scenes ?? [], tools: data.tools ?? [], changed: syncSteps });
       const move = (by) => {
         const at = steps.indexOf(row), to = at + by;
         if (to < 0 || to >= steps.length) return;
@@ -142,11 +150,13 @@
         el("button", { type: "button", class: "icon-button step-down", title: t("Move down"), "aria-label": t("Move down"), onclick: () => move(1) }, HomeswiftCommon.icon("down")),
         el("button", { type: "button", class: "danger scene-condition-remove", actionIcon: "trash", text: t("Delete step"), onclick: () => { steps.splice(steps.indexOf(row), 1); redraw(); } })));
       steps.push(row);
-      redraw();
+      if (drawn) redraw();
     };
     automation.triggers.forEach(addTrigger);
     (automation.conditions ?? []).forEach(addCondition);
-    (automation.steps ?? []).forEach(addStep);
+    // The saved Steps drawn once, not once each.
+    (automation.steps ?? []).forEach((step) => addStep(step, { drawn: false }));
+    redraw();
 
     // The Location is a Bridge Setting: without one, the Triggers' help links to its card under Settings.
     const place = data.location ? t("Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.latitude}, ${data.location.longitude}` })
@@ -197,7 +207,13 @@
   }
 
   /// One Step: its kind and its fields. `.read()` gives what to save.
-  function stepRow(step, { accessories, scenes, tools }) {
+  /// The modes: value, the card's word, the editor's choice.
+  function modes() {
+    return [["restart", t("Restart"), t("Restart: a new trigger starts it again")], ["single", t("Single"), t("Single: a new trigger is ignored while it runs")],
+      ["overlap", t("Overlap"), t("Overlap: a new trigger starts another run beside it")], ["queued", t("Queued"), t("Queued: a new trigger runs it after the run under way")]];
+  }
+
+  function stepRow(step, { accessories, scenes, tools, changed }) {
     const { characteristicPicker, readable, writable, operators, field } = home();
     const type = el("select", { "aria-label": t("Step") }, stepKinds.map(([value, text]) => el("option", { value, text })));
     type.value = step.type;
@@ -265,8 +281,13 @@
       }
     };
     draw(step);
-    type.addEventListener("change", () => draw({ type: type.value }));
-    row.read = () => ({ type: type.value, ...row.readBody() });
+    type.addEventListener("change", () => { draw({ type: type.value }); changed(); });
+    // Shown where the Step may start with the one before; the bridge keeps it only there.
+    row.withPrevious = el("input", { type: "checkbox", checked: Boolean(step.withPrevious), onchange: () => changed() });
+    row.together = el("label", { class: "check step-together" }, row.withPrevious, el("span", { text: t("Starts with the step before") }));
+    row.append(row.together);
+    row.kind = () => type.value;
+    row.read = () => ({ type: type.value, ...row.readBody(), ...(row.withPrevious.checked ? { withPrevious: true } : {}) });
     return row;
   }
 

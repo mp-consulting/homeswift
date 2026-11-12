@@ -69,7 +69,7 @@ public final class HomeState: Sendable {
     /// What the bridge does on its own (`Automations.swift`).
     public let automations: JSONFileStore<AutomationFile>
     /// The Automations running now, by id.
-    let automationRuns = NIOLockedValueBox<[String: AutomationRunning]>([:])
+    let automationRuns = NIOLockedValueBox<[String: [AutomationRunning]]>([:])
     /// The `stays` triggers counting, by automation and trigger.
     let staysTimers = NIOLockedValueBox<[String: Task<Void, Never>]>([:])
     /// How an Automation's waits are counted; tests make them shorter.
