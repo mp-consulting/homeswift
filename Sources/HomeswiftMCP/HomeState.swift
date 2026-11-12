@@ -92,6 +92,9 @@ public final class HomeState: Sendable {
     let running = NIOLockedValueBox<RunningHome?>(nil)
     /// Scenes running now, so one does not start twice.
     let runningScenes = NIOLockedValueBox<Set<String>>([])
+    /// The Home app's writes of the scenes' switches, one after the other: an off right after an on stops the run
+    /// once it has ended, rather than finding it still running.
+    let sceneSwitchWrites = SerialTasks()
     /// Light shows playing on the lights now, by run id.
     let lightRuns = NIOLockedValueBox<[String: LightRun]>([:])
     /// The lights each scene's effect plays natively (their plugins animate them), by scene id: told to stop with it.

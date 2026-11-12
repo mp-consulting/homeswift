@@ -25,6 +25,8 @@ All notable changes to this project are documented here. The format follows
   off selects the menu's Off entry on those TVs (a style OFF left the menu on its last style, and the tile came back on),
   and the brightness goes to the menu node the TV reports rather than a fixed id. TVs without the menu entries work as
   before. Ported from homebridge-philips-ambilight-tv 1.9.7.
+- **A scene's switch in the Home app turned off right after on**: the off waits for the scene's run to end and then puts
+  the lights back, rather than being refused as "already running" and leaving the switch on.
 
 ## [0.30.0] - 2026-11-12
 
