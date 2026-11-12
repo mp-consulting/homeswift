@@ -58,10 +58,11 @@ extension HomeswiftCatalog {
                     catalog.logger.warning("The Home app's name for a scene's switch was not kept: \(error)")
                 }
             }
-            // A run or a stop refreshes the switches itself; a failure sets this one back.
+            // A run or a stop refreshes the switches itself; a failure sets this one back. In the order they came, each
+            // once the one before has ended, without keeping the Home app's write waiting.
             service.characteristic(.on).onWrite { value in
                 let on = value.boolValue ?? false
-                Task {
+                catalog.home.sceneSwitchWrites.enqueue {
                     do {
                         if on { _ = try await catalog.runScene(id, trigger: .homeKit) } else { _ = try await catalog.stopScene(id) }
                     } catch {

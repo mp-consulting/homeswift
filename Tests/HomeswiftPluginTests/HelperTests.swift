@@ -26,6 +26,25 @@ struct TaskBagTests {
     }
 }
 
+struct SerialTasksTests {
+    /// Enqueued without waiting, pieces still run in the order of the calls, each once the one before has ended.
+    @Test func enqueuedWorkRunsInOrderOneAfterTheOther() async {
+        let serial = SerialTasks()
+        let order = NIOLockedValueBox<[String]>([])
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        serial.enqueue {
+            order.withLockedValue { $0.append("on started") }
+            for await _ in gate {}
+            order.withLockedValue { $0.append("on ended") }
+        }
+        serial.enqueue { order.withLockedValue { $0.append("off") } }
+        // The first piece holds until the gate opens; the second must not slip in before it ends.
+        open.finish()
+        await serial.idle()
+        #expect(order.withLockedValue { $0 } == ["on started", "on ended", "off"])
+    }
+}
+
 struct LatestCallGuardTests {
     @Test func letsTheLastCallThrough() async {
         let latest = LatestCallGuard(delay: .milliseconds(20))

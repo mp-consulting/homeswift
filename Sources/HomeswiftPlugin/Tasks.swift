@@ -190,6 +190,18 @@ public final class SerialTasks: Sendable {
         return await task.value
     }
 
+    /// Queues `work` after the work asked for so far without waiting for it: pieces run in the order of the calls,
+    /// so a handler that must answer at once (a HomeKit write) still keeps its writes in order.
+    public func enqueue(_ work: @escaping @Sendable () async -> Void) {
+        tail.withLockedValue { tail in
+            let previous = tail
+            tail = Task {
+                await previous?.value
+                await work()
+            }
+        }
+    }
+
     /// Waits for the work asked for so far to end.
     public func idle() async {
         await tail.withLockedValue { $0 }?.value
