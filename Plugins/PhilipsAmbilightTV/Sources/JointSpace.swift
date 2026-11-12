@@ -24,8 +24,20 @@ enum JointSpace {
     static let playTVComponent = Intent.Component(packageName: "org.droidtv.playtv", className: "org.droidtv.playtv.PlayTvActivity")
     static let mainAction = "android.intent.action.MAIN"
     static let defaultChannelList = "allcab"
+    /// The menu's Ambilight brightness node on the models first tested: only a fallback, because node ids differ
+    /// between models and firmware. The TV's own menu structure is read first (`AmbilightMenuNodes`).
     static let ambilightBrightnessNode = 2131230769
     static let ambilightBrightnessRange = 0...10
+    /// The menu nodes' contexts: the same on every model, unlike the node ids they map to.
+    static let ambilightStyleContext = "ambilight_style"
+    static let ambilightOffContext = "ambilight_off"
+    static let ambilightBrightnessContext = "ambilight_brightness"
+    /// The menu structure is a large document: more time than a plain read.
+    static let menuStructureTimeout: Duration = .seconds(5)
+    /// After a failed structure read, the next one waits this long rather than slowing every poll.
+    static let menuStructureRetry: Duration = .seconds(300)
+    /// Missed menu reads in a row after which the menu stops deciding Ambilight's on/off.
+    static let menuStateMaxMisses = 3
 
     struct Intent: Codable, Sendable, Equatable {
         struct Component: Codable, Sendable, Equatable {
@@ -79,6 +91,22 @@ enum JointSpace {
 
         /// The style in upper case, as the plugin compares it.
         var style: String { styleName.uppercased() }
+    }
+
+    /// This TV's node ids for the Ambilight entries of its settings menu, found by their contexts; nil for an
+    /// entry the TV does not have.
+    struct AmbilightMenuNodes: Sendable, Equatable {
+        /// The style list, whose active entry tells on from off.
+        var style: Int?
+        /// The style list's Off entry.
+        var off: Int?
+        var brightness: Int?
+    }
+
+    /// Ambilight as a poll reads it: on or off, and the configuration when it adds detail (the mode, a colour).
+    struct AmbilightReading: Sendable, Equatable {
+        var on: Bool
+        var configuration: AmbilightConfiguration?
     }
 
     struct SystemInformation: Codable, Sendable, Equatable {
@@ -195,15 +223,27 @@ actor JointSpaceClient {
     private var waiters: [CheckedContinuation<Void, Never>] = []
     /// Launch intents the TV reported for its apps, so launches use the right activity.
     private var intents: [String: JointSpace.Intent] = [:]
+    /// The Ambilight menu nodes, once read from the menu structure.
+    private var menuNodes: JointSpace.AmbilightMenuNodes?
+    /// The structure read in progress, shared by concurrent callers.
+    private var menuNodesRequest: Task<JointSpace.AmbilightMenuNodes?, Never>?
+    /// No structure read before this, after a failed one.
+    private var menuStructureRetryAt: ContinuousClock.Instant?
+    private let menuStructureRetry: Duration
+    /// The style list and its Off entry, while this TV's menu reports Ambilight's on/off.
+    private var menuState: (style: Int, off: Int)?
+    /// Missed menu reads in a row while `menuState` is set.
+    private var menuStateMisses = 0
     let logger: Logger
     /// Between the end of one request and the start of the next (`JointSpace.gapBetweenRequests`).
     private let gap: Duration
 
     init(
         ip: String, username: String, password: String, certificateFingerprint: String?, transports: any JointSpaceTransportFactory, logger: Logger,
-        gap: Duration = JointSpace.gapBetweenRequests, preferPlain: Bool = false
+        gap: Duration = JointSpace.gapBetweenRequests, preferPlain: Bool = false, menuStructureRetry: Duration = JointSpace.menuStructureRetry
     ) {
         self.gap = gap
+        self.menuStructureRetry = menuStructureRetry
         self.preferPlain = preferPlain
         self.ip = ip
         self.username = username
@@ -364,8 +404,12 @@ actor JointSpaceClient {
             colorSettings: .init(color: color, colorDelta: .init(hue: 0, saturation: 0, brightness: 0), speed: 0)))
     }
 
-    /// Off through the style, then through the power switch for sets that reject the style.
+    /// Off through the style menu's Off entry on a TV whose menu reports on/off, as the TV's Ambilight button
+    /// does; else (or when the TV refuses it) through the style, then the power switch for sets that reject
+    /// the style. On those TVs a style OFF darkens the LEDs but leaves the menu on its last style, which the
+    /// next poll would read back as on. Only nodes already known: switching off never waits on the menu.
     func setAmbilightOff() async throws {
+        if let menuState, (try? await updateMenuSetting(menuState.style, ["activenode_id": menuState.off])) != nil { return }
         do {
             try await setAmbilightStyle("OFF")
         } catch {
@@ -373,21 +417,93 @@ actor JointSpaceClient {
         }
     }
 
-    /// The menu's brightness, 0 to 10.
+    /// The menu's brightness, 0 to 10, on the node this TV reports (the long-known one when it reports none).
     func setAmbilightBrightness(_ level: Int) async throws {
-        struct Body: Encodable {
-            struct Entry: Encodable {
-                struct Value: Encodable {
-                    struct DataValue: Encodable { var value: Int }
-                    var Nodeid: Int
-                    var data: DataValue
-                }
-                var value: Value
-            }
-            var values: [Entry]
-        }
         let clamped = min(max(level, JointSpace.ambilightBrightnessRange.lowerBound), JointSpace.ambilightBrightnessRange.upperBound)
-        try await post("menuitems/settings/update", Body(values: [.init(value: .init(Nodeid: JointSpace.ambilightBrightnessNode, data: .init(value: clamped)))]))
+        let node = await ambilightMenuNodes()?.brightness ?? JointSpace.ambilightBrightnessNode
+        try await updateMenuSetting(node, ["value": clamped])
+    }
+
+    /// Ambilight's state for a poll; nil when nothing should be applied this time.
+    ///
+    /// Some models (the 2024 Google TV OLEDs, a 77OLED848/12) answer OFF from `ambilight/currentconfiguration`
+    /// and `ambilight/power` however Ambilight is lit. Where the settings menu answers, it decides on or off,
+    /// and the configuration is read only while it is on. When such a TV's menu misses a read, nothing is
+    /// applied: the endpoints it is known to get wrong would flip the tile.
+    func ambilightState() async -> JointSpace.AmbilightReading? {
+        let menuOn = await ambilightMenuState()
+        if menuOn == false { return .init(on: false) }
+        if menuOn == nil, hasAmbilightMenuState { return nil }
+        let configuration = try? await ambilightConfiguration()
+        let configurationOn = configuration.map { $0.style != "OFF" } ?? false
+        if menuOn == true { return .init(on: true, configuration: configurationOn ? configuration : nil) }
+        if let configuration { return .init(on: configurationOn, configuration: configuration) }
+        guard let power = try? await ambilightPower() else { return nil }
+        return .init(on: power)
+    }
+
+    /// Whether Ambilight is on by the TV's settings menu, or nil when the TV has no such entries or did not
+    /// answer: the style list's active entry is its Off entry exactly when Ambilight is off.
+    func ambilightMenuState() async -> Bool? {
+        guard let nodes = await ambilightMenuNodes(), let style = nodes.style, let off = nodes.off else { return nil }
+        let answer: JSONPayload? = try? await post("menuitems/settings/current", ["nodes": [["nodeid": style]]], reading: JSONPayload.self)
+        guard let active = answer?["values"]?.first?["value"]?["data"]?["activenode_id"]?.nodeID else {
+            if menuState != nil {
+                menuStateMisses += 1
+                if menuStateMisses >= JointSpace.menuStateMaxMisses {
+                    logger.debug("The Ambilight menu missed \(JointSpace.menuStateMaxMisses) reads in a row: back to the Ambilight endpoints")
+                    menuState = nil
+                    menuStateMisses = 0
+                }
+            }
+            return nil
+        }
+        menuState = (style, off)
+        menuStateMisses = 0
+        return active != off
+    }
+
+    /// True while this TV's settings menu reports Ambilight's on/off.
+    var hasAmbilightMenuState: Bool { menuState != nil }
+
+    /// This TV's Ambilight menu nodes, read from its menu structure once. A failed read is tried again, but
+    /// not before `menuStructureRetry`.
+    func ambilightMenuNodes() async -> JointSpace.AmbilightMenuNodes? {
+        if let menuNodes { return menuNodes }
+        if let menuStructureRetryAt, ContinuousClock.now < menuStructureRetryAt { return nil }
+        if let menuNodesRequest { return await menuNodesRequest.value }
+        let request = Task { await self.readAmbilightMenuNodes() }
+        menuNodesRequest = request
+        let nodes = await request.value
+        menuNodesRequest = nil
+        return nodes
+    }
+
+    private func readAmbilightMenuNodes() async -> JointSpace.AmbilightMenuNodes? {
+        let structure: JSONPayload
+        do {
+            structure = try await get("menuitems/settings/structure", timeout: JointSpace.menuStructureTimeout)
+        } catch is CancellationError {
+            return nil
+        } catch {
+            menuStructureRetryAt = .now + menuStructureRetry
+            return nil
+        }
+        let style = structure.menuNode(context: JointSpace.ambilightStyleContext)
+        let nodes = JointSpace.AmbilightMenuNodes(
+            style: style?.menuNodeID, off: style?.menuNode(context: JointSpace.ambilightOffContext)?.menuNodeID,
+            brightness: structure.menuNode(context: JointSpace.ambilightBrightnessContext)?.menuNodeID)
+        logger.debug("Ambilight menu nodes: style \(nodes.style.map(String.init) ?? "-"), off \(nodes.off.map(String.init) ?? "-"), brightness \(nodes.brightness.map(String.init) ?? "-")")
+        menuNodes = nodes
+        return nodes
+    }
+
+    private func updateMenuSetting(_ node: Int, _ data: [String: Int]) async throws {
+        struct Value: Encodable {
+            var Nodeid: Int
+            var data: [String: Int]
+        }
+        try await post("menuitems/settings/update", ["values": [["value": Value(Nodeid: node, data: data)]]])
     }
 
     func hueLampPower() async throws -> Bool {
@@ -425,6 +541,18 @@ actor JointSpaceClient {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         _ = try await send(method: "POST", path: path, body: try encoder.encode(body), timeout: timeout)
+    }
+
+    /// A POST whose answer is read: the menu's current values.
+    func post<T: Decodable>(_ path: String, _ body: some Encodable, reading: T.Type, timeout: Duration = JointSpace.postTimeout) async throws -> T {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let response = try await send(method: "POST", path: path, body: try encoder.encode(body), timeout: timeout)
+        do {
+            return try JSONDecoder().decode(T.self, from: response.body)
+        } catch {
+            throw JointSpaceError.invalidResponse("\(path): \(error)")
+        }
     }
 
     /// A long request outside the gap and queue of the others: the long-poll client's `notifychange`.
@@ -560,5 +688,45 @@ actor JointSpaceClient {
         } catch {
             throw JointSpaceError.unreachable("\(error)")
         }
+    }
+}
+
+extension JSONPayload {
+    /// The first node of a menu (sub)tree with this context, depth first: a node's own context, then its
+    /// children (an object's in key order, an array's in order).
+    func menuNode(context: String) -> JSONPayload? {
+        switch self {
+        case .object(let object):
+            if object["context"]?.stringValue == context { return self }
+            for key in object.keys.sorted() {
+                if let hit = object[key]?.menuNode(context: context) { return hit }
+            }
+            return nil
+        case .array(let array):
+            for element in array {
+                if let hit = element.menuNode(context: context) { return hit }
+            }
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    /// A menu node's `node_id`.
+    var menuNodeID: Int? { self["node_id"]?.nodeID }
+
+    /// A node id: a whole number, or a string of digits as some firmware sends it.
+    var nodeID: Int? {
+        switch self {
+        case .number(let value) where value.rounded() == value && abs(value) < 1e15: Int(value)
+        case .string(let value) where !value.isEmpty && value.allSatisfy({ $0.isASCII && $0.isWholeNumber }): Int(value)
+        default: nil
+        }
+    }
+
+    /// An array's first element.
+    var first: JSONPayload? {
+        if case .array(let array) = self { return array.first }
+        return nil
     }
 }

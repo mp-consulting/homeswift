@@ -123,7 +123,7 @@ actor TVDevice {
         deviceLogger[metadataKey: "tv"] = "\(settings.name)"
         self.logger = deviceLogger
         client = JointSpaceClient(ip: settings.ip, username: settings.username, password: settings.password, certificateFingerprint: settings.certFingerprint, transports: transports, logger: deviceLogger,
-            gap: JointSpace.gapBetweenRequests * timeScale)
+            gap: JointSpace.gapBetweenRequests * timeScale, menuStructureRetry: JointSpace.menuStructureRetry * timeScale)
         catalog = InputCatalog(settings: settings)
         var store = InputStore(directory: storageDirectory, mac: settings.mac)
         switchNames = SwitchNameStore(directory: storageDirectory, mac: settings.mac)
@@ -265,10 +265,12 @@ actor TVDevice {
         }
         await applyPower(on)
         guard on else { return }
-        if let configuration = try? await client.ambilightConfiguration() {
-            applyAmbilight(configuration)
-        } else if let power = try? await client.ambilightPower() {
-            applyAmbilightPower(power)
+        if let reading = await client.ambilightState() {
+            if let configuration = reading.configuration {
+                applyAmbilight(configuration)
+            } else {
+                applyAmbilightPower(reading.on)
+            }
         }
         if let volume = try? await client.volume() {
             applyVolume(volume)
@@ -389,7 +391,11 @@ actor TVDevice {
     private func applyNotification(_ payload: [String: JSONPayload]) async -> Bool {
         var updates: [() -> Void] = []
         var power: Bool?
+        // On a TV whose settings menu reports Ambilight's on/off, these payloads can say off while it is lit:
+        // a poll reads the menu instead.
+        let ambilightFromMenu = await client.hasAmbilightMenuState
         for (key, value) in payload {
+            if ambilightFromMenu, key == "ambilight/currentconfiguration" || key == "ambilight/power" { return false }
             switch key {
             case "powerstate":
                 guard let state = value["powerstate"]?.stringValue else { return false }
@@ -682,9 +688,11 @@ actor TVDevice {
 
     private func reapplyStyle(_ style: String, algorithm: String?) async {
         guard let current = try? await client.ambilightConfiguration() else { return }
+        let ambilightFromMenu = await client.hasAmbilightMenuState
         // A colour picked while the read was on its way cancelled the retry: it is the style now.
         guard !Task.isCancelled else { return }
-        ambilight.style = current.style
+        // A TV whose menu reports on/off can answer OFF here while Ambilight is lit: not a style to record.
+        if current.style != "OFF" || !ambilightFromMenu { ambilight.style = current.style }
         guard current.style != style else { return }
         logger.debug("Ambilight style drifted to \(current.style); re-applying \(style)")
         if (try? await client.setAmbilightStyle(style, algorithm: algorithm)) != nil { ambilight.style = style }
