@@ -9106,6 +9106,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "who" }, el("strong", { text: automation.name }),
           el("span", { class: "muted", text: [automation.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · "),
             tn("{n} step", "{n} steps", automation.steps.length), automation.mode === "single" ? t("Single") : null,
+            automation.parallel ? t("Steps at the same time") : null,
             automation.homeKit ? t("In the Home app") : null].filter(Boolean).join(" · ") })),
         el("label", { class: "toggle compact" }, el("span", { class: "switch" }, enabled, el("span")))),
       automation.security ? el("p", { class: "muted note" }, HomeswiftCommon.icon("lock"), el("span", { text: t("It watches or names a lock, a door or an alarm: those are never changed by it.") })) : null,
@@ -9130,6 +9131,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const name = el("input", { type: "text", value: automation.name ?? "", maxLength: 64, required: true, placeholder: t("Hall light on motion") });
     const enabled = el("input", { type: "checkbox", checked: automation.enabled !== false });
     const homeKit = el("input", { type: "checkbox", checked: Boolean(automation.homeKit) });
+    const parallel = el("input", { type: "checkbox", checked: Boolean(automation.parallel) });
     const mode = el("select", {}, el("option", { value: "restart", text: t("Restart: a new trigger starts it again") }), el("option", { value: "single", text: t("Single: a new trigger is ignored while it runs") }));
     mode.value = automation.mode || "restart";
     const toggle = (input, title, help) => el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")),
@@ -9180,7 +9182,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "who" }, el("h3", { text: title }), el("p", { class: "muted" }, ...[].concat(help).filter(Boolean)))), ...content);
     const line = statusLine();
     const save = el("button", { class: "primary", actionIcon: "check", type: "submit", text: isNew ? t("Create the automation") : t("Save") });
-    const read = () => ({ name: name.value.trim(), enabled: enabled.checked, homeKit: homeKit.checked, mode: mode.value,
+    const read = () => ({ name: name.value.trim(), enabled: enabled.checked, homeKit: homeKit.checked, mode: mode.value, parallel: parallel.checked,
       triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), steps: steps.map((row) => row.read()) });
     const snapshot = () => { try { return JSON.stringify(read()); } catch { return null; } };
     const initial = isNew && fromDraft ? null : snapshot();
@@ -9204,7 +9206,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("button", { actionIcon: "plus", type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })),
       section(t("Conditions"), "shield", t("A trigger's run goes ahead only when all of these hold. Run now ignores them."), conditionList,
         el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition({ type: "time", after: "sunset", before: "23:00" }) })),
-      section(t("Steps"), "workflow", t("Run in order. Locks, garage doors and alarms are left out: the last run says so."), stepList,
+      section(t("Steps"), "workflow", t("Run in order. Locks, garage doors and alarms are left out: the last run says so."),
+        toggle(parallel, t("Run the steps at the same time"), t("The steps between two waits start together rather than one after the other. A wait still holds back the steps after it.")), stepList,
         el("button", { actionIcon: "plus", type: "button", text: t("Add a step"), onclick: () => addStep() })),
       el("div", { class: "save-bar" }, save, el("a", { class: "button", actionIcon: "close", href: "/automations", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),
@@ -24120,6 +24123,9 @@ HomeswiftI18n.add("es", {
   "Off, its triggers do nothing; Run now still runs it.": "Desactivada, sus disparadores no hacen nada; «Ejecutar ahora» la ejecuta igualmente.",
   "On the Homeswift Scenes accessory: the switch turns the automation on and off.": "En el accesorio Homeswift Scenes: el interruptor activa y desactiva la automatización.",
   "Plugin action": "Acción de un plugin",
+  "Steps at the same time": "Pasos a la vez",
+  "Run the steps at the same time": "Ejecutar los pasos a la vez",
+  "The steps between two waits start together rather than one after the other. A wait still holds back the steps after it.": "Los pasos entre dos esperas empiezan juntos en lugar de uno tras otro. Una espera sigue reteniendo los pasos que la siguen.",
   "Restart: a new trigger starts it again": "Reiniciar: un nuevo disparador la vuelve a empezar",
   "Run in order. Locks, garage doors and alarms are left out: the last run says so.": "Se ejecutan en orden. Cerraduras, puertas de garaje y alarmas se dejan fuera: la última ejecución lo indica.",
   "Run now": "Ejecutar ahora",
@@ -27884,6 +27890,9 @@ HomeswiftI18n.add("fr", {
   "Off, its triggers do nothing; Run now still runs it.": "Désactivée, ses déclencheurs ne font rien ; « Exécuter maintenant » la lance quand même.",
   "On the Homeswift Scenes accessory: the switch turns the automation on and off.": "Sur l'accessoire Homeswift Scenes : l'interrupteur active et désactive l'automatisation.",
   "Plugin action": "Action d'un plugin",
+  "Steps at the same time": "Étapes simultanées",
+  "Run the steps at the same time": "Exécuter les étapes en même temps",
+  "The steps between two waits start together rather than one after the other. A wait still holds back the steps after it.": "Les étapes entre deux attentes démarrent ensemble plutôt que l'une après l'autre. Une attente retient toujours les étapes qui la suivent.",
   "Restart: a new trigger starts it again": "Redémarrer : un nouveau déclenchement la relance",
   "Run in order. Locks, garage doors and alarms are left out: the last run says so.": "Exécutées dans l'ordre. Serrures, portes de garage et alarmes sont laissées de côté : la dernière exécution le dit.",
   "Run now": "Exécuter maintenant",
@@ -31648,6 +31657,9 @@ HomeswiftI18n.add("pt", {
   "Off, its triggers do nothing; Run now still runs it.": "Desativada, os seus acionadores não fazem nada; «Executar agora» executa-a na mesma.",
   "On the Homeswift Scenes accessory: the switch turns the automation on and off.": "No acessório Homeswift Scenes: o interruptor ativa e desativa a automação.",
   "Plugin action": "Ação de um plugin",
+  "Steps at the same time": "Passos em simultâneo",
+  "Run the steps at the same time": "Executar os passos em simultâneo",
+  "The steps between two waits start together rather than one after the other. A wait still holds back the steps after it.": "Os passos entre duas esperas começam juntos em vez de um após o outro. Uma espera continua a reter os passos que vêm depois dela.",
   "Restart: a new trigger starts it again": "Reiniciar: um novo acionador recomeça-a",
   "Run in order. Locks, garage doors and alarms are left out: the last run says so.": "Executados por ordem. Fechaduras, portas de garagem e alarmes ficam de fora: a última execução indica-o.",
   "Run now": "Executar agora",

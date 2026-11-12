@@ -296,7 +296,8 @@ What must hold when a Trigger fires for its Automation to run: a time window or 
 _Avoid_: Filter, guard, if
 
 **Step**:
-One thing an Automation does: apply a Scene, set a value, wait, wait until, notify, or call a plugin's action.
+One thing an Automation does: apply a Scene, set a value, wait, wait until, notify, or call a plugin's action. Steps
+run one after the other; an Automation in parallel starts the Steps between two waits together.
 _Avoid_: Action, task
 
 ## Remotes

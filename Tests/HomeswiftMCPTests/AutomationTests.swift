@@ -87,6 +87,31 @@ struct AutomationTests {
         #expect(lampWrites(environment, "lamp.brightness") == [.int(30), .int(30)])
     }
 
+    @Test func parallelStartsTheStepsBetweenWaitsTogether() async throws {
+        let environment = try MCPTestEnvironment(config: sceneConfig(bulbs: 4, slow: true))
+        try await environment.start()
+        environment.catalog.home.automationTimeScale.withLockedValue { $0 = 0.01 }
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        let on = (1...3).map { number -> JSONValue in ["type": "set", "id": .string("Devices:bulb\(number)"), "characteristic": "On", "value": true] }
+        let steps: JSONValue = .array(on + [["type": "wait", "seconds": 1], ["type": "set", "id": "Devices:bulb4", "characteristic": "On", "value": true]])
+        let saved = try catalog.saveAutomation(["name": "All at once", "parallel": true, "triggers": [["type": "time", "at": "07:00"]], "steps": steps])
+        #expect(saved["parallel"] == true)
+        #expect(try catalog.automation("All at once").stepGroups == [[0, 1, 2], [3], [4]])
+
+        let answer = try await catalog.runAutomation("All at once")
+        // The three bulbs' slow writes overlapped; the fourth waited for them and the wait.
+        #expect(environment.mostSlowWritesAtOnce == 3)
+        #expect(environment.written.map(\.0).last == "bulb4.on")
+        #expect(answer["lastRun"]?["ok"] == true)
+        #expect(answer["lastRun"]?["steps"]?.arrayValue?.compactMap { $0["step"]?.intValue } == [1, 2, 3, 4, 5])
+
+        // Off again (null too), the Steps run one after the other.
+        _ = try catalog.saveAutomation(["id": .string(try catalog.automation("All at once").id), "name": "All at once", "parallel": .null])
+        #expect(try catalog.automation("All at once").parallel == nil)
+        #expect(try catalog.automation("All at once").stepGroups == [[0], [1], [2], [3], [4]])
+    }
+
     @Test func aValueThatStaysRunsItAndOneThatChangesBackDoesNot() async throws {
         let environment = try await environment()
         let catalog = environment.catalog

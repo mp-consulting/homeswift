@@ -83,6 +83,7 @@
         el("div", { class: "who" }, el("strong", { text: automation.name }),
           el("span", { class: "muted", text: [automation.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · "),
             tn("{n} step", "{n} steps", automation.steps.length), automation.mode === "single" ? t("Single") : null,
+            automation.parallel ? t("Steps at the same time") : null,
             automation.homeKit ? t("In the Home app") : null].filter(Boolean).join(" · ") })),
         el("label", { class: "toggle compact" }, el("span", { class: "switch" }, enabled, el("span")))),
       automation.security ? el("p", { class: "muted note" }, HomeswiftCommon.icon("lock"), el("span", { text: t("It watches or names a lock, a door or an alarm: those are never changed by it.") })) : null,
@@ -107,6 +108,7 @@
     const name = el("input", { type: "text", value: automation.name ?? "", maxLength: 64, required: true, placeholder: t("Hall light on motion") });
     const enabled = el("input", { type: "checkbox", checked: automation.enabled !== false });
     const homeKit = el("input", { type: "checkbox", checked: Boolean(automation.homeKit) });
+    const parallel = el("input", { type: "checkbox", checked: Boolean(automation.parallel) });
     const mode = el("select", {}, el("option", { value: "restart", text: t("Restart: a new trigger starts it again") }), el("option", { value: "single", text: t("Single: a new trigger is ignored while it runs") }));
     mode.value = automation.mode || "restart";
     const toggle = (input, title, help) => el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")),
@@ -157,7 +159,7 @@
         el("div", { class: "who" }, el("h3", { text: title }), el("p", { class: "muted" }, ...[].concat(help).filter(Boolean)))), ...content);
     const line = statusLine();
     const save = el("button", { class: "primary", actionIcon: "check", type: "submit", text: isNew ? t("Create the automation") : t("Save") });
-    const read = () => ({ name: name.value.trim(), enabled: enabled.checked, homeKit: homeKit.checked, mode: mode.value,
+    const read = () => ({ name: name.value.trim(), enabled: enabled.checked, homeKit: homeKit.checked, mode: mode.value, parallel: parallel.checked,
       triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), steps: steps.map((row) => row.read()) });
     const snapshot = () => { try { return JSON.stringify(read()); } catch { return null; } };
     const initial = isNew && fromDraft ? null : snapshot();
@@ -181,7 +183,8 @@
         el("button", { actionIcon: "plus", type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })),
       section(t("Conditions"), "shield", t("A trigger's run goes ahead only when all of these hold. Run now ignores them."), conditionList,
         el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition({ type: "time", after: "sunset", before: "23:00" }) })),
-      section(t("Steps"), "workflow", t("Run in order. Locks, garage doors and alarms are left out: the last run says so."), stepList,
+      section(t("Steps"), "workflow", t("Run in order. Locks, garage doors and alarms are left out: the last run says so."),
+        toggle(parallel, t("Run the steps at the same time"), t("The steps between two waits start together rather than one after the other. A wait still holds back the steps after it.")), stepList,
         el("button", { actionIcon: "plus", type: "button", text: t("Add a step"), onclick: () => addStep() })),
       el("div", { class: "save-bar" }, save, el("a", { class: "button", actionIcon: "close", href: "/automations", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),

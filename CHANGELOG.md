@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Automations' steps at the same time**: a toggle in the editor (and `parallel` in `save_automation`) starts the
+  Steps between two waits together rather than one after the other, so a set of lights changes at once; a wait still
+  holds back the Steps after it.
+
 ## [0.30.1] - 2026-11-12
 
 ### Changed

@@ -539,6 +539,9 @@ Deleting a scene opens a confirmation in the UI’s design system. Cancel is foc
 - **Mode**: **Restart** (the default): a trigger that fires during a run cancels it and starts again, as "turn the
   hall on, wait five minutes, turn it off" wants for each new motion. **Single**: a trigger during a run is ignored, and
   the last run says so.
+- **Run the steps at the same time**: the Steps between two waits start together rather than one after the other (ten
+  lights change at once, not one by one); a wait or a wait until still holds back the Steps after it. The last run
+  lists each Step's result in order.
 - **Locks, garage doors and alarms** are never set by an Automation: a Step on one, or the part of a Scene that changes
   one, is left out and its last run says so. Over MCP, saving an Automation that names one (in a trigger, a condition
   or a Step) asks the person first.
