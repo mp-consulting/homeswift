@@ -19,6 +19,12 @@ All notable changes to this project are documented here. The format follows
 - **The Log Doctor on a phone**: its answer shows above the page's bar rather than behind it.
 - **The Status page's Edit on a phone**: a touch scrolls the page; only a section's grip drags it.
 - **The Assistant's sparkle**: its gradient is no longer covered by a dark stroke.
+- **Philips Ambilight TV**: Ambilight's on and off are read from the TV's settings menu where it has one. Some models
+  (2024 Google TV OLEDs such as the 77OLED848/12) report Ambilight off from `ambilight/currentconfiguration` and
+  `ambilight/power` while it is lit, so a poll turned the tile back off about 10 seconds after it was switched on. Switching
+  off selects the menu's Off entry on those TVs (a style OFF left the menu on its last style, and the tile came back on),
+  and the brightness goes to the menu node the TV reports rather than a fixed id. TVs without the menu entries work as
+  before. Ported from homebridge-philips-ambilight-tv 1.9.7.
 
 ## [0.30.0] - 2026-11-12
 

@@ -105,7 +105,9 @@ identifiers in its own directory, so scenes survive restarts and newly discovere
 Ambilight is a lightbulb: on switches the TV's configured style on (the TV reasserts its own default a few
 seconds after waking, so the style is re-applied twice), a colour pick sends one `FOLLOW_COLOR` command for
 the hue, saturation and brightness that arrive together, and brightness while Ambilight follows the picture or
-the sound sets the TV's menu brightness instead of forcing a colour. Colour temperature is turned into a hue
+the sound sets the TV's menu brightness instead of forcing a colour. On TVs whose Ambilight endpoints report off while it
+is lit (2024 Google TV OLEDs such as the 77OLED848/12), on and off are read from, and switched through, the TV's settings
+menu (docs/jointspace-api.md, "Ambilight on/off from the settings menu"). Colour temperature is turned into a hue
 and saturation. Adaptive Lighting works on it: while Ambilight shows a colour the schedule's temperature
 follows the day; while it follows the picture or the sound the schedule leaves it alone. The schedule survives
 restarts (`controllers/`, as for any plugin).

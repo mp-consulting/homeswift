@@ -138,6 +138,38 @@ alongside `/6/powerstate`).
 - `GET /6/channeldb/tv/channelLists/{list_id}/{ccid}/logo`
 - `GET /6/recordings/{rcid}/image`
 
+## Ambilight on/off from the settings menu
+
+Some models (a **77OLED848/12**, 2024 Google TV platform, API 6.1) answer `OFF` from
+`/6/ambilight/currentconfiguration` and `{"power":"Off"}` from `/6/ambilight/power` while
+Ambilight is lit. The settings menu still knows. `GET /6/menuitems/settings/structure` returns
+the menu tree; each node has a `node_id` and a `context`. The contexts are the same on every
+model, the ids are not (`ambilight_brightness` is `2130968780` there, not the long-known
+`2131230769`), so the plugin finds `ambilight_style`, its child `ambilight_off` and
+`ambilight_brightness` by context, once per run (a failed read waits 5 minutes). Some firmware
+sends `node_id` as a string of digits.
+
+```json
+// POST /6/menuitems/settings/current
+{ "nodes": [{ "nodeid": 2130968783 }] }
+// the active entry of ambilight_style is ambilight_off exactly when Ambilight is off
+{ "values": [{ "value": { "Nodeid": 2130968783, "data": { "activenode_id": 2130968789 } } }] }
+```
+
+Switching off goes through the menu too: on these models a `styleName` `OFF` darkens the LEDs
+but leaves `ambilight_style` on its last entry, which the next read takes for on. Selecting the
+Off entry, as the remote's Ambilight button does, keeps both in step; switching on through
+`/6/ambilight/power` and `/6/ambilight/currentconfiguration` moves the menu off it.
+
+```json
+// POST /6/menuitems/settings/update
+{ "values": [{ "value": { "Nodeid": 2130968783, "data": { "activenode_id": 2130968789 } } }] }
+```
+
+While the menu answers, it decides on and off, and the notifications of the two endpoints are
+not applied (a poll reads the menu instead); three missed menu reads in a row and the plugin goes
+back to the endpoints. TVs without these nodes are read through the endpoints as before.
+
 ## Connector tuning (from `xtvRestletServer`)
 
 | Parameter | 1925 | 1926 |
