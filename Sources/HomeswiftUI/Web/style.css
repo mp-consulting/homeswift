@@ -3983,15 +3983,15 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
   #app .accessories-bar.phone-bar .accessories-ask { order: 6; }
   #app .accessories-bar :is(.accessories-views, .accessories-toolbar) > :is(button, a):is(.accessories-full-screen, .in-menu-on-phone),
   #app .accessories-bar .accessories-toolbar > :is(button, a).hidden, #app .accessories-bar .accessories-toolbar > .accessories-ask[hidden] { display: none; }
-  /* Its buttons are the bar's round ones (`.bar-button`'s look), the Assistant's in the accent. */
+  /* Its buttons are the bar's round white ones (`.bar-button`'s look), the Assistant's too. */
   #app .accessories-bar .accessories-toolbar > :is(button, a), #app .accessories-bar .accessories-toolbar > .accessory-options-button, #app .accessories-bar .subnav a {
     position: relative; display: flex; align-items: center; justify-content: center; width: var(--bar-control); height: var(--bar-control);
-    min-width: var(--bar-control); min-height: var(--bar-control); padding: 0; gap: 0; border-radius: 50%; font-size: 0; flex: none; color: var(--text); border: 0; box-shadow: none;
-    background: color-mix(in srgb, var(--text) 9%, transparent);
+    min-width: var(--bar-control); min-height: var(--bar-control); padding: 0; gap: 0; border-radius: 50%; font-size: 0; flex: none; color: var(--text);
+    border: 1px solid var(--edge); box-shadow: var(--shadow-control); background: var(--control);
   }
-  #app .accessories-bar .accessories-toolbar > .accessories-ask { display: flex; background: var(--accent-fill); color: var(--accent-text); }
+  #app .accessories-bar .accessories-toolbar > .accessories-ask { display: flex; }
   .accessories-bar .accessories-ask .sparkle { width: 22px; height: 22px; }
-  #app .accessories-bar :is(.accessories-filters.on, .accessories-edit[aria-pressed="true"]) { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  #app .accessories-bar :is(.accessories-filters.on, .accessories-edit[aria-pressed="true"]) { color: var(--accent-text); background: var(--accent-fill); border-color: transparent; }
   .accessories-bar .accessories-toolbar button > svg, .accessories-bar .accessory-options-button svg, .accessories-bar .subnav svg { width: 21px; height: 21px; margin: 0; color: currentColor; opacity: 1; }
   .accessories-bar .accessories-edit.action-with-icon::before { width: 21px; height: 21px; margin: 0; }
 }
@@ -4063,8 +4063,24 @@ fieldset > .help { margin-bottom: var(--space-10); }
   .restart-overlay.restart-leaving, .restart-overlay.restart-leaving::backdrop { animation: none; }
 }
 
-/* A phone: chat.js keeps the Assistant's button out of the header in this dock; More's panel has the Assistant there. */
-.chat-dock { display: none; }
+/* A phone: the header has no Assistant button. A page with a bar has its own at the bar's right end (Status and Energy
+   beside Edit); on the others chat.js puts the Assistant's button in #app, floating over the tab bar's right end where
+   Status's Edit floats, and a save bar there stops short of it. */
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  #app > .chat-open {
+    position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(var(--tab-bar-top) + var(--space-10));
+    width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button);
+    color: var(--text); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
+    -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+  }
+  #app > .chat-open .sparkle { width: 24px; height: 24px; }
+  #app:has(.phone-bar, .status-footer) > .chat-open { display: none; }
+  #app .phone-bar .bar-button[hidden] { display: none; }
+  /* The save bar sits over the tab bar, beside the floating Assistant. */
+  .settings-bar { bottom: calc(var(--tab-bar-top) + var(--space-10)); }
+  #app:has(> .chat-open:not([hidden])) .settings-bar { margin-right: calc(var(--float-button) + var(--space-10)); }
+  #app > main:has(.settings-bar) { padding-bottom: calc(var(--tab-bar-top) + var(--space-24)); }
+}
 /* A phone's navigation (tabBar): More's panel, within thumb reach. */
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .tabbar { left: auto; right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); display: block; padding: 0; border: 0; background: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -4126,11 +4142,16 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .status-footer > .link { justify-content: center; width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); padding: 0; border-radius: 50%; }
 .status-footer > .link span { display: none; }
 .status-footer > .link svg { width: 22px; height: 22px; }
+/* The Assistant beside Edit: a phone's only (wider, the Assistant's own button floats there already). */
+.status-footer > .footer-assistant { display: none; }
+.status-footer > .footer-assistant .sparkle { width: 24px; height: 24px; }
 /* On a phone, a round button stacked above the menu button (and above the Assistant's, when it is there), the same
    size, within thumb reach; its words stay its accessible name. */
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .status-footer { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--float-button) + var(--space-10)); margin: 0; }
   .status-footer > .link { color: var(--text); box-shadow: var(--shadow-thick); }
+  .status-footer { gap: var(--space-10); }
+  .status-footer > .footer-assistant:not([hidden]) { display: inline-flex; }
   /* Room at the page's end, so its last card scrolls clear of the button. */
   #app > main:has(> .status-footer)::after { content: ""; display: block; height: calc(var(--float-button) + var(--space-10)); }
 }
@@ -5979,6 +6000,8 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 }
 
 /* A single edit header contains the section title and its management controls. */
+/* On a touch screen a swipe over a section scrolls; its grip (the handle) drags it. */
+@media (pointer: coarse) { .dash-widget > .dash-edit > :is(.dash-edit-shield, .dash-edit-header) { touch-action: pan-y; cursor: default; } }
 .dash-edit-header { position: absolute; inset: 0 0 auto; display: flex; align-items: center; gap: var(--space-12); padding: var(--space-8); border-bottom: 1px solid var(--line); border-radius: var(--radius) var(--radius) 0 0; background: var(--material-thick); pointer-events: auto; cursor: grab; touch-action: none; }
 .dash-edit-header > .dash-edit-name { flex: 1; min-width: 0; font-size: var(--text-base); font-weight: var(--weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dash-edit-header > button { position: static; flex: none; width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
@@ -6576,7 +6599,6 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   /* Open, More's panel covers the page's bar rather than slipping under it; it lists the sections that are not tabs. */
   .tabbar:has(> .mobile-nav-panel:not([hidden])) { z-index: var(--layer-panel); }
   .tabbar .mobile-nav-panel a.is-tab { display: none; }
-  .tabbar .mobile-nav-assistant .sparkle { width: 21px; height: 21px; }
   #app > main { padding-bottom: calc(var(--tab-bar-top) + var(--space-24)); }
 
   /* A page's bar: one glass capsule over the tab bar, its search across it (16px, or iOS zooms the page in on focus),
@@ -6590,16 +6612,16 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
     background-color: var(--material-chrome); background-image: var(--sheen); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
   }
-  #app .phone-bar .search { order: 1; display: block; flex: 1 1 0; width: auto; max-width: none; min-width: 0; height: var(--bar-control); margin: 0; padding: 0 var(--space-8) 0 var(--space-14);
+  #app .phone-bar .search { order: 1; display: block; flex: 1 1 0; width: auto; max-width: none; min-width: 0; height: var(--bar-control); margin: 0; padding: 0 var(--space-4) 0 var(--space-10);
     border: 0; border-radius: var(--radius-pill); background: none; box-shadow: none; font-size: var(--text-lg); color: var(--text); }
   #app .phone-bar .search:focus { outline: none; box-shadow: none; }
   #app .phone-bar .bar-button {
     order: 2; position: relative; display: flex; align-items: center; justify-content: center; width: var(--bar-control); height: var(--bar-control);
-    min-width: var(--bar-control); min-height: var(--bar-control); padding: 0; gap: 0; flex: none; font-size: 0; border: 0; border-radius: 50%; box-shadow: none;
-    color: var(--text); background: color-mix(in srgb, var(--text) 9%, transparent);
+    min-width: var(--bar-control); min-height: var(--bar-control); padding: 0; gap: 0; flex: none; font-size: 0; border: 1px solid var(--edge); border-radius: 50%;
+    box-shadow: var(--shadow-control); color: var(--text); background: var(--control);
   }
-  #app .phone-bar .bar-button:is(.on, [aria-pressed="true"]) { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
-  #app .phone-bar .bar-button.accent { color: var(--accent-text); background: var(--accent-fill); }
+  /* On (Follow playing, Filters in use) and a page's own action (Plugins' +): the accent's round button. */
+  #app .phone-bar .bar-button:is(.on, [aria-pressed="true"], .accent) { color: var(--accent-text); background: var(--accent-fill); border-color: transparent; }
   #app .phone-bar .bar-button svg { width: 21px; height: 21px; margin: 0; }
   #app .phone-bar .toolbar-count { position: absolute; top: -3px; right: -3px; display: grid; place-items: center; min-width: 17px; height: 17px; padding: 0 var(--space-4);
     border-radius: var(--radius-pill); font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
@@ -6637,6 +6659,13 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   #app .log-action-bar > .menu-button { order: 0; }
   #app .log-action-bar > .ai-button { order: 3; }
   #app .log-action-bar > :is(.count, .spacer, .log-copy, .save-payloads, .log-follow, .ai-button.hidden) { display: none; }
+  /* The Log Doctor's answer: a card over the bar, as Filters' sheet is, rather than after the log under the bars. */
+  #app .log-doctor:not(.hidden) {
+    position: fixed; z-index: calc(var(--layer-tabbar) + 2); margin: 0; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right));
+    bottom: calc(var(--page-bar-top) + var(--space-10)); box-shadow: var(--shadow-thick);
+  }
+  #app .log-doctor > .ai-inner { max-height: calc(100dvh - var(--page-bar-top) - 100px); overflow-y: auto; overscroll-behavior: contain; }
+  #app:has(.log-doctor:not(.hidden)) .to-end { opacity: 0; pointer-events: none; }
 
   /* In the Logs page's sheet the time ranges wrap into two rows of four rather than scrolling out of sight. */
   #app .log-filter-panel .log-time > .group { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; mask-image: none; -webkit-mask-image: none; }
@@ -6652,9 +6681,30 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .plugins-row .plugins-open { width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; border-radius: 50%; justify-content: center; }
   .plugins-row .plugins-open.action-with-icon::before { margin: 0; }
 
+  /* The Scenes page: its title and tabs; the search, Filters (the rooms, one per line), a round New scene and the
+     Assistant in its bar; Ideas and New scene leave the title, the ideas staying at the page's foot. */
+  main:has(> .scene-filters) .page-head :is(p, .tools) { display: none; }
+  #app main > .scene-filters > .clear-filters { display: none; }
+  #app main > .scene-filters > .scene-places.phone-sheet.open { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; overflow-y: auto; margin: 0; }
+  #app main > .scene-filters > .scene-places > .template-room { justify-content: flex-start; gap: var(--space-12); min-height: 44px; padding: var(--space-10) var(--space-12);
+    border-radius: var(--radius-md); font-size: var(--text-md); }
+
   /* The Audit log: its title and the settings' tabs; the search, Filters (the filters card) and Follow in its bar; each
      entry a short card rather than a table row: what was done and its outcome, who, when, then its details. */
-  main:has(> .audit-bar) .page-head p { display: none; }
+  main:has(> :is(.audit-bar, .logbook-bar, .config-bar)) .page-head p { display: none; }
+  /* The Config page's bar: its menu, the state across the middle, Save (round, the accent once there is something to
+     save) and the Assistant; the rest is in the menu. */
+  #app .config-bar > :is(.file-name, .spacer, .secrets-only, .settings-action:not(.primary), .config-force) { display: none; }
+  #app .config-bar > .menu-button { order: 0; }
+  #app .config-bar > .config-state { order: 1; flex: 1 1 0; min-width: 0; padding: 0 var(--space-8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
+  #app .phone-bar .bar-button.primary:not(:disabled) { color: var(--accent-text); background: var(--accent-fill); border-color: transparent; }
+  #app .phone-bar .bar-button.primary:disabled { opacity: 0.5; }
+  .logbook-day[hidden], .logbook-entry[hidden] { display: none; }
+  .logbook-toolbar > .logbook-count { grid-column: 1 / -1; padding: 0; border: 0; }
+  /* The Logbook's sheet: one column, the count first and the reset last, at the end of its own line. */
+  #app .logbook-toolbar.phone-sheet { grid-template-columns: minmax(0, 1fr); grid-template-areas: none; }
+  #app .logbook-toolbar.phone-sheet > *, #app .logbook-toolbar.phone-sheet > .log-scope-row > * { grid-area: auto; grid-column: 1 / -1; }
+  #app .logbook-toolbar.phone-sheet > .clear-filters { justify-self: end; }
   main:has(> .audit-bar) .audit-filter-grid, main:has(> .audit-bar) .audit-search { grid-template-columns: minmax(0, 1fr); }
   main:has(> .audit-bar) .audit-results .data-table, main:has(> .audit-bar) .audit-results .data-table tbody { display: block; }
   main:has(> .audit-bar) .audit-results .data-table thead { display: none; }

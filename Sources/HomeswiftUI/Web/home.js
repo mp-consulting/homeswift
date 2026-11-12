@@ -970,6 +970,17 @@
       ideas.scrollIntoView({ behavior: reduceMotion() ? "auto" : "smooth", block: "start" });
     } });
     const newScene = () => el("a", { class: "button primary", href: "/scenes/new", actionIcon: "plus", text: t("New scene") });
+    // A phone (as the Plugins page): one glass bar above the tab bar, the search, Filters (the rooms in a sheet over the
+    // bar, a badge while one is chosen), a round New scene and the Assistant; the row leaves the page's top for it.
+    const phone = HomeswiftCommon.phone;
+    const roomsSheet = places.length > 1 ? HomeswiftCommon.filtersToggle(placeChips.node) : null;
+    const paintRooms = () => roomsSheet?.count(place ? 1 : 0);
+    // A room chosen closes the sheet.
+    placeChips.node.addEventListener("click", () => { paintRooms(); setTimeout(() => roomsSheet?.open(false)); });
+    const newRound = el("a", { class: "bar-button bar-only accent", href: "/scenes/new", "aria-label": t("New scene"), title: t("New scene") }, HomeswiftCommon.icon("plus"));
+    const bar = el("div", { class: "scene-filters phone-bar" }, search, clear, places.length > 1 ? placeChips.node : null,
+      roomsSheet?.button, newRound, HomeswiftCommon.assistantButton());
+    const tabs = scenesTabs("scenes");
     const anything = own.length || hubScenes.node;
     // With no scene of its own, a short line says what one is for: under the hubs' scenes, which are what there is to
     // run, or alone at the top.
@@ -980,10 +991,16 @@
     app.show(main,
       app.pageHead(t("Scenes"), t("Accessory values set together, by hand, from the Home app or by an automation. Homeswift keeps them; one you choose is also a switch in the Home app."),
         ideasButton, anything ? newScene() : null),
-      scenesTabs("scenes"),
-      anything ? el("div", { class: "scene-filters" }, search, clear, places.length > 1 ? placeChips.node : null) : null,
-      ...sections, ideas);
+      tabs, ...sections, ideas);
+    const placeBar = () => {
+      if (!anything) return bar.remove();
+      if (phone.matches) main.append(bar);
+      else { tabs.after(bar); roomsSheet?.open(false); }
+    };
+    placeBar();
+    phone.addEventListener("change", placeBar, { signal: HomeswiftCommon.viewSignal() });
     hubScenes.source?.addEventListener("change", filter);
+    paintRooms();
     filter();
   }
 

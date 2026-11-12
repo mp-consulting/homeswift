@@ -384,7 +384,6 @@ try {
       window.fetch = original;` });
   for (const width of [375, 522]) await shot(`accessories-clearance-${width}`, "/accessories", {
     width, height: 867, mobile: true, viewportOnly: true, ready: ".widget", prepare: `
-      document.querySelector(".accessories-search-toggle").click();
       document.querySelector(".accessories-bar .search").value = "Room";
       document.activeElement.blur();
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -407,7 +406,7 @@ try {
   }
   await shot("remotes", "/remotes", { ready: ".remote-part", tall: 700 });
   await shot("logbook", "/logbook", { ready: ".logbook-entry", tall: 1000 });
-  await shot("logbook-phone", "/logbook", { width: 390, height: 844, mobile: true, ready: ".logbook-entry" });
+  await shot("logbook-phone", "/logbook", { width: 390, height: 844, mobile: true, viewportOnly: true, ready: ".logbook-entry" });
 } finally {
   socket.close();
   const exited = new Promise((done) => chrome.once("exit", done));

@@ -809,6 +809,17 @@
 
   // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
   // as on the Logs page.
+  /// The Assistant beside a page's Edit (Status, Energy) on a phone, a round button of the same kind, once there is one;
+  /// the header's then stands aside (style.css).
+  const assistantBesideEdit = () => {
+    const button = el("button", { type: "button", class: "link footer-assistant", hidden: true, "aria-label": t("Assistant"), title: t("Ask the Assistant"),
+      onclick: () => window.HomeswiftChat?.open() }, HomeswiftCommon.sparkle(), el("span", { text: t("Assistant") }));
+    const show = () => { button.hidden = !window.HomeswiftChat?.available(); };
+    show();
+    document.addEventListener("homeswift-assistant", show, { signal: HomeswiftCommon.viewSignal() });
+    return button;
+  };
+
   views.status = async (main) => {
     // Its values were frozen while the tab was hidden.
     onReturn(() => route());
@@ -1107,7 +1118,7 @@
     // Center: sections to drag into place or remove, and the ones not shown to add back.
     const footer = el("footer", { class: "page-foot status-footer" },
       el("button", { type: "button", class: "link", "aria-label": t("Edit the Status page"), onclick: () => editDashboard.enter() },
-        HomeswiftCommon.icon("edit"), el("span", { text: t("Edit") })));
+        HomeswiftCommon.icon("edit"), el("span", { text: t("Edit") })), assistantBesideEdit());
     function renderDashboard(layout) {
       const position = { left: scrollX, top: scrollY };
       // At a glance is drawn again when its widgets change; with none, it has no section.
@@ -1557,7 +1568,8 @@
         if (!editing || node.hidden || empty) continue;
         const id = node.dataset.widget, name = nameOf(id);
         const shield = el("div", { class: "dash-edit-shield", "aria-hidden": "true" });
-        shield.addEventListener("pointerdown", (event) => drag(event, node));
+        // A finger drags by the grip (the handle) only: a swipe over the section scrolls the page, as iOS's lists in edit.
+        shield.addEventListener("pointerdown", (event) => { if (event.pointerType !== "touch") drag(event, node); });
         const handle = el("button", { type: "button", class: "dash-edit-handle", "aria-label": t("Move {name}: arrow keys", { name }) }, HomeswiftCommon.icon("selector"));
         handle.addEventListener("pointerdown", (event) => drag(event, node));
         handle.addEventListener("keydown", (event) => {
@@ -1575,7 +1587,7 @@
         // One header names every section, including those with no title of their own.
         const header = el("div", { class: "dash-edit-header" }, remove,
           el("span", { class: "dash-edit-name", text: name }), handle);
-        header.addEventListener("pointerdown", (event) => { if (!event.target.closest("button")) drag(event, node); });
+        header.addEventListener("pointerdown", (event) => { if (event.pointerType !== "touch" && !event.target.closest("button")) drag(event, node); });
         node.append(el("div", { class: "dash-edit" }, shield, header));
         node.classList.add("dash-compact");
         // At a glance: each widget on its own, above the section's shield: removed by its badge, made wide or small by
@@ -3394,9 +3406,13 @@
       onclick: () => window.HomeswiftChat?.ask(search.value.trim()) }, HomeswiftCommon.sparkle());
     const showAsk = () => { ask.hidden = !window.HomeswiftChat?.available(); };
     showAsk();
-    setTimeout(showAsk, 1500);
-    search.addEventListener("focus", showAsk);
+    document.addEventListener("homeswift-assistant", showAsk, { signal: HomeswiftCommon.viewSignal() });
     toolbar.append(ask);
+    // Between four round buttons the field is narrow: a phone's placeholder is the one word (its label keeps the rest).
+    const wide = search.placeholder;
+    const placeholder = () => { search.placeholder = HomeswiftCommon.phone.matches ? t("Search") : wide; };
+    placeholder();
+    HomeswiftCommon.phone.addEventListener("change", placeholder, { signal: HomeswiftCommon.viewSignal() });
     return bar;
   };
   /// The address with `key` set to `value` (removed when empty), the page left as it is: what a search box types.
@@ -4510,7 +4526,7 @@
       HomeswiftCommon.icon("plus"));
     const toolbar = el("div", { class: "plugins-toolbar phone-bar" }, filters, search, HomeswiftCommon.clearFilters([[search, ""]], {
       active: () => filter !== "all", events: [[filters, "click"]], reset: () => { filter = "all"; render(); }
-    }), sheet.button, addRound);
+    }), sheet.button, addRound, HomeswiftCommon.assistantButton());
     const listCard = el("div", { class: "card plugins-card" }, toolbar, list);
     // A state chosen closes the sheet.
     filters.addEventListener("click", () => setTimeout(() => sheet.open(false)));
@@ -5676,12 +5692,28 @@
     // Offered only while the text parses (`update`).
     format.addEventListener("click", () => { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); });
     update();
+    // A phone (as the Logs page): the bar is the page's bar over the tab bar, the state across its middle, Save round and
+    // the Assistant at its end, Secrets only, Format, Revert and Save anyway in its menu.
+    const phone = HomeswiftCommon.phone;
+    force.classList.add("config-force");
+    save.classList.add("bar-button");
+    const actions = menuButton(t("More"), () => [
+      secretRule ? { label: t("Secrets only"), icon: "lock", toggle: true, checkbox: true, checked: secretsOnly.getAttribute("aria-pressed") === "true", onSelect: () => secretsOnly.click() } : null,
+      { label: t("Format"), icon: "code", disabled: () => format.disabled, onSelect: () => format.click() },
+      { label: t("Revert"), icon: "restore", disabled: () => revert.disabled, onSelect: () => revert.click() },
+      force.classList.contains("hidden") ? null : { label: t("Save anyway"), icon: "check", onSelect: () => force.click() },
+    ]);
+    actions.classList.add("bar-button", "bar-only");
+    const bar = el("div", { class: "editor-bar config-bar phone-bar" }, actions, el("span", { class: "mono muted file-name", text: "config.json" }),
+      el("span", { class: "config-state" }, check), el("span", { class: "spacer" }), secretsOnly, format, revert, force, save, HomeswiftCommon.assistantButton());
+    const card = el("div", { class: "card editor-card" }, bar, secretsBanner, editor, message);
+    // The card's glass would hold a fixed bar inside it: on a phone the bar goes after the card.
+    const placeBar = () => { if (phone.matches) card.after(bar); else card.prepend(bar); };
     show(main,
       pageHead(t("Settings"), t("The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.")),
-      subnav,
-      el("div", { class: "card editor-card" },
-        el("div", { class: "editor-bar" }, el("span", { class: "mono muted file-name", text: "config.json" }), check, el("span", { class: "spacer" }), secretsOnly, format, revert, force, save),
-        secretsBanner, editor, message));
+      subnav, card);
+    placeBar();
+    phone.addEventListener("change", placeBar, { signal: HomeswiftCommon.viewSignal() });
   }
 
   // ---- Logs ----------------------------------------------------------------
@@ -5999,7 +6031,7 @@
     follow.addEventListener("change", followUI.paint);
     logState.showLatest = followUI.showLatest;
     actions.classList.add("bar-button");
-    doctor.button.classList.add("bar-button", "accent");
+    doctor.button.classList.add("bar-button");
     const bar = el("div", { class: "editor-bar log-action-bar phone-bar" }, count, el("span", { class: "spacer" }), filters.button, followUI.button, doctor.button, copy,
       el("label", { class: "toggle compact log-follow" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
       saveToggle, actions);
@@ -6145,7 +6177,7 @@
     // Edit, as on Status: the units moved, removed and added back, saved for this user (`energyPage`).
     const footer = el("footer", { class: "page-foot status-footer" },
       el("button", { type: "button", class: "link", "aria-label": t("Edit the Energy page"), onclick: () => editor.enter() },
-        HomeswiftCommon.icon("edit"), el("span", { text: t("Edit") })));
+        HomeswiftCommon.icon("edit"), el("span", { text: t("Edit") })), assistantBesideEdit());
     show(main, head, nav, footer);
     const sections = new Map();
     function render(layout) {

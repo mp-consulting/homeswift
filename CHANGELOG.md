@@ -6,8 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The phone's page bars**: the Logbook (search, Filters, live follow with the newest entry at the foot), Settings ›
+  Config (its menu, state and a round Save) and Scenes (search, rooms as Filters, a round New scene) get the glass bar the
+  Logs and Plugins pages have; every bar's buttons are white circles, the one in use or that adds in the accent.
+- **One Assistant button on a phone**: at the right end of a page's bar, beside Edit on the Status and Energy pages,
+  else floating over the tab bar; no longer in the header or the More panel.
+
 ### Fixed
 
+- **The Log Doctor on a phone**: its answer shows above the page's bar rather than behind it.
+- **The Status page's Edit on a phone**: a touch scrolls the page; only a section's grip drags it.
+- **The Assistant's sparkle**: its gradient is no longer covered by a dark stroke.
 - **Philips Ambilight TV**: Ambilight's on and off are read from the TV's settings menu where it has one. Some models
   (2024 Google TV OLEDs such as the 77OLED848/12) report Ambilight off from `ambilight/currentconfiguration` and
   `ambilight/power` while it is lit, so a poll turned the tile back off about 10 seconds after it was switched on. Switching

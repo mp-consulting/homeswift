@@ -222,25 +222,73 @@
     const count = el("p", { class: "muted log-action-bar logbook-count", "aria-live": "polite" });
     const icons = new Map(accessories.map((one) => [one.id, HomeswiftWidgets.accessoryIcon(one) ?? "accessory"]));
     const byID = new Map(accessories.map((one) => [one.id, one]));
-    app().show(main, app().pageHead(t("Logbook"), t("What changed in the home, and who or what changed it.")),
-      el("div", { class: "card log-card logbook-card" },
-        el("div", { class: "log-filter-panel logbook-toolbar" },
-          el("div", { class: "log-scope-row" },
-            el("div", { class: "log-time" }, el("span", { text: t("Time range") }), periods),
-            ...[[t("Room"), room], [t("Accessory"), accessory], [t("Change Source"), source]].map(([label, control]) =>
-              el("label", {}, el("span", { text: label }), control))), clear, since), count, list));
+    const panel = el("div", { class: "log-filter-panel logbook-toolbar" },
+      el("div", { class: "log-scope-row" },
+        el("div", { class: "log-time" }, el("span", { text: t("Time range") }), periods),
+        ...[[t("Room"), room], [t("Accessory"), accessory], [t("Change Source"), source]].map(([label, control]) =>
+          el("label", {}, el("span", { text: label }), control))), clear, since);
+    // A phone (as the Logs page and the Audit log): one bar above the tab bar, a search through the entries shown, Filters
+    // (the panel as a sheet over the bar, its badge counting the filters that are not the defaults) and the Assistant.
+    const filters = HomeswiftCommon.filtersToggle(panel);
+    const showCount = () => filters.count(controls.filter((control) => control.value !== (control === since ? "24h" : "")).length);
+    for (const control of controls) control.addEventListener("change", showCount);
+    showCount();
+    const search = el("input", { type: "search", class: "search bar-only", placeholder: t("Search"), "aria-label": t("Search") });
+    const applySearch = () => {
+      const words = search.value.trim().toLocaleLowerCase();
+      for (const day of list.querySelectorAll(".logbook-day")) {
+        let any = false;
+        for (const entry of day.querySelectorAll(".logbook-entry")) {
+          const shown = !words || entry.textContent.toLocaleLowerCase().includes(words);
+          entry.hidden = !shown;
+          any ||= shown;
+        }
+        day.hidden = !any;
+      }
+    };
+    search.addEventListener("input", applySearch);
+    // A phone follows the Logbook as the Logs page does: the newest at the foot by the bar, read again every few seconds
+    // while following (Pause stops it), and an arrow back to the end once scrolled away.
+    const phone = HomeswiftCommon.phone;
+    let following = true;
+    const followUI = HomeswiftCommon.followControls({ following: () => following, setFollowing: (on) => {
+      following = on;
+      followUI.paint();
+      if (on && phone.matches) followUI.toEnd(true);
+    } });
+    const bar = el("div", { class: "logbook-bar phone-bar" }, search, filters.button, followUI.button, HomeswiftCommon.assistantButton());
+    const card = el("div", { class: "card log-card logbook-card" }, panel, count, list);
+    // On a phone the count heads the Filters sheet, and the log has the card to itself.
+    const placeCount = () => { if (HomeswiftCommon.phone.matches) panel.prepend(count); else panel.after(count); };
+    placeCount();
+    // Between a phone and a wider window the entries change order (the newest at the foot, or first): drawn again.
+    phone.addEventListener("change", () => { placeCount(); reload(true); }, { signal: HomeswiftCommon.viewSignal() });
+    const refresh = setInterval(() => {
+      if (!bar.isConnected) { clearInterval(refresh); return; }
+      if (phone.matches && following && !document.hidden && !filters.isOpen() && !HomeswiftCommon.menuOpen()) reload(true);
+    }, 4000);
+    HomeswiftCommon.viewSignal().addEventListener("abort", () => clearInterval(refresh));
+    app().show(main, app().pageHead(t("Logbook"), t("What changed in the home, and who or what changed it.")), card, bar, followUI.latest);
 
-    async function reload() {
+    /// What was last drawn: a quiet read (the phone's refresh) that finds the same entries in the same order draws nothing.
+    let drawn = "";
+    async function reload(quiet = false) {
+      if (quiet instanceof Event) quiet = false;
       const query = new URLSearchParams();
       for (const control of controls) if (control.value) query.set(control.name, control.value);
       const search = query.toString();
       const path = `/logbook${search ? `?${search}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
-      list.classList.add("loading");
+      if (!quiet) list.classList.add("loading");
       let found;
       try { found = await api(`/api/logbook?${query}`); }
-      catch (e) { list.classList.remove("loading"); list.replaceChildren(el("p", { class: "error", text: e.message })); return; }
+      catch (e) { list.classList.remove("loading"); if (!quiet) list.replaceChildren(el("p", { class: "error", text: e.message })); return; }
       list.classList.remove("loading");
+      const newestLast = phone.matches;
+      const shape = [search, newestLast, found.entries.length, found.entries[0]?.time, found.entries.at(-1)?.time].join("|");
+      if (quiet && shape === drawn) return;
+      drawn = shape;
+      const atEnd = followUI.atEnd();
       count.textContent = tn("{n} entry · kept {days} days", "{n} entries · kept {days} days", found.entries.length, { days: String(found.days) });
       if (!found.entries.length) { list.replaceChildren(el("p", { class: "muted empty", text: t("Nothing changed in this range.") })); return; }
       const dayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "long", day: "numeric", month: "long" });
@@ -248,7 +296,7 @@
       const timeFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", hour12: false });
       const exactFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
       const days = new Map();
-      for (const entry of found.entries) {
+      for (const entry of newestLast ? [...found.entries].reverse() : found.entries) {
         const date = new Date(entry.time);
         const key = dayFormat.format(date);
         if (!days.has(key)) days.set(key, []);
@@ -259,6 +307,9 @@
         section.open = true;
         return section;
       }));
+      applySearch();
+      // Following, from the end (or a first draw), the page stays at the newest; there, the arrow back is not needed.
+      if (newestLast && following && (!quiet || atEnd)) followUI.toEnd(); else followUI.showLatest();
     }
 
     function row(entry, date, timeFormat, exactFormat) {

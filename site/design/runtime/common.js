@@ -376,7 +376,8 @@
     return nodes;
   }
 
-  // The Apple Intelligence sparkle, its colours on a gradient (an id per drawing, so each has its own).
+  // The Apple Intelligence sparkle, its colours on a gradient (an id per drawing, so each has its own); never outlined,
+  // even inside a button whose icons are strokes.
   let sparkles = 0;
   function sparkle() {
     const id = `ai-gradient-${++sparkles}`;
@@ -385,8 +386,8 @@
     svg.setAttribute("aria-hidden", "true");
     svg.classList.add("sparkle");
     svg.innerHTML = `<defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff9f0a"/><stop offset=".35" stop-color="#ff375f"/><stop offset=".7" stop-color="#bf5af2"/><stop offset="1" stop-color="#5e5ce6"/></linearGradient></defs>`
-      + `<path fill="url(#${id})" d="M11 2.5c.7 5 3 7.3 8 8-5 .7-7.3 3-8 8-.7-5-3-7.3-8-8 5-.7 7.3-3 8-8z"/>`
-      + `<path fill="url(#${id})" d="M19 14.5c.3 2 1 2.7 3 3-2 .3-2.7 1-3 3-.3-2-1-2.7-3-3 2-.3 2.7-1 3-3z"/>`;
+      + `<path fill="url(#${id})" stroke="none" d="M11 2.5c.7 5 3 7.3 8 8-5 .7-7.3 3-8 8-.7-5-3-7.3-8-8 5-.7 7.3-3 8-8z"/>`
+      + `<path fill="url(#${id})" stroke="none" d="M19 14.5c.3 2 1 2.7 3 3-2 .3-2.7 1-3 3-.3-2-1-2.7-3-3 2-.3 2.7-1 3-3z"/>`;
     return svg;
   }
 
@@ -899,6 +900,17 @@
     viewport?.addEventListener("scroll", fit);
     document.addEventListener("focusin", fit);
     document.addEventListener("focusout", () => setTimeout(fit));
+  }
+
+  /// The Assistant's button for a page's bar (`.phone-bar`), at its right end: a phone's header has none, so a page with
+  /// a bar carries it there. Shown once the Assistant is set up (chat.js's `homeswift-assistant`).
+  function assistantButton() {
+    const button = el("button", { type: "button", class: "bar-button bar-only bar-assistant", hidden: true, "aria-label": t("Assistant"), title: t("Ask the Assistant"),
+      onclick: () => window.HomeswiftChat?.open() }, sparkle());
+    const show = () => { button.hidden = !window.HomeswiftChat?.available(); };
+    show();
+    document.addEventListener("homeswift-assistant", show, { signal: viewSignal() });
+    return button;
   }
 
   /// A phone's Filters button for a page's bar (`.phone-bar`): it opens `sheet` over the bar (`.phone-sheet`, `open`),
@@ -1524,7 +1536,7 @@
       el("a", { href: path, class: [path === active ? "active" : "", tabSections.has(path) ? "is-tab" : ""].filter(Boolean).join(" "),
         "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
     // A phone's tab bar: the sections used most as tabs, an icon over its name each, and More for the others (the
-    // panel, which also has Account and the Assistant).
+    // panel, which also has Account; the Assistant is the page's ✦, in its bar or the header).
     const more = el("button", { type: "button", class: "tabbar-more", "aria-controls": "mobile-nav-panel", "aria-expanded": "false" }, icon("more"), el("span", { text: t("More") }));
     const tabs = el("div", { class: "tabbar-tabs" },
       sections.filter(([path]) => tabSections.has(path)).map(([path, text, glyph]) =>
@@ -1534,13 +1546,6 @@
       panel.hidden = !open;
       more.setAttribute("aria-expanded", String(open));
     };
-    // The Assistant, when there is one: on a phone it has no button of its own over the page.
-    const assistant = el("button", { type: "button", class: "mobile-nav-account mobile-nav-assistant", hidden: true, onclick: (event) => {
-      event.stopPropagation();
-      setOpen(false);
-      window.HomeswiftChat?.open();
-    } }, sparkle(), el("span", { text: t("Assistant") }));
-    panel.append(assistant);
     panel.append(el("hr", { class: "mobile-nav-divider" }));
     panel.append(el("button", { type: "button", class: "mobile-nav-account", onclick: (event) => {
       event.stopPropagation();
@@ -1549,7 +1554,7 @@
     } }, icon("user"), el("span", { text: t("Account") })));
     // Homeswift's section under Account, as at the side menu's foot; the page draws it (`.side-about`).
     panel.append(el("details", { class: "side-about mobile-nav-about", hidden: true }));
-    const openPanel = () => { assistant.hidden = !window.HomeswiftChat?.available(); setOpen(panel.hidden); };
+    const openPanel = () => setOpen(panel.hidden);
     more.addEventListener("click", openPanel);
     panel.addEventListener("click", (event) => { if (event.target.closest("a")) setOpen(false); });
     const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, tabs);
@@ -2139,7 +2144,7 @@
   window.HomeswiftCommon = {
     foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
     openSheet, confirmAction,
-    phone, viewSignal, nextView, filtersToggle, followControls, menuOpen: () => Boolean(openMenu),
+    phone, viewSignal, nextView, filtersToggle, followControls, assistantButton, menuOpen: () => Boolean(openMenu),
     $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
