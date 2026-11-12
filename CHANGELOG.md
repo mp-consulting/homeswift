@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.30.1] - 2026-11-12
+
 ### Changed
 
 - **The phone's page bars**: the Logbook (search, Filters, live follow with the newest entry at the foot), Settings ›
@@ -27,6 +29,9 @@ All notable changes to this project are documented here. The format follows
   before. Ported from homebridge-philips-ambilight-tv 1.9.7.
 - **A scene's switch in the Home app turned off right after on**: the off waits for the scene's run to end and then puts
   the lights back, rather than being refused as "already running" and leaving the switch on.
+- **Two quick slider writes landed the older one**: Ring's dimmers, chimes and hub accessories, Shelly Gen1's rollers
+  and colour lights, and Zigbee2MQTT now claim their place in line when HomeKit writes, not when the write's task runs,
+  so the last level sent is the one the device keeps.
 
 ## [0.30.0] - 2026-11-12
 
@@ -2632,7 +2637,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.30.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.30.1...HEAD
+[0.30.1]: https://github.com/mp-consulting/homeswift/compare/v0.30.0...v0.30.1
 [0.30.0]: https://github.com/mp-consulting/homeswift/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/mp-consulting/homeswift/compare/v0.28.1...v0.29.0
 [0.28.1]: https://github.com/mp-consulting/homeswift/compare/v0.28.0...v0.28.1
