@@ -1,6 +1,7 @@
 import Foundation
 import HomeswiftNetwork
 import HomeswiftPlugin
+import NIOConcurrencyHelpers
 import Testing
 
 @testable import Homeswift
@@ -69,6 +70,24 @@ struct RingTamperTests {
         #expect(sensor[.statusTampered]?.value == .int(1))
         RingCommon.show(["tamperStatus": "ok"], on: parts)
         #expect(sensor[.statusTampered]?.value == .int(0))
+    }
+}
+
+struct RingLevelTests {
+    @Test func theLastWriteWinsWhicheverTaskRunsFirst() async throws {
+        // Two quick writes, their background tasks scheduled the other way round (what a loaded runner did to the
+        // dimmer test): the write HomeKit made last is the one sent.
+        let level = RingLevel(debounce: .milliseconds(20))
+        let sent = NIOLockedValueBox<[Double]>([])
+        let first = level.write(0.1) { value in sent.withLockedValue { $0.append(value) } }
+        let second = level.write(0.42) { value in sent.withLockedValue { $0.append(value) } }
+        try await second()
+        try await first()
+        #expect(sent.withLockedValue { $0 } == [0.42])
+        // Until the device reports it, the characteristic shows the last value written.
+        #expect(level.shown(0.2) == 0.42)
+        #expect(level.shown(0.42) == 0.42)
+        #expect(level.shown(0.3) == 0.3)
     }
 }
 

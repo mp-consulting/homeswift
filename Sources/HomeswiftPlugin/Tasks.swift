@@ -82,10 +82,17 @@ public final class LatestCallGuard: Sendable {
     public init(delay: Duration) { self.delay = delay }
 
     /// Waits `delay`, then says whether this is still the latest call for `key`; false when the task was cancelled.
-    public func callAsFunction(_ key: String = "") async -> Bool {
+    public func callAsFunction(_ key: String = "") async -> Bool { await ticket(key)() }
+
+    /// Makes this the latest call for `key` now; the closure waits `delay`, then says whether it still is (false when
+    /// the task was cancelled). For a write handler that does its work in a task it starts: taken before the task, so
+    /// the last write wins whatever order the tasks run in.
+    public func ticket(_ key: String = "") -> @Sendable () async -> Bool {
         let isLatest = claim(key)
-        do { try await Task.sleep(for: delay) } catch { return false }
-        return isLatest()
+        return { [delay] in
+            do { try await Task.sleep(for: delay) } catch { return false }
+            return isLatest()
+        }
     }
 
     /// Makes this the latest call for `key` without waiting: the closure says whether it still is.

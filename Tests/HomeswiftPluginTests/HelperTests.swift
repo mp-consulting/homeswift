@@ -38,6 +38,19 @@ struct LatestCallGuardTests {
         waiting.cancel()
         #expect(await waiting.value == false)
     }
+
+    @Test func aTicketKeepsTheOrderItWasTakenIn() async {
+        // Taken in the write handler, waited on in tasks that run the other way round: the later ticket wins.
+        let latest = LatestCallGuard(delay: .milliseconds(20))
+        let first = latest.ticket("brightness")
+        let second = latest.ticket("brightness")
+        #expect(await second())
+        #expect(!(await first()))
+        let cancelled = latest.ticket()
+        let waiting = Task { await cancelled() }
+        waiting.cancel()
+        #expect(await waiting.value == false)
+    }
 }
 
 struct PersistedDictionaryTests {

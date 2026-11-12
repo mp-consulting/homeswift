@@ -51,11 +51,15 @@ final class RingLevel: Sendable {
         }
     }
 
-    /// Debounces, then sends `deviceValue` when no later write came.
-    func write(_ deviceValue: Double, _ send: @escaping @Sendable (Double) async throws -> Void) async throws {
+    /// Takes the write now, in the write handler, so the last HomeKit write wins whatever order the background tasks
+    /// run in; the operation it returns debounces, then sends `deviceValue` when no later write came.
+    func write(_ deviceValue: Double, _ send: @escaping @Sendable (Double) async throws -> Void) -> @Sendable () async throws -> Void {
         pending.withLockedValue { $0 = deviceValue }
-        guard await latest() else { return }
-        try await send(deviceValue)
+        let isLatest = latest.ticket()
+        return {
+            guard await isLatest() else { return }
+            try await send(deviceValue)
+        }
     }
 }
 
@@ -187,9 +191,8 @@ enum RingCommon {
                     environment.logger.error("Volume can only be set on base stations and keypads")
                     return
                 }
-                environment.background("Setting the volume of \(name)") {
-                    try await level.write(volume) { try await hub.set(zid, ["volume": .number($0)]) }
-                }
+                let send = level.write(volume) { try await hub.set(zid, ["volume": .number($0)]) }
+                environment.background("Setting the volume of \(name)") { try await send() }
             }
             parts.speaker = speaker
             parts.speakerLevel = level
