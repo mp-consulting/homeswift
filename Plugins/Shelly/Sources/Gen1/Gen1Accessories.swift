@@ -269,8 +269,9 @@ struct Gen1Builder: Sendable {
         // HomeKit is answered at once; the roller moves a second later, to the last position asked meanwhile.
         target.onWrite { value in
             guard let position = value.intValue, position != control.withLockedValue({ $0 }) else { return }
+            let isLatest = moves.ticket()
             Task {
-                guard await moves() else { return }
+                guard await isLatest() else { return }
                 do {
                     try await device.set("rollerPosition", "roller/0", [("go", "to_pos"), ("roller_pos", "\(position)")])
                     control.withLockedValue { $0 = position }
@@ -285,8 +286,9 @@ struct Gen1Builder: Sendable {
             let moving = values["rollerState"]?.stringValue
             current.update(.int(position))
             state.update(.int(moving == "open" ? 1 : moving == "close" ? 0 : 2))
+            let isLatest = recompute.ticket()
             Task {
-                guard await recompute() else { return }
+                guard await isLatest() else { return }
                 let goal = control.withLockedValue { goal -> Int in
                     switch moving {
                     case "stop": goal = position
@@ -359,8 +361,9 @@ struct Gen1Builder: Sendable {
             light.characteristic(.brightness).update(clamping: values["gain"]?.number ?? 0)
         }
         await device.observe(["red", "green", "blue"]) { values in
+            let isLatest = colors.ticket()
             Task {
-                guard await colors() else { return }
+                guard await isLatest() else { return }
                 let hsv = ShellyColor.hsv(red: values["red"]?.number ?? 0, green: values["green"]?.number ?? 0, blue: values["blue"]?.number ?? 0)
                 light.characteristic(.hue).update(.double(Double(hsv.hue)))
                 light.characteristic(.saturation).update(.double(Double(hsv.saturation)))

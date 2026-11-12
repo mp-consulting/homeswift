@@ -86,9 +86,8 @@ enum RingHubAccessories {
             characteristic.onWrite { value in
                 let percent = value.doubleValue ?? 0
                 logger.info("Setting \(log) of \(name) to \(Int(saturating: percent) ?? 0)%")
-                environment.background("Setting the \(log) of \(name)") {
-                    try await guardian.write(percent / 100) { try await hub.set(zid, [field: .number($0)]) }
-                }
+                let send = guardian.write(percent / 100) { try await hub.set(zid, [field: .number($0)]) }
+                environment.background("Setting the \(log) of \(name)") { try await send() }
             }
             return { data in
                 let shown = guardian.shown(data[field]?.looseDouble) ?? 0

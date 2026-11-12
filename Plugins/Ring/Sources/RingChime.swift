@@ -37,8 +37,9 @@ enum RingChime {
         speaker.characteristic(.volume).onWrite { value in
             let volume = value.doubleValue ?? 0
             guard (0...11).contains(volume) else { return }
+            let send = level.write(volume) { try await client.put("chimes/\(id)/", body: ["chime": ["settings": ["volume": .number($0.rounded())]]]) }
             environment.background("Setting the volume of \(name)") {
-                try await level.write(volume) { try await client.put("chimes/\(id)/", body: ["chime": ["settings": ["volume": .number($0.rounded())]]]) }
+                try await send()
                 environment.requestRefresh()
             }
         }

@@ -145,9 +145,9 @@ final class Publisher: Sendable {
     }
 
     private func schedule(_ topic: String) {
-        let coalesce = self.coalesce
+        let isLatest = coalesce.ticket(topic)
         tasks.add { [weak self] in
-            guard await coalesce(topic) else { return }
+            guard await isLatest() else { return }
             await self?.flush(topic)
         }
     }
