@@ -29,6 +29,20 @@ actor FakeTV: HTTPSending {
     /// nil: the TV answers 404, as sets without the endpoint do.
     var networkDevices: [[String: String]]? = [["id": "wifi0", "mac": "aa:bb:cc:dd:ee:ff", "ip": "192.168.1.20", "type": "wifi", "wake-on-lan": "Enabled"]]
     var menuBrightness: Int?
+    /// The Ambilight entries of a 77OLED848/12's settings menu: its node ids differ from the long-known ones.
+    static let menu = (style: 2130968783, followVideo: 2130968784, off: 2130968789, brightness: 2130968780)
+    /// False: no menu structure (a 404), as on the sets the plugin was first written for.
+    var hasAmbilightMenu = false
+    /// The endpoints answer OFF however Ambilight is lit, and a style OFF leaves the menu on its last style,
+    /// as on a 2024 Google TV OLED.
+    var endpointsReportAmbilightOff = false
+    /// False: the menu's current value comes back without an active entry.
+    var menuAnswers = true
+    /// The style list's active entry.
+    var menuActive = FakeTV.menu.off
+    private(set) var menuWrites: [(node: Int, data: [String: Int])] = []
+    /// When the menu's current value was read.
+    private(set) var menuReads: [ContinuousClock.Instant] = []
     var pin = "1234"
     /// nil: a wrong PIN gets a 200 with INVALID_PIN; a status: the grant is answered with it.
     var wrongPINStatus: Int?
@@ -40,6 +54,8 @@ actor FakeTV: HTTPSending {
     private(set) var channels: [Int] = []
     private(set) var ambilightWrites: [JointSpace.AmbilightConfiguration] = []
     private(set) var requests: [(method: String, path: String)] = []
+    /// The paths of the requests past the Digest challenge.
+    private(set) var answered: [String] = []
     private(set) var challenges = 0
     /// Device ids the TV paired with, and their auth keys: accepted like the configured credentials.
     private(set) var paired: [String: String] = [:]
@@ -56,6 +72,16 @@ actor FakeTV: HTTPSending {
     func set(hueLamp: Bool) { self.hueLamp = hueLamp }
     func set(wrongPINStatus: Int?) { self.wrongPINStatus = wrongPINStatus }
     func clearLaunches() { launches.removeAll() }
+    func set(hasAmbilightMenu: Bool) { self.hasAmbilightMenu = hasAmbilightMenu }
+    func set(endpointsReportAmbilightOff: Bool) { self.endpointsReportAmbilightOff = endpointsReportAmbilightOff }
+    func set(menuAnswers: Bool) { self.menuAnswers = menuAnswers }
+    /// The Ambilight button on the remote: the menu's style list moves, and the endpoints follow where they tell the truth.
+    func set(menuActive: Int) {
+        self.menuActive = menuActive
+        ambilightPower = menuActive != Self.menu.off
+        ambilight = .init(styleName: ambilightPower ? "FOLLOW_VIDEO" : "OFF")
+    }
+    func requestCount(_ path: String) -> Int { answered.filter { $0 == path }.count }
 
     /// Queues a notification for the next `notifychange`.
     func notify(_ payload: [String: JSONPayload]) { notifications.append(payload) }
@@ -78,6 +104,7 @@ actor FakeTV: HTTPSending {
             challenges += 1
             return HTTPResponse(status: 401, headers: [("WWW-Authenticate", "Digest realm=\"\(Self.realm)\", nonce=\"\(Self.nonce)\", qop=\"auth\"")], certificateFingerprint: Self.fingerprint)
         }
+        answered.append(path)
         if path == "pair/grant" {
             let auth = body["auth"] as? [String: Any] ?? [:]
             guard auth["pin"] as? String == pin, auth["auth_signature"] as? String == JointSpacePairing.signature(timestamp: pairingTimestamp, pin: pin) else {
@@ -117,21 +144,38 @@ actor FakeTV: HTTPSending {
             return ok()
         case ("GET", "applications"):
             return HTTPResponse(status: 200, body: try JSONEncoder().encode(["applications": applications]), certificateFingerprint: Self.fingerprint)
-        case ("GET", "ambilight/power"): return json(["power": ambilightPower ? "On" : "Off"])
+        case ("GET", "ambilight/power"): return json(["power": ambilightPower && !endpointsReportAmbilightOff ? "On" : "Off"])
         case ("POST", "ambilight/power"):
             ambilightPower = body["power"] as? String == "On"
             if !ambilightPower { ambilight = .init(styleName: "OFF") }
+            followInMenu(on: ambilightPower)
             return ok()
         case ("GET", "ambilight/currentconfiguration"):
-            return HTTPResponse(status: 200, body: try JSONEncoder().encode(ambilight), certificateFingerprint: Self.fingerprint)
+            let reported = endpointsReportAmbilightOff ? JointSpace.AmbilightConfiguration(styleName: "OFF") : ambilight
+            return HTTPResponse(status: 200, body: try JSONEncoder().encode(reported), certificateFingerprint: Self.fingerprint)
         case ("POST", "ambilight/currentconfiguration"):
             guard let data = request.body, let configuration = try? JSONDecoder().decode(JointSpace.AmbilightConfiguration.self, from: data) else { return HTTPResponse(status: 400) }
             ambilightWrites.append(configuration)
             ambilight = configuration
             ambilightPower = configuration.style != "OFF"
+            followInMenu(on: ambilightPower)
             return ok()
+        case ("GET", "menuitems/settings/structure"):
+            guard hasAmbilightMenu else { return HTTPResponse(status: 404, certificateFingerprint: Self.fingerprint) }
+            return json(Self.menuStructure)
+        case ("POST", "menuitems/settings/current"):
+            guard hasAmbilightMenu else { return HTTPResponse(status: 404, certificateFingerprint: Self.fingerprint) }
+            menuReads.append(.now)
+            let node = ((body["nodes"] as? [[String: Any]])?.first?["nodeid"] as? Int) ?? -1
+            guard menuAnswers, node == Self.menu.style else { return json(["version": 1, "values": []]) }
+            return json(["version": 1, "values": [["value": ["Nodeid": node, "Controllable": true, "Available": true, "data": ["activenode_id": menuActive]]]]])
         case ("POST", "menuitems/settings/update"):
-            menuBrightness = (((body["values"] as? [[String: Any]])?.first?["value"] as? [String: Any])?["data"] as? [String: Any])?["value"] as? Int
+            let value = ((body["values"] as? [[String: Any]])?.first?["value"] as? [String: Any]) ?? [:]
+            let node = value["Nodeid"] as? Int ?? -1
+            let data = (value["data"] as? [String: Int]) ?? [:]
+            menuWrites.append((node, data))
+            if node == (hasAmbilightMenu ? Self.menu.brightness : JointSpace.ambilightBrightnessNode) { menuBrightness = data["value"] }
+            if hasAmbilightMenu, node == Self.menu.style, let active = data["activenode_id"] { set(menuActive: active) }
             return ok()
         case ("GET", "HueLamp/power"): return json(["power": hueLamp ? "On" : "Off"])
         case ("POST", "HueLamp/power"):
@@ -156,6 +200,31 @@ actor FakeTV: HTTPSending {
     }
 
     private func ok() -> HTTPResponse { json([:]) }
+
+    /// Ambilight switched through its endpoints: switching on moves the style list off its Off entry; switching
+    /// off leaves it on its last style on a TV whose endpoints report off.
+    private func followInMenu(on: Bool) {
+        guard hasAmbilightMenu else { return }
+        if on {
+            if menuActive == Self.menu.off { menuActive = Self.menu.followVideo }
+        } else if !endpointsReportAmbilightOff {
+            menuActive = Self.menu.off
+        }
+    }
+
+    /// `menuitems/settings/structure`, trimmed to the Ambilight entries.
+    static var menuStructure: [String: Any] { [
+        "version": 1,
+        "node": ["node_id": 2131230720, "context": "settings", "data": ["nodes": [
+            ["node_id": 2130968778, "context": "ambilight", "data": ["nodes": [
+                ["node_id": menu.style, "context": "ambilight_style", "data": ["nodes": [
+                    ["node_id": menu.followVideo, "context": "ambilight_follow_video", "data": [:] as [String: Any]],
+                    ["node_id": "\(menu.off)", "context": "ambilight_off", "data": [:] as [String: Any]],
+                ]]],
+                ["node_id": menu.brightness, "context": "ambilight_brightness", "data": [:] as [String: Any]],
+            ]]],
+        ]]],
+    ] }
 
     private func json(_ object: Any) -> HTTPResponse {
         HTTPResponse(status: 200, headers: [("Content-Type", "application/json")], body: try! JSONSerialization.data(withJSONObject: object), certificateFingerprint: Self.fingerprint)
