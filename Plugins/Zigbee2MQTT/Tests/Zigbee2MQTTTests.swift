@@ -346,8 +346,12 @@ struct Zigbee2MQTTTests {
         #expect(state.value == .int(2))
         #expect(await eventually { environment.published("0x0000000000000003/get").count > gets })
         #expect(environment.published("0x0000000000000003/get").last == #"{"position":0}"#)
+        // Hold Position sends a STOP of its own: counted rather than read as the last message, which another message
+        // may follow on a loaded runner.
+        let stops: @Sendable () -> Int = { [environment] in environment.published("0x0000000000000003/set").filter { $0 == #"{"state":"STOP"}"# }.count }
+        let stopsBefore = stops()
         try await cover.characteristic(.holdPosition).write(.bool(true))
-        #expect(await eventually { environment.published("0x0000000000000003/set").last == #"{"state":"STOP"}"# })
+        #expect(await eventually { stops() > stopsBefore })
     }
 
     @Test func coverWithMotorStateAndTilt() async throws {
