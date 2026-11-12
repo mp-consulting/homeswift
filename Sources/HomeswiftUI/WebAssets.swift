@@ -41761,6 +41761,8 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .automation-editor { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); }
 .automation-editor > .card { margin: 0; }
 .automation-steps { list-style: none; padding: 0; margin: 0 0 var(--space-10); counter-reset: step; }
+/* The Triggers and Conditions lists keep the Steps list's space above their add button, once they have a row. */
+.automation-section .editor-list:not(:empty) { margin-bottom: var(--space-10); }
 .automation-step { counter-increment: step; position: relative; padding-left: 32px; align-items: start; }
 /* The Step's buttons centred on its menus: below a field's top margin, its title's line and the title's margin (the
    Delete button is as tall as a menu, the round ones centre on it). On a phone they wrap to a line of their own. */
