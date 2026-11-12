@@ -39996,7 +39996,8 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
   stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle;
 }
 
-.days .day { width: auto; min-width: 34px; padding: 0 7px; flex: none; }
+/* Labels, so without the margin a form label takes: the chips centre on the menus beside them. */
+.days .day { width: auto; min-width: 34px; padding: 0 7px; flex: none; margin: 0; }
 
 /* Accessory groups and their member picker. */
 .accessory-group:not(.merged) { padding: var(--space-16); overflow: auto; min-height: 200px; background: var(--material-solid); border: 1px solid var(--line); border-radius: var(--radius-lg); }
@@ -41764,6 +41765,15 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 /* The Step's buttons centred on its menus: below a field's top margin, its title's line and the title's margin (the
    Delete button is as tall as a menu, the round ones centre on it). On a phone they wrap to a line of their own. */
 .automation-step .step-tools { align-self: start; margin-top: calc(var(--space-10) + 1lh + var(--space-6)); }
+/* A trigger's or condition's Delete level with its row's first menus, at the top however far the fields wrap; beside
+   fields with titles, centred on their menus the same way as a Step's buttons, not on title and menu together. */
+.automation-section .editor-list > .editor-row > .scene-condition-remove { align-self: start; }
+.automation-section .editor-row:has(> .group-inline .field-title) > .scene-condition-remove { margin-top: calc(var(--space-10) + 1lh + var(--space-6)); }
+/* A condition's fields sit at the top of their row, as in a form: the Condition menu stays level with the time window's
+   first menus however tall the window's stack is, its titles spaced as a field's. */
+.automation-section .editor-row:has(> .scene-condition-fields), .automation-section .scene-condition-fields { align-items: start; }
+.automation-section .condition-time-point { margin-top: var(--space-10); }
+.automation-section .condition-time-point > .field-title { margin-bottom: 0; }
 .automation-step textarea { font: inherit; height: 5em; min-height: 0; flex: none; resize: vertical; }
 .automation-step .field { align-self: start; }
 .automation-step::before { content: counter(step); position: absolute; left: 0; top: var(--space-12); width: 22px; height: 22px; border-radius: 50%;
@@ -41781,7 +41791,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .automation-draft-row { flex-direction: column; align-items: stretch; }
   .automation-step .step-tools .icon-button { width: 40px; height: 40px; min-height: 40px; }
-  .automation-step .step-tools { margin-top: var(--space-10); }
+  .automation-step .step-tools, .automation-section .editor-row:has(> .group-inline .field-title) > .scene-condition-remove { margin-top: var(--space-10); }
 }
 .automation-draft-row button { white-space: nowrap; flex: none; }
 .automation-draft .status-line:empty { display: none; }
