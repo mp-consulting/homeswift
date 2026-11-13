@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-11-13
+
 ### Added
 
 - **Automations' steps at the same time**: a toggle in the editor (and `parallel` in `save_automation`) starts the
@@ -28,6 +30,21 @@ All notable changes to this project are documented here. The format follows
 - **A remote's button starts Automations from the Remotes page**: **Also starts** under a press, a double or a long
   press adds the Automation's press Trigger for that button, its Conditions still checked; `set_remote_controls` takes
   them as `automations`.
+- **A plugin's list of entries opens each in a side panel** (Dummy's accessories, a TV's sources): its fields under
+  General and each group of settings (a schedule, a notification) as a tab, marked when it holds a value, instead of
+  every field of every entry opening in place. Dummy's form shows each setting only for the types and schedule kinds it
+  applies to.
+
+### Fixed
+
+- **The Valve's medium tile** fits its icon, clock and name, with the clock centered; a valve with no duration shows Run
+  or Stop alone rather than a 00:00 clock that never counts.
+- **Joining the Functions of a device a remote drives** (Separate Functions off) asks first when the whole device holds
+  a lock, a garage door, an alarm or a security control.
+- **A remote's control on one Function** keeps working when Separate Functions is turned off outside the settings
+  (config.json, `update_config`, a restore).
+- **A Button saved with a hold and a long press's Automations at once** is refused before anything is written, rather
+  than after its controls were saved.
 
 ## [0.30.1] - 2026-11-12
 
@@ -2660,7 +2677,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.30.1...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.31.0...HEAD
+[0.31.0]: https://github.com/mp-consulting/homeswift/compare/v0.30.1...v0.31.0
 [0.30.1]: https://github.com/mp-consulting/homeswift/compare/v0.30.0...v0.30.1
 [0.30.0]: https://github.com/mp-consulting/homeswift/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/mp-consulting/homeswift/compare/v0.28.1...v0.29.0
