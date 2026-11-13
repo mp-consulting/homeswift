@@ -146,8 +146,13 @@ public final class UIServer: Sendable {
                 channel.eventLoop.makeCompletedFuture {
                     try channel.pipeline.syncOperations.addHandler(IdleStateHandler(readTimeout: idleTimeout))
                     if let sslContext { try channel.pipeline.syncOperations.addHandler(NIOSSLServerHandler(context: sslContext)) }
-                    try channel.pipeline.syncOperations.configureHTTPServerPipeline(withErrorHandling: true)
-                    try channel.pipeline.syncOperations.addHandler(UIRequestHandler(server: self))
+                    // A Talk's WebSocket (CameraTalkSocket.swift) takes the connection over from the request handler.
+                    try channel.pipeline.syncOperations.configureHTTPServerPipeline(
+                        withServerUpgrade: (upgraders: [self.talkSocketUpgrader()], completionHandler: { context in
+                            context.pipeline.removeHandler(name: UIRequestHandler.name, promise: nil)
+                        }),
+                        withErrorHandling: true)
+                    try channel.pipeline.syncOperations.addHandler(UIRequestHandler(server: self), name: UIRequestHandler.name)
                 }
             }
         let bound = try await bootstrap.bind(host: configuration.host, port: configuration.port).get()
@@ -1723,8 +1728,10 @@ final class EventHub: Sendable {
 }
 
 /// Collects one HTTP request, hands it to the server, writes the reply.
-final class UIRequestHandler: ChannelInboundHandler {
+final class UIRequestHandler: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = HTTPServerRequestPart
+    /// Its name in the pipeline, for the WebSocket upgrade to take it out.
+    static let name = "ui-requests"
 
     /// What a signed-in caller may send; a backup to restore, an administrator's, is the one larger body: an
     /// archive, up to InstanceBackups.maxArchiveSize.

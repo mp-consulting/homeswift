@@ -9622,13 +9622,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- Talk ----
 
-  // Milliseconds of audio per request; the most waiting to go before the oldest is dropped, so speech stays live.
-  const TALK_CHUNK = 100, TALK_BACKLOG = 10;
+  // Milliseconds of audio per message: short over the WebSocket, longer per request. Audio waits at most TALK_BACKLOG
+  // milliseconds to go, the rest dropped, so speech stays live. The WebSocket has SOCKET_WAIT to open before requests
+  // take over.
+  const SOCKET_CHUNK = 40, REQUEST_CHUNK = 100, TALK_BACKLOG = 1000, SOCKET_WAIT = 3000;
 
   /// The microphone of a camera with a speaker (`talk` in /api/cameras/<id>/controls): a button that starts and stops
-  /// a Talk (/api/cameras/<id>/talk). The microphone is resampled to the camera's rate by talk-worklet.js and sent in
-  /// short requests, one after the other; the bridge ends a Talk whose requests stop.
-  function talker(camera, url, setStatus, ask) {
+  /// a Talk. The microphone is resampled to the camera's rate by talk-worklet.js and sent over a WebSocket
+  /// (/api/cameras/<id>/talk), or, when none opens (a proxy that does not pass them), in short requests one after the
+  /// other. `hooks.started()` and `hooks.stopped()` let the view quiet the camera's own sound meanwhile.
+  function talker(camera, url, setStatus, ask, hooks) {
     // The rate the camera takes once asked; false for a camera without a speaker, which is not asked again.
     let format = null, session = null;
     const toggle = button("mic", t("Talk"), () => (session ? stop() : start()));
@@ -9643,6 +9646,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       toggle.title = label;
     }
     const randomID = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const bridgeMessage = (text) => window.HomeswiftI18n?.message(text) ?? text;
 
     async function start() {
       if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) {
@@ -9650,24 +9654,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         setStatus(window.isSecureContext ? t("This browser cannot use the microphone") : t("The microphone needs the web UI over HTTPS"), true);
         return;
       }
-      const current = { id: randomID(), seq: 0, queue: [], sending: false, ended: false };
+      const current = { id: randomID(), seq: 0, queue: [], sending: false, ended: false, socket: null };
       session = current;
       mark(true);
+      hooks.started();
       setStatus(t("Starting the microphone…"));
       try {
         // Made during the click, so Safari lets it run.
         current.context = new AudioContext();
         current.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
         if (current.ended) return;
-        // Asked once the microphone is granted: the bridge ends a Talk that stays silent.
-        await HomeswiftCommon.api(url("talk"), { method: "POST", body: { talk: current.id, sampleRate: format.sampleRate } });
+        // The Talk starts once the microphone is granted: the bridge ends one that stays silent.
+        current.socket = await openSocket(current);
+        if (current.ended) { current.socket?.close(1000); return; }
+        if (!current.socket) await HomeswiftCommon.api(url("talk"), { method: "POST", body: { talk: current.id, sampleRate: format.sampleRate } });
         if (current.ended) return;
         await current.context.audioWorklet.addModule("/talk-worklet.js");
         await current.context.resume();
         if (current.ended) return;
         const source = current.context.createMediaStreamSource(current.stream);
-        current.node = new AudioWorkletNode(current.context, "homeswift-talk", { processorOptions: { rate: format.sampleRate, chunk: TALK_CHUNK } });
-        current.node.port.onmessage = (event) => enqueue(current, event.data);
+        const chunk = current.socket ? SOCKET_CHUNK : REQUEST_CHUNK;
+        current.node = new AudioWorkletNode(current.context, "homeswift-talk", { processorOptions: { rate: format.sampleRate, chunk } });
+        current.node.port.onmessage = (event) => (current.socket ? sendSocket(current, event.data) : enqueue(current, event.data));
         // The worklet runs only while it leads to the speakers: through a silent gain, so nothing is heard here.
         const silent = current.context.createGain();
         silent.gain.value = 0;
@@ -9680,13 +9688,57 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     }
 
+    /// The Talk's WebSocket once the bridge said the Talk started; null when none opened, for the requests to try (they
+    /// say why the bridge refuses, which a refused upgrade cannot); throws the bridge's refusal of the Talk itself.
+    function openSocket(current) {
+      if (!window.WebSocket) return Promise.resolve(null);
+      return new Promise((resolve, reject) => {
+        let socket = null, settled = false, timer = null;
+        const settle = (value, error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (error) reject(error); else resolve(value);
+        };
+        try {
+          socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}${url(`talk?sampleRate=${format.sampleRate}`)}`);
+        } catch {
+          resolve(null);
+          return;
+        }
+        socket.binaryType = "arraybuffer";
+        timer = setTimeout(() => { socket.close(); settle(null); }, SOCKET_WAIT);
+        socket.onmessage = (event) => {
+          let message = null;
+          try { message = JSON.parse(event.data); } catch {}
+          if (!settled) {
+            if (message?.talk) settle(socket);
+            else settle(null, new Error(bridgeMessage(message?.error) || t("The camera could not take the microphone")));
+          } else if (message?.error && !current.ended) {
+            // The camera gave up.
+            fail(current, bridgeMessage(message.error));
+          }
+        };
+        socket.onclose = () => {
+          if (!settled) settle(null);
+          else if (!current.ended) fail(current, t("The camera stopped taking the microphone"));
+        };
+      });
+    }
+    function sendSocket(current, buffer) {
+      if (current.ended || current.socket.readyState !== WebSocket.OPEN) return;
+      // A slow link: audio that would wait longer than TALK_BACKLOG is dropped rather than piling up.
+      if (current.socket.bufferedAmount > format.sampleRate * 2 * TALK_BACKLOG / 1000) return;
+      current.socket.send(buffer);
+    }
+
     function enqueue(current, buffer) {
       if (current.ended) return;
       const bytes = new Uint8Array(buffer);
       let text = "";
       for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
       current.queue.push({ seq: current.seq++, pcm: btoa(text) });
-      if (current.queue.length > TALK_BACKLOG) current.queue.shift();
+      if (current.queue.length > TALK_BACKLOG / REQUEST_CHUNK) current.queue.shift();
       pump(current);
     }
     // One request at a time, in order; the end goes after the audio before it.
@@ -9712,7 +9764,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       current.node?.port.close();
       current.stream?.getTracks().forEach((track) => track.stop());
       current.context?.close().catch(() => {});
-      if (session === current) { session = null; mark(false); }
+      // Closing after what is buffered: the bridge ends the Talk with the socket.
+      current.socket?.close(1000);
+      if (session === current) {
+        session = null;
+        mark(false);
+        hooks.stopped();
+      }
     }
     function fail(current, text) {
       release(current);
@@ -9721,13 +9779,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     function stop() {
       const current = session;
       if (!current) return;
-      const started = !!current.node;
+      const overRequests = !!current.node && !current.socket;
       release(current);
       setStatus("");
       // What is still on its way goes first; the bridge ends a Talk that falls silent anyway.
-      if (started) {
+      if (overRequests) {
         const end = () => HomeswiftCommon.api(url(`talk/${current.id}`), { method: "POST", body: { end: true } }).catch(() => {});
-        if (current.sending) setTimeout(end, TALK_CHUNK * 2); else end();
+        if (current.sending) setTimeout(end, REQUEST_CHUNK * 2); else end();
       }
     }
 
@@ -9776,12 +9834,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const message = el("div", { class: "camera-message", text: t("Connecting…") });
     // No picture from the camera: an old television's snow behind the message, drawn small and scaled up.
     const snow = el("canvas", { class: "camera-snow", width: 160, height: 90, "aria-hidden": "true" });
-    const sound = button("muted", t("Unmute"), () => {
-      video.muted = !video.muted;
-      sound.replaceChildren(glyph(video.muted ? "muted" : "sound"));
-      sound.setAttribute("aria-label", video.muted ? t("Unmute") : t("Mute"));
+    function setMuted(muted) {
+      video.muted = muted;
+      sound.replaceChildren(glyph(muted ? "muted" : "sound"));
+      sound.setAttribute("aria-label", muted ? t("Unmute") : t("Mute"));
       sound.title = sound.getAttribute("aria-label");
-      if (!video.muted) video.play().catch(() => {});
+      if (!muted) video.play().catch(() => {});
+    }
+    // The camera's sound is muted while someone talks through it (`mutedForTalk`), so what its speaker plays does not
+    // come back through its microphone and this one as an echo; it comes back with the Talk's end, unless the person
+    // turned it on meanwhile (with headphones, say).
+    let mutedForTalk = false;
+    const sound = button("muted", t("Unmute"), () => {
+      mutedForTalk = false;
+      setMuted(!video.muted);
     });
     sound.classList.add("hidden");
     const fullscreen = button("fullscreen", t("Full screen"), () => {
@@ -9817,7 +9883,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       return controlsAsking;
     };
     const ptz = panTilt(camera, url, setStatus, askControls);
-    const talk = talker(camera, url, setStatus, askControls);
+    const talk = talker(camera, url, setStatus, askControls, {
+      started() { if (!video.muted) { setMuted(true); mutedForTalk = true; } },
+      stopped() { if (mutedForTalk && video.muted) setMuted(false); mutedForTalk = false; },
+    });
     const element = el("div", { class: "camera-view", "data-camera": camera.id },
       still, video, snow, message, ptz.panel,
       el("div", { class: "camera-top" },

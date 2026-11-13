@@ -10,9 +10,11 @@ All notable changes to this project are documented here. The format follows
 
 - **Talk through a camera from its card**: a camera with a speaker (UniFi Protect cameras and doorbells with two-way
   audio, Reolink, IMOU, an IP camera with a `returnAudioTarget`) has a microphone button on its view in the web UI.
-  Press it to speak through the camera, again to stop; it turns red while the microphone is on. It needs the web UI
-  over HTTPS, as browsers give the microphone to secure pages only. Plugins take it through `talkFormat(accessoryID:)`
-  and `talk(accessoryID:_:)`, the same `Talk` as HomeKit's return audio.
+  Press it to speak through the camera, again to stop; it turns red while the microphone is on, and the camera's own
+  sound is muted meanwhile so it does not echo. The audio goes over a WebSocket, or over short requests behind a
+  proxy that does not pass WebSockets. It needs the web UI over HTTPS, as browsers give the microphone to secure pages
+  only. Plugins take it through `talkFormat(accessoryID:)` and `talk(accessoryID:_:)`, the same `Talk` as HomeKit's
+  return audio.
 
 ## [0.31.1] - 2026-11-13
 

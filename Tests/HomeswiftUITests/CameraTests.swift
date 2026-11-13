@@ -1,6 +1,7 @@
 import Foundation
 import Homeswift
 import HomeswiftMCP
+import HomeswiftNetwork
 import HomeswiftPlugin
 import NIOConcurrencyHelpers
 import NIOCore
@@ -385,6 +386,76 @@ struct CameraUITests {
         })
         // A camera without a speaker has no microphone.
         #expect(try await browser.post("/api/cameras/Cams:lamp/talk", ["talk": "talk-0004"]).status == 404)
+    }
+}
+
+@Suite struct CameraTalkSocketTests {
+    /// A WebSocket to the camera's Talk, as the page opens it: its cookie, its own origin.
+    static func connect(_ environment: CameraUIEnvironment, _ camera: String, cookie: String?, origin: String? = nil) async throws -> WebSocket {
+        let port = environment.server.port!
+        var options = WebSocket.Options()
+        options.timeout = .seconds(10)
+        if let cookie { options.headers.append((name: "Cookie", value: cookie)) }
+        options.headers.append((name: "Origin", value: origin ?? "http://127.0.0.1:\(port)"))
+        return try await WebSocket.connect(to: URL(string: "ws://127.0.0.1:\(port)/api/cameras/\(camera)/talk?sampleRate=8000")!, options: options)
+    }
+
+    /// The next text message, as JSON.
+    static func next(_ socket: WebSocket) async throws -> JSONValue? {
+        for try await message in socket.messages {
+            if case .text(let text) = message { return try JSONValue(string: text) }
+        }
+        return nil
+    }
+
+    static func bytes(_ samples: [Int16]) -> Data {
+        Data(samples.flatMap { [UInt8(UInt16(bitPattern: $0) & 0xFF), UInt8(UInt16(bitPattern: $0) >> 8)] })
+    }
+
+    @Test func talksOverAWebSocket() async throws {
+        let environment = try CameraUIEnvironment()
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = try environment.signedIn(base)
+        let socket = try await Self.connect(environment, "Cams:door", cookie: browser.cookie)
+        let started = try #require(try await Self.next(socket))
+        #expect(started["sampleRate"] == 8000 && started["talk"]?.stringValue?.isEmpty == false)
+        let samples = (0..<320).map { Int16($0 * 50 - 8000) }
+        try await socket.send(binary: Self.bytes(Array(samples[0..<250])))
+        try await socket.send(binary: Self.bytes(Array(samples[250...])))
+        #expect(await eventually { environment.source.spoken.withLockedValue { $0.first?.count } == 2 })
+        // Closing the socket ends the Talk at once.
+        await socket.close()
+        #expect(await eventually { environment.source.talksEnded.withLockedValue { $0 } == 1 })
+        let frames = try #require(environment.source.spoken.withLockedValue { $0.first })
+        #expect(frames.flatMap(\.samples) == samples)
+        #expect(environment.server.cameraTalks.session("Cams:door")?.isEnded == true)
+    }
+
+    @Test func upgradesOnlyWhatTheAPIWouldAllow() async throws {
+        let environment = try CameraUIEnvironment()
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = try environment.signedIn(base)
+        // Signed out, from another site: no WebSocket (the page then asks over requests, which say why).
+        await #expect(throws: (any Error).self) { _ = try await Self.connect(environment, "Cams:door", cookie: nil) }
+        await #expect(throws: (any Error).self) { _ = try await Self.connect(environment, "Cams:door", cookie: browser.cookie, origin: "https://elsewhere.example") }
+        #expect(environment.server.cameraTalks.session("Cams:door") == nil)
+
+        // Someone else talking: the socket opens and says so.
+        let first = try await Self.connect(environment, "Cams:door", cookie: browser.cookie)
+        #expect(try await Self.next(first)?["talk"] != nil)
+        _ = try environment.server.users.create(username: "linus", password: "correct horse battery staple")
+        let other = try await Self.connect(environment, "Cams:door", cookie: "\(UIServer.cookieName)=\(environment.server.sessions.create(username: "linus"))")
+        let refused = try #require(try await Self.next(other))
+        #expect(refused["status"] == 409 && refused["error"]?.stringValue?.contains("rosaly") == true)
+        await first.close()
+
+        // A plugin that gives up says why before the socket closes.
+        let still = try await Self.connect(environment, "Cams:still", cookie: browser.cookie)
+        var messages: [JSONValue] = []
+        for try await message in still.messages { if case .text(let text) = message { messages.append(try JSONValue(string: text)) } }
+        #expect(messages.last?["error"]?.stringValue == "the speaker is unplugged" && messages.last?["status"] == 502)
     }
 }
 
