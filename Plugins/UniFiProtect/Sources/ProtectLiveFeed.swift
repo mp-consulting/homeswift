@@ -20,6 +20,25 @@ extension UniFiProtectPlugin {
         }
         return nil
     }
+
+    /// The web UI's microphone on a camera whose speaker two-way audio may use (`Audio.TwoWay`), while it is online.
+    public func talkFormat(accessoryID: String) async -> ReturnAudioFormat? {
+        for controller in nvrs {
+            if let camera = await controller.camera(accessoryID: accessoryID) { return await camera.talkFormat }
+        }
+        return nil
+    }
+
+    /// Plays the web UI's microphone on a camera's speaker (`ProtectTalkback.play`).
+    public func talk(accessoryID: String, _ talk: Talk) async throws {
+        for controller in nvrs {
+            if let camera = await controller.camera(accessoryID: accessoryID) {
+                try await camera.talk(talk)
+                return
+            }
+        }
+        throw CameraControlError("no camera with that id")
+    }
 }
 
 extension ProtectNVR {
@@ -34,6 +53,16 @@ extension ProtectNVR {
 }
 
 extension ProtectCamera {
+    /// The PCM the web UI's microphone sends: none without two-way audio, offline, or before the camera streams.
+    var talkFormat: ReturnAudioFormat? {
+        hints.twoWayAudio && isOnline && stream != nil ? ProtectTalkback.talkFormat : nil
+    }
+
+    func talk(_ talk: Talk) async throws {
+        guard let stream else { throw CameraControlError("\(accessoryName) does not stream yet") }
+        try await stream.talk(talk)
+    }
+
     /// How long a viewer waits for a new session's initialization segment.
     static let liveFeedInitTimeout = 5000
     /// Fragments kept for a viewer that reads slower than the camera sends: about 13 seconds at the

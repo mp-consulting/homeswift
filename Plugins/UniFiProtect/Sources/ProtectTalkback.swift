@@ -74,8 +74,14 @@ final class ProtectTalkback {
             + (isOpus && encoder.isEmpty ? ["-codec:a", "aac"] : encoder)
             + ["-flags", "+global_header", "-ar", talkback.number("talkbackSettings.samplingRate"), "-b:a", String(request.audio.maxBitRate) + "k",
                "-ac", talkback.number("talkbackSettings.channels"), "-f", "adts"]
+        return arguments + outputArguments()
+    }
+
+    /// Where FFmpeg's ADTS goes, the camera directly or the talkback channel through standard output, and its log level.
+    private func outputArguments() -> [String] {
+        var arguments: [String] = []
         if camera.hints.twoWayAudioDirect {
-            arguments.append("udp://" + (camera.ufp.host ?? "") + ":" + talkback.number("talkbackSettings.bindPort"))
+            arguments.append("udp://" + (camera.ufp.host ?? "") + ":" + camera.ufp.json.number("talkbackSettings.bindPort"))
         } else {
             arguments.append("pipe:1")
         }
@@ -84,32 +90,89 @@ final class ProtectTalkback {
         return arguments
     }
 
-    private func startReturnAudio(_ request: StartStreamRequest, session: Session, sdp: String, arguments: [String], host: any HomebridgeStreamingDelegate,
-                                  register: @escaping @ProtectActor (any ProtectFfmpegProcess) -> Void) async {
+    // MARK: The web UI's microphone
+
+    /// The rate the web UI sends its microphone at; FFmpeg resamples it to the camera's.
+    nonisolated static let talkFormat = ReturnAudioFormat(sampleRate: 16000)
+    /// How long FFmpeg has to send what it holds once the Talk ended.
+    static let talkDrainTimeout = 3000
+
+    /// FFmpeg's command line for the web UI's microphone: its PCM on standard input, ADTS out as for HomeKit's.
+    func talkArguments(sampleRate: Int) -> [String] {
+        let talkback = camera.ufp.json
+        let encoder = options.audioEncoder()
+        // -f s16le -ar -ac 1             The browser's PCM: signed 16-bit little-endian mono.
+        // -flush_packets 1               Each ADTS frame out as soon as it is encoded: speech, not a file.
+        return ["-hide_banner", "-nostats", "-f", "s16le", "-ar", String(sampleRate), "-ac", "1", "-i", "pipe:0", "-map", "0:a:0"]
+            + (encoder.isEmpty ? ["-codec:a", "aac"] : encoder)
+            + ["-flags", "+global_header", "-ar", talkback.number("talkbackSettings.samplingRate"), "-b:a", "32k",
+               "-ac", talkback.number("talkbackSettings.channels"), "-flush_packets", "1", "-f", "adts"]
+            + outputArguments()
+    }
+
+    /// Plays the web UI's microphone (`HomeswiftPlugin.talk`): its frames to FFmpeg as they come, FFmpeg's ADTS to the
+    /// controller's talkback channel (or the camera, with `Audio.TwoWay.Direct`). Returns once FFmpeg has sent the last.
+    func play(_ talk: Talk) async throws {
+        guard camera.hints.twoWayAudio, camera.isOnline else { throw CameraControlError("\(camera.accessoryName) has no two-way audio now") }
+        var channel: (sender: Task<Void, Never>, frames: AsyncStream<Data>.Continuation)?
+        if !camera.hints.twoWayAudioDirect {
+            guard let endpoint = await camera.api.getWsEndpoint("talkback", parameters: [("camera", camera.ufp.id)]), let url = URL(string: endpoint) else {
+                throw CameraControlError("the Protect controller opened no return audio channel for \(camera.accessoryName)")
+            }
+            channel = openChannel(url)
+        }
+        let ffmpeg = self.ffmpeg.startProcess(options: options, arguments: talkArguments(sampleRate: talk.format.sampleRate))
+        let outgoing = channel?.frames
+        if let outgoing { _ = ffmpeg.onStdout { data in outgoing.yield(data) } }
+        let (exited, exit) = AsyncStream.makeStream(of: Never.self)
+        ffmpeg.onExit {
+            exit.finish()
+            outgoing?.finish()
+        }
+        for await frame in talk.frames {
+            guard ffmpeg.isStdinWritable else { break }
+            do { try await ffmpeg.writeStdin(frame.s16le) } catch { break }
+        }
+        ffmpeg.endStdin(nil)
+        // FFmpeg encodes what it holds and exits; one that hangs is stopped.
+        _ = await protectTimeout(milliseconds: Self.talkDrainTimeout) { for await _ in exited {}; return true }
+        ffmpeg.stop()
+        outgoing?.finish()
+        await channel?.sender.value
+    }
+
+    /// The controller's talkback channel: audio frames go out in order through one sender, which closes the socket once
+    /// the frames finish.
+    private func openChannel(_ url: URL) -> (sender: Task<Void, Never>, frames: AsyncStream<Data>.Continuation) {
         let api = camera.api
         let log = self.log
-        // The controller's talkback channel: audio frames go out in order through one sender.
+        let (frames, continuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingNewest(256))
+        let sender = Task {
+            let socket: any WebSocketConnection
+            do {
+                socket = try await api.openWebSocket(url)
+            } catch {
+                log.error("Error in communicating with the return audio channel: \(error)")
+                return
+            }
+            for await frame in frames {
+                do {
+                    try await socket.send(binary: frame)
+                } catch {
+                    break
+                }
+            }
+            await socket.close()
+        }
+        return (sender, continuation)
+    }
+
+    private func startReturnAudio(_ request: StartStreamRequest, session: Session, sdp: String, arguments: [String], host: any HomebridgeStreamingDelegate,
+                                  register: @escaping @ProtectActor (any ProtectFfmpegProcess) -> Void) async {
+        // The controller's talkback channel.
         var channel: (sender: Task<Void, Never>, frames: AsyncStream<Data>.Continuation)?
         if let talkBack = session.talkBack, let url = URL(string: talkBack), !camera.hints.twoWayAudioDirect {
-            let (frames, continuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingNewest(256))
-            let sender = Task {
-                let socket: any WebSocketConnection
-                do {
-                    socket = try await api.openWebSocket(url)
-                } catch {
-                    log.error("Error in communicating with the return audio channel: \(error)")
-                    return
-                }
-                for await frame in frames {
-                    do {
-                        try await socket.send(binary: frame)
-                    } catch {
-                        break
-                    }
-                }
-                await socket.close()
-            }
-            channel = (sender, continuation)
+            channel = openChannel(url)
         }
         let outgoing = channel?.frames
         let sender = channel?.sender

@@ -2814,6 +2814,10 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 @media (hover: hover) and (pointer: fine) { .camera-button:hover { background: rgba(30, 32, 40, 0.62); } }
 .camera-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .camera-button.active { background: rgba(255, 255, 255, 0.9); color: #10131a; }
+/* The microphone while it is on: red and breathing, so nobody forgets it; the controls stay in view meanwhile. */
+.camera-button.talking { background: #ff453a; border-color: transparent; color: #fff; animation: talk-pulse 1.6s ease-in-out infinite; }
+@keyframes talk-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 69, 58, 0.55); } 50% { box-shadow: 0 0 0 7px rgba(255, 69, 58, 0); } }
+.camera-view:has(.camera-button.talking) > .camera-controls { opacity: 1; }
 /* Pan and tilt: a pad to press or drag like a joystick over the picture's lower right, under the thumb of the hand that
    holds a phone and beside the button that opens it, the presets on its left. */
 .ptz-panel {
@@ -2889,9 +2893,10 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 }
 @media (pointer: coarse) { .camera-button { width: 40px; height: 40px; min-height: 40px; } }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .camera-view { margin: -6px -8px 0; } }
-@media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh, .camera-button.talking { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
 @media (prefers-reduced-transparency: reduce) {
   .camera-badge, .camera-button { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(20, 22, 28, 0.85); }
+  .camera-button.talking { background: #ff453a; }
 }
 
 /* Describe your setup: the Assistant's suggestion for a block, as a diff to review. */

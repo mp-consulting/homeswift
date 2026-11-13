@@ -44,6 +44,10 @@ final class FeedSource: @unchecked Sendable {
     func push(_ data: Data) {
         continuations.withLockedValue { $0.last }?.yield(data)
     }
+
+    /// What reached the door camera's speaker: the frames of each Talk, and how many Talks ended.
+    let spoken = NIOLockedValueBox<[[PCMFrame]]>([])
+    let talksEnded = NIOLockedValueBox(0)
 }
 
 /// A plugin with a camera that has a live feed, one that has snapshots only, and a lamp.
@@ -75,6 +79,19 @@ actor CameraPlugin: HomeswiftPlugin {
 
     func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? {
         accessoryID == "Cams:door" ? source.feed() : nil
+    }
+
+    /// Both cameras have a speaker at 8 kHz; the garden's gives up at once.
+    func talkFormat(accessoryID: String) async -> ReturnAudioFormat? {
+        accessoryID == "Cams:door" || accessoryID == "Cams:still" ? ReturnAudioFormat(sampleRate: 8000) : nil
+    }
+
+    func talk(accessoryID: String, _ talk: Talk) async throws {
+        guard accessoryID == "Cams:door" else { throw CameraControlError("the speaker is unplugged") }
+        let source = source
+        let index = source.spoken.withLockedValue { $0.append([]); return $0.count - 1 }
+        for await frame in talk.frames { source.spoken.withLockedValue { $0[index].append(frame) } }
+        source.talksEnded.withLockedValue { $0 += 1 }
     }
 }
 
@@ -301,6 +318,73 @@ struct CameraUITests {
         for _ in 0..<CameraViewers.limit { #expect(environment.server.cameraViewers.enter("Cams:door")) }
         #expect(try await browser.get("/api/cameras/Cams:door/live").status == 429)
         #expect(environment.source.continuations.withLockedValue { $0.count } == 0)
+    }
+}
+
+@Suite struct CameraTalkTests {
+    /// A request's audio: signed 16-bit little-endian samples, in base64.
+    static func pcm(_ samples: [Int16]) -> JSONValue {
+        .string(Data(samples.flatMap { [UInt8(UInt16(bitPattern: $0) & 0xFF), UInt8(UInt16(bitPattern: $0) >> 8)] }).base64EncodedString())
+    }
+
+    @Test func playsTheMicrophoneOnTheCamerasSpeaker() async throws {
+        let environment = try CameraUIEnvironment()
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = try environment.signedIn(base)
+        browser.origin = "http://127.0.0.1:\(environment.server.port!)"
+        // The live view learns the camera has a speaker, and its rate, from its controls; a lamp has none.
+        let controls = try await browser.get("/api/cameras/Cams:door/controls")
+        #expect(controls.status == 200)
+        #expect(controls.json?["talk"]?["sampleRate"] == 8000)
+        #expect(controls.json?["directions"]?.arrayValue?.isEmpty == true)
+        #expect(try await browser.get("/api/cameras/Cams:lamp/controls").status == 404)
+
+        // The browser must send at the camera's rate.
+        #expect(try await browser.post("/api/cameras/Cams:door/talk", ["talk": "talk-0001", "sampleRate": 16000]).status == 409)
+        #expect(try await browser.post("/api/cameras/Cams:door/talk", ["talk": "../x", "sampleRate": 8000]).status == 400)
+        let start = try await browser.post("/api/cameras/Cams:door/talk", ["talk": "talk-0001", "sampleRate": 8000])
+        #expect(start.status == 200)
+        #expect(start.json?["sampleRate"] == 8000)
+
+        // 20 ms frames at 8 kHz are 160 samples: a frame and a part, then the rest of the second frame; a request older
+        // than one taken is dropped.
+        let samples = (0..<320).map { Int16($0 * 50 - 8000) }
+        #expect(try await browser.post("/api/cameras/Cams:door/talk/talk-0001", ["seq": 0, "pcm": Self.pcm(Array(samples[0..<250]))]).status == 200)
+        #expect(try await browser.post("/api/cameras/Cams:door/talk/talk-0001", ["seq": 0, "pcm": Self.pcm(Array(samples[0..<250]))]).status == 200)
+        #expect(try await browser.post("/api/cameras/Cams:door/talk/talk-0001", ["seq": 1, "pcm": Self.pcm(Array(samples[250...]))]).status == 200)
+        // Someone else cannot talk on it meanwhile.
+        _ = try environment.server.users.create(username: "linus", password: "correct horse battery staple")
+        let other = Browser(base: base)
+        other.cookie = "\(UIServer.cookieName)=\(environment.server.sessions.create(username: "linus"))"
+        other.origin = browser.origin
+        let refused = try await other.post("/api/cameras/Cams:door/talk", ["talk": "talk-0002", "sampleRate": 8000])
+        #expect(refused.status == 409)
+        #expect(refused.json?["error"]?.stringValue?.contains("rosaly") == true)
+        #expect(try await other.post("/api/cameras/Cams:door/talk/talk-0001", ["seq": 2, "pcm": Self.pcm([1])]).status == 410)
+
+        #expect(try await browser.post("/api/cameras/Cams:door/talk/talk-0001", ["end": true]).status == 200)
+        #expect(await eventually { environment.source.talksEnded.withLockedValue { $0 } == 1 })
+        let frames = try #require(environment.source.spoken.withLockedValue { $0.first })
+        #expect(frames.map(\.offset) == [0, 160])
+        #expect(frames.flatMap(\.samples) == samples)
+        // An ended Talk takes nothing more.
+        #expect(try await browser.post("/api/cameras/Cams:door/talk/talk-0001", ["seq": 3, "pcm": Self.pcm([1])]).status == 410)
+    }
+
+    @Test func saysWhyTheCameraGaveUp() async throws {
+        let environment = try CameraUIEnvironment()
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = try environment.signedIn(base)
+        browser.origin = "http://127.0.0.1:\(environment.server.port!)"
+        #expect(try await browser.post("/api/cameras/Cams:still/talk", ["talk": "talk-0003", "sampleRate": 8000]).status == 200)
+        #expect(await eventually {
+            let reply = try? await browser.post("/api/cameras/Cams:still/talk/talk-0003", ["seq": 0, "pcm": Self.pcm([1, 2])])
+            return reply?.status == 502 && reply?.json?["error"]?.stringValue == "the speaker is unplugged"
+        })
+        // A camera without a speaker has no microphone.
+        #expect(try await browser.post("/api/cameras/Cams:lamp/talk", ["talk": "talk-0004"]).status == 404)
     }
 }
 

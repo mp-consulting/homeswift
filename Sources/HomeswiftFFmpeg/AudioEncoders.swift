@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import NIOConcurrencyHelpers
 
 // What a camera plugin turns HomeKit's return audio into for a camera's speaker (docs/clean-room/ReturnAudio.md, section 5):

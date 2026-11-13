@@ -13,9 +13,10 @@ import NIOHTTP1
 //   for `addSourceBuffer`. The feed stops when the browser disconnects; a camera has at most
 //   `CameraViewers.limit` viewers at once.
 //
-// - `GET /api/cameras/<accessory id>/controls` answers the camera's `CameraControls` (directions, presets, home), 404
-//   for a camera that does not move; `POST /api/cameras/<accessory id>/control` with `{"move": "left"}`,
-//   `{"preset": "<id>"}` or `{"home": true}` moves it, for any signed-in user, as controlling an accessory.
+// - `GET /api/cameras/<accessory id>/controls` answers the camera's `CameraControls` (directions, presets, home) and,
+//   for a camera with a speaker, `talk` (CameraTalk.swift); 404 for a camera that neither moves nor talks.
+//   `POST /api/cameras/<accessory id>/control` with `{"move": "left"}`, `{"preset": "<id>"}` or `{"home": true}` moves
+//   it, for any signed-in user, as controlling an accessory.
 //
 // They are API routes, so they need a signed-in user, and they refuse while the camera is off in the Home app.
 
@@ -75,7 +76,7 @@ extension UIServer {
     static let noCache = ["Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"]
 
     /// A camera the routes may reach: its controller and name, or the reply that refuses it.
-    private func reachableCamera(_ id: String) -> Result<(camera: CameraController, name: String), ReplyError> {
+    func reachableCamera(_ id: String) -> Result<(camera: CameraController, name: String), ReplyError> {
         guard let found = catalog.find(id: id), let camera = found.accessory.cameraController else { return .failure(ReplyError(404, "no camera \(id)")) }
         let name = found.accessory.name
         // A paused plugin's camera: nothing reaches the device, as HomeKit's snapshots get No Response.
@@ -126,9 +127,14 @@ extension UIServer {
                 logger.debug("Web UI live view ended", metadata: ["accessory": "\(name)", "user": "\(username)"])
             })
         case "controls":
-            guard let controls = await catalog.host.cameraControls(accessoryID: id) else { return .error(404, "\(name) does not pan or tilt") }
+            // What the live view's buttons can do: pan and tilt, and the microphone (`talk`, the rate it sends at).
+            let controls = await catalog.host.cameraControls(accessoryID: id)
+            let talk = await catalog.host.talkFormat(accessoryID: id)
+            guard controls != nil || talk != nil else { return .error(404, "\(name) neither moves nor has a speaker") }
             do {
-                return .json(try JSONValue(encoding: controls), headers: Self.noCache)
+                var answer = try JSONValue(encoding: controls ?? CameraControls(directions: [], presets: [], home: false)).objectValue ?? [:]
+                if let talk { answer["talk"] = ["sampleRate": .number(Double(talk.sampleRate))] }
+                return .json(.object(answer), headers: Self.noCache)
             } catch {
                 return .error(500, "\(error)")
             }

@@ -305,7 +305,15 @@ screenshots, and what a plugin does to get good ones.
   joystick, or to steer with the arrow keys, which turns the camera a step at a time while held, with its presets and
   home position beside it (`GET /api/cameras/<id>/controls`, `POST /api/cameras/<id>/control` with `{"move": "left"}`,
   `{"preset": "<id>"}` or `{"home": true}`; both for users who may control accessories, not read-only tokens). On the
-  wall, only a large camera tile has it.
+  wall, only a large camera tile has it. A camera with a speaker (UniFi Protect with two-way audio, Reolink, IMOU, an
+  IP camera with a `returnAudioTarget`) gets a **Talk** button: it turns the browser's microphone on and sends what it
+  hears to the camera's speaker until pressed again or the view leaves the screen, red while it is on. Browsers give
+  the microphone to HTTPS pages (or localhost) only, so on plain HTTP the button says so. The page resamples the
+  microphone to the camera's rate (`talk-worklet.js`) and sends it a tenth of a second at a time, one request after the
+  other (`POST /api/cameras/<id>/talk` with `{"talk": "<id>", "sampleRate": 16000}` starts a Talk, the rate the controls'
+  `talk` gives; `POST /api/cameras/<id>/talk/<id>` with `{"seq": n, "pcm": "<base64>"}` carries the audio and
+  `{"end": true}` ends it). One person talks on a camera at a time; the bridge ends a Talk three seconds after its last
+  audio, and after ten minutes. Starting one is audited and logged, the audio is not.
 - **Rooms**: an accessory's room and Hidden are in its Settings sheet (a new room name adds the room); hidden
   accessories stay out unless **Show hidden** (`?hidden=1`). Its room and Hidden are Accessory Settings
   (`room`, `hidden` in its plugin's block, `PATCH /api/settings/accessories/<id>`); the Quick Controls and the rooms'

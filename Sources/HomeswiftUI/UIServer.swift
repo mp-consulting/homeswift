@@ -73,6 +73,8 @@ public final class UIServer: Sendable {
     let cameraViewers = CameraViewers()
     /// The snapshot each camera is taking, shared by the requests that come meanwhile.
     let cameraSnapshots = CameraSnapshots()
+    /// The microphone button's Talks, one per camera.
+    let cameraTalks = CameraTalks()
     private let channel = NIOLockedValueBox<(any Channel)?>(nil)
     let live: LiveWebFiles?
     private let watcher = NIOLockedValueBox<Task<Void, Never>?>(nil)
@@ -494,6 +496,8 @@ public final class UIServer: Sendable {
             if route.count == 3, route[0] == "accessories", route[2] == "identify" { return .control }
             // Turning a camera from its live view is controlling it.
             if route.count == 3, route[0] == "cameras", route[2] == "control" { return .control }
+            // Talking through a camera's speaker, and the audio of the Talk.
+            if route.count >= 3, route.count <= 4, route[0] == "cameras", route[2] == "talk" { return .control }
             if route.count >= 2, route[0] == "assistant", route[1] == "chat" { return .control }
             // Opening one's own earlier conversation; stopping one's own Assistant request.
             if route.count == 4, route[0] == "assistant", route[1] == "chats", route[3] == "open" { return .control }
@@ -1109,6 +1113,12 @@ public final class UIServer: Sendable {
             }
             if route.count == 3, route[0] == "cameras", route[2] == "control" {
                 return await controlCamera(route[1], body, username: username)
+            }
+            if route.count == 3, route[0] == "cameras", route[2] == "talk" {
+                return await startTalk(route[1], body, username: username)
+            }
+            if route.count == 4, route[0] == "cameras", route[2] == "talk" {
+                return talkAudio(route[1], route[3], body, username: username)
             }
             if route.count == 3, route[0] == "accessories", route[2] == "identify" {
                 guard let found = catalog.find(id: route[1]) else { return .error(404, "no accessory \(route[1])") }

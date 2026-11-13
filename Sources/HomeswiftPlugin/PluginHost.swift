@@ -514,6 +514,19 @@ public final class PluginHost: @unchecked Sendable {
         try await plugin.controlCamera(accessoryID: accessoryID, command)
     }
 
+    /// The PCM a camera's speaker takes from the web UI's microphone (`HomeswiftPlugin.talkFormat`); nil when no running
+    /// instance has it or it has no speaker.
+    public func talkFormat(accessoryID: String) async -> ReturnAudioFormat? {
+        await plugin(owning: accessoryID)?.talkFormat(accessoryID: accessoryID)
+    }
+
+    /// Plays a Talk from the web UI on a camera, through the plugin instance whose accessory it is
+    /// (`HomeswiftPlugin.talk`); returns when the plugin is done with it.
+    public func talk(accessoryID: String, _ talk: Talk) async throws {
+        guard let plugin = plugin(owning: accessoryID) else { throw CameraControlError("no running plugin has \(accessoryID)") }
+        try await plugin.talk(accessoryID: accessoryID, talk)
+    }
+
     /// Starts everything and keeps running until the task is cancelled.
     public func run() async throws {
         try await start()

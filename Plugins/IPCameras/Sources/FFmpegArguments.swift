@@ -166,6 +166,12 @@ enum FFmpegArguments {
             + split((video.returnAudioTarget ?? "") + " -loglevel level" + (video.debugReturn ? "+verbose" : ""))
     }
 
+    /// The web UI's microphone to the same target: its PCM on standard input rather than HomeKit's SRTP.
+    static func webTalk(_ video: IPCamerasPlugin.VideoConfig, sampleRate: Int) -> [String] {
+        ["-hide_banner", "-f", "s16le", "-ar", "\(sampleRate)", "-ac", "1", "-i", "pipe:"]
+            + split((video.returnAudioTarget ?? "") + " -loglevel level" + (video.debugReturn ? "+verbose" : ""))
+    }
+
     /// The SDP FFmpeg reads the return audio with: HomeKit sends it to `port`, the audio return port.
     static func returnAudioSDP(address: String, isIPv6: Bool, port: Int, srtp: Data) -> String {
         let version = isIPv6 ? "IP6" : "IP4"
