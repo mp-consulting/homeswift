@@ -11988,7 +11988,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         [null, ...filters].map((group) => {
           const count = group ? counted.filter((entry) => entry.kind === group).length : counted.length;
           // Each kind with its icon, as the wall draws it; All, the filter's.
-          const glyph = { Lights: "bulb", Blinds: "blind", Switches: "switch", Outlets: "outlet", Scenes: "play" }[group] ?? "filter";
+          const glyph = { Lights: "bulb", Blinds: "blind", Switches: "switch", Outlets: "outlet", Appliances: "power", Scenes: "play", Automations: "workflow" }[group] ?? "filter";
           const pill = el("button", { type: "button", class: "menu-filter", actionIcon: glyph, "aria-pressed": String(group === null) },
             el("span", { text: group ? t(group) : t("All") }), el("span", { class: "menu-filter-count", text: String(count) }));
           pill.addEventListener("click", (event) => {
@@ -17875,8 +17875,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const add = el("button", { type: "button", class: "add-choice", actionIcon: "plus", "aria-haspopup": "menu", text: t("Choose…") });
     const draw = () => {
       list.replaceChildren(...values.map((value) => {
-        const title = choices.find((c) => same(c.value, value))?.title ?? String(value);
-        return el("span", { class: "chip removable" }, el("span", { class: "chosen-name", text: title, title }),
+        const choice = choices.find((c) => same(c.value, value));
+        const title = choice?.title ?? String(value);
+        // A choice's `icon` says its kind on its chip and in the menu (a light, a Scene, an Automation).
+        return el("span", { class: choice?.icon ? "chip removable with-icon" : "chip removable" },
+          choice?.icon ? el("span", { class: "chip-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(choice.icon)) : null,
+          el("span", { class: "chosen-name", text: title, title }),
           el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name: title }),
             onclick: () => { values = values.filter((v) => !same(v, value)); draw(); announce(list); add.focus(); } }, HomeswiftCommon.icon("close")));
       }));
@@ -17886,7 +17890,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // choice with `members` (a Group) ticks them all, or none once they all are; `nested` ones are its members.
     const has = (value) => values.some((v) => same(v, value));
     add.addEventListener("click", () => HomeswiftCommon.menu(add, choices.map((c) => {
-      const common = { label: c.label ?? c.title, group: c.group, filter: c.filter, search: c.search, nested: c.nested, checkbox: true, keepOpen: true };
+      const common = { label: c.label ?? c.title, group: c.group, filter: c.filter, search: c.search, nested: c.nested, icon: c.icon, checkbox: true, keepOpen: true };
       if (c.members) {
         const state = () => c.members.every(has) ? true : c.members.some(has) ? "mixed" : false;
         return { ...common, aggregate: true, checked: state, onSelect: () => {
@@ -24385,9 +24389,6 @@ HomeswiftI18n.add("es", {
   "Channel {number}": "Canal {number}",
   "Channel {number} button": "Botón del canal {number}",
   "Channel {number} wheel": "Rueda del canal {number}",
-  "Choose a scene": "Elegir una escena",
-  "Choose the scene it runs.": "Elige la escena que ejecuta.",
-  "Choose what it drives.": "Elige lo que controla.",
   "Closes": "Cierra",
   "Dims": "Atenúa",
   "Dims a step per notch": "Regula un paso por muesca",
@@ -24396,7 +24397,13 @@ HomeswiftI18n.add("es", {
   "Does nothing yet": "Todavía no hace nada",
   "Hold": "Mantener",
   "Home app: {buttons}": "App Casa: {buttons}",
-  "Lights it dims and switches, shutters it moves. Locks, doors and alarms are never driven by a remote.": "Las luces que regula y enciende, las persianas que mueve. Las cerraduras, puertas y alarmas nunca se controlan desde un mando.",
+  "Lights it dims and switches, shutters it moves, everything else it turns on and off, garage doors, locks and alarms included: anyone holding the remote can open them.": "Las luces que regula y enciende, las persianas que mueve, todo lo demás que enciende y apaga, incluidas puertas de garaje, cerraduras y alarmas: cualquiera que tenga el mando puede abrirlas.",
+  "A press, a double or a long press also runs Scenes and starts Automations.": "Una pulsación, una pulsación doble o una pulsación larga también ejecuta escenas e inicia automatizaciones.",
+  "Appliances": "Aparatos",
+  "Starts {automation}": "Inicia {automation}",
+  "Appliances only turn on and off: a hold or a wheel dims lights and moves shutters.": "Los aparatos solo se encienden y se apagan: mantener o una rueda regula las luces y mueve las persianas.",
+  "A long press and a hold are the same press: these automations also start on each hold.": "Una pulsación larga y mantener son la misma pulsación: estas automatizaciones también se inician cada vez que se mantiene.",
+  "A long press and a hold are the same press: while it holds to dim, it starts no automation.": "Una pulsación larga y mantener son la misma pulsación: mientras regula al mantener, no inicia ninguna automatización.",
   "Moves a step per notch": "Mueve un paso por muesca",
   "No remote yet. Add one from Add accessories: a Matter remote, a Hue dimmer switch, an IKEA remote through its hub, a Zigbee button.": "Todavía no hay ningún mando. Añade uno desde Añadir accesorios: un mando Matter, un regulador Hue, un mando IKEA a través de su hub, un botón Zigbee.",
   "No response": "Sin respuesta",
@@ -24410,7 +24417,6 @@ HomeswiftI18n.add("es", {
   "Relays that power the lights: switched on before they brighten, off once they are dimmed past the lowest level.": "Los relés que alimentan las luces: se encienden antes de aumentar el brillo y se apagan cuando bajan del nivel mínimo.",
   "Remotes": "Mandos",
   "Ring": "Anillo",
-  "Runs a scene": "Ejecuta una escena",
   "Runs {scene}": "Ejecuta {scene}",
   "Seconds the lights take to come back once their power is on, 1 to 30.": "Los segundos que tardan las luces en volver una vez alimentadas, de 1 a 30.",
   "Stops the shutters": "Detiene las persianas",
@@ -24425,7 +24431,6 @@ HomeswiftI18n.add("es", {
   "Wait after power on": "Espera tras encender",
   "What each Button and Wheel of your remotes does, run by the bridge the moment you press. Press a button to find it here.": "Lo que hace cada botón y cada rueda de tus mandos, ejecutado por el puente en cuanto pulsas. Pulsa un botón para encontrarlo aquí.",
   "What each gesture does": "Lo que hace cada gesto",
-  "What it drives": "Lo que controla",
   "{name}: set what it does": "{name}: elegir qué hace",
   "Wheel": "Rueda",
   "Its buttons": "Sus botones",
@@ -28157,9 +28162,6 @@ HomeswiftI18n.add("fr", {
   "Channel {number}": "Canal {number}",
   "Channel {number} button": "Bouton du canal {number}",
   "Channel {number} wheel": "Molette du canal {number}",
-  "Choose a scene": "Choisir une scène",
-  "Choose the scene it runs.": "Choisissez la scène qu'il lance.",
-  "Choose what it drives.": "Choisissez ce qu'il commande.",
   "Closes": "Ferme",
   "Dims": "Baisse",
   "Dims a step per notch": "Règle d'un pas par cran",
@@ -28168,7 +28170,13 @@ HomeswiftI18n.add("fr", {
   "Does nothing yet": "Ne fait rien pour l'instant",
   "Hold": "Maintien",
   "Home app: {buttons}": "App Maison : {buttons}",
-  "Lights it dims and switches, shutters it moves. Locks, doors and alarms are never driven by a remote.": "Les lumières qu'il règle et allume, les volets qu'il déplace. Les serrures, portes et alarmes ne sont jamais commandées par une télécommande.",
+  "Lights it dims and switches, shutters it moves, everything else it turns on and off, garage doors, locks and alarms included: anyone holding the remote can open them.": "Les lumières qu'il règle et allume, les volets qu'il déplace, tout le reste qu'il allume et éteint, portes de garage, serrures et alarmes comprises : quiconque tient la télécommande peut les ouvrir.",
+  "A press, a double or a long press also runs Scenes and starts Automations.": "Un appui, un double appui ou un appui long lance aussi des scènes et démarre des automatisations.",
+  "Appliances": "Appareils",
+  "Starts {automation}": "Lance {automation}",
+  "Appliances only turn on and off: a hold or a wheel dims lights and moves shutters.": "Les appareils s'allument et s'éteignent seulement : un maintien ou une molette règle les lumières et déplace les volets.",
+  "A long press and a hold are the same press: these automations also start on each hold.": "Un appui long et un maintien sont le même appui : ces automatisations se lancent aussi à chaque maintien.",
+  "A long press and a hold are the same press: while it holds to dim, it starts no automation.": "Un appui long et un maintien sont le même appui : tant qu'il règle en maintien, il ne lance aucune automatisation.",
   "Moves a step per notch": "Déplace d'un pas par cran",
   "No remote yet. Add one from Add accessories: a Matter remote, a Hue dimmer switch, an IKEA remote through its hub, a Zigbee button.": "Pas encore de télécommande. Ajoutez-en une depuis Ajouter des accessoires : une télécommande Matter, un variateur Hue, une télécommande IKEA via sa passerelle, un bouton Zigbee.",
   "No response": "Pas de réponse",
@@ -28182,7 +28190,6 @@ HomeswiftI18n.add("fr", {
   "Relays that power the lights: switched on before they brighten, off once they are dimmed past the lowest level.": "Les relais qui alimentent les lumières : allumés avant qu'elles éclairent, éteints une fois baissées sous le niveau le plus bas.",
   "Remotes": "Télécommandes",
   "Ring": "Couronne",
-  "Runs a scene": "Lance une scène",
   "Runs {scene}": "Lance {scene}",
   "Seconds the lights take to come back once their power is on, 1 to 30.": "Les secondes que mettent les lumières à revenir une fois alimentées, de 1 à 30.",
   "Stops the shutters": "Arrête les volets",
@@ -28197,7 +28204,6 @@ HomeswiftI18n.add("fr", {
   "Wait after power on": "Attente après l'allumage",
   "What each Button and Wheel of your remotes does, run by the bridge the moment you press. Press a button to find it here.": "Ce que fait chaque bouton et chaque molette de vos télécommandes, lancé par le pont dès que vous appuyez. Appuyez sur un bouton pour le retrouver ici.",
   "What each gesture does": "Ce que fait chaque geste",
-  "What it drives": "Ce qu'il commande",
   "{name}: set what it does": "{name} : choisir ce qu'il fait",
   "Wheel": "Molette",
   "Its buttons": "Ses boutons",
@@ -31929,9 +31935,6 @@ HomeswiftI18n.add("pt", {
   "Channel {number}": "Canal {number}",
   "Channel {number} button": "Botão do canal {number}",
   "Channel {number} wheel": "Roda do canal {number}",
-  "Choose a scene": "Escolher uma cena",
-  "Choose the scene it runs.": "Escolha a cena que executa.",
-  "Choose what it drives.": "Escolha o que controla.",
   "Closes": "Fecha",
   "Dims": "Baixa o brilho",
   "Dims a step per notch": "Regula um passo por entalhe",
@@ -31940,7 +31943,13 @@ HomeswiftI18n.add("pt", {
   "Does nothing yet": "Ainda não faz nada",
   "Hold": "Manter",
   "Home app: {buttons}": "App Casa: {buttons}",
-  "Lights it dims and switches, shutters it moves. Locks, doors and alarms are never driven by a remote.": "As luzes que regula e liga, os estores que move. Fechaduras, portas e alarmes nunca são controlados por um comando.",
+  "Lights it dims and switches, shutters it moves, everything else it turns on and off, garage doors, locks and alarms included: anyone holding the remote can open them.": "As luzes que regula e liga, os estores que move, tudo o resto que liga e desliga, incluindo portões de garagem, fechaduras e alarmes: quem tiver o comando pode abri-los.",
+  "A press, a double or a long press also runs Scenes and starts Automations.": "Uma pressão, uma pressão dupla ou uma pressão longa também executa cenas e inicia automações.",
+  "Appliances": "Aparelhos",
+  "Starts {automation}": "Inicia {automation}",
+  "Appliances only turn on and off: a hold or a wheel dims lights and moves shutters.": "Os aparelhos só ligam e desligam: manter ou uma roda regula as luzes e move os estores.",
+  "A long press and a hold are the same press: these automations also start on each hold.": "Uma pressão longa e manter são a mesma pressão: estas automações também se iniciam sempre que se mantém.",
+  "A long press and a hold are the same press: while it holds to dim, it starts no automation.": "Uma pressão longa e manter são a mesma pressão: enquanto regula ao manter, não inicia nenhuma automação.",
   "Moves a step per notch": "Move um passo por entalhe",
   "No remote yet. Add one from Add accessories: a Matter remote, a Hue dimmer switch, an IKEA remote through its hub, a Zigbee button.": "Ainda não há comandos. Adicione um em Adicionar acessórios: um comando Matter, um regulador Hue, um comando IKEA através do seu hub, um botão Zigbee.",
   "No response": "Sem resposta",
@@ -31954,7 +31963,6 @@ HomeswiftI18n.add("pt", {
   "Relays that power the lights: switched on before they brighten, off once they are dimmed past the lowest level.": "Os relés que alimentam as luzes: ligados antes de aumentarem o brilho, desligados quando baixam abaixo do nível mínimo.",
   "Remotes": "Comandos",
   "Ring": "Anel",
-  "Runs a scene": "Executa uma cena",
   "Runs {scene}": "Executa {scene}",
   "Seconds the lights take to come back once their power is on, 1 to 30.": "Os segundos que as luzes demoram a voltar depois de alimentadas, de 1 a 30.",
   "Stops the shutters": "Para os estores",
@@ -31969,7 +31977,6 @@ HomeswiftI18n.add("pt", {
   "Wait after power on": "Espera depois de ligar",
   "What each Button and Wheel of your remotes does, run by the bridge the moment you press. Press a button to find it here.": "O que faz cada botão e cada roda dos seus comandos, executado pela ponte assim que carrega. Carregue num botão para o encontrar aqui.",
   "What each gesture does": "O que faz cada gesto",
-  "What it drives": "O que controla",
   "{name}: set what it does": "{name}: escolher o que faz",
   "Wheel": "Roda",
   "Its buttons": "Os seus botões",
@@ -33994,15 +34001,18 @@ HomeswiftI18n.add("pt", {
     press: () => t("Press"), double: () => t("Double press"), long: () => t("Long press"), hold: () => t("Hold"), turn: () => t("Turn"),
   };
 
-  /// What a set of targets is, for the words: lights, shutters, or both.
+  /// What a set of targets is, for the words: lights, shutters, or both; appliances alone (switches, fans, TVs), which only
+  /// turn on and off. Appliances beside lights or shutters go by their words.
   function drives(ids, targets) {
     const kinds = new Set(ids.map((id) => targets.get(id)?.kind).filter(Boolean));
-    return kinds.has("shutter") ? (kinds.has("light") ? "both" : "shutters") : "lights";
+    // Garage doors and locks only open and close, as shutters do.
+    if (kinds.size === 1 && kinds.has("appliance")) return ids.every((id) => targets.get(id)?.opens) ? "doors" : "appliances";
+    return kinds.has("shutter") ? (kinds.has("light") || kinds.has("appliance") ? "both" : "shutters") : "lights";
   }
 
   /// An action's words, for what its targets are: a shutter opens and closes where a light brightens and dims.
   function actionWords(action, direction, kind) {
-    const pick = (lights, shutters, both) => ({ lights, shutters, both })[kind]();
+    const pick = (lights, shutters, both) => ({ lights, shutters, both, appliances: lights, doors: shutters })[kind]();
     switch (action) {
       case "toggle": return pick(() => t("Turns on or off"), () => t("Opens or closes"), () => t("Turns on or off, opens or closes"));
       case "on": return pick(() => t("Turns on"), () => t("Opens"), () => t("Turns on and opens"));
@@ -34029,10 +34039,12 @@ HomeswiftI18n.add("pt", {
 
   /// A Control in a line: what it does, and to what.
   function describe(control, lists) {
-    if (control.action === "scene") return t("Runs {scene}", { scene: lists.scenes.get(control.scene)?.name ?? control.scene });
+    const scenes = (control.scenes ?? []).map((id) => lists.scenes.get(id)?.name ?? id);
+    const runs = scenes.length ? t("Runs {scene}", { scene: scenes.join(", ") }) : null;
+    if (control.action === "scene") return runs ?? "";
     const words = actionWords(control.action, control.direction, drives(control.targets ?? [], lists.targets));
     const names = (control.targets ?? []).map((id) => lists.targets.get(id)?.name ?? t("A missing accessory"));
-    return names.length ? `${words} · ${names.join(", ")}` : words;
+    return [names.length ? `${words} · ${names.join(", ")}` : words, runs].filter(Boolean).join(" · ");
   }
 
   async function view(main, [remoteID] = []) {
@@ -34091,16 +34103,18 @@ HomeswiftI18n.add("pt", {
   function partRow(remote, part, admin) {
     const { lists } = shown;
     const controls = remote.controls.filter((control) => control.part === part.id);
-    const lines = part.gestures.map((gesture) => {
-      const control = controls.find((one) => one.gesture === gesture);
-      return control ? el("li", {}, el("span", { class: "remote-gesture", text: gestureNames[gesture]() }), el("span", { text: describe(control, lists) })) : null;
-    }).filter(Boolean);
-    const starts = part.automations.map((automation) => el("li", { class: "muted" },
-      el("span", { class: "remote-gesture", text: t("Automation") }), el("a", { href: `/automations/${enc(automation.id)}`, text: automation.name })));
+    // In the order of the gestures: what each does, then the Automations it starts.
+    const order = Object.keys(gestureNames);
+    const entries = [
+      ...controls.map((control) => ({ gesture: control.gesture, text: describe(control, lists) })),
+      ...part.automations.map((automation) => ({ gesture: automation.gesture, text: t("Starts {automation}", { automation: automation.name }) })),
+    ].sort((a, b) => order.indexOf(a.gesture) - order.indexOf(b.gesture));
+    const lines = entries.map((entry) => el("li", {},
+      el("span", { class: "remote-gesture", text: gestureNames[entry.gesture]() }), el("span", { text: entry.text })));
     const homeKit = part.homeKit.length ? t("Home app: {buttons}", { buttons: part.homeKit.map((number) => t("Button {number}", { number })).join(", ") }) : null;
     const body = el("span", { class: "body" },
       el("span", { class: "remote-part-name" }, el("strong", { text: partName(part, remote) }), homeKit ? el("span", { class: "muted", text: homeKit }) : null),
-      lines.length || starts.length ? el("ul", { class: "remote-controls" }, lines, starts) : el("span", { class: "muted", text: t("Does nothing yet") }));
+      lines.length ? el("ul", { class: "remote-controls" }, lines) : el("span", { class: "muted", text: t("Does nothing yet") }));
     const glyph = el("span", { class: "remote-part-glyph", "aria-hidden": "true" }, HomeswiftCommon.icon(part.kind === "wheel" ? "loop" : "press"));
     if (!admin) return el("div", { class: "remote-part" }, glyph, body);
     return el("button", { type: "button", class: "remote-part", "aria-label": t("{name}: set what it does", { name: partName(part, remote) }),
@@ -34108,21 +34122,24 @@ HomeswiftI18n.add("pt", {
       el("span", { class: "chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("forward")));
   }
 
-  /// A part's Controls in the side sheet: what it drives (and their Power Switches), then what each gesture does.
+  /// A part's Controls in the side sheet: a card per gesture, with what it does and what to: lights, shutters and
+  /// appliances (its action), the Scenes it runs and the Automations it starts (their press Trigger). Its Power
+  /// Switches, step and waits under More.
   function openEditor(remote, part, trigger) {
     const { data, lists } = shown;
     const mine = remote.controls.filter((control) => control.part === part.id);
-    // A part's gestures drive the same lights; one with none yet starts from its Channel's other part.
-    const driving = mine.find((control) => control.targets?.length)
-      ?? remote.controls.find((control) => control.targets?.length && remote.parts.some((other) => other.id === control.part && other.channel != null && other.channel === part.channel));
+    // A part with nothing yet starts from its Channel's other part's lights (an on/off remote's two buttons).
+    const sibling = mine.length ? null : remote.controls.find((control) => control.targets?.length
+      && remote.parts.some((other) => other.id === control.part && other.channel != null && other.channel === part.channel));
     // Listed by room in the home's order (no room last), the pills keeping one kind; a chosen one's chip names its room.
     // A light without brightness says so: it only turns on and off.
     const roomRank = (room) => { const at = (data.rooms ?? []).indexOf(room); return room == null ? Infinity : at < 0 ? (data.rooms ?? []).length : at; };
     const byRoom = (list) => list.slice().sort((a, b) => roomRank(a.room) - roomRank(b.room)
       || (a.room ?? "").localeCompare(b.room ?? "") || a.name.localeCompare(b.name, undefined, { numeric: true }));
+    const kindIcon = (one) => one.kind === "shutter" ? "blind" : one.kind === "light" ? "bulb" : one.opens ? "door" : one.kind === "outlet" ? "outlet" : one.kind ? "power" : null;
     const choice = (one, kind) => {
       const only = one.onOffOnly ? t("On and off only") : null;
-      return { value: one.id, group: one.room ?? t("No room"), filter: kind,
+      return { value: one.id, group: one.room ?? t("No room"), filter: kind, icon: kindIcon(one) ?? undefined,
         label: [one.name, only].filter(Boolean).join(" · "), title: [one.name, one.room, only].filter(Boolean).join(" · ") };
     };
     // A Group's members under its row, in its first member's room as on the wall; its row ticks them all. A Group with
@@ -34135,84 +34152,143 @@ HomeswiftI18n.add("pt", {
       }
       const whole = [...groups.values()].filter((group) => group.members.length > 1);
       const inGroup = new Set(whole.flatMap((group) => group.members.map((one) => one.id)));
-      const rows = [...list.filter((one) => !inGroup.has(one.id)), ...whole.map((group) => ({ ...group, room: group.members[0].room ?? null }))];
+      // An accessory's Functions (a relay's channels, a fan's light) under it: each `<id>#<key>`, its `of` the accessory.
+      const functions = Map.groupBy(list.filter((one) => one.of), (one) => one.of);
+      const listedIDs = new Set(list.map((one) => one.id));
+      const functionsOf = (one) => (functions.get(one.id) ?? []).map((function_) => ({ ...choice(function_, kindOf(function_)), nested: true, search: one.name }));
+      const rows = [...list.filter((one) => !inGroup.has(one.id) && (!one.of || !listedIDs.has(one.of))),
+        ...whole.map((group) => ({ ...group, room: group.members[0].room ?? null }))];
       return byRoom(rows).flatMap((row) => {
-        if (!row.members) return [choice(row, kindOf(row))];
+        if (!row.members) return [choice(row, kindOf(row)), ...functionsOf(row)];
         const heading = row.room ?? t("No room");
         return [{ title: row.name, group: heading, filter: kindOf(row.members[0]), members: row.members.map((one) => one.id),
           search: row.members.map((one) => one.name).join(" ") },
-        ...byRoom(row.members).map((one) => ({ ...choice(one, kindOf(one)), group: heading, nested: true, search: row.name }))];
+        ...byRoom(row.members).flatMap((one) => [{ ...choice(one, kindOf(one)), group: heading, nested: true, search: row.name },
+          ...functionsOf(one).map((function_) => ({ ...function_, group: heading }))])];
       });
     };
-    const sceneChoices = byRoom(data.scenes).map((scene) => choice(scene, "Scenes"));
-    const targetPicker = HomeswiftForms.searchSet(listed(data.targets, (one) => one.kind === "shutter" ? "Blinds" : "Lights"), driving?.targets ?? []);
-    const powerPicker = HomeswiftForms.searchSet(listed(data.power, (one) => one.kind === "outlet" ? "Outlets" : "Switches"), driving?.power ?? []);
-    const options = driving ?? mine[0] ?? {};
+    const deviceChoices = listed(data.targets, (one) => ({ shutter: "Blinds", appliance: "Appliances" })[one.kind] ?? "Lights");
+    // Scenes and Automations beside them, for a press: their values objects, an accessory's its id.
+    const sceneChoices = byRoom(data.scenes).map((scene) => ({ value: { scene: scene.id }, group: t("Scenes"), filter: "Scenes", icon: "play",
+      label: scene.room ? `${scene.name} · ${scene.room}` : scene.name, title: scene.name }));
+    const automationChoices = (data.automations ?? []).map((automation) => ({ value: { automation: automation.id }, group: t("Automations"),
+      filter: "Automations", icon: "workflow", title: automation.name,
+      label: automation.enabled ? automation.name : `${automation.name} · ${t("Disabled")}` }));
+    const split = (values) => ({
+      targets: values.filter((value) => typeof value === "string"),
+      scenes: values.map((value) => value.scene).filter(Boolean),
+      automations: values.map((value) => value.automation).filter(Boolean),
+    });
+
+    const powered = mine.find((control) => control.power?.length) ?? sibling;
+    const powerPicker = HomeswiftForms.searchSet(listed(data.power, (one) => one.kind === "outlet" ? "Outlets" : "Switches"), powered?.power ?? []);
+    const options = mine.find((control) => control.targets?.length) ?? sibling ?? {};
     const step = el("input", { type: "number", min: 1, max: 25, value: options.step ?? 5, "aria-describedby": "remote-step-help" });
     const powerDelay = el("input", { type: "number", min: 1, max: 30, value: options.powerDelay ?? 5 });
     const reversed = el("input", { type: "checkbox", role: "switch", checked: options.reversed === true });
-    const kind = () => drives(targetPicker.get(), lists.targets);
 
-    // Each gesture: a choice of what it does; the words follow what it drives.
+    // Each gesture: a card with its action (once it has something to act on) and its own list.
+    const pressControl = mine.find((one) => one.gesture === "press");
     const gestureFields = part.gestures.map((gesture) => {
       const control = mine.find((one) => one.gesture === gesture);
+      const presses = ["press", "double", "long"].includes(gesture);
+      const startsNow = part.automations.filter((one) => one.gesture === gesture).map((one) => one.id);
+      // A hold with nothing yet starts from the press's lights and shutters, its action left to choose.
+      const initial = control ? [...(control.targets ?? []), ...(control.scenes ?? []).map((scene) => ({ scene }))]
+        : gesture === "hold" ? (pressControl?.targets ?? sibling?.targets ?? []).filter((id) => ["light", "shutter"].includes(lists.targets.get(id)?.kind))
+        : gesture === "press" ? sibling?.targets ?? [] : [];
+      const picker = HomeswiftForms.searchSet(presses ? [...deviceChoices, ...sceneChoices, ...automationChoices] : deviceChoices,
+        [...initial, ...startsNow.map((automation) => ({ automation }))]);
+      let chosen = control && control.action !== "scene" ? valueOf(control) : "";
       const select = el("select", { "aria-label": gestureNames[gesture]() });
-      const scenePicker = HomeswiftForms.searchSelect(sceneChoices, control?.scene, t("Choose a scene"));
-      const sceneRow = el("div", { class: "remote-scene" }, scenePicker.button);
+      const kind = () => drives(split(picker.get()).targets, lists.targets);
+      // Appliances only turn on and off: a hold or a Wheel has nothing to do for them alone.
+      const appliancesOnly = el("p", { class: "help", text: t("Appliances only turn on and off: a hold or a wheel dims lights and moves shutters."), hidden: true });
+      const note = el("p", { class: "help", hidden: true, text: gesture === "hold" ? t("A long press and a hold are the same press: choose one.") : null });
+      // Nothing for a hold or a Wheel to do with appliances alone.
+      const idle = () => (gesture === "hold" || gesture === "turn") && ["appliances", "doors"].includes(kind());
       const fill = () => {
-        const current = select.value || (control ? valueOf(control) : "");
+        const { targets } = split(picker.get());
+        const alone = idle();
+        appliancesOnly.hidden = !alone;
         // Stopping is for shutters: offered when it drives some (or already chosen).
-        const offered = choicesFor(gesture).filter(([value, action]) => action !== "stop" || kind() !== "lights" || current === value);
+        const offered = choicesFor(gesture).filter(([value, action]) => (action !== "stop" || !["lights", "appliances", "doors"].includes(kind()) || chosen === value)
+          && (!alone || chosen === value));
         select.replaceChildren(el("option", { value: "", text: t("Nothing") }), ...offered.map(([value, action, direction]) =>
-          el("option", { value, text: action === "scene" ? t("Runs a scene") : actionWords(action, direction, kind()) })));
-        select.value = current;
-        sceneRow.hidden = select.value !== "scene";
+          el("option", { value, text: actionWords(action, direction, kind()) })));
+        select.value = chosen;
+        select.hidden = targets.length === 0;
       };
-      select.addEventListener("change", () => { sceneRow.hidden = select.value !== "scene"; syncHoldAndLong(); });
+      select.addEventListener("change", () => { chosen = select.value; syncHoldAndLong(); });
+      // Something to act on, where there was nothing (its action hidden): the gesture's first action, ready.
+      picker.node.addEventListener("change", () => {
+        if (select.hidden && split(picker.get()).targets.length && !chosen && !idle()) chosen = choicesFor(gesture)[0][0];
+        fill();
+        syncHoldAndLong();
+      });
       fill();
-      // A long press and a hold are the same press: the one not chosen says why it waits.
-      const help = gesture === "long" && part.gestures.includes("hold") ? el("span", { class: "help", text: t("A long press and a hold are the same press: choose one.") }) : null;
-      return { gesture, select, fill, scene: scenePicker, row: el("label", { class: "field" }, el("span", { class: "field-title", text: gestureNames[gesture]() }), select, sceneRow, help) };
+      const card = el("section", { class: "remote-gesture-card", "aria-label": gestureNames[gesture]() },
+        el("div", { class: "remote-gesture-head" }, el("h4", { text: gestureNames[gesture]() }), select),
+        picker.node, appliancesOnly, note);
+      return { gesture, presses, picker, note, card, startsNow, state: () => (split(picker.get()).targets.length ? chosen : "") };
     });
-    // A long press and a hold are the same press: one or the other.
-    const syncHoldAndLong = () => {
-      const hold = gestureFields.find((one) => one.gesture === "hold"), long = gestureFields.find((one) => one.gesture === "long");
+    const field = (gesture) => gestureFields.find((one) => one.gesture === gesture);
+    // A long press and a hold are the same press: one or the other. A long press's Automations are that press too: a hold
+    // waits for new ones to go, and those it had already start on each hold.
+    function syncHoldAndLong() {
+      const hold = field("hold"), long = field("long");
       if (!hold || !long) return;
-      long.select.disabled = hold.select.value !== "";
-      hold.select.disabled = long.select.value !== "";
-    };
+      const longNow = split(long.picker.get());
+      const holding = hold.state() !== "";
+      const longControl = long.state() !== "" || longNow.scenes.length > 0;
+      const newStarts = longNow.automations.some((id) => !long.startsNow.includes(id));
+      hold.card.inert = !holding && (longControl || newStarts);
+      long.card.inert = holding && !longControl && longNow.automations.length === 0;
+      hold.note.hidden = !hold.card.inert;
+      long.note.hidden = !holding;
+      long.note.textContent = longNow.automations.length ? t("A long press and a hold are the same press: these automations also start on each hold.")
+        : t("A long press and a hold are the same press: while it holds to dim, it starts no automation.");
+    }
     syncHoldAndLong();
-    // Each gesture keeps the targets and Power Switches it has (the Assistant may give each its own) until the list
-    // here changes.
-    let targetsChanged = false, powerChanged = false;
-    targetPicker.node.addEventListener("change", () => { targetsChanged = true; gestureFields.forEach((one) => one.fill()); });
+    let powerChanged = false;
     powerPicker.node.addEventListener("change", () => { powerChanged = true; });
 
     const message = el("p", { class: "muted", role: "status" });
     return HomeswiftCommon.openSheet((done) => {
       const save = el("button", { type: "button", class: "primary", actionIcon: "check", text: t("Save"), onclick: () => HomeswiftCommon.busyButton(save, async () => {
-        const targets = targetPicker.get(), power = targets.length ? powerPicker.get() : [];
-        const made = gestureFields.filter((one) => one.select.value).map((one) => {
-          const [, action, direction] = choicesFor(one.gesture).find(([value]) => value === one.select.value);
-          const control = { part: part.id, gesture: one.gesture, action };
-          if (action === "scene") {
-            control.scene = one.scene.get();
-          } else {
-            const kept = !targetsChanged && mine.find((old) => old.gesture === one.gesture && old.targets?.length);
-            control.targets = kept ? kept.targets : targets;
-            const powered = kept && !powerChanged ? kept.power ?? [] : power;
-            if (powered.length) { control.power = powered; if (Number(powerDelay.value) !== 5) control.powerDelay = Number(powerDelay.value); }
+        const power = powerPicker.get();
+        const made = [], starts = {};
+        for (const one of gestureFields) {
+          const { targets, scenes, automations } = split(one.picker.get());
+          if (one.presses && (automations.length !== one.startsNow.length || automations.some((id) => !one.startsNow.includes(id)))) starts[one.gesture] = automations;
+          const picked = one.state() ? choicesFor(one.gesture).find(([value]) => value === one.state()) : null;
+          if (!picked && !scenes.length) continue;
+          const control = { part: part.id, gesture: one.gesture, action: picked ? picked[1] : "scene" };
+          if (picked) {
+            const [, action, direction] = picked;
+            control.targets = targets;
+            const old = mine.find((before) => before.gesture === one.gesture && before.targets?.length);
+            const switches = old && !powerChanged ? old.power ?? [] : power;
+            if (switches.length) { control.power = switches; if (Number(powerDelay.value) !== 5) control.powerDelay = Number(powerDelay.value); }
             if (direction) control.direction = direction;
             if (["dim", "step", "toggle"].includes(action) && Number(step.value) !== 5) control.step = Number(step.value);
             if (action === "step" && reversed.checked) control.reversed = true;
           }
-          return control;
-        });
-        if (made.some((control) => control.action === "scene" && !control.scene)) throw new Error(t("Choose the scene it runs."));
-        if (made.some((control) => control.action !== "scene" && !control.targets.length)) throw new Error(t("Choose what it drives."));
+          if (scenes.length) control.scenes = scenes;
+          made.push(control);
+        }
         const controls = [...remote.controls.filter((control) => control.part !== part.id), ...made];
+        // The Automations are checked first, so a refusal saves nothing.
+        if (Object.keys(starts).length) await api(`/api/remotes/${enc(remote.id)}/automations`, { method: "PUT", body: { part: part.id, starts, dryRun: true } });
         await api(`/api/settings/accessories/${enc(remote.id)}${remote.instance ? `?instance=${enc(remote.instance)}` : ""}`, { method: "PATCH", body: { controls: controls.length ? controls : null } });
         remote.controls = controls;
+        // The Automations each press starts, when they changed: their press Triggers.
+        if (Object.keys(starts).length) {
+          await api(`/api/remotes/${enc(remote.id)}/automations`, { method: "PUT", body: { part: part.id, starts } });
+          const known = new Map((data.automations ?? []).map((one) => [one.id, one]));
+          part.automations = [...part.automations.filter((one) => !(one.gesture in starts)),
+            ...Object.entries(starts).flatMap(([gesture, ids]) => ids.map((id) => ({ id, name: known.get(id)?.name ?? id, enabled: known.get(id)?.enabled !== false, gesture })))];
+        }
         // Only this remote is drawn again: its rows (and the presses that find them) follow.
         document.getElementById(sectionID(remote.id))?.replaceWith(remoteSection(remote));
         done(true);
@@ -34221,11 +34297,10 @@ HomeswiftI18n.add("pt", {
         el("div", { class: "setup-sheet-head" }, HomeswiftCommon.tile(part.kind === "wheel" ? "loop" : "press", "blue"),
           el("div", {}, el("h2", { id: "remote-sheet-title", text: partName(part, remote) }), el("p", { class: "muted setup-method", text: remote.name }))),
         el("section", { class: "remote-sheet-section" },
-          el("h3", { text: t("What it drives") }),
-          el("p", { class: "muted", text: t("Lights it dims and switches, shutters it moves. Locks, doors and alarms are never driven by a remote.") }),
-          targetPicker.node),
-        el("section", { class: "remote-sheet-section" },
-          el("h3", { text: t("What each gesture does") }), gestureFields.map((one) => one.row)),
+          el("h3", { text: t("What each gesture does") }),
+          el("p", { class: "muted", text: t("Lights it dims and switches, shutters it moves, everything else it turns on and off, garage doors, locks and alarms included: anyone holding the remote can open them.") }),
+          gestureFields.some((one) => one.presses) ? el("p", { class: "muted", text: t("A press, a double or a long press also runs Scenes and starts Automations.") }) : null,
+          el("div", { class: "remote-gesture-cards" }, gestureFields.map((one) => one.card))),
         el("details", { class: "remote-more" }, el("summary", { text: t("More") }),
           el("label", { class: "field" }, el("span", { class: "field-title", text: t("Step") }), step,
             el("span", { class: "help", id: "remote-step-help", text: t("Percent of brightness or position per notch or per step of a hold, 1 to 25.") })),
@@ -34244,7 +34319,7 @@ HomeswiftI18n.add("pt", {
     switch (gesture) {
       case "hold": return [["dim", "dim", null], ["dim-up", "dim", "up"], ["dim-down", "dim", "down"]];
       case "turn": return [["step", "step", null]];
-      default: return [["toggle", "toggle"], ["on", "on"], ["off", "off"], ["scene", "scene"], ["stop", "stop"]];
+      default: return [["toggle", "toggle"], ["on", "on"], ["off", "off"], ["stop", "stop"]];
     }
   }
 
@@ -37531,8 +37606,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .valve-running-controls[hidden] { display: none !important; }
 .valve-countdown { display: flex; gap: var(--space-8); }
 .valve-countdown[hidden] { display: none; }
-.widget-valve.size-medium .w-middle { display: grid; justify-items: start; align-items: center; pointer-events: none; }
-.widget-valve.size-medium .valve-flap { min-width: 52px; height: 54px; font-size: 34px; }
+/* The medium tile fits its icon, the clock and the name in one card height, as the light's medium tile does. */
+.widget-valve.size-medium .w-middle { display: grid; justify-items: center; align-items: center; padding: 0; pointer-events: none; }
+.widget-valve.size-medium:has(.w-middle) { gap: var(--space-4); padding: var(--space-10); }
+.widget-valve.size-medium:has(.w-middle) .tile { width: 24px; height: 24px; }
+.widget-valve.size-medium:has(.w-middle) .tile svg { width: 16px; height: 16px; }
+.widget-valve.size-medium .valve-flap { min-width: 46px; height: 48px; font-size: 30px; }
+/* The narrow wall's shorter tile has no room for the captions; the timer's label still says the time. */
+@container (max-width: 520px) { .widget-valve.size-medium .valve-clock-part small { display: none; } }
 .widget-valve.size-medium .valve-clock-part small { font-size: 9px; }
 .valve-clock-part { display: grid; justify-items: center; gap: var(--space-4); }
 .valve-clock-part small { font-size: 10px; font-weight: var(--weight-semibold); color: var(--accent-ink); text-transform: uppercase; letter-spacing: .04em; }
@@ -42009,7 +42090,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .remote-part-name .muted { font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .remote-controls { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
 .remote-controls li { display: flex; gap: var(--space-8); min-width: 0; }
-.remote-controls li > span:last-child, .remote-controls li > a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remote-controls li > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .remote-gesture { flex: none; min-width: 7.5em; color: var(--muted); }
 .remote-part > .muted, .remote-part .body > .muted { font-size: var(--text-sm); }
 .remote-part .chevron { flex: none; color: var(--muted); display: grid; transition: color 160ms ease; }
@@ -42021,7 +42102,26 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .remote-sheet-section { display: grid; gap: var(--space-8); }
 .remote-sheet-section h3, .remote-more summary { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
 .remote-sheet-section > p { margin: 0; font-size: var(--text-sm); }
-.remote-scene { margin-top: var(--space-6); }
+/* A card per gesture: its name and action on one line, what it acts on below. */
+.remote-gesture-cards { display: grid; gap: var(--space-10); margin-top: var(--space-4); }
+.remote-gesture-card { display: grid; gap: var(--space-8); min-width: 0; padding: var(--space-12); border-radius: var(--radius-md); background: var(--material-thin); border: 1px solid var(--line);
+  transition: opacity 200ms var(--ease-out); }
+.remote-gesture-card[inert] { opacity: 0.5; }
+.remote-gesture-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-10); min-height: 36px; }
+.remote-gesture-head h4 { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.remote-gesture-head select { flex: 0 1 auto; width: auto; min-width: 0; max-width: 62%; }
+/* The chips and Choose… in one wrapping row: a gesture reads as one line. */
+.remote-gesture-card .chosen-set { flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--space-6); margin-top: 0; }
+.remote-gesture-card .chosen-list { display: contents; }
+@media (pointer: fine) { .remote-gesture-card .add-choice { min-height: 30px; padding: 0 var(--space-12); font-size: var(--text-sm); } }
+.remote-gesture-card .help { margin: 0; }
+.chip.removable.with-icon { padding-left: var(--space-8); gap: var(--space-4); }
+.chip-icon { display: inline-grid; place-items: center; flex: none; color: var(--muted); }
+.chip-icon svg { width: 13px; height: 13px; }
+@media (max-width: 640px) {
+  .remote-gesture-head { flex-direction: column; align-items: stretch; gap: var(--space-6); }
+  .remote-gesture-head select { max-width: none; width: 100%; }
+}
 .remote-more { display: grid; gap: var(--space-10); }
 /* A switch beside its words, as a settings row. */
 .remote-more .toggle-field { display: flex; align-items: center; gap: var(--space-10); }
@@ -42031,7 +42131,7 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
   .remote { padding: var(--space-14) var(--space-12); }
   .remote-controls li { flex-direction: column; gap: 0; }
   .remote-controls li + li { margin-top: var(--space-4); }
-  .remote-controls li > span:last-child, .remote-controls li > a { white-space: normal; }
+  .remote-controls li > span:last-child { white-space: normal; }
   .remote-gesture { min-width: 0; font-size: var(--text-xs); }
 }
 @media (prefers-reduced-motion: reduce) { .remote-part.pressed { animation: none; outline: 2px solid var(--accent); } button.remote-part:active { transform: none; } }
@@ -44841,6 +44941,8 @@ self.addEventListener("notificationclick", (event) => {
       const active = ctx.take(primary, "Active"), inUse = ctx.take(primary, "In Use");
       const set = ctx.take(primary, "Set Duration"), remaining = ctx.take(primary, "Remaining Duration");
       ctx.take(primary, "Valve Type");
+      // A valve without durations (no Set Duration, no Remaining Duration) has no time to show: Run or Stop alone.
+      const timed = Boolean(set || remaining);
       // Remaining Duration is sent when the valve opens; the page counts down from there.
       let endsAt = null, lastRemaining, wasRunning = false;
       // Active reflects a stop immediately; In Use may arrive later from the device.
@@ -44874,21 +44976,21 @@ self.addEventListener("notificationclick", (event) => {
       const toggleRun = () => ctx.write(primary, active, isOn(active) ? 0 : 1);
       const built = {
         on: () => running(), tap: toggleRun, tapLabel: () => isOn(active) ? t("stop") : t("run"),
-        hero: () => !ctx.tall && running() ? clock(left()) : "",
-        middle: ctx.tall ? countdown : null,
+        hero: () => timed && !ctx.tall && running() ? clock(left()) : "",
+        middle: ctx.tall && timed ? countdown : null,
         status: () => running() ? (flowing() ? [t("Running"), "cool"] : [t("Starting…"), "cool"]) : [t("Off")],
       };
       // The figures move each second while it runs.
       const ticker = setInterval(() => {
         if (ctx.node && !ctx.node.isConnected && Date.now() - ctx.born > 2000) { clearInterval(ticker); return; }
-        if (running()) ctx.paint();
+        if (timed && running()) ctx.paint();
       }, 1000);
       if (size === "small") return built;
       const actionLabel = el("span");
       const action = el("button", { type: "button", actionIcon: "play", onclick: toggleRun }, actionLabel);
       // Run, and under it the duration, beside the countdown.
       const actions = el("div", { class: "valve-actions" }, action);
-      const runningControls = el("div", { class: "valve-running-controls" }, countdown, actions);
+      const runningControls = el("div", { class: "valve-running-controls" }, ...(timed ? [countdown] : []), actions);
       const runControl = el("div", { class: "valve-run-control" }, runningControls);
       let shownOn;
       ctx.watch(() => {

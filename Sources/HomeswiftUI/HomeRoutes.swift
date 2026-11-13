@@ -36,6 +36,8 @@ import NIOHTTP1
 //   POST   /api/automations                   a new Automation (administrators)
 //   PUT    /api/automations/<id>              an Automation changed (administrators)
 //   DELETE /api/automations/<id>              (administrators)
+//   PUT    /api/remotes/<id>/automations      {"part", "starts": {"press"|"double"|"long": [ids]}, "dryRun"?}: the Automations a
+//                                             Button's presses start, as their press Triggers (administrators)
 //   POST   /api/automations/<id>/run          its Steps now, whatever its triggers and conditions
 //   POST   /api/automations/draft             {"sentence"}: the Assistant's draft, not saved
 //   GET    /api/notifications/actions/<id>    a notification's buttons, for its confirmation page
@@ -92,6 +94,15 @@ extension UIServer {
             return .json(result)
         case (.GET, ["remotes"]):
             return .json(await catalog.remotesPageJSON())
+        case (.PUT, let path) where path.count == 3 && path[0] == "remotes" && path[2] == "automations":
+            // The Automations a Button's presses start, as their press Triggers: { part, starts: { press: [ids], double, long } }.
+            guard let part = body["part"]?.stringValue else { return .error(400, "part is the Button") }
+            let starts = try HomeswiftCatalog.remoteStarts(body["starts"])
+            let dryRun = body["dryRun"]?.boolValue == true
+            let changed = try catalog.setRemoteAutomations(starts, part: part, of: path[1], dryRun: dryRun)
+            if dryRun { return .json(["changed": .array(changed.map(JSONValue.string)), "dryRun": true]) }
+            logger.info("Web UI set the automations a remote's button starts", metadata: ["user": "\(username)", "remote": "\(path[1])", "changed": "\(changed.count)"])
+            return .json(["changed": .array(changed.map(JSONValue.string))])
         case (.GET, ["automations"]):
             var answer = catalog.automationsJSON().objectValue ?? [:]
             answer["tools"] = catalog.automationToolsJSON()["tools"]

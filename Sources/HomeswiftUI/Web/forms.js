@@ -779,8 +779,12 @@
     const add = el("button", { type: "button", class: "add-choice", actionIcon: "plus", "aria-haspopup": "menu", text: t("Choose…") });
     const draw = () => {
       list.replaceChildren(...values.map((value) => {
-        const title = choices.find((c) => same(c.value, value))?.title ?? String(value);
-        return el("span", { class: "chip removable" }, el("span", { class: "chosen-name", text: title, title }),
+        const choice = choices.find((c) => same(c.value, value));
+        const title = choice?.title ?? String(value);
+        // A choice's `icon` says its kind on its chip and in the menu (a light, a Scene, an Automation).
+        return el("span", { class: choice?.icon ? "chip removable with-icon" : "chip removable" },
+          choice?.icon ? el("span", { class: "chip-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(choice.icon)) : null,
+          el("span", { class: "chosen-name", text: title, title }),
           el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name: title }),
             onclick: () => { values = values.filter((v) => !same(v, value)); draw(); announce(list); add.focus(); } }, HomeswiftCommon.icon("close")));
       }));
@@ -790,7 +794,7 @@
     // choice with `members` (a Group) ticks them all, or none once they all are; `nested` ones are its members.
     const has = (value) => values.some((v) => same(v, value));
     add.addEventListener("click", () => HomeswiftCommon.menu(add, choices.map((c) => {
-      const common = { label: c.label ?? c.title, group: c.group, filter: c.filter, search: c.search, nested: c.nested, checkbox: true, keepOpen: true };
+      const common = { label: c.label ?? c.title, group: c.group, filter: c.filter, search: c.search, nested: c.nested, icon: c.icon, checkbox: true, keepOpen: true };
       if (c.members) {
         const state = () => c.members.every(has) ? true : c.members.some(has) ? "mixed" : false;
         return { ...common, aggregate: true, checked: state, onSelect: () => {

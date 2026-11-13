@@ -107,35 +107,40 @@ final class RemoteControls: Sendable {
         for runner in state.withLockedValue({ Array($0.runners.values) }) { await runner.release() }
     }
 
-    /// Lets go of the runners whose targets no Control has any more (their hold ended), and of the writers of lights they
+    /// Lets go of the runners whose targets no Control has any more (their hold ended), and of the writers of targets they
     /// alone drove: after the Controls changed.
     func prune(keeping controls: [RemoteControl]) async {
         let kept = Set(controls.filter { !$0.targets.isEmpty }.map(Self.targets(of:)))
         let gone = state.withLockedValue { state -> [ControlRunner] in
             let gone = state.runners.filter { !kept.contains($0.key) }.map(\.value)
             state.runners = state.runners.filter { kept.contains($0.key) }
-            let lights = Set(state.runners.keys.flatMap(\.lights))
-            state.writers = state.writers.filter { lights.contains($0.key) }
+            let driven = Set(state.runners.keys.flatMap(\.driven))
+            state.writers = state.writers.filter { driven.contains($0.key) }
             return gone
         }
         for runner in gone { await runner.release() }
     }
 
     private static func targets(of control: RemoteControl) -> ControlTargets {
-        ControlTargets(lights: control.targets, power: control.power, powerDelay: .seconds(control.powerDelay ?? RemoteControl.defaultPowerDelay))
+        ControlTargets(driven: control.targets, power: control.power, powerDelay: .seconds(control.powerDelay ?? RemoteControl.defaultPowerDelay))
     }
 
+    /// Its action on its targets and its Scenes, at the same time: a slow light never holds a Scene back.
     private func run(_ control: RemoteControl) async {
-        switch control.action {
-        case .scene:
-            guard let id = control.scene else { return }
-            guard let scenes = scenes() else { return logger.warning("A Remote's Scene \(id) did not run: the home's Scenes are not ready") }
-            do { try await scenes.run(id) } catch { logger.warning("A Remote's Scene \(id) did not run: \(error)") }
-        case .toggle: await runner(for: control).apply(.toggle, step: control.stepOrDefault)
-        case .on, .off: await runner(for: control).switchTo(control.action == .on, step: control.stepOrDefault)
-        case .stop: await runner(for: control).stop()
-        case .dim, .step: break
+        await withTaskGroup(of: Void.self) { group in
+            switch control.action {
+            case .scene, .dim, .step: break
+            case .toggle: group.addTask { await self.runner(for: control).apply(.toggle, step: control.stepOrDefault) }
+            case .on, .off: group.addTask { await self.runner(for: control).switchTo(control.action == .on, step: control.stepOrDefault) }
+            case .stop: group.addTask { await self.runner(for: control).stop() }
+            }
+            for id in control.scenes { group.addTask { await self.runScene(id) } }
         }
+    }
+
+    private func runScene(_ id: String) async {
+        guard let scenes = scenes() else { return logger.warning("A Remote's Scene \(id) did not run: the home's Scenes are not ready") }
+        do { try await scenes.run(id) } catch { logger.warning("A Remote's Scene \(id) did not run: \(error)") }
     }
 
     /// The runner of a Control's targets, shared by the Controls with the same; `prune` lets go of those no Control has.
@@ -144,7 +149,7 @@ final class RemoteControls: Sendable {
         let find = find
         return state.withLockedValue { state in
             if let runner = state.runners[targets] { return runner }
-            let writers = targets.lights.map { id in
+            let writers = targets.driven.map { id in
                 if let writer = state.writers[id] { return writer }
                 let writer = DimmerWriter(lightID: id, find: find)
                 state.writers[id] = writer

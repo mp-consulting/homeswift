@@ -21,5 +21,7 @@ for what needs a Condition, and the Remotes page lists the Automations a Button 
   mapping (a Tap dial's turn, a wheel's count). For the other plugins the bridge reads the presses HomeKit gets, a long
   press holding for two seconds.
 - A Control never drives a security control: a light, a shutter or a Power Switch whose characteristic its plugin marks
-  so (a door's unlock shown as a switch) is refused when Controls are saved and skipped when they run.
+  so (a door's unlock shown as a switch) is refused when Controls are saved and skipped when they run. Superseded by
+  [ADR 0012](0012-a-remote-drives-what-it-is-given.md): a remote drives what it is given, locks, garage doors and alarms
+  included.
 - A press with a Control still reaches Apple Home; Not in Home keeps the whole Remote out of it.

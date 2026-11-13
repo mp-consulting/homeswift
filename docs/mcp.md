@@ -321,10 +321,14 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   sets a lock, a garage door or an alarm: such a step is skipped, and the run says so.
 - **Remotes** (GLOSSARY.md; [docs/ui.md](ui.md#remotes)). `list_remotes` lists every Remote with its Buttons and Wheels
   (part ids, Channels, the gestures each sends), their Controls and the Automations each Button starts, and what a
-  Control may drive (lights and shutters), power (switches and outlets) and run (Scenes). `set_remote_controls` sets one
-  part's Controls, the remote's other parts kept, checked as the page checks them (`dryRun`); `update_settings` with
-  `controls` writes a remote's whole list. Neither ever drives a lock, a door, an alarm or what a plugin marks a
-  security control.
+  Control may drive (lights, shutters and Appliances, an accessory's Functions as `<id>#<key>`), power (switches and
+  outlets) and run (Scenes: a press, a double or a long press runs its `scenes` beside its action; `scene`, the action
+  that only runs them). `set_remote_controls` sets one part's Controls, the remote's other parts kept, checked as
+  the page checks them (`dryRun`), and with `automations` the Automations each of a Button's presses starts (their press
+  Triggers); `update_settings` with `controls` writes a remote's whole list. Either asks the user first when the
+  Controls add, as a target or a power, a lock, a garage door, a door, an alarm, what a plugin marks a security control or
+  something not on the bridge now
+  (`"security": true` in `list_remotes`' targets; [ADR 0012](adr/0012-a-remote-drives-what-it-is-given.md)).
 - **Power On** (GLOSSARY.md; [ADR 0010](adr/0010-power-on-lives-on-the-device.md)). `power_on` says what a light does
   when its power comes back: what its device can do (behaviours, a brightness, its whites in Kelvin), what it does now
   (read from the device), and the white Natural Light gives it now. `set_power_on` sets it: `natural` (the bridge's

@@ -582,13 +582,22 @@ Apple Home too (an automation there on the same button runs as well; Not in Home
 through Apple Home (a remote mirrored by Wingman, a moment later). **Press a button** of a remote while the page is open:
 its row lights up and its Controls open.
 
-A part's sheet sets **What it drives** (lights and shutters, a searchable list) and **What each gesture does**: a press, a
-double or a long press toggles them, turns them on or off, runs a Scene or stops moving shutters; a hold dims them (up,
-down, or each hold the other way); a Wheel steps them per notch. The words follow what it drives (Opens rather than
-Brightens for shutters). **More** has the step (1–25 %), the Wheel's direction, the **Power Switches** that power the
-lights and the wait after they come on. A long press and a hold are the same press: one or the other. Controls are the
-Remote's Accessory Settings (`controls`), saved without reloading its plugin; a change they make shows the Remote in the
-Logbook. Locks, doors and alarms are never driven by a remote.
+A part's sheet has a card per gesture, each with **what it does** and **what to**: a searchable list of lights,
+shutters and Appliances (switches, outlets, fans, purifiers, TVs, valves, garage doors, locks, alarms), and, for a press,
+a double or a long press, Scenes and Automations, each with its kind's icon. A press, a double or a long press toggles
+its devices, turns them on or off or stops moving shutters, and runs its Scenes and starts its Automations beside that
+(each Automation gets a press Trigger for that Button, its Conditions still checked); a hold dims them (up, down, or each
+hold the other way), starting from the press's lights; a Wheel steps them per notch, Appliances left as they are (they
+only turn on and off). The action shows once the card has a device, its first choice ready. An accessory with more than
+one thing a remote can drive (a two-channel relay, a power strip, a fan with a light) lists each Function under it: tick
+the accessory for all of it (its main Function, or every switch of one made only of switches), or one Function
+([ADR 0011](adr/0011-a-control-names-a-function.md)). The words follow what it drives (Opens rather than Brightens for
+shutters). **More** has the step (1–25 %), the Wheel's direction, the **Power Switches** that power the lights and the
+wait after they come on. A long press and a hold are the same press: one or the other, the card not chosen greyed out.
+Controls are the Remote's Accessory Settings (`controls`), saved without reloading its plugin; a change they make shows
+the Remote in the Logbook. A remote drives what it is given, garage doors, locks and alarms included: on is open,
+unlocked or armed Away, and the words say Opens and Closes for a garage door or a lock
+([ADR 0012](adr/0012-a-remote-drives-what-it-is-given.md)).
 
 ![The Remotes page](images/ui/remotes.png)
 

@@ -70,7 +70,7 @@ struct RemoteDimmerTests {
         let byID = Dictionary(uniqueKeysWithValues: accessories.map { ($0.id, $0) })
         let find: @Sendable (String) -> Accessory? = { byID[$0] }
         let lights = accessories.filter { [.lightbulb, .windowCovering].contains($0.category) }.map(\.id)
-        return ControlRunner(targets: ControlTargets(lights: lights, power: power, powerDelay: .milliseconds(20)),
+        return ControlRunner(targets: ControlTargets(driven: lights, power: power, powerDelay: .milliseconds(20)),
                              writers: lights.map { DimmerWriter(lightID: $0, trustLastSet: trustLastSet, find: find) }, find: find)
     }
 

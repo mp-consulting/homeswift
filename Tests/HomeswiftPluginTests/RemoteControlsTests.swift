@@ -1,6 +1,7 @@
 import Foundation
 import Homeswift
 @testable import HomeswiftPlugin
+import Logging
 import NIOConcurrencyHelpers
 import Testing
 
@@ -105,28 +106,57 @@ struct RemoteControlsTests {
         #expect(RemoteControl.problem(in: [RemoteControl(part: "b1", gesture: .press, action: .toggle)]) != nil)
         #expect(RemoteControl.problem(in: [RemoteControl(part: "b1", gesture: .turn, action: .step, targets: ["x"], step: 40)]) != nil)
         // A long press and a hold are the same press.
-        #expect(RemoteControl.problem(in: [RemoteControl(part: "b1", gesture: .long, action: .scene, scene: "s"),
+        #expect(RemoteControl.problem(in: [RemoteControl(part: "b1", gesture: .long, action: .scene, scenes: ["s"]),
                                            RemoteControl(part: "b1", gesture: .hold, action: .dim, targets: ["x"])]) != nil)
     }
 
-    /// A Control drives lights and shutters, never a lock or a door.
-    @Test func drivesOnlyLightsAndShutters() {
+    /// A press runs its Scenes beside what it does to its targets; a Control that only runs Scenes drives nothing. A
+    /// Control saved before 0.31 named one `scene`.
+    @Test func aPressRunsItsScenesBesideItsAction() async throws {
+        let bulb = Service(.lightbulb, optional: [.brightness], isPrimary: true)
+        bulb[.on]?.value = .bool(false)
+        let lamp = Accessory(id: "lamp", name: "Lamp", category: .lightbulb, services: [bulb])
+        let ran = NIOLockedValueBox<[String]>([])
+        let controls = [
+            RemoteControl(part: "b1", gesture: .press, action: .on, targets: ["lamp"], scenes: ["evening", "music"]),
+            RemoteControl(part: "b1", gesture: .double, action: .scene, scenes: ["night"]),
+        ]
+        let state = RemoteState(name: "Remote", layout: RemoteLayout(parts: [RemotePart(id: "b1", kind: .button, name: nil, services: ["b1"])]),
+                                isDeclared: true, controls: controls)
+        let runner = RemoteControls(find: { $0 == "lamp" ? lamp : nil }, remote: { _ in state },
+                                    scenes: { HomeScenes(run: { id in ran.withLockedValue { $0.append(id) } }) }, logger: Logger(label: "test"))
+        runner.moment(.press, part: "b1", of: "remote")
+        #expect(await eventually { bulb[.on]?.value.boolValue == true && Set(ran.withLockedValue { $0 }) == ["evening", "music"] })
+        runner.moment(.doublePress, part: "b1", of: "remote")
+        #expect(await eventually { ran.withLockedValue { $0 }.contains("night") })
+
+        // Read as saved before: one scene.
+        let old = try #require(RemoteControl.list(from: try JSONValue(data: Data(#"[{"part":"b1","gesture":"long","action":"scene","scene":"s"}]"#.utf8))))
+        #expect(old.first?.scenes == ["s"])
+        #expect(RemoteControl.json(old) == (try JSONValue(data: Data(#"[{"part":"b1","gesture":"long","action":"scene","scenes":["s"]}]"#.utf8))))
+        // Scenes need a press; a scene-only Control drives nothing.
+        #expect(RemoteControl.problem(in: [RemoteControl(part: "b1", gesture: .hold, action: .dim, targets: ["lamp"], scenes: ["s"])]) != nil)
+        #expect(RemoteControl.problem(in: [RemoteControl(part: "b1", gesture: .press, action: .scene, targets: ["lamp"], scenes: ["s"])]) != nil)
+        #expect(RemoteControl.problem(in: [RemoteControl(part: "b1", gesture: .press, action: .toggle, targets: ["lamp"], scenes: ["s"])]) == nil)
+        await runner.stop()
+    }
+
+    /// A Control drives lights and shutters, and turns the rest on and off: a lock and a security control too
+    /// (docs/adr/0012-a-remote-drives-what-it-is-given.md). Only a switch or an outlet powers lights.
+    @Test func drivesWhatItIsGiven() {
         let lock = Accessory(id: "lock", name: "Door", category: .doorLock, services: [Service(.lockMechanism)])
         let blind = Accessory(id: "blind", name: "Blind", category: .windowCovering, services: [Service(.windowCovering)])
         let bulb = Accessory(id: "bulb", name: "Bulb", category: .lightbulb, services: [Service(.lightbulb)])
-        #expect(RemoteControl.targetKind(of: lock) == nil)
-        #expect(RemoteControl.targetKind(of: blind) == .shutter)
-        #expect(RemoteControl.targetKind(of: bulb) == .light)
-        #expect(!RemoteControl.canPower(lock))
-        // A switch whose On its plugin marks a security control (a door's unlock, a siren) powers nothing, nor is a light
-        // with one driven.
+        #expect(ControlTarget(accessory: lock).kind == .appliance)
+        #expect(ControlTarget(accessory: blind).kind == .shutter)
+        #expect(ControlTarget(accessory: bulb).kind == .light)
+        #expect((ControlTarget(accessory: lock).powerSwitch == nil))
         let strike = Service(.switch)
         strike[.on]?.securityControl()
-        #expect(!RemoteControl.canPower(Accessory(id: "strike", name: "Door strike", category: .switch, services: [strike])))
-        #expect(RemoteControl.canPower(Accessory(id: "relay", name: "Relay", category: .switch, services: [Service(.switch)])))
+        #expect((ControlTarget(accessory: Accessory(id: "strike", name: "Door strike", category: .switch, services: [strike])).powerSwitch != nil))
         let secureLight = Service(.lightbulb)
         secureLight[.on]?.securityControl()
-        #expect(RemoteControl.targetKind(of: Accessory(id: "gate", name: "Gate light", category: .lightbulb, services: [secureLight])) == nil)
+        #expect(ControlTarget(accessory: Accessory(id: "gate", name: "Gate light", category: .lightbulb, services: [secureLight])).kind == .light)
     }
 }
 

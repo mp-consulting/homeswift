@@ -595,7 +595,7 @@
         [null, ...filters].map((group) => {
           const count = group ? counted.filter((entry) => entry.kind === group).length : counted.length;
           // Each kind with its icon, as the wall draws it; All, the filter's.
-          const glyph = { Lights: "bulb", Blinds: "blind", Switches: "switch", Outlets: "outlet", Scenes: "play" }[group] ?? "filter";
+          const glyph = { Lights: "bulb", Blinds: "blind", Switches: "switch", Outlets: "outlet", Appliances: "power", Scenes: "play", Automations: "workflow" }[group] ?? "filter";
           const pill = el("button", { type: "button", class: "menu-filter", actionIcon: glyph, "aria-pressed": String(group === null) },
             el("span", { text: group ? t(group) : t("All") }), el("span", { class: "menu-filter-count", text: String(count) }));
           pill.addEventListener("click", (event) => {

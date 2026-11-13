@@ -1,8 +1,8 @@
 import Foundation
 import Homeswift
 
-// How a Remote's Controls drive their targets (`RemoteControls`): a writer per light or shutter, one write at a time, and
-// a runner per set of targets that powers them, toggles them, holds and steps them.
+// How a Remote's Controls drive their targets (`RemoteControls`): a writer per light, shutter or Appliance, one write at a
+// time, and a runner per set of targets that powers them, toggles them, holds and steps them.
 
 /// What a Control asks of its targets' writers: a step of so many notches, or a toggle.
 enum DimmerAction: Equatable, Sendable {
@@ -10,17 +10,18 @@ enum DimmerAction: Equatable, Sendable {
     case toggle
 }
 
-/// The lights and shutters a Control drives together, and the switches that power them, when it has some.
+/// The lights, shutters and Appliances a Control drives together, and the switches that power them, when it has some;
+/// each an accessory or one of its Functions (`ControlTarget`).
 struct ControlTargets: Sendable, Hashable {
-    var lights: [String]
+    var driven: [String]
     var power: [String]
     var powerDelay: Duration
 }
 
 /// Writes a light's brightness as the wheel turns, the way the Home app does (through its characteristics, so its own
 /// plugin sends it), one write at a time: steps that come while a write is out add up into the next. The button turns a
-/// light the wheel dimmed away back on at the level it had. A shutter (`covering(in:)`) moves the same way, its Target
-/// Position the level.
+/// light the wheel dimmed away back on at the level it had. A shutter (`ControlTarget.covering`) moves the same way, its Target
+/// Position the level. An Appliance (a switch, a fan, a TV) only turns on and off: steps leave it as it is.
 actor DimmerWriter {
     private let lightID: String
     private let find: @Sendable (String) -> Accessory?
@@ -43,22 +44,18 @@ actor DimmerWriter {
         case step(Int), toggle, set(Bool)
     }
 
-    /// What the writer drives, found once per call: a shutter's Window Covering, or a light's Lightbulb and its On.
+    /// What the writer drives, found once per call: a shutter's Window Covering, a light's Lightbulb and its On, or an
+    /// Appliance's On or Active (all of a power strip's).
     private enum Target {
         case covering(Service)
         case light(Service, on: Characteristic)
+        case appliance([ApplianceSwitch])
     }
 
     init(lightID: String, trustLastSet: Duration = .seconds(3), find: @escaping @Sendable (String) -> Accessory?) {
         self.lightID = lightID
         self.trustLastSet = trustLastSet
         self.find = find
-    }
-
-    /// A window covering (a shutter, a blind) the wheel moves: its Target Position, a notch a step. The one test of what
-    /// is a shutter, for the writer, the settings' choices and their words.
-    static func covering(in accessory: Accessory) -> Service? {
-        accessory.services.first { $0.type == .windowCovering && $0[.targetPosition] != nil }
     }
 
     /// Moves the light by `step` per notch (negative to dim), or toggles it; returns once this change has gone out, with
@@ -122,6 +119,8 @@ actor DimmerWriter {
             return (position > 0, position)
         case .light(let service, let on):
             return (recent?.on ?? on.value.boolValue ?? false, recent?.brightness ?? service[.brightness]?.value.intValue)
+        case .appliance(let switches):
+            return (recent?.on ?? switches.contains(where: \.isOn), nil)
         }
     }
 
@@ -158,19 +157,13 @@ actor DimmerWriter {
         }
     }
 
-    /// Whether a light's or a shutter's service has a characteristic its plugin marks a security control: a Control never
-    /// writes one (locks, doors and alarms are set only by a person).
-    static func isSecure(_ service: Service) -> Bool {
-        service.characteristics.contains { $0.isSecurityControl }
-    }
-
+    /// What it names now (`ControlTarget`), looked up each time: a plugin may publish the accessory again.
     private func target() -> Target? {
-        guard let accessory = find(lightID) else { return nil }
-        if let covering = Self.covering(in: accessory) { return Self.isSecure(covering) ? nil : .covering(covering) }
-        guard let service = accessory.services.first(where: { $0.type == .lightbulb && $0[.brightness] != nil })
-                ?? accessory.services.first(where: { $0.type == .lightbulb }),
-              let on = service[.on], !Self.isSecure(service) else { return nil }
-        return .light(service, on: on)
+        guard let target = ControlTarget.resolve(lightID, find: find) else { return nil }
+        if let covering = target.covering { return .covering(covering) }
+        if let light = target.light { return .light(light.service, on: light.on) }
+        let switches = target.applianceSwitches
+        return switches.isEmpty ? nil : .appliance(switches)
     }
 
     private func recentSet() -> (on: Bool, brightness: Int?, at: ContinuousClock.Instant)? {
@@ -208,6 +201,25 @@ actor DimmerWriter {
                 // The light's plugin said No Response: the next turn tries again.
                 return false
             }
+        case .appliance(let switches)?:
+            // On or off, all of them the same way; a step is not for it.
+            let wanted: Bool
+            switch change {
+            case .step: return false
+            case .toggle: wanted = !state(of: .appliance(switches)).on
+            case .set(let on): wanted = on
+            }
+            let wrote = await withTaskGroup(of: Bool.self) { group in
+                for one in switches where one.isOn != wanted || recentSet() != nil {
+                    group.addTask { (try? await one.characteristic.write(one.value(wanted))) != nil }
+                }
+                var all = true
+                for await ok in group where !ok { all = false }
+                return all
+            }
+            // Trusted only once it went out: a device that said No Response is read again on the next press.
+            if wrote { lastSet = (wanted, nil, .now) }
+            return false
         case nil:
             return false
         }
@@ -269,11 +281,12 @@ actor DimmerWriter {
 /// relays such as eWeLink's), switched together: a toggle switches that power (off when any is on, else on), dimming up
 /// switches it on first (then waits `powerDelay` for the lights to come back), and dimming down past the floor switches it
 /// off, the lights left on so they come back with it. Without Power Switches, a toggle switches the lights, all the same
-/// way. One runner per set of targets: the Controls that share them share its power and its hold.
+/// way. Its Appliances only turn on and off, with the power when it has some; a hold or a Wheel leaves them as they are. One
+/// runner per set of targets: the Controls that share them share its power and its hold.
 actor ControlRunner {
     let targets: ControlTargets
     private let find: @Sendable (String) -> Accessory?
-    /// Its lights' writers, in `targets.lights`' order, shared with every runner that drives the same light.
+    /// Its targets' writers, in `targets.driven`' order, shared with every runner that drives the same target.
     private let writers: [DimmerWriter]
     /// Notches that came while the power was coming on, applied once the lights are back.
     private var queued = 0
@@ -313,6 +326,8 @@ actor ControlRunner {
         switch action {
         case .toggle:
             if powering { return }
+            // Its Appliances go the way of the power.
+            await Self.each(appliances()) { await $0.switchTo(!isOn) }
             if isOn { await Self.switchAll(power, false) } else { await powerOn(power, step: step) }
         case .step(let notches) where notches > 0 && (!isOn || powering):
             queued += notches
@@ -341,6 +356,7 @@ actor ControlRunner {
             await Self.each(writers) { await $0.switchTo(on) }
             return
         }
+        await Self.each(appliances()) { await $0.switchTo(on) }
         if on {
             // Powered already: the lights themselves (switched off while their relay stayed on).
             if power.contains(where: { $0.value.boolValue == true }) {
@@ -365,7 +381,9 @@ actor ControlRunner {
     func hold(step: Int, direction: RemoteControl.Direction = .alternate, for duration: Duration? = nil) async {
         holding?.cancel()
         var level: Int?
-        for writer in writers { if let state = await writer.state() { level = state.on ? (state.brightness ?? 100) : 0; break } }
+        for (id, writer) in zip(targets.driven, writers) where !isAppliance(id) {
+            if let state = await writer.state() { level = state.on ? (state.brightness ?? 100) : 0; break }
+        }
         var up: Bool
         switch direction {
         case .up: up = true
@@ -391,9 +409,18 @@ actor ControlRunner {
         holding = nil
     }
 
-    /// The power switches' On: each a Switch's or an Outlet's.
+    /// The power switches' On: each a Switch's or an Outlet's, of an accessory or of the Function named.
     private func powerSwitches() -> [Characteristic] {
-        targets.power.compactMap { id in find(id).flatMap(RemoteControl.powerSwitch(of:)) }
+        targets.power.compactMap { ControlTarget.resolve($0, find: find)?.powerSwitch }
+    }
+
+    /// The writers of its Appliances, which go the way of its power; a hold or a Wheel leaves them as they are.
+    private func appliances() -> [DimmerWriter] {
+        zip(targets.driven, writers).filter { isAppliance($0.0) }.map(\.1)
+    }
+
+    private func isAppliance(_ id: String) -> Bool {
+        ControlTarget.resolve(id, find: find)?.kind == .appliance
     }
 
     private func powerOn(_ power: [Characteristic], step: Int) async {
