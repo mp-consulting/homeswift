@@ -364,24 +364,7 @@
       }
       if (type === "object" && property.properties) {
         const nested = buildObject(property, current || {}, index);
-        const get = () => { const v = nested.getValue(); return Object.keys(v).length ? v : undefined; };
-        if (index === undefined) return { element: el("fieldset", {}, el("legend", { text: title }), help, nested.element), get };
-        // In a list's entry (a Dummy accessory's schedule, its auto-reset), a closed section that says what it holds:
-        // an entry of a dozen of them open would run for pages.
-        const total = Object.keys(property.properties).length;
-        const count = el("span", { class: "group-count" });
-        const counted = () => {
-          const set = Object.values(nested.getValue()).filter(isSet).length;
-          const one = total === 1;
-          count.textContent = set ? (one ? t("1 setting · {set} set", { set }) : t("{count} settings · {set} set", { count: total, set }))
-            : one ? t("1 setting") : t("{count} settings", { count: total });
-        };
-        const element = el("details", { class: "group-box object-box" },
-          el("summary", {}, el("span", { text: title }), count), help, nested.element);
-        element.addEventListener("input", counted);
-        element.addEventListener("change", counted);
-        counted();
-        return { element, get };
+        return { element: el("fieldset", {}, el("legend", { text: title }), help, nested.element), get: () => { const v = nested.getValue(); return Object.keys(v).length ? v : undefined; } };
       }
       if (type === "array") {
         const items = property.items || { type: "string" };
