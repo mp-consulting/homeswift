@@ -3117,8 +3117,8 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 .pill.user-2fa svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .pill.user-2fa.on { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
 .pill.user-2fa.off { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
-/* A phone keeps the shield or the warning, the words in its label. */
-@media (max-width: 640px) { .pill.user-2fa .label { display: none; } .pill.user-2fa { padding: var(--space-6); } }
+/* A phone keeps the shield or the warning, the words in its label, and lets the username, role and date wrap. */
+@media (max-width: 640px) { .pill.user-2fa .label { display: none; } .pill.user-2fa { padding: var(--space-6); } .user-row .who > .muted { white-space: normal; } }
 .row-detail { padding: 0 var(--space-16) var(--space-12); }
 .row-detail:empty { display: none; }
 .row-block > div:not(.row):not(:empty) { padding: 0 var(--space-16) var(--space-12); }
