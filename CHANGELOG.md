@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The Users page lists people in rows**: each with their initials, name, role and the day they were added, a
+  Two-factor pill (amber, "No two-factor", when it is off; only its icon on a phone) and the ⋯ menu, in place of a
+  card each.
+
 ## [0.31.1] - 2026-11-13
 
 ### Changed

@@ -5326,7 +5326,8 @@
     }
 
     // Adding or editing a user is a task of its own: a sheet over the page, the page dimmed behind it.
-    const list = el("div", { class: "grid" });
+    // One row per person: a list that stays short as it grows, on a phone too.
+    const list = el("div", { class: "card rows user-rows" });
     const openForm = (user, returnFocus) => openSheet((done) => userForm(user, done), "user-form-title", {
       returnFocus, onClose: (key) => { if (key) showChanged(key); else if (returnFocus?.isConnected) returnFocus.focus(); } });
 
@@ -5342,19 +5343,21 @@
           try { await api(`/api/users/${encodeURIComponent(user.username)}`, { method: "DELETE" }); if (user.you) await loadAuth(); else route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
         } },
       ]);
-      list.append(el("div", { class: "card", "data-key": `user:${user.username.toLowerCase()}` },
-        el("div", { class: "server-head" },
-          tile(user.admin ? "key" : "user", user.admin ? "orange" : "blue"),
-          el("div", { class: "who" }, el("strong", { text: user.name }),
-            el("div", { class: "muted" }, el("span", { class: "mono", text: user.username }), user.you ? ` · ${t("you")}` : "")),
-          el("span", { class: user.admin ? "pill status admin" : "pill status standby", text: user.admin ? t("Administrator") : t("User") })),
-        el("div", { class: "facts two" },
-          fact(t("Two-factor"), user.twoFactor ? t("On [setting]") : t("Off [setting]")),
-          fact(t("Added"), when(user.created), { title: whenFull(user.created) })),
-        el("div", { class: "card-foot" },
-          user.you ? el("a", { href: "/account", text: t("Your password and two-factor") })
-            : el("span", { class: "muted", text: lastAdmin ? t("The last administrator") : "" }),
-          actions)));
+      // Initials stand for the person; the role is its words in the line below, never a key or a colour alone.
+      const initials = user.name.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => [...word][0].toUpperCase()).join("") || "?";
+      const twoFactor = user.twoFactor ? t("Two-factor") : t("No two-factor");
+      list.append(el("div", { class: "row user-row", "data-key": `user:${user.username.toLowerCase()}` },
+        el("span", { class: `user-initials ${user.admin ? "admin" : ""}`, "aria-hidden": "true", text: initials }),
+        el("div", { class: "who" },
+          el("strong", {}, user.name, user.you ? el("span", { class: "pill user-you", text: t("You") }) : null),
+          el("div", { class: "muted" },
+            user.name !== user.username ? [el("span", { class: "mono", text: user.username }), " · "] : null,
+            [user.admin ? t("Administrator") : t("User"), lastAdmin && !user.you ? t("The last administrator") : null].filter(Boolean).join(" · "),
+            " · ", el("span", { title: whenFull(user.created), text: when(user.created) }))),
+        // Two-factor off is what to notice: amber, and its words; a phone keeps only the shield.
+        el("span", { class: `pill user-2fa ${user.twoFactor ? "on" : "off"}`, title: twoFactor, "aria-label": twoFactor },
+          HomeswiftCommon.icon(user.twoFactor ? "shield" : "warning"), el("span", { class: "label", text: twoFactor })),
+        actions));
     }
 
     show(main,

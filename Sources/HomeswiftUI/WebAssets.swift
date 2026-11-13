@@ -7769,7 +7769,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
 
     // Adding or editing a user is a task of its own: a sheet over the page, the page dimmed behind it.
-    const list = el("div", { class: "grid" });
+    // One row per person: a list that stays short as it grows, on a phone too.
+    const list = el("div", { class: "card rows user-rows" });
     const openForm = (user, returnFocus) => openSheet((done) => userForm(user, done), "user-form-title", {
       returnFocus, onClose: (key) => { if (key) showChanged(key); else if (returnFocus?.isConnected) returnFocus.focus(); } });
 
@@ -7785,19 +7786,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           try { await api(`/api/users/${encodeURIComponent(user.username)}`, { method: "DELETE" }); if (user.you) await loadAuth(); else route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
         } },
       ]);
-      list.append(el("div", { class: "card", "data-key": `user:${user.username.toLowerCase()}` },
-        el("div", { class: "server-head" },
-          tile(user.admin ? "key" : "user", user.admin ? "orange" : "blue"),
-          el("div", { class: "who" }, el("strong", { text: user.name }),
-            el("div", { class: "muted" }, el("span", { class: "mono", text: user.username }), user.you ? ` · ${t("you")}` : "")),
-          el("span", { class: user.admin ? "pill status admin" : "pill status standby", text: user.admin ? t("Administrator") : t("User") })),
-        el("div", { class: "facts two" },
-          fact(t("Two-factor"), user.twoFactor ? t("On [setting]") : t("Off [setting]")),
-          fact(t("Added"), when(user.created), { title: whenFull(user.created) })),
-        el("div", { class: "card-foot" },
-          user.you ? el("a", { href: "/account", text: t("Your password and two-factor") })
-            : el("span", { class: "muted", text: lastAdmin ? t("The last administrator") : "" }),
-          actions)));
+      // Initials stand for the person; the role is its words in the line below, never a key or a colour alone.
+      const initials = user.name.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => [...word][0].toUpperCase()).join("") || "?";
+      const twoFactor = user.twoFactor ? t("Two-factor") : t("No two-factor");
+      list.append(el("div", { class: "row user-row", "data-key": `user:${user.username.toLowerCase()}` },
+        el("span", { class: `user-initials ${user.admin ? "admin" : ""}`, "aria-hidden": "true", text: initials }),
+        el("div", { class: "who" },
+          el("strong", {}, user.name, user.you ? el("span", { class: "pill user-you", text: t("You") }) : null),
+          el("div", { class: "muted" },
+            user.name !== user.username ? [el("span", { class: "mono", text: user.username }), " · "] : null,
+            [user.admin ? t("Administrator") : t("User"), lastAdmin && !user.you ? t("The last administrator") : null].filter(Boolean).join(" · "),
+            " · ", el("span", { title: whenFull(user.created), text: when(user.created) }))),
+        // Two-factor off is what to notice: amber, and its words; a phone keeps only the shield.
+        el("span", { class: `pill user-2fa ${user.twoFactor ? "on" : "off"}`, title: twoFactor, "aria-label": twoFactor },
+          HomeswiftCommon.icon(user.twoFactor ? "shield" : "warning"), el("span", { class: "label", text: twoFactor })),
+        actions));
     }
 
     show(main,
@@ -21619,7 +21622,6 @@ HomeswiftI18n.add("es", {
   "Add the current state of an accessory": "Añadir el estado actual de un accesorio",
   "Add to Quick Controls": "Añadir a los controles rápidos",
   "Add user": "Añadir usuario",
-  "Added": "Añadido",
   "Admin": "Admin",
   "Administer": "Administración",
   "Administrator": "Administrador",
@@ -23251,6 +23253,7 @@ HomeswiftI18n.add("es", {
   "Turned off in the Home app": "Desactivada en la app Casa",
   "Two red pulses, then the lights go back to how they were.": "Dos pulsos rojos y luego las luces vuelven a como estaban.",
   "Two-factor": "Dos factores",
+  "No two-factor": "Sin dos factores",
   "Two-factor authentication": "Autenticación de dos factores",
   "two-factor authentication is already on; turn it off first": "la autenticación de dos factores ya está activada; desactívala primero",
   "Type {text} to confirm": "Escribe {text} para confirmar",
@@ -23366,12 +23369,10 @@ HomeswiftI18n.add("es", {
   "wrong set-up code: it is in the bridge's output, next to the web UI address": "código de configuración incorrecto: aparece en la salida del puente, junto a la dirección de la interfaz web",
   "wrong username or password": "nombre de usuario o contraseña incorrectos",
   "Yesterday": "Ayer",
-  "you": "tú",
   "Your account": "Tu cuenta",
   "Your favourite accessories and the scenes, at hand.": "Tus accesorios favoritos y las escenas, a mano.",
   "Your image": "Tu imagen",
   "Your image is the wallpaper now.": "Tu imagen es ahora el fondo de pantalla.",
-  "Your password and two-factor": "Tu contraseña y la autenticación de dos factores",
   "Your scenes": "Tus escenas",
   "Your setup, in your words": "Tu instalación, con tus palabras",
   "Your sign-in to this bridge's web UI, as an administrator.": "Tu inicio de sesión en la interfaz web de este puente, como administrador.",
@@ -25392,7 +25393,6 @@ HomeswiftI18n.add("fr", {
   "Add the current state of an accessory": "Ajouter l'état actuel d'un accessoire",
   "Add to Quick Controls": "Ajouter aux commandes rapides",
   "Add user": "Ajouter un utilisateur",
-  "Added": "Ajouté",
   "Admin": "Admin",
   "Administer": "Administration",
   "Administrator": "Administrateur",
@@ -27024,6 +27024,7 @@ HomeswiftI18n.add("fr", {
   "Turned off in the Home app": "Désactivée dans l'app Maison",
   "Two red pulses, then the lights go back to how they were.": "Deux pulsations rouges, puis les lampes reviennent à leur état précédent.",
   "Two-factor": "Deux facteurs",
+  "No two-factor": "Sans deux facteurs",
   "Two-factor authentication": "Authentification à deux facteurs",
   "two-factor authentication is already on; turn it off first": "l'authentification à deux facteurs est déjà activée ; désactivez-la d'abord",
   "Type {text} to confirm": "Saisissez {text} pour confirmer",
@@ -27139,12 +27140,10 @@ HomeswiftI18n.add("fr", {
   "wrong set-up code: it is in the bridge's output, next to the web UI address": "code de configuration erroné : il figure dans la sortie du pont, à côté de l'adresse de l'interface web",
   "wrong username or password": "nom d'utilisateur ou mot de passe incorrect",
   "Yesterday": "Hier",
-  "you": "vous",
   "Your account": "Votre compte",
   "Your favourite accessories and the scenes, at hand.": "Vos accessoires favoris et les scènes, à portée de main.",
   "Your image": "Votre image",
   "Your image is the wallpaper now.": "Votre image est maintenant le fond d'écran.",
-  "Your password and two-factor": "Votre mot de passe et l'authentification à deux facteurs",
   "Your scenes": "Vos scènes",
   "Your setup, in your words": "Votre installation, en vos propres mots",
   "Your sign-in to this bridge's web UI, as an administrator.": "Votre connexion à l'interface web de ce pont, en tant qu'administrateur.",
@@ -29165,7 +29164,6 @@ HomeswiftI18n.add("pt", {
   "Add the current state of an accessory": "Adicionar o estado atual de um acessório",
   "Add to Quick Controls": "Adicionar aos controlos rápidos",
   "Add user": "Adicionar utilizador",
-  "Added": "Adicionado",
   "Admin": "Admin",
   "Administer": "Administração",
   "Administrator": "Administrador",
@@ -30797,6 +30795,7 @@ HomeswiftI18n.add("pt", {
   "Turned off in the Home app": "Desativada na app Casa",
   "Two red pulses, then the lights go back to how they were.": "Dois impulsos vermelhos e depois as luzes voltam ao que eram.",
   "Two-factor": "Dois fatores",
+  "No two-factor": "Sem dois fatores",
   "Two-factor authentication": "Autenticação de dois fatores",
   "two-factor authentication is already on; turn it off first": "a autenticação de dois fatores já está ativada; desative-a primeiro",
   "Type {text} to confirm": "Escreva {text} para confirmar",
@@ -30912,12 +30911,10 @@ HomeswiftI18n.add("pt", {
   "wrong set-up code: it is in the bridge's output, next to the web UI address": "código de configuração errado: está na saída da ponte, junto ao endereço da interface web",
   "wrong username or password": "nome de utilizador ou palavra-passe incorretos",
   "Yesterday": "Ontem",
-  "you": "a sua conta",
   "Your account": "A sua conta",
   "Your favourite accessories and the scenes, at hand.": "Os acessórios favoritos e as cenas, à mão.",
   "Your image": "A sua imagem",
   "Your image is the wallpaper now.": "A sua imagem é agora o papel de parede.",
-  "Your password and two-factor": "A palavra-passe e a autenticação de dois fatores",
   "Your scenes": "As suas cenas",
   "Your setup, in your words": "A sua instalação, por palavras suas",
   "Your sign-in to this bridge's web UI, as an administrator.": "O seu início de sessão na interface web desta ponte, como administrador.",
@@ -39414,6 +39411,21 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 .rows > * + * { border-top: 1px solid var(--line); }
 .rows .row > .who { flex: 1; min-width: 0; }
 .rows .row > .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The Users page: a row per person, their initials on the tiles' colours (orange an administrator, blue anyone else),
+   held to AA under white letters; the role in words beside them. */
+.user-rows > .user-row { padding-block: var(--space-12); }
+.user-initials { width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: var(--text-sm); font-weight: var(--weight-semibold); letter-spacing: 0.02em;
+  background: linear-gradient(160deg, #2b78db, #1b58b8); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.user-initials.admin { background: linear-gradient(160deg, var(--accent-fill-top), var(--accent-fill)); }
+.user-row strong { display: flex; align-items: center; gap: var(--space-8); min-width: 0; }
+.pill.user-you, .pill.user-2fa { flex: none; }
+.pill.user-you::before, .pill.user-2fa::before { display: none; }
+.pill.user-you { padding: 0 var(--space-8); font-weight: var(--weight-medium); }
+.pill.user-2fa svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.pill.user-2fa.on { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.pill.user-2fa.off { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+/* A phone keeps the shield or the warning, the words in its label. */
+@media (max-width: 640px) { .pill.user-2fa .label { display: none; } .pill.user-2fa { padding: var(--space-6); } }
 .row-detail { padding: 0 var(--space-16) var(--space-12); }
 .row-detail:empty { display: none; }
 .row-block > div:not(.row):not(:empty) { padding: 0 var(--space-16) var(--space-12); }
