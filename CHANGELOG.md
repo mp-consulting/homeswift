@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A remote's Button saves again when one gesture switches a Power Switch**: the Button sheet's Power Switches are one
+  list for every gesture, and each Control got all of it, so a press that toggles an outlet listed there was refused
+  ("is both what it drives and its power"). A Control now leaves its own targets out of its power, and keeps its saved
+  power only while it drives the same things.
+
 ## [0.31.0] - 2026-11-13
 
 ### Added
