@@ -9105,7 +9105,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("span", { class: "tile tone-violet", "aria-hidden": "true" }, HomeswiftCommon.icon(triggerIcons[first?.type] ?? "workflow")),
         el("div", { class: "who" }, el("strong", { text: automation.name }),
           el("span", { class: "muted", text: [automation.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · "),
-            tn("{n} step", "{n} steps", automation.steps.length), automation.mode === "single" ? t("Single") : null,
+            tn("{n} step", "{n} steps", automation.steps.length), automation.mode !== "restart" ? modes().find(([value]) => value === automation.mode)?.[1] : null,
+            automation.parallel ? t("Steps at the same time") : null,
             automation.homeKit ? t("In the Home app") : null].filter(Boolean).join(" · ") })),
         el("label", { class: "toggle compact" }, el("span", { class: "switch" }, enabled, el("span")))),
       automation.security ? el("p", { class: "muted note" }, HomeswiftCommon.icon("lock"), el("span", { text: t("It watches or names a lock, a door or an alarm: those are never changed by it.") })) : null,
@@ -9130,7 +9131,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const name = el("input", { type: "text", value: automation.name ?? "", maxLength: 64, required: true, placeholder: t("Hall light on motion") });
     const enabled = el("input", { type: "checkbox", checked: automation.enabled !== false });
     const homeKit = el("input", { type: "checkbox", checked: Boolean(automation.homeKit) });
-    const mode = el("select", {}, el("option", { value: "restart", text: t("Restart: a new trigger starts it again") }), el("option", { value: "single", text: t("Single: a new trigger is ignored while it runs") }));
+    const parallel = el("input", { type: "checkbox", checked: Boolean(automation.parallel) });
+    const mode = el("select", {}, modes().map(([value, , text]) => el("option", { value, text })));
     mode.value = automation.mode || "restart";
     const toggle = (input, title, help) => el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")),
       el("span", {}, el("span", { class: "field-title", text: title }), el("p", { class: "help", text: help })));
@@ -9147,9 +9149,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       conditions.add(row);
       conditionList.append(row);
     };
-    const redraw = () => stepList.replaceChildren(...steps);
-    const addStep = (value = { type: "set" }) => {
-      const row = stepRow(value, { accessories, scenes: scenes.scenes ?? [], tools: data.tools ?? [] });
+    // Which Steps may start with the one before (not the first, not a wait, not right after one), and which do.
+    const isWait = (row) => ["wait", "waitUntil"].includes(row.kind());
+    const syncSteps = () => steps.forEach((row, index) => {
+      const can = index > 0 && !isWait(row) && !isWait(steps[index - 1]);
+      row.together.hidden = !can || parallel.checked;
+      row.classList.toggle("joined", can && (parallel.checked || row.withPrevious.checked));
+    });
+    parallel.addEventListener("change", syncSteps);
+    const redraw = () => { stepList.replaceChildren(...steps); syncSteps(); };
+    const addStep = (value = { type: "set" }, { drawn = true } = {}) => {
+      const row = stepRow(value, { accessories, scenes: scenes.scenes ?? [], tools: data.tools ?? [], changed: syncSteps });
       const move = (by) => {
         const at = steps.indexOf(row), to = at + by;
         if (to < 0 || to >= steps.length) return;
@@ -9163,11 +9173,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("button", { type: "button", class: "icon-button step-down", title: t("Move down"), "aria-label": t("Move down"), onclick: () => move(1) }, HomeswiftCommon.icon("down")),
         el("button", { type: "button", class: "danger scene-condition-remove", actionIcon: "trash", text: t("Delete step"), onclick: () => { steps.splice(steps.indexOf(row), 1); redraw(); } })));
       steps.push(row);
-      redraw();
+      if (drawn) redraw();
     };
     automation.triggers.forEach(addTrigger);
     (automation.conditions ?? []).forEach(addCondition);
-    (automation.steps ?? []).forEach(addStep);
+    // The saved Steps drawn once, not once each.
+    (automation.steps ?? []).forEach((step) => addStep(step, { drawn: false }));
+    redraw();
 
     // The Location is a Bridge Setting: without one, the Triggers' help links to its card under Settings.
     const place = data.location ? t("Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.latitude}, ${data.location.longitude}` })
@@ -9180,7 +9192,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "who" }, el("h3", { text: title }), el("p", { class: "muted" }, ...[].concat(help).filter(Boolean)))), ...content);
     const line = statusLine();
     const save = el("button", { class: "primary", actionIcon: "check", type: "submit", text: isNew ? t("Create the automation") : t("Save") });
-    const read = () => ({ name: name.value.trim(), enabled: enabled.checked, homeKit: homeKit.checked, mode: mode.value,
+    const read = () => ({ name: name.value.trim(), enabled: enabled.checked, homeKit: homeKit.checked, mode: mode.value, parallel: parallel.checked,
       triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), steps: steps.map((row) => row.read()) });
     const snapshot = () => { try { return JSON.stringify(read()); } catch { return null; } };
     const initial = isNew && fromDraft ? null : snapshot();
@@ -9204,7 +9216,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("button", { actionIcon: "plus", type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })),
       section(t("Conditions"), "shield", t("A trigger's run goes ahead only when all of these hold. Run now ignores them."), conditionList,
         el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition({ type: "time", after: "sunset", before: "23:00" }) })),
-      section(t("Steps"), "workflow", t("Run in order. Locks, garage doors and alarms are left out: the last run says so."), stepList,
+      section(t("Steps"), "workflow", t("Run in order. Locks, garage doors and alarms are left out: the last run says so."),
+        toggle(parallel, t("Run the steps at the same time"), t("The steps between two waits start together rather than one after the other. A wait still holds back the steps after it.")), stepList,
         el("button", { actionIcon: "plus", type: "button", text: t("Add a step"), onclick: () => addStep() })),
       el("div", { class: "save-bar" }, save, el("a", { class: "button", actionIcon: "close", href: "/automations", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),
@@ -9217,7 +9230,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   /// One Step: its kind and its fields. `.read()` gives what to save.
-  function stepRow(step, { accessories, scenes, tools }) {
+  /// The modes: value, the card's word, the editor's choice.
+  function modes() {
+    return [["restart", t("Restart"), t("Restart: a new trigger starts it again")], ["single", t("Single"), t("Single: a new trigger is ignored while it runs")],
+      ["overlap", t("Overlapping"), t("Overlapping: a new trigger starts another run alongside it")], ["queued", t("Queued"), t("Queued: a new trigger runs it again once it finishes")]];
+  }
+
+  function stepRow(step, { accessories, scenes, tools, changed }) {
     const { characteristicPicker, readable, writable, operators, field } = home();
     const type = el("select", { "aria-label": t("Step") }, stepKinds.map(([value, text]) => el("option", { value, text })));
     type.value = step.type;
@@ -9285,8 +9304,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     };
     draw(step);
-    type.addEventListener("change", () => draw({ type: type.value }));
-    row.read = () => ({ type: type.value, ...row.readBody() });
+    type.addEventListener("change", () => { draw({ type: type.value }); changed(); });
+    // Shown where the Step may start with the one before; the bridge keeps it only there.
+    row.withPrevious = el("input", { type: "checkbox", checked: Boolean(step.withPrevious), onchange: () => changed() });
+    row.together = el("label", { class: "check step-together" }, row.withPrevious, el("span", { text: t("Starts with the step before") }));
+    // First in the row, as it is drawn: the keyboard reaches it before the Step's fields.
+    row.prepend(row.together);
+    row.kind = () => type.value;
+    row.read = () => ({ type: type.value, ...row.readBody(), ...(row.withPrevious.checked ? { withPrevious: true } : {}) });
     return row;
   }
 
@@ -24120,6 +24145,14 @@ HomeswiftI18n.add("es", {
   "Off, its triggers do nothing; Run now still runs it.": "Desactivada, sus disparadores no hacen nada; «Ejecutar ahora» la ejecuta igualmente.",
   "On the Homeswift Scenes accessory: the switch turns the automation on and off.": "En el accesorio Homeswift Scenes: el interruptor activa y desactiva la automatización.",
   "Plugin action": "Acción de un plugin",
+  "Steps at the same time": "Pasos a la vez",
+  "Run the steps at the same time": "Ejecutar los pasos a la vez",
+  "The steps between two waits start together rather than one after the other. A wait still holds back the steps after it.": "Los pasos entre dos esperas empiezan juntos en lugar de uno tras otro. Una espera sigue reteniendo los pasos que la siguen.",
+  "Overlapping": "Superpuesta",
+  "Queued": "En cola",
+  "Overlapping: a new trigger starts another run alongside it": "Superpuesta: un nuevo disparador inicia otra ejecución a la vez",
+  "Queued: a new trigger runs it again once it finishes": "En cola: un nuevo disparador la vuelve a ejecutar cuando termina",
+  "Starts with the step before": "Empieza con el paso anterior",
   "Restart: a new trigger starts it again": "Reiniciar: un nuevo disparador la vuelve a empezar",
   "Run in order. Locks, garage doors and alarms are left out: the last run says so.": "Se ejecutan en orden. Cerraduras, puertas de garaje y alarmas se dejan fuera: la última ejecución lo indica.",
   "Run now": "Ejecutar ahora",
@@ -27884,6 +27917,14 @@ HomeswiftI18n.add("fr", {
   "Off, its triggers do nothing; Run now still runs it.": "Désactivée, ses déclencheurs ne font rien ; « Exécuter maintenant » la lance quand même.",
   "On the Homeswift Scenes accessory: the switch turns the automation on and off.": "Sur l'accessoire Homeswift Scenes : l'interrupteur active et désactive l'automatisation.",
   "Plugin action": "Action d'un plugin",
+  "Steps at the same time": "Étapes simultanées",
+  "Run the steps at the same time": "Exécuter les étapes en même temps",
+  "The steps between two waits start together rather than one after the other. A wait still holds back the steps after it.": "Les étapes entre deux attentes démarrent ensemble plutôt que l'une après l'autre. Une attente retient toujours les étapes qui la suivent.",
+  "Overlapping": "Chevauchante",
+  "Queued": "En file",
+  "Overlapping: a new trigger starts another run alongside it": "Chevauchante : un nouveau déclenchement lance une autre exécution en parallèle",
+  "Queued: a new trigger runs it again once it finishes": "En file : un nouveau déclenchement la relance une fois qu'elle est terminée",
+  "Starts with the step before": "Démarre avec l'étape précédente",
   "Restart: a new trigger starts it again": "Redémarrer : un nouveau déclenchement la relance",
   "Run in order. Locks, garage doors and alarms are left out: the last run says so.": "Exécutées dans l'ordre. Serrures, portes de garage et alarmes sont laissées de côté : la dernière exécution le dit.",
   "Run now": "Exécuter maintenant",
@@ -31648,6 +31689,14 @@ HomeswiftI18n.add("pt", {
   "Off, its triggers do nothing; Run now still runs it.": "Desativada, os seus acionadores não fazem nada; «Executar agora» executa-a na mesma.",
   "On the Homeswift Scenes accessory: the switch turns the automation on and off.": "No acessório Homeswift Scenes: o interruptor ativa e desativa a automação.",
   "Plugin action": "Ação de um plugin",
+  "Steps at the same time": "Passos em simultâneo",
+  "Run the steps at the same time": "Executar os passos em simultâneo",
+  "The steps between two waits start together rather than one after the other. A wait still holds back the steps after it.": "Os passos entre duas esperas começam juntos em vez de um após o outro. Uma espera continua a reter os passos que vêm depois dela.",
+  "Overlapping": "Sobreposta",
+  "Queued": "Em fila",
+  "Overlapping: a new trigger starts another run alongside it": "Sobreposta: um novo acionador inicia outra execução em simultâneo",
+  "Queued: a new trigger runs it again once it finishes": "Em fila: um novo acionador volta a executá-la quando termina",
+  "Starts with the step before": "Começa com o passo anterior",
   "Restart: a new trigger starts it again": "Reiniciar: um novo acionador recomeça-a",
   "Run in order. Locks, garage doors and alarms are left out: the last run says so.": "Executados por ordem. Fechaduras, portas de garagem e alarmes ficam de fora: a última execução indica-o.",
   "Run now": "Executar agora",
@@ -39947,7 +39996,8 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
   stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle;
 }
 
-.days .day { width: auto; min-width: 34px; padding: 0 7px; flex: none; }
+/* Labels, so without the margin a form label takes: the chips centre on the menus beside them. */
+.days .day { width: auto; min-width: 34px; padding: 0 7px; flex: none; margin: 0; }
 
 /* Accessory groups and their member picker. */
 .accessory-group:not(.merged) { padding: var(--space-16); overflow: auto; min-height: 200px; background: var(--material-solid); border: 1px solid var(--line); border-radius: var(--radius-lg); }
@@ -40104,6 +40154,10 @@ fieldset > .help { margin-bottom: var(--space-10); }
 /* A scene's values on the wall's sliders (home.js valueInput, colorInput): coloured as a light's, as wide as their row; a
    colour is its swatch beside its hue and saturation. */
 .scene-value-slider { display: block; width: 100%; }
+/* In an editor row the value slot shrinks to its content, so a slider there needs a width of its own; the slot is as
+   tall as the menus beside it (9px padding, a 20px line, borders) and centres its switch or slider on them. */
+.editor-row .scene-value-slider { width: 200px; max-width: 100%; }
+.editor-row .value-slot { min-height: 40px; align-items: center; }
 .scene-value-slider > .level, .scene-color-sliders > .level, .animation-settings .level { width: 100%; }
 .scene-color { display: flex; align-items: center; gap: var(--space-10); width: 100%; }
 .scene-color-swatch { flex: none; width: 32px; height: 32px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--edge), var(--shadow-control); }
@@ -41706,9 +41760,23 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .automation-draft-row input { flex: 1 1 auto; min-width: 0; }
 .automation-editor { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); }
 .automation-editor > .card { margin: 0; }
-.automation-steps { list-style: none; padding: 0; margin: 0 0 var(--space-10); counter-reset: step; }
+.automation-steps { list-style: none; padding: 0; margin: 0 0 var(--space-16); counter-reset: step; }
+/* The Triggers and Conditions lists keep the Steps list's space above their add button, once they have a row: twice
+   the 8px between two rows, so the button reads as apart from them. */
+.automation-section .editor-list:not(:empty) { margin-bottom: var(--space-16); }
 .automation-step { counter-increment: step; position: relative; padding-left: 32px; align-items: start; }
-.automation-step .step-tools { align-self: start; margin-top: 26px; }
+/* The Step's buttons centred on its menus: below a field's top margin, its title's line and the title's margin (the
+   Delete button is as tall as a menu, the round ones centre on it). On a phone they wrap to a line of their own. */
+.automation-step .step-tools { align-self: start; margin-top: calc(var(--space-10) + 1lh + var(--space-6)); }
+/* A trigger's or condition's Delete level with its row's first menus, at the top however far the fields wrap; beside
+   fields with titles, centred on their menus the same way as a Step's buttons, not on title and menu together. */
+.automation-section .editor-list > .editor-row > .scene-condition-remove { align-self: start; }
+.automation-section .editor-row:has(> .group-inline .field-title) > .scene-condition-remove { margin-top: calc(var(--space-10) + 1lh + var(--space-6)); }
+/* A condition's fields sit at the top of their row, as in a form: the Condition menu stays level with the time window's
+   first menus however tall the window's stack is, its titles spaced as a field's. */
+.automation-section .editor-row:has(> .scene-condition-fields), .automation-section .scene-condition-fields { align-items: start; }
+.automation-section .condition-time-point { margin-top: var(--space-10); }
+.automation-section .condition-time-point > .field-title { margin-bottom: 0; }
 .automation-step textarea { font: inherit; height: 5em; min-height: 0; flex: none; resize: vertical; }
 .automation-step .field { align-self: start; }
 .automation-step::before { content: counter(step); position: absolute; left: 0; top: var(--space-12); width: 22px; height: 22px; border-radius: 50%;
@@ -41716,9 +41784,17 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .automation-step .step-tools { display: flex; gap: var(--space-6); align-items: center; flex-wrap: wrap; }
 .automation-step .step-tools .icon-button { width: 36px; height: 36px; min-height: 36px; padding: 0; border-radius: 50%; }
 .automation-tool-fields { width: 100%; }
+/* A Step that starts with the one before: its own line at the top of the row, beside the bar joining its number to the one above. */
+.automation-step .step-together { flex-basis: 100%; margin: 0; font-weight: var(--weight-regular); color: var(--muted); }
+/* The bar: centred on the 22px number (half of it less half the bar), from the row above's edge across the gap. */
+.automation-step.joined::after { content: ""; position: absolute; left: calc(22px / 2 - 1px); top: calc(-1 * var(--space-8) - 1px); height: calc(var(--space-12) + var(--space-8) + 1px);
+  width: 2px; border-radius: var(--radius-pill); background: var(--accent); }
+.automation-step.joined::before { border-color: var(--accent); }
+@media (pointer: coarse) { .automation-step .step-together { min-height: 40px; } }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .automation-draft-row { flex-direction: column; align-items: stretch; }
   .automation-step .step-tools .icon-button { width: 40px; height: 40px; min-height: 40px; }
+  .automation-step .step-tools, .automation-section .editor-row:has(> .group-inline .field-title) > .scene-condition-remove { margin-top: var(--space-10); }
 }
 .automation-draft-row button { white-space: nowrap; flex: none; }
 .automation-draft .status-line:empty { display: none; }

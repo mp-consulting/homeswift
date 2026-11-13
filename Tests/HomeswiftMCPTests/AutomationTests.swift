@@ -87,6 +87,124 @@ struct AutomationTests {
         #expect(lampWrites(environment, "lamp.brightness") == [.int(30), .int(30)])
     }
 
+    @Test func parallelStartsTheStepsBetweenWaitsTogether() async throws {
+        let environment = try MCPTestEnvironment(config: sceneConfig(bulbs: 4, slow: true))
+        try await environment.start()
+        environment.catalog.home.automationTimeScale.withLockedValue { $0 = 0.01 }
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        let on = (1...3).map { number -> JSONValue in ["type": "set", "id": .string("Devices:bulb\(number)"), "characteristic": "On", "value": true] }
+        let steps: JSONValue = .array(on + [["type": "wait", "seconds": 1], ["type": "set", "id": "Devices:bulb4", "characteristic": "On", "value": true]])
+        let saved = try catalog.saveAutomation(["name": "All at once", "parallel": true, "triggers": [["type": "time", "at": "07:00"]], "steps": steps])
+        #expect(saved["parallel"] == true)
+        #expect(try catalog.automation("All at once").stepGroups == [[0, 1, 2], [3], [4]])
+
+        let answer = try await catalog.runAutomation("All at once")
+        // The three bulbs' slow writes overlapped; the fourth waited for them and the wait.
+        #expect(environment.mostSlowWritesAtOnce == 3)
+        #expect(environment.written.map(\.0).last == "bulb4.on")
+        #expect(answer["lastRun"]?["ok"] == true)
+        #expect(answer["lastRun"]?["steps"]?.arrayValue?.compactMap { $0["step"]?.intValue } == [1, 2, 3, 4, 5])
+
+        // Off again (null too), the Steps run one after the other.
+        _ = try catalog.saveAutomation(["id": .string(try catalog.automation("All at once").id), "name": "All at once", "parallel": .null])
+        #expect(try catalog.automation("All at once").parallel == nil)
+        #expect(try catalog.automation("All at once").stepGroups == [[0], [1], [2], [3], [4]])
+    }
+
+    @Test func aStepWithThePreviousOneStartsWithIt() async throws {
+        let environment = try MCPTestEnvironment(config: sceneConfig(bulbs: 4, slow: true))
+        try await environment.start()
+        environment.catalog.home.automationTimeScale.withLockedValue { $0 = 0.01 }
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        func on(_ number: Int, together: Bool = false) -> JSONValue {
+            var step: JSONValue = ["type": "set", "id": .string("Devices:bulb\(number)"), "characteristic": "On", "value": true]
+            if together, case .object(var object) = step { object["withPrevious"] = true; step = .object(object) }
+            return step
+        }
+        // The first Step and the one after the wait have nothing to start with: their withPrevious is dropped.
+        let steps: JSONValue = [on(1, together: true), on(2, together: true), ["type": "wait", "seconds": 1], on(3, together: true), on(4)]
+        _ = try catalog.saveAutomation(["name": "Pairs", "triggers": [["type": "time", "at": "07:00"]], "steps": steps])
+        let saved = try catalog.automation("Pairs")
+        #expect(saved.stepGroups == [[0, 1], [2], [3], [4]])
+        #expect(saved.steps.map(\.withPrevious) == [nil, true, nil, nil, nil])
+        _ = try await catalog.runAutomation("Pairs")
+        #expect(environment.mostSlowWritesAtOnce == 2)
+        let order = environment.written.map(\.0)
+        #expect(Set(order.prefix(2)) == ["bulb1.on", "bulb2.on"])
+        #expect(Array(order.suffix(2)) == ["bulb3.on", "bulb4.on"])
+
+        // On a wait it is dropped, as where nothing comes before.
+        _ = try catalog.saveAutomation(["name": "Wait", "triggers": [["type": "time", "at": "07:00"]], "steps": [on(1), ["type": "wait", "seconds": 1, "withPrevious": true]]])
+        #expect(try catalog.automation("Wait").steps[1].withPrevious == nil)
+    }
+
+    @Test func overlapRunsBesideAndQueuedRunsAfter() async throws {
+        let environment = try await environment()
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        let steps: JSONValue = [["type": "wait", "seconds": 30], ["type": "set", "id": "Devices:lamp", "characteristic": "Brightness", "value": 30]]
+
+        let overlap = try catalog.automation(try #require(catalog.saveAutomation(["name": "Overlap", "mode": "overlap", "triggers": [["type": "time", "at": "09:00"]], "steps": steps])["id"]?.stringValue))
+        let first = try #require(catalog.start(overlap, trigger: "time"))
+        let second = try #require(catalog.start(overlap, trigger: "time"))
+        #expect(catalog.home.automationRuns.withLockedValue { $0[overlap.id]?.count } == 2)
+        await first.value
+        await second.value
+        // Neither was cancelled: both wrote.
+        #expect(lampWrites(environment, "lamp.brightness") == [.int(30), .int(30)])
+        #expect(catalog.home.automationRuns.withLockedValue { $0[overlap.id] } == nil)
+
+        let queued = try catalog.automation(try #require(catalog.saveAutomation(["name": "Queued", "mode": "queued", "triggers": [["type": "time", "at": "09:00"]],
+            "steps": [["type": "wait", "seconds": 30], ["type": "set", "id": "Devices:lamp", "characteristic": "Brightness", "value": 50]]])["id"]?.stringValue))
+        let started = ContinuousClock.now
+        let one = try #require(catalog.start(queued, trigger: "time"))
+        let two = try #require(catalog.start(queued, trigger: "time"))
+        await two.value
+        // The second ran after the first's 0.3 s wait, then its own: about twice as long.
+        #expect(ContinuousClock.now - started >= .milliseconds(550))
+        await one.value
+        #expect(lampWrites(environment, "lamp.brightness") == [.int(30), .int(30), .int(50), .int(50)])
+
+        // At most ten runs at a time; the next is refused and the last skip says so.
+        let many = (0..<AutomationRules.maxRuns).compactMap { _ in catalog.start(overlap, trigger: "time") }
+        #expect(many.count == AutomationRules.maxRuns)
+        #expect(catalog.start(overlap, trigger: "time") == nil)
+        #expect(catalog.home.automations.value.automations.first { $0.id == overlap.id }?.lastSkipped?.reason?.contains("runs already under way") == true)
+        catalog.cancelAutomation(overlap.id)
+        for task in many { await task.value }
+
+        // Turning it off cancels a queued run still waiting: neither it nor the run before it writes.
+        let before = lampWrites(environment, "lamp.brightness").count
+        let running = try #require(catalog.start(queued, trigger: "time"))
+        let waiting = try #require(catalog.start(queued, trigger: "time"))
+        try catalog.setAutomationEnabled(queued.id, false)
+        await running.value
+        await waiting.value
+        #expect(lampWrites(environment, "lamp.brightness").count == before)
+        #expect(catalog.home.automationRuns.withLockedValue { $0[queued.id] } == nil)
+    }
+
+    @Test func aQueuedRunChecksItsConditionsWhenItStarts() async throws {
+        let environment = try await environment()
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        let lamp = try #require(catalog.find(id: "Devices:lamp"))
+        _ = try await catalog.write(lamp, service: nil, characteristic: "On", value: true, allowSecurity: false)
+        let queued = try catalog.automation(try #require(catalog.saveAutomation(["name": "While on", "mode": "queued", "triggers": [["type": "time", "at": "09:00"]],
+            "conditions": [["type": "characteristic", "id": "Devices:lamp", "characteristic": "On", "operator": "eq", "value": true]],
+            "steps": [["type": "wait", "seconds": 30], ["type": "set", "id": "Devices:lamp", "characteristic": "Brightness", "value": 60]]])["id"]?.stringValue))
+        let first = try #require(catalog.start(queued, trigger: "time"))
+        let second = try #require(catalog.start(queued, trigger: "time"))
+        // The lamp goes off while the first run waits: the second, queued behind it, no longer runs.
+        _ = try await catalog.write(lamp, service: nil, characteristic: "On", value: false, allowSecurity: false)
+        await first.value
+        await second.value
+        #expect(lampWrites(environment, "lamp.brightness") == [.int(60)])
+        #expect(catalog.home.automations.value.automations.first { $0.id == queued.id }?.lastSkipped?.reason?.contains("when its turn came") == true)
+    }
+
     @Test func aValueThatStaysRunsItAndOneThatChangesBackDoesNot() async throws {
         let environment = try await environment()
         let catalog = environment.catalog

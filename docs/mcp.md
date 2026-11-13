@@ -312,7 +312,7 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   the wall again when it or the rooms change, whoever changed them (a `layout` event on the web UI's event stream).
 - **Automations** (GLOSSARY.md; [docs/ui.md](ui.md#automations)). `list_automations` lists each Automation's triggers
   (`time`, `sun`, `cron`, `characteristic`, `stays` with `forSeconds`, `threshold` with `direction`, `presence` with a Person's or Anyone Home's `id` and `arriving`), conditions,
-  steps (`scene`, `set`, `wait`, `waitUntil`, `notify` with up to three `buttons`, `tool`), `mode` (`restart` or `single`), whether it is on, whether
+  steps (`scene`, `set`, `wait`, `waitUntil`, `notify` with up to three `buttons`, `tool`), `mode` (`restart`, `single`, `overlap` or `queued`), `parallel` (the Steps between two waits start together; a step's `withPrevious` for that step alone), whether it is on, whether
   it touches a lock, a garage door or an alarm (`security`) and its last run with each step's result, and the plugins'
   actions a `tool` step may call (`tools`: those that need no confirmation, with their input schemas).
   `save_automation` creates one or, with its `id`, changes it; its arguments are checked as the page's are (`dryRun`
