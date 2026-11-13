@@ -758,8 +758,10 @@
       blocks.length ? [
         el("section", {}, sectionHead(t("Plugin bridges")),
           el("div", { class: "card rows" }, blocks.map((block) =>
-            el("div", { class: "row" }, tile("child", "blue"),
-              el("div", { class: "who" }, el("strong", { text: block.name }), el("div", { class: "muted", text: block.childBridge ? t("Child bridge") : t("Main bridge") })),
+            // A plugin on a child bridge stands out: the violet of the child bridges' cards below.
+            el("div", { class: "row" }, block.childBridge ? tile("child", "violet") : tile("bridge", "grey"),
+              el("div", { class: "who" }, el("strong", { text: block.name }),
+                block.childBridge ? el("div", {}, el("span", { class: "pill child-bridge", text: t("Child bridge") })) : el("div", { class: "muted", text: t("Main bridge") })),
               el("button", { actionIcon: "sliders", text: t("Configure"), onclick: () => editChildBridge(block) }))))),
         childBridges.length ? el("div", { class: "servers" }, childBridges.map(card))
           : empty(t("No child bridges yet. Configure a plugin above to give it its own bridge.")),

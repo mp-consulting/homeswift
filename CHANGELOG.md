@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Plugins on a child bridge stand out**: a violet Child bridge pill on the Plugins page, and the violet child bridge
+  tile with the pill in Settings › Child bridges' list of plugins, where those on the main bridge are grey.
+
 ### Fixed
 
 - **A remote's Button saves again when one gesture switches a Power Switch**: the Button sheet's Power Switches are one

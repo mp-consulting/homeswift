@@ -767,8 +767,10 @@ enum WebAssets {
       blocks.length ? [
         el("section", {}, sectionHead(t("Plugin bridges")),
           el("div", { class: "card rows" }, blocks.map((block) =>
-            el("div", { class: "row" }, tile("child", "blue"),
-              el("div", { class: "who" }, el("strong", { text: block.name }), el("div", { class: "muted", text: block.childBridge ? t("Child bridge") : t("Main bridge") })),
+            // A plugin on a child bridge stands out: the violet of the child bridges' cards below.
+            el("div", { class: "row" }, block.childBridge ? tile("child", "violet") : tile("bridge", "grey"),
+              el("div", { class: "who" }, el("strong", { text: block.name }),
+                block.childBridge ? el("div", {}, el("span", { class: "pill child-bridge", text: t("Child bridge") })) : el("div", { class: "muted", text: t("Main bridge") })),
               el("button", { actionIcon: "sliders", text: t("Configure"), onclick: () => editChildBridge(block) }))))),
         childBridges.length ? el("div", { class: "servers" }, childBridges.map(card))
           : empty(t("No child bridges yet. Configure a plugin above to give it its own bridge.")),
@@ -6801,7 +6803,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         tile(block.icon ?? plugin?.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
         el("div", { class: "plugins-identity" },
           el("button", { class: "plugins-name", actionIcon: "plugin", text: blockTitle(block), onclick: open }),
-          el("small", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
+          kindName ? el("small", { class: "muted", text: kindName }) : null,
+          block.childBridge ? el("span", { class: "pill child-bridge", text: t("Child bridge") }) : null),
         el("div", { class: "plugins-meta" }, el("span", { class: `plugins-state ${kind}`, text: state }),
           instance ? el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", instance.accessories) }) : null),
         el("button", { class: "plugins-open", actionIcon: "open", text: t("Open"), onclick: open }));
@@ -21799,7 +21802,6 @@ HomeswiftI18n.add("es", {
   "Checking the backup…": "Comprobando la copia de seguridad…",
   "Checking the request…": "Comprobando la solicitud…",
   "Checking…": "Comprobando…",
-  "child bridge": "puente secundario",
   "Child bridge": "Puente secundario",
   "Child bridges": "Puentes secundarios",
   "Child lock": "Bloqueo infantil",
@@ -25573,7 +25575,6 @@ HomeswiftI18n.add("fr", {
   "Checking the backup…": "Vérification de la sauvegarde…",
   "Checking the request…": "Vérification de la demande…",
   "Checking…": "Vérification…",
-  "child bridge": "pont enfant",
   "Child bridge": "Pont enfant",
   "Child bridges": "Ponts enfants",
   "Child lock": "Sécurité enfants",
@@ -29347,7 +29348,6 @@ HomeswiftI18n.add("pt", {
   "Checking the backup…": "A verificar a cópia de segurança…",
   "Checking the request…": "A verificar o pedido…",
   "Checking…": "A verificar…",
-  "child bridge": "ponte secundária",
   "Child bridge": "Ponte secundária",
   "Child bridges": "Pontes secundárias",
   "Child lock": "Bloqueio para crianças",
@@ -36343,7 +36343,7 @@ HomeswiftI18n.add("pt", {
   --shadow-thick: 0 18px 44px rgba(60, 40, 30, 0.14); --shadow: 0 8px 24px rgba(60, 40, 30, 0.08); --shadow-control: 0 2px 8px rgba(60, 40, 30, 0.08);
   --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 45%);
   --text: #1d2433; --muted: #575c69; --line: rgba(29, 36, 51, 0.09);
-  --accent: #d9733a; --accent-2: #eba57a; --accent-text: #ffffff; --ok: #23704f; --warn: #85520a; --error: #ad2222; --paused: #5856d6;
+  --accent: #d9733a; --accent-2: #eba57a; --accent-text: #ffffff; --ok: #23704f; --warn: #85520a; --error: #ad2222; --paused: #5856d6; --child: #6a3ec9;
   /* Orange that carries text, held to WCAG AA (4.5:1): --accent-ink for orange words on light glass, and
      --accent-fill-top to --accent-fill for orange surfaces under white words (a button, the current tab, the avatar).
      The bright --accent stays for what is not read: borders, focus rings, switches, glows. */
@@ -36400,7 +36400,7 @@ HomeswiftI18n.add("pt", {
     --shadow-thick: 0 18px 44px rgba(0, 0, 0, 0.5); --shadow: 0 10px 30px rgba(0, 0, 0, 0.36); --shadow-control: 0 2px 8px rgba(0, 0, 0, 0.3);
     --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 45%);
     --text: #f6efe9; --muted: #b9aea7; --line: rgba(255, 255, 255, 0.1);
-    --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #f29a62;
+    --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #f29a62; --child: #b9a2ff;
     --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
     --series-3: #199e70; --series-4: #c98500; --series-5: #d55181; --series-6: #008300; --series-7: #9085e9;
   }
@@ -36426,7 +36426,7 @@ HomeswiftI18n.add("pt", {
   --shadow-thick: 0 18px 44px rgba(0, 0, 0, 0.5); --shadow: 0 10px 30px rgba(0, 0, 0, 0.36); --shadow-control: 0 2px 8px rgba(0, 0, 0, 0.3);
   --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 45%);
   --text: #f6efe9; --muted: #b9aea7; --line: rgba(255, 255, 255, 0.1);
-  --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #f29a62;
+  --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #f29a62; --child: #b9a2ff;
   --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
   --series-3: #199e70; --series-4: #c98500; --series-5: #d55181; --series-6: #008300; --series-7: #9085e9;
 }
@@ -36978,6 +36978,9 @@ label > input, label > select { margin-top: 5px; }
 .pill.status.standby { color: var(--muted); }
 .pill.status.away { color: var(--warn); border-color: rgba(201, 115, 26, 0.35); }
 .pill.status.paused { color: var(--paused); border-color: rgba(88, 86, 214, 0.35); }
+/* A plugin on a child bridge, in the lists of plugins: the violet of the child bridge tile. */
+.pill.child-bridge { color: var(--child); border-color: color-mix(in srgb, var(--child) 40%, transparent); }
+.pill.child-bridge::before { background: currentColor; }
 
 /* Tiles: an icon on a colour, like the Home app's (common.js's tile()): the accent by default, and tone-* classes
    that no control's class can collide with. */
@@ -42617,6 +42620,7 @@ button.energy-device-row:focus-visible { outline: 2px solid var(--accent); outli
 .plugins-row.selected { box-shadow: inset 3px 0 var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .plugins-identity { min-width: 0; }
 .plugins-identity small { display: block; overflow-wrap: anywhere; }
+.plugins-identity .pill.child-bridge { margin-top: var(--space-4); }
 button.plugins-name { padding: 0; min-height: 40px; border: 0; border-radius: 4px; box-shadow: none; background: none; text-align: left; font-weight: var(--weight-figure); justify-content: flex-start; }
 .plugins-name .icon { display: none; }
 .plugins-meta { display: flex; flex-wrap: wrap; gap: var(--space-6) var(--space-12); align-items: center; font-size: var(--text-sm); }

@@ -4360,7 +4360,8 @@
         tile(block.icon ?? plugin?.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
         el("div", { class: "plugins-identity" },
           el("button", { class: "plugins-name", actionIcon: "plugin", text: blockTitle(block), onclick: open }),
-          el("small", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
+          kindName ? el("small", { class: "muted", text: kindName }) : null,
+          block.childBridge ? el("span", { class: "pill child-bridge", text: t("Child bridge") }) : null),
         el("div", { class: "plugins-meta" }, el("span", { class: `plugins-state ${kind}`, text: state }),
           instance ? el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", instance.accessories) }) : null),
         el("button", { class: "plugins-open", actionIcon: "open", text: t("Open"), onclick: open }));

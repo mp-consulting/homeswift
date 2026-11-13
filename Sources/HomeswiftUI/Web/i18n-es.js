@@ -878,7 +878,6 @@ HomeswiftI18n.add("es", {
   "Checking the backup…": "Comprobando la copia de seguridad…",
   "Checking the request…": "Comprobando la solicitud…",
   "Checking…": "Comprobando…",
-  "child bridge": "puente secundario",
   "Child bridge": "Puente secundario",
   "Child bridges": "Puentes secundarios",
   "Child lock": "Bloqueo infantil",
