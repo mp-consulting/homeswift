@@ -59,10 +59,11 @@ struct MagicHomeTests {
     /// Section 7.2's sequence: power on first on firmware 5, the levels 100 ms later, one connection.
     @Test func aColourWriteIsOneLevelFrame() async throws {
         environment.lan.put(Fixtures.strip, at: Self.stripHost)
-        // HomeKit sends the three in one request; a loaded runner may start them tens of milliseconds apart, so the
-        // window that gathers them into one frame is wider here than the suite's 20 ms.
+        // HomeKit sends the three in one request; a loaded runner may start them hundreds of milliseconds apart (CI's
+        // Linux runner once took longer than 250 ms, and the light got the frame twice), so the window that gathers them
+        // into one frame is much wider here than the suite's 20 ms. The writes wait it out once.
         var timing = TestEnvironment.timing
-        timing.coalesce = .milliseconds(250)
+        timing.coalesce = .seconds(1)
         // The kept connection outlives that window, or it closes while the writes gather and a poll opens another.
         timing.connection.idle = .seconds(5)
         let host = try await environment.start(timing: timing)
