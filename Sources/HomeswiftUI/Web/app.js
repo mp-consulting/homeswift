@@ -5353,7 +5353,7 @@
           el("div", { class: "muted" },
             user.name !== user.username ? [el("span", { class: "mono", text: user.username }), " · "] : null,
             [user.admin ? t("Administrator") : t("User"), lastAdmin && !user.you ? t("The last administrator") : null].filter(Boolean).join(" · "),
-            " · ", el("span", { title: whenFull(user.created), text: when(user.created) }))),
+            " · ", el("span", { class: "user-added", title: whenFull(user.created), text: when(user.created) }))),
         // Two-factor off is what to notice: amber, and its words; a phone keeps only the shield.
         el("span", { class: `pill user-2fa ${user.twoFactor ? "on" : "off"}`, title: twoFactor, "aria-label": twoFactor },
           HomeswiftCommon.icon(user.twoFactor ? "shield" : "warning"), el("span", { class: "label", text: twoFactor })),

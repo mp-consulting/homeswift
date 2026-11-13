@@ -7796,7 +7796,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("div", { class: "muted" },
             user.name !== user.username ? [el("span", { class: "mono", text: user.username }), " · "] : null,
             [user.admin ? t("Administrator") : t("User"), lastAdmin && !user.you ? t("The last administrator") : null].filter(Boolean).join(" · "),
-            " · ", el("span", { title: whenFull(user.created), text: when(user.created) }))),
+            " · ", el("span", { class: "user-added", title: whenFull(user.created), text: when(user.created) }))),
         // Two-factor off is what to notice: amber, and its words; a phone keeps only the shield.
         el("span", { class: `pill user-2fa ${user.twoFactor ? "on" : "off"}`, title: twoFactor, "aria-label": twoFactor },
           HomeswiftCommon.icon(user.twoFactor ? "shield" : "warning"), el("span", { class: "label", text: twoFactor })),
@@ -39425,7 +39425,7 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 .pill.user-2fa.on { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
 .pill.user-2fa.off { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
 /* A phone keeps the shield or the warning, the words in its label, and lets the username, role and date wrap. */
-@media (max-width: 640px) { .pill.user-2fa .label { display: none; } .pill.user-2fa { padding: var(--space-6); } .user-row .who > .muted { white-space: normal; } }
+@media (max-width: 640px) { .pill.user-2fa .label { display: none; } .pill.user-2fa { padding: var(--space-6); } .user-row .who > .muted { white-space: normal; } .user-added { white-space: nowrap; } }
 .row-detail { padding: 0 var(--space-16) var(--space-12); }
 .row-detail:empty { display: none; }
 .row-block > div:not(.row):not(:empty) { padding: 0 var(--space-16) var(--space-12); }
