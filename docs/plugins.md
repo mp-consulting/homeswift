@@ -591,10 +591,14 @@ Plugin Settings under `schema`, as Homebridge's, and its Plugin Accessory Settin
 - An object without `properties` is a map, its values declared by `additionalProperties` (text when it is not an
   object): the editor shows a row per entry, its key and its value, with Add and Remove, and saves an entry taken out as
   a `null` in it.
-- An array of objects shows a row per entry, which opens to edit, with Move up, Move down and Remove: its order is kept
+- An array of objects shows a row per entry, which opens in a side panel to edit, with Move up, Move down and Remove: its order is kept
   (a TV's sources as its input menu lists them). A row is named by its entry's `name`, `displayName`, `customName`,
   `title`, `label`, `id`, `host`, `address` or `ip`, the first that has a value; `x-rowTitle` on `items` (a key, or a list of keys tried in turn)
-  names another. An array whose `items` are choices (an `enum`, or a `oneOf` of them) is a set of checkboxes, written in
+  names another. The panel shows the entry's fields under General and each object of settings in it (a schedule, a
+  notification) as a tab of its own, marked when it holds a value; `x-icon` on the object names its tab's icon (common.js's
+  `icons`). A field whose `condition` reads the entry (`model.<list>[arrayIndices].type`) shows only for the entries it
+  fits, and a tab whose object it hides goes, so an entry lists what applies to its kind.
+  An array whose `items` are choices (an `enum`, or a `oneOf` of them) is a set of checkboxes, written in
   the choices' order; `uniqueItems: false` keeps a menu per entry instead, for a list that may hold a choice twice.
 - `x-default` (optional): the Plugin Setting that is the field's plugin-wide default; an accessory's own value overrules
   it. `get_settings` gives it as `default: {setting, value}`.

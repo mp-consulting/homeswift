@@ -132,12 +132,13 @@ struct RemoteToolTests {
         #expect(environment.host.remote(of: "Devices:remote")?.controls.contains { $0.targets == ["Devices:lock"] } == true)
         // Named already: saved again without asking.
         #expect(try await client.tool("set_remote_controls", unlock)["isError"] != true)
-        // Not on the bridge now (a Function's separated id before Separate Functions is on): it cannot be shown not to be a
-        // lock, so it asks too.
-        let unseen: JSONValue = ["remote": "Devices:remote", "part": "bottom", "controls": [["gesture": "press", "action": "toggle", "targets": ["Devices:relay:channel1"]]]]
+        // Not on the bridge now (a plugin starting, a device gone): it cannot be shown not to be a lock, so it asks too.
+        let unseen: JSONValue = ["remote": "Devices:remote", "part": "bottom", "controls": [["gesture": "press", "action": "toggle", "targets": ["Devices:gone"]]]]
         #expect(try await client.tool("set_remote_controls", unseen)["isError"] == true)
         #expect(try await client.tool("update_settings", ["accessory": "Devices:remote", "settings": ["controls": [
-            ["part": "bottom", "gesture": "press", "action": "toggle", "targets": ["Devices:relay:channel1"]]]]])["isError"] == true)
+            ["part": "bottom", "gesture": "press", "action": "toggle", "targets": ["Devices:gone"]]]]])["isError"] == true)
+        // A Function's separated id names the Function even while its relay is joined (no question for a relay).
+        #expect(!environment.catalog.remoteControlsAsk([["targets": ["Devices:relay:channel2"]]], of: "Devices:remote"))
         _ = try await client.tool("set_remote_controls", ["remote": "Devices:remote", "part": "bottom", "controls": [["gesture": "hold", "action": "dim", "targets": ["Devices:lamp", "Devices:relay"]]]])
 
         // Separate Functions on: channel 2 is an accessory of its own, and the Control follows it; off, back.
@@ -146,6 +147,27 @@ struct RemoteToolTests {
         #expect(await eventually { environment.host.remote(of: "Devices:remote")?.controls.first?.targets == ["Devices:relay:channel2"] })
         _ = try await client.tool("update_settings", ["accessory": "Devices:relay", "settings": ["separateFunctions": .null]])
         #expect(await eventually { environment.host.remote(of: "Devices:remote")?.controls.first?.targets == ["Devices:relay#channel2"] })
+    }
+
+    /// Joining the Functions of a device a Remote drives asks first when the whole of it holds a security control: the
+    /// Control, confirmed for one Function, would drive the whole lock again.
+    @Test func joiningASecurityDevicesFunctionsAsks() async throws {
+        let environment = try await relayEnvironment()
+        defer { Task { await environment.stop() } }
+        let client = DirectClient(server: environment.server)
+        try await client.initialize()
+        let yes: JSONValue = ["action": "accept", "content": ["confirm": true]]
+        let unlock: JSONValue = ["remote": "Devices:remote", "part": "bottom", "controls": [["gesture": "press", "action": "toggle", "targets": ["Devices:lock"]]]]
+        #expect(try await client.tool("set_remote_controls", unlock, answer: yes)["isError"] != true)
+        // Separating only narrows what the Control names: no question.
+        let separate = try await client.tool("update_settings", ["accessory": "Devices:lock", "settings": ["separateFunctions": true]])
+        #expect(separate["isError"] != true, "\(separate)")
+        let join: JSONValue = ["accessory": "Devices:lock", "settings": ["separateFunctions": .null]]
+        #expect(try await client.tool("update_settings", join)["isError"] == true)
+        #expect(try await client.tool("update_settings", join, answer: yes)["isError"] != true)
+        // A relay no Remote names, or holding no security control, joins without a question.
+        _ = try await client.tool("update_settings", ["accessory": "Devices:relay", "settings": ["separateFunctions": true]])
+        #expect(try await client.tool("update_settings", ["accessory": "Devices:relay", "settings": ["separateFunctions": .null]])["isError"] != true)
     }
 
     /// A Button's presses start Automations as their press Triggers; never a long press while it holds to dim.
@@ -169,6 +191,12 @@ struct RemoteToolTests {
         // Its other Button starts nothing.
         #expect(try await client.tool("list_remotes", [:])["structuredContent"]?["remotes"]?[0]?["parts"]?[1]?["automations"] == [])
 
+        // A hold given in the same save as a long press's Automations: refused before anything is written.
+        let both = try await client.tool("set_remote_controls", ["remote": "Devices:remote", "part": "top",
+                                                                 "controls": [["gesture": "hold", "action": "dim", "targets": ["Devices:lamp"]]],
+                                                                 "automations": ["long": [.string(id)]]])
+        #expect(both["isError"] == true)
+        #expect(environment.host.remote(of: "Devices:remote")?.controls.contains { $0.gesture == .hold } != true)
         // A long press while the Button holds to dim: refused.
         _ = try await client.tool("set_remote_controls", ["remote": "Devices:remote", "part": "top",
                                                           "controls": [["gesture": "hold", "action": "dim", "targets": ["Devices:lamp"]]]])

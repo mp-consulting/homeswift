@@ -1,6 +1,7 @@
 import Foundation
 import HomeswiftAI
 import HomeswiftMCP
+import HomeswiftPlugin
 import NIOHTTP1
 
 // The API of the Accessories page's rooms, the Quick Controls, the Scenes page and the Notifications page:
@@ -36,8 +37,9 @@ import NIOHTTP1
 //   POST   /api/automations                   a new Automation (administrators)
 //   PUT    /api/automations/<id>              an Automation changed (administrators)
 //   DELETE /api/automations/<id>              (administrators)
-//   PUT    /api/remotes/<id>/automations      {"part", "starts": {"press"|"double"|"long": [ids]}, "dryRun"?}: the Automations a
-//                                             Button's presses start, as their press Triggers (administrators)
+//   PUT    /api/remotes/<id>/automations      {"part", "starts": {"press"|"double"|"long": [ids]}, "dryRun"?, "controls"?}: the
+//                                             Automations a Button's presses start, as their press Triggers, checked against
+//                                             `controls` when a save is about to write them (administrators)
 //   POST   /api/automations/<id>/run          its Steps now, whatever its triggers and conditions
 //   POST   /api/automations/draft             {"sentence"}: the Assistant's draft, not saved
 //   GET    /api/notifications/actions/<id>    a notification's buttons, for its confirmation page
@@ -99,7 +101,12 @@ extension UIServer {
             guard let part = body["part"]?.stringValue else { return .error(400, "part is the Button") }
             let starts = try HomeswiftCatalog.remoteStarts(body["starts"])
             let dryRun = body["dryRun"]?.boolValue == true
-            let changed = try catalog.setRemoteAutomations(starts, part: part, of: path[1], dryRun: dryRun)
+            // The Controls the same save writes next (a hold given with a long press's Automations): checked against them.
+            let controls = try body["controls"].map { json in
+                guard let list = RemoteControl.list(from: json) else { throw CatalogError("controls is a list of Controls") }
+                return list
+            }
+            let changed = try catalog.setRemoteAutomations(starts, part: part, of: path[1], controls: controls, dryRun: dryRun)
             if dryRun { return .json(["changed": .array(changed.map(JSONValue.string)), "dryRun": true]) }
             logger.info("Web UI set the automations a remote's button starts", metadata: ["user": "\(username)", "remote": "\(path[1])", "changed": "\(changed.count)"])
             return .json(["changed": .array(changed.map(JSONValue.string))])

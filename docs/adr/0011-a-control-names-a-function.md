@@ -19,6 +19,8 @@ changes Apple Home (the tile splits, its scenes and automations lose the moved F
 - A whole accessory stays a target: it drives its primary Function, or all of its switches and outlets when it is
   made only of them; a light or a shutter stays one, whatever else it has.
 - Turning Separate Functions on or off rewrites the Remotes' Controls, `<id>#<key>` and `<id>:<key>` one into the other.
+  A Control the rewrite missed (Separate Functions turned off in config.json, by `update_config` or a restore) still
+  works: a separated Function's id `<id>:<key>` names that Function of the joined accessory.
 - A Function no longer there (a plugin starting, a device gone) is skipped when its Control runs and shown missing on
   the Remotes page, never dropped from the saved Control, so it works again once it is back.
 - The Function is read after the last `#`, and only when the accessory before it is on the bridge with a Function of

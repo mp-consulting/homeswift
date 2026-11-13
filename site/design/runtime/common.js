@@ -800,8 +800,9 @@
   /// user, making a token). `build(done)` makes its content; `done(result)` closes it, as Cancel and Escape do
   /// (`result` undefined). It arrives from the right, from the bottom on a phone, and leaves the same way; a touch
   /// can also drag it back out along that edge, as an iOS sheet is swiped away. Once it has gone, `onClose(result)`
-  /// runs, or, with no result, focus goes back to `returnFocus`, the control that opened it.
-  function openSheet(build, labelledBy, { onClose = null, returnFocus = document.activeElement } = {}) {
+  /// runs, or, with no result, focus goes back to `returnFocus`, the control that opened it. `parent` is where the dialog
+  /// sits in the page (the body; a form, for its events to reach the form): it shows over everything either way.
+  function openSheet(build, labelledBy, { onClose = null, returnFocus = document.activeElement, parent = document.body } = {}) {
     const dialog = el("dialog", { class: "admin-dialog card sheet", "aria-labelledby": labelledBy });
     const reduce = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
     const vertical = () => phone.matches;   // a phone: a sheet from the bottom edge
@@ -848,7 +849,7 @@
     if (touch) dialog.autofocus = true;
     // While a keyboard is up, the sheet keeps to what is still visible rather than the page scrolling to show the field.
     dialog.addEventListener("close", followKeyboard(dialog));
-    document.body.append(dialog);
+    parent.append(dialog);
     dialog.showModal();
     if (!touch) $("input:not([type=hidden]):not([disabled]), select", dialog)?.focus();
     return dialog;

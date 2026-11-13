@@ -86,6 +86,10 @@ struct RemoteApplianceTests {
         let second = try #require(ControlTarget.resolve("EWeLink:relay#channel2", find: find))
         #expect(second.function == "channel2" && second.applianceSwitches.count == 1 && second.kind == .appliance)
         #expect(ControlTarget.resolve("EWeLink:relay", find: find)?.applianceSwitches.count == 2)
+        // A separated Function's id still names it once the relay is joined again (Separate Functions turned off in
+        // config.json, say, where the Controls are not renamed).
+        #expect(ControlTarget.resolve("EWeLink:relay:channel2", find: find)?.function == "channel2")
+        #expect(ControlTarget.resolve("EWeLink:relay:channel3", find: find) == nil)
         // A key it has no Function of, or an accessory not on the bridge: nothing (the Control skips it).
         #expect(ControlTarget.resolve("EWeLink:relay#channel3", find: find) == nil)
         #expect(ControlTarget.resolve("EWeLink:gone#channel1", find: find) == nil)
