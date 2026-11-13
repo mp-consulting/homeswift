@@ -398,7 +398,7 @@ actor Link {
         if info.servesStructure {
             var structure = Structure(
                 allowed: info.structure == true, homes: homes, mirrored: Set(mirrors.keys),
-                bridges: bridges, bridgeHome: bridgeHome, own: plugin.context.ownSerialNumbers, homeLink: info.servesHomeLink)
+                bridges: bridges, bridgeHome: bridgeHome, own: plugin.context.ownAccessories, homeLink: info.servesHomeLink)
             // What the last read gave, until this one's scenes and automations come.
             structure.scenes = self.structure?.scenes ?? []
             structure.automations = self.structure?.automations ?? []

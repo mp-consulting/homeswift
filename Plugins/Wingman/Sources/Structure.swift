@@ -61,10 +61,11 @@ struct Structure: Sendable {
     var scenes: [WingmanAPI.Scene] = []
     var automations: [WingmanAPI.Automation] = []
 
-    /// `bridges` are the Serial Numbers of Homeswift's bridges (`PluginContext.homeswiftBridgeSerialNumbers`), `own` those of
-    /// the accessories Homeswift publishes on their own servers.
+    /// `bridges` are the Serial Numbers of Homeswift's bridges (`PluginContext.homeswiftBridgeSerialNumbers`), `own` the
+    /// accessories Homeswift publishes on their own servers (`PluginContext.ownAccessories`).
     /// `bridgeHome` when the caller worked it out already (`bridgeHome(of:bridges:)`).
-    init(allowed: Bool, homes: [WingmanAPI.Home], mirrored: Set<String>, bridges: Set<String> = [], bridgeHome: String?? = nil, own: Set<String> = [], homeLink: Bool = false) {
+    init(allowed: Bool, homes: [WingmanAPI.Home], mirrored: Set<String>, bridges: Set<String> = [], bridgeHome: String?? = nil,
+         own: Set<PluginContext.OwnAccessory> = [], homeLink: Bool = false) {
         self.allowed = allowed
         self.mirrored = mirrored
         servesHomeLink = homeLink
@@ -80,10 +81,18 @@ struct Structure: Sendable {
         for accessory in homes.flatMap(\.accessories) {
             if let serial = accessory.serialNumber?.uppercased(), bridges.contains(serial) { homeswiftBridges[accessory.id] = serial }
         }
-        // Homeswift's accessories published on their own that Apple Home shows with their serial number: once all are,
-        // an accessory of no bridge whose serial is unread is someone else's (a TV's own AirPlay entry), not one of them.
+        // Homeswift's accessories published on their own that Apple Home does not show with their serial number yet. An
+        // accessory of no bridge whose serial is unread may be one of them, unless Apple Home's manufacturer or model for
+        // it (which it keeps while the accessory does not respond) is none of theirs: then it is someone else's, such as
+        // a TV's own AirPlay entry or a Matter light that shows No Response.
         let seenOwn = Set(homes.flatMap(\.accessories).filter { $0.bridge == nil }.compactMap { $0.serialNumber.map(PluginContext.serialKey) })
-        let ownMissing = own.contains { !seenOwn.contains(PluginContext.serialKey($0)) }
+        let ownSerials = Set(own.map(\.serialNumber))
+        let missingOwn = own.filter { !seenOwn.contains($0.serialNumber) }
+        // Either one is enough: a plugin may give its accessory another manufacturer since (a brand's new owner) and keep
+        // the model, or the other way round.
+        func mayBeOwn(_ accessory: WingmanAPI.Accessory) -> Bool {
+            missingOwn.contains { Self.mayBeSame(accessory.manufacturer, $0.manufacturer) || Self.mayBeSame(accessory.model, $0.model) }
+        }
         var devices: [String: Device] = [:]
         var unresolved: [String] = []
         for home in homes {
@@ -107,7 +116,7 @@ struct Structure: Sendable {
                         homeswift = nil
                     }
                 } else {
-                    homeswift = accessory.serialNumber.map { own.contains(PluginContext.serialKey($0)) } == true ? .own : nil
+                    homeswift = accessory.serialNumber.map { ownSerials.contains(PluginContext.serialKey($0)) } == true ? .own : nil
                 }
                 // Ownership itself depends on identity. An unread serial on a Homeswift bridge (or a possible
                 // standalone accessory when this host publishes some) cannot be treated as proof of absence.
@@ -115,7 +124,7 @@ struct Structure: Sendable {
                     service.characteristics.contains { HAPUUID($0.type) == CharacteristicType.serialNumber.uuid }
                 }
                 let unknownBridge = accessory.bridge.map { $0.manufacturer == "Homeswift" || $0.model == "Homeswift" } == true
-                let possibleOwn = accessory.bridge == nil && ownMissing && hasSerial
+                let possibleOwn = accessory.bridge == nil && hasSerial && mayBeOwn(accessory)
                 let bridgeAccessory = accessory.manufacturer == "Homeswift" || accessory.model == "Homeswift"
                 if accessory.serialNumber?.isEmpty != false,
                    homeswift != nil || unknownBridge || possibleOwn || bridgeAccessory {
@@ -136,6 +145,18 @@ struct Structure: Sendable {
         }
         self.devices = devices
         incompleteIdentityReason = Self.waitingReason(unresolved)
+    }
+
+    /// Whether Apple Home's manufacturer or model for an accessory may be the one Homeswift gives it: unknown on either
+    /// side, or the same once case, spaces and punctuation are set aside, or, from four characters, one holding the other,
+    /// so a plugin that respells it since ("Philips" as "Philips Electronics") still holds the Home Link back. A shorter
+    /// one ("TV") would be found in too many others.
+    private static func mayBeSame(_ theirs: String?, _ ours: String?) -> Bool {
+        let key = { (value: String) in value.lowercased().filter { $0.isLetter || $0.isNumber } }
+        guard let theirs = theirs.map(key), !theirs.isEmpty, let ours = ours.map(key), !ours.isEmpty else { return true }
+        if theirs == ours { return true }
+        let (shorter, longer) = theirs.count < ours.count ? (theirs, ours) : (ours, theirs)
+        return shorter.count >= 4 && longer.contains(shorter)
     }
 
     func home(_ id: String) -> Home? { homes.first { $0.id == id } }
