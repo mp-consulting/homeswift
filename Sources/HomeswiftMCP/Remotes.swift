@@ -196,6 +196,22 @@ extension HomeswiftCatalog {
         }
     }
 
+    /// Whether joining an accessory's Functions again (`separateFunctions` off or cleared) asks the user first: a Remote's
+    /// Control naming the device drives the whole of it once joined, and the whole of it holds a lock, a garage door, an
+    /// alarm or a security control the Control was never confirmed for (docs/adr/0012-a-remote-drives-what-it-is-given.md).
+    func joiningAsks(_ settings: JSONValue?, of accessoryID: String?) -> Bool {
+        guard let value = settings?["separateFunctions"], value.boolValue != true, let accessoryID else { return false }
+        return withLookup {
+            guard let device = find(id: accessoryID)?.device, ControlTarget(accessory: device).isSecurity else { return false }
+            let names = { (reference: String) in reference == device.id || reference.hasPrefix("\(device.id)#") || reference.hasPrefix("\(device.id):") }
+            return located().contains { located in
+                located.accessory.isRemote && (host.remote(of: located.accessory.id)?.controls ?? []).contains { control in
+                    (control.targets + control.power).contains(where: names)
+                }
+            }
+        }
+    }
+
     var remoteTools: [MCPTool] {
         let catalog = self
         return [
@@ -246,7 +262,7 @@ extension HomeswiftCatalog {
                 let controls = try await catalog.remoteControls(setting: call.arguments["controls"] ?? .array([]), part: part, of: id)
                 let starts = try call.arguments["automations"].map(HomeswiftCatalog.remoteStarts) ?? [:]
                 // The Automations are checked before anything is written: a refusal leaves the Controls as they were.
-                if !starts.isEmpty { try catalog.setRemoteAutomations(starts, part: part, of: id, dryRun: true) }
+                if !starts.isEmpty { try catalog.setRemoteAutomations(starts, part: part, of: id, controls: controls, dryRun: true) }
                 let who = "MCP \(call.session.clientInfo?.name ?? "client")"
                 var answer = try await catalog.updateAccessorySettings([(id, ["controls": controls.isEmpty ? .null : RemoteControl.json(controls)])],
                                                                       dryRun: call.isDryRun, by: .client, who: who).objectValue ?? [:]
@@ -301,9 +317,11 @@ extension HomeswiftCatalog {
     /// Sets the Automations a Button's press, double press and long press start (docs/adr/0009-remote-controls-are-not-automations.md):
     /// each one's press Trigger for this Button, added or removed, its other Triggers kept. A gesture left out keeps its
     /// Automations. A long press starts none while the Button holds to dim (they are the same press). `dryRun` checks it
-    /// all and writes nothing; answers the Automations changed.
+    /// all and writes nothing; answers the Automations changed. `controls`: the Remote's Controls as a save about to write
+    /// them has them (a hold given in the same save), else its own.
     @discardableResult
-    public func setRemoteAutomations(_ starts: [RemoteControl.Gesture: [String]], part: String, of id: String, dryRun: Bool = false) throws -> [String] {
+    public func setRemoteAutomations(_ starts: [RemoteControl.Gesture: [String]], part: String, of id: String, controls: [RemoteControl]? = nil,
+                                     dryRun: Bool = false) throws -> [String] {
         guard let state = host.remote(of: id), let located = find(id: id) else { throw CatalogError("\(id) is no Remote (list_remotes)", notFound: true) }
         guard let layout = state.layout.parts.first(where: { $0.id == part }), layout.kind == .button else {
             throw CatalogError("\(id) has no Button \(part); its Buttons are \(state.layout.parts.filter { $0.kind == .button }.map(\.id).joined(separator: ", "))", notFound: true)
@@ -318,7 +336,7 @@ extension HomeswiftCatalog {
             for automation in ids where byID[automation] == nil { throw CatalogError("No automation \(automation)", notFound: true) }
             // One it starts already keeps going (the page warns); a new one waits for the hold to go.
             let added = ids.filter { byID[$0].map { Self.presses(of: $0, for: id, services: services).contains(gesture) } != true }
-            if gesture == .long, !added.isEmpty, state.controls.contains(where: { $0.part == part && $0.gesture == .hold }) {
+            if gesture == .long, !added.isEmpty, (controls ?? state.controls).contains(where: { $0.part == part && $0.gesture == .hold }) {
                 throw CatalogError("\(part) holds to dim: its long press is the same press, it starts no new automation")
             }
         }

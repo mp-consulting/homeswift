@@ -919,10 +919,12 @@ extension HomeswiftCatalog {
                 confirmsWhen: { arguments in
                     // A remote given a lock, a garage door or an alarm to drive asks too (docs/adr/0012-a-remote-drives-what-it-is-given.md).
                     if Self.settingsChangeAsks(arguments) { return true }
+                    // So does joining a device's Functions a Remote drives: its Controls then drive the whole of it.
                     if let many = arguments["accessories"]?.objectValue {
-                        return many.contains { id, settings in catalog.remoteControlsAsk(settings["controls"], of: id) }
+                        return many.contains { id, settings in catalog.remoteControlsAsk(settings["controls"], of: id) || catalog.joiningAsks(settings, of: id) }
                     }
-                    return catalog.remoteControlsAsk(arguments["settings"]?["controls"], of: arguments["accessory"]?.stringValue)
+                    let id = arguments["accessory"]?.stringValue
+                    return catalog.remoteControlsAsk(arguments["settings"]?["controls"], of: id) || catalog.joiningAsks(arguments["settings"], of: id)
                 }
             ) { call in
                 let who = "MCP \(call.session.clientInfo?.name ?? "client")"

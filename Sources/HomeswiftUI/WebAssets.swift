@@ -34390,8 +34390,8 @@ HomeswiftI18n.add("pt", {
           made.push(control);
         }
         const controls = [...remote.controls.filter((control) => control.part !== part.id), ...made];
-        // The Automations are checked first, so a refusal saves nothing.
-        if (Object.keys(starts).length) await api(`/api/remotes/${enc(remote.id)}/automations`, { method: "PUT", body: { part: part.id, starts, dryRun: true } });
+        // The Automations are checked first, against the Controls this save writes, so a refusal saves nothing.
+        if (Object.keys(starts).length) await api(`/api/remotes/${enc(remote.id)}/automations`, { method: "PUT", body: { part: part.id, starts, controls, dryRun: true } });
         await api(`/api/settings/accessories/${enc(remote.id)}${remote.instance ? `?instance=${enc(remote.instance)}` : ""}`, { method: "PATCH", body: { controls: controls.length ? controls : null } });
         remote.controls = controls;
         // The Automations each press starts, when they changed: their press Triggers.

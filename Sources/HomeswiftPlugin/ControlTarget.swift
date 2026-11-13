@@ -21,15 +21,20 @@ public struct ControlTarget: Sendable {
 
     /// The target `reference` names, or nil when it is not on the bridge (a plugin starting, a device gone): an accessory
     /// by its id, else the Function after the last `#` of the accessory before it, when it has one of that key (an id with
-    /// a `#` of its own still names the whole accessory). A separated accessory's Functions are its device's.
+    /// a `#` of its own still names the whole accessory). A separated accessory's Functions are its device's. A separated
+    /// Function's id (`<id>:<key>`) names that Function still once its device is joined again, however Separate Functions
+    /// was turned off (the settings, config.json, a restore).
     public static func resolve(_ reference: String, find: (String) -> Accessory?) -> ControlTarget? {
         if let whole = find(reference) { return ControlTarget(accessory: whole) }
-        guard let mark = reference.lastIndex(of: "#") else { return nil }
-        let key = String(reference[reference.index(after: mark)...])
-        guard !key.isEmpty, let found = find(String(reference[..<mark])) else { return nil }
-        let device = found.separatedFrom ?? found
-        guard let function = Separation.functions(of: device).first(where: { $0.key == key }) else { return nil }
-        return ControlTarget(accessory: device, function: key, services: function.services)
+        for mark in ["#", ":"] as [Character] {
+            guard let at = reference.lastIndex(of: mark) else { continue }
+            let key = String(reference[reference.index(after: at)...])
+            guard !key.isEmpty, let found = find(String(reference[..<at])) else { continue }
+            let device = found.separatedFrom ?? found
+            guard let function = Separation.functions(of: device).first(where: { $0.key == key }) else { continue }
+            return ControlTarget(accessory: device, function: key, services: function.services)
+        }
+        return nil
     }
 
     /// How a Control names a Function of an accessory.
