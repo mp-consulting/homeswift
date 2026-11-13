@@ -1039,6 +1039,7 @@ HomeswiftI18n.add("pt", {
   "Disconnect {name}? It is refused at once and must sign in again.": "Desligar {name}? O acesso é recusado de imediato e terá de iniciar sessão novamente.",
   "Dismiss": "Ignorar",
   "Don't allow": "Não permitir",
+  "General": "Geral",
   "Done": "OK",
   "Done [outcome]": "Concluído",
   "Door": "Porta",

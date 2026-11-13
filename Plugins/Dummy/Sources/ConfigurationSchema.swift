@@ -229,7 +229,10 @@ extension DummyPlugin {
                     "Matter"
                   ]
                 }
-              ]
+              ],
+              "condition": {
+                "functionBody": "return ['Switch', 'Outlet', 'Lightbulb'].includes(model.accessories[arrayIndices].type);"
+              }
             },
             "groupName": {
               "title": "Group",
@@ -253,12 +256,18 @@ extension DummyPlugin {
                     "on"
                   ]
                 }
-              ]
+              ],
+              "condition": {
+                "functionBody": "return ['Switch', 'Outlet', 'Lightbulb', 'Valve', 'HumidifierDehumidifier'].includes(model.accessories[arrayIndices].type);"
+              }
             },
             "isDimmer": {
               "title": "Dimmer",
               "type": "boolean",
-              "description": "Gives the light a brightness"
+              "description": "Gives the light a brightness",
+              "condition": {
+                "functionBody": "return ['Lightbulb'].includes(model.accessories[arrayIndices].type);"
+              }
             },
             "defaultLockState": {
               "title": "Default lock state",
@@ -277,7 +286,10 @@ extension DummyPlugin {
                     "unlocked"
                   ]
                 }
-              ]
+              ],
+              "condition": {
+                "functionBody": "return ['LockMechanism'].includes(model.accessories[arrayIndices].type);"
+              }
             },
             "defaultPosition": {
               "title": "Default position",
@@ -296,12 +308,18 @@ extension DummyPlugin {
                     "open"
                   ]
                 }
-              ]
+              ],
+              "condition": {
+                "functionBody": "return ['Door', 'Window', 'WindowCovering', 'GarageDoorOpener'].includes(model.accessories[arrayIndices].type);"
+              }
             },
             "exactPosition": {
               "title": "Exact position",
               "type": "boolean",
-              "description": "Homeswift only: keeps the position set (0 to 100 %), as a real shutter does, rather than open or closed"
+              "description": "Homeswift only: keeps the position set (0 to 100 %), as a real shutter does, rather than open or closed",
+              "condition": {
+                "functionBody": "return ['Door', 'Window', 'WindowCovering'].includes(model.accessories[arrayIndices].type);"
+              }
             },
             "temperatureUnits": {
               "title": "Temperature units",
@@ -320,7 +338,10 @@ extension DummyPlugin {
                     "F"
                   ]
                 }
-              ]
+              ],
+              "condition": {
+                "functionBody": "return ['Thermostat', 'TemperatureSensor'].includes(model.accessories[arrayIndices].type);"
+              }
             },
             "defaultThermostatState": {
               "title": "Default mode",
@@ -351,22 +372,34 @@ extension DummyPlugin {
                     "auto"
                   ]
                 }
-              ]
+              ],
+              "condition": {
+                "functionBody": "return ['Thermostat'].includes(model.accessories[arrayIndices].type);"
+              }
             },
             "defaultTemperature": {
               "title": "Default temperature",
               "type": "number",
-              "description": "The target temperature at first (20 °C when empty)"
+              "description": "The target temperature at first (20 °C when empty)",
+              "condition": {
+                "functionBody": "return ['Thermostat'].includes(model.accessories[arrayIndices].type);"
+              }
             },
             "minimumTemperature": {
               "title": "Minimum temperature",
               "type": "number",
-              "description": "The lowest temperature (10 °C when empty)"
+              "description": "The lowest temperature (10 °C when empty)",
+              "condition": {
+                "functionBody": "return ['Thermostat'].includes(model.accessories[arrayIndices].type);"
+              }
             },
             "maximumTemperature": {
               "title": "Maximum temperature",
               "type": "number",
-              "description": "The highest temperature (38 °C when empty)"
+              "description": "The highest temperature (38 °C when empty)",
+              "condition": {
+                "functionBody": "return ['Thermostat'].includes(model.accessories[arrayIndices].type);"
+              }
             },
             "validStates": {
               "title": "Modes",
@@ -401,6 +434,9 @@ extension DummyPlugin {
                     ]
                   }
                 ]
+              },
+              "condition": {
+                "functionBody": "return ['Thermostat'].includes(model.accessories[arrayIndices].type);"
               }
             },
             "humidifierType": {
@@ -420,7 +456,10 @@ extension DummyPlugin {
                     "dehumidifier"
                   ]
                 }
-              ]
+              ],
+              "condition": {
+                "functionBody": "return ['HumidifierDehumidifier'].includes(model.accessories[arrayIndices].type);"
+              }
             },
             "valveType": {
               "title": "Valve type",
@@ -451,7 +490,10 @@ extension DummyPlugin {
                     "shower"
                   ]
                 }
-              ]
+              ],
+              "condition": {
+                "functionBody": "return ['Valve'].includes(model.accessories[arrayIndices].type);"
+              }
             },
             "sensor": {
               "title": "Sensor",
@@ -598,7 +640,10 @@ extension DummyPlugin {
                   "title": "Time",
                   "type": "integer",
                   "description": "How long, in the units below",
-                  "minimum": 1
+                  "minimum": 1,
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].schedule && ['TIMEOUT', 'INTERVAL'].includes(model.accessories[arrayIndices].schedule.type);"
+                  }
                 },
                 "units": {
                   "title": "Units",
@@ -629,12 +674,18 @@ extension DummyPlugin {
                         "HOURS"
                       ]
                     }
-                  ]
+                  ],
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].schedule && ['TIMEOUT', 'INTERVAL'].includes(model.accessories[arrayIndices].schedule.type);"
+                  }
                 },
                 "random": {
                   "title": "Random",
                   "type": "boolean",
-                  "description": "A random time up to the one given, drawn each time"
+                  "description": "A random time up to the one given, drawn each time",
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].schedule && ['TIMEOUT', 'INTERVAL'].includes(model.accessories[arrayIndices].schedule.type);"
+                  }
                 },
                 "cron": {
                   "title": "Cron",
@@ -701,32 +752,47 @@ extension DummyPlugin {
                         "CRON_CUSTOM"
                       ]
                     }
-                  ]
+                  ],
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].schedule && model.accessories[arrayIndices].schedule.type === 'CRON';"
+                  }
                 },
                 "cronCustom": {
                   "title": "Cron expression",
                   "type": "string",
                   "description": "Five fields (minute hour day month weekday) or six with seconds first",
-                  "placeholder": "0 7 * * 1-5"
+                  "placeholder": "0 7 * * 1-5",
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].schedule && model.accessories[arrayIndices].schedule.type === 'CRON' && model.accessories[arrayIndices].schedule.cron === 'CRON_CUSTOM';"
+                  }
                 },
                 "offset": {
                   "title": "Offset",
                   "type": "number",
-                  "description": "Minutes added to the time of the sun; negative for earlier"
+                  "description": "Minutes added to the time of the sun; negative for earlier",
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].schedule && ['SUNRISE', 'SUNSET', 'DAWN', 'DUSK', 'GOLDEN_HOUR', 'NIGHT'].includes(model.accessories[arrayIndices].schedule.type);"
+                  }
                 },
                 "latitude": {
                   "title": "Latitude",
                   "type": "number",
                   "description": "Where the sun is watched, in decimal degrees",
                   "minimum": -90,
-                  "maximum": 90
+                  "maximum": 90,
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].schedule && ['SUNRISE', 'SUNSET', 'DAWN', 'DUSK', 'GOLDEN_HOUR', 'NIGHT'].includes(model.accessories[arrayIndices].schedule.type);"
+                  }
                 },
                 "longitude": {
                   "title": "Longitude",
                   "type": "number",
                   "description": "Where the sun is watched, in decimal degrees",
                   "minimum": -180,
-                  "maximum": 180
+                  "maximum": 180,
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].schedule && ['SUNRISE', 'SUNSET', 'DAWN', 'DUSK', 'GOLDEN_HOUR', 'NIGHT'].includes(model.accessories[arrayIndices].schedule.type);"
+                  }
                 }
               }
             },
@@ -800,7 +866,10 @@ extension DummyPlugin {
                   "title": "Time",
                   "type": "integer",
                   "description": "How long, in the units below",
-                  "minimum": 1
+                  "minimum": 1,
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].autoReset && ['TIMEOUT', 'INTERVAL'].includes(model.accessories[arrayIndices].autoReset.type);"
+                  }
                 },
                 "units": {
                   "title": "Units",
@@ -831,12 +900,18 @@ extension DummyPlugin {
                         "HOURS"
                       ]
                     }
-                  ]
+                  ],
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].autoReset && ['TIMEOUT', 'INTERVAL'].includes(model.accessories[arrayIndices].autoReset.type);"
+                  }
                 },
                 "random": {
                   "title": "Random",
                   "type": "boolean",
-                  "description": "A random time up to the one given, drawn each time"
+                  "description": "A random time up to the one given, drawn each time",
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].autoReset && ['TIMEOUT', 'INTERVAL'].includes(model.accessories[arrayIndices].autoReset.type);"
+                  }
                 },
                 "cron": {
                   "title": "Cron",
@@ -903,32 +978,47 @@ extension DummyPlugin {
                         "CRON_CUSTOM"
                       ]
                     }
-                  ]
+                  ],
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].autoReset && model.accessories[arrayIndices].autoReset.type === 'CRON';"
+                  }
                 },
                 "cronCustom": {
                   "title": "Cron expression",
                   "type": "string",
                   "description": "Five fields (minute hour day month weekday) or six with seconds first",
-                  "placeholder": "0 7 * * 1-5"
+                  "placeholder": "0 7 * * 1-5",
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].autoReset && model.accessories[arrayIndices].autoReset.type === 'CRON' && model.accessories[arrayIndices].autoReset.cron === 'CRON_CUSTOM';"
+                  }
                 },
                 "offset": {
                   "title": "Offset",
                   "type": "number",
-                  "description": "Minutes added to the time of the sun; negative for earlier"
+                  "description": "Minutes added to the time of the sun; negative for earlier",
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].autoReset && ['SUNRISE', 'SUNSET', 'DAWN', 'DUSK', 'GOLDEN_HOUR', 'NIGHT'].includes(model.accessories[arrayIndices].autoReset.type);"
+                  }
                 },
                 "latitude": {
                   "title": "Latitude",
                   "type": "number",
                   "description": "Where the sun is watched, in decimal degrees",
                   "minimum": -90,
-                  "maximum": 90
+                  "maximum": 90,
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].autoReset && ['SUNRISE', 'SUNSET', 'DAWN', 'DUSK', 'GOLDEN_HOUR', 'NIGHT'].includes(model.accessories[arrayIndices].autoReset.type);"
+                  }
                 },
                 "longitude": {
                   "title": "Longitude",
                   "type": "number",
                   "description": "Where the sun is watched, in decimal degrees",
                   "minimum": -180,
-                  "maximum": 180
+                  "maximum": 180,
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].autoReset && ['SUNRISE', 'SUNSET', 'DAWN', 'DUSK', 'GOLDEN_HOUR', 'NIGHT'].includes(model.accessories[arrayIndices].autoReset.type);"
+                  }
                 }
               }
             },
@@ -1229,6 +1319,9 @@ extension DummyPlugin {
                     }
                   ]
                 }
+              },
+              "condition": {
+                "functionBody": "return ['Door', 'Window', 'WindowCovering', 'GarageDoorOpener'].includes(model.accessories[arrayIndices].type);"
               }
             },
             "fadeOut": {
@@ -1292,6 +1385,9 @@ extension DummyPlugin {
                     }
                   ]
                 }
+              },
+              "condition": {
+                "functionBody": "return ['Lightbulb'].includes(model.accessories[arrayIndices].type) && model.accessories[arrayIndices].isDimmer === true;"
               }
             },
             "notification": {
@@ -1346,12 +1442,18 @@ extension DummyPlugin {
                 "groupType": {
                   "title": "Group type",
                   "type": "string",
-                  "description": "Notify! only: passed on as it is"
+                  "description": "Notify! only: passed on as it is",
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].notification && model.accessories[arrayIndices].notification.api === 'PINGIE_NOTIFY';"
+                  }
                 },
                 "iconURL": {
                   "title": "Icon address",
                   "type": "string",
-                  "description": "Notify! only: the notification's icon"
+                  "description": "Notify! only: the notification's icon",
+                  "condition": {
+                    "functionBody": "return model.accessories[arrayIndices].notification && model.accessories[arrayIndices].notification.api === 'PINGIE_NOTIFY';"
+                  }
                 }
               }
             },

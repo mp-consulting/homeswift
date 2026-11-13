@@ -363,8 +363,25 @@
         } };
       }
       if (type === "object" && property.properties) {
-        const nested = buildObject(property, current || {}, index);
-        return { element: el("fieldset", {}, el("legend", { text: title }), help, nested.element), get: () => { const v = nested.getValue(); return Object.keys(v).length ? v : undefined; } };
+        // In a list's entry the section below is closed already: its fields show whole, not behind More options again.
+        const nested = buildObject(property, current || {}, index, { split: index === undefined });
+        const get = () => { const v = nested.getValue(); return Object.keys(v).length ? v : undefined; };
+        if (index === undefined) return { element: el("fieldset", {}, el("legend", { text: title }), help, nested.element), get };
+        // In a list's entry (a Dummy accessory's schedule, its auto-reset), a closed section that says what it holds:
+        // an entry of a dozen of them open would run for pages.
+        const count = el("span", { class: "group-count" });
+        const element = el("details", { class: "group-box object-box", "data-icon": property["x-icon"] ?? sectionIcon(key) },
+          el("summary", {}, el("span", { text: title }), count), help, nested.element);
+        // The settings its conditions show (a timeout's time, not a cron's expression), and how many have a value of
+        // their own; the panel's tab reads `data-set`. Recounted while its entry's panel is open (openEntry).
+        element.recount = () => {
+          const shown = [...nested.parts].filter(([, part]) => !part.element.classList.contains("hidden"));
+          const set = shown.filter(([name, part]) => ownValue(part.get(), property.properties[name]?.default)).length;
+          count.textContent = settingsLabel(shown.length, set);
+          element.dataset.set = String(set);
+        };
+        element.recount();
+        return { element, get };
       }
       if (type === "array") {
         const items = property.items || { type: "string" };
@@ -417,8 +434,9 @@
         const addRow = (itemValue) => {
           const entry = {};
           if (items.type === "object" && items.properties) {
-            // An entry (a light, a TV) is a row with its name and address; it opens to edit, a new one open.
-            const nested = buildObject(items, itemValue || {}, () => rows.indexOf(entry));
+            // An entry (a light, a TV) is a row with its name and address; it opens to edit in a side panel, a new one
+            // at once. Its fields are whole there (no More options): the panel has the room, and its sections are tabs.
+            const nested = buildObject(items, itemValue || {}, () => rows.indexOf(entry), { split: false });
             const name = el("span", { class: "entry-name" });
             const detail = el("span", { class: "entry-detail" });
             const describe = () => {
@@ -437,15 +455,20 @@
             };
             const up = mover("up", -1, t("Move up"));
             const down = mover("down", 1, t("Move down"));
-            const row = el("details", { class: "entry", open: itemValue === undefined },
-              el("summary", {}, name, detail, up, down, el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: (event) => {
-                event.preventDefault();
-                row.remove();
-                rows.splice(rows.indexOf(entry), 1);
-                ordered();
-                changed();
-              } })),
-              nested.element);
+            const summary = el("summary", {}, name, detail, up, down, el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: (event) => {
+              event.preventDefault();
+              row.remove();
+              rows.splice(rows.indexOf(entry), 1);
+              ordered();
+              changed();
+            } }));
+            // The row never opens in place: a click on it (or Enter, Space) opens the panel.
+            const row = el("details", { class: "entry entry-paneled" }, summary, nested.element);
+            summary.addEventListener("click", (event) => {
+              if (event.target.closest("button")) return;
+              event.preventDefault();
+              openEntry(nested, () => name.textContent, summary);
+            });
             nested.element.addEventListener("input", describe);
             entry.get = nested.getValue;
             entry.node = row;
@@ -458,6 +481,8 @@
             list.append(row);
             // Only the row before it changes (its Move down turns on): not every row again for each one a list opens with.
             rows.at(-2)?.placed?.(rows.length - 2);
+            // One the person adds opens to be filled in (the ones the list opens with were there already).
+            if (itemValue === undefined) queueMicrotask(() => openEntry(nested, () => name.textContent, summary));
             entry.placed(rows.length - 1);
             return;
           }
@@ -559,6 +584,12 @@
     /// Required fields and the ones that hold a value show; the rest wait under "More options", unless that would
     /// hide them all (a box of empty settings, a budget, shows its fields rather than a closed box in a box).
     const isSet = (value) => value !== undefined && value !== null && value !== "" && !(Array.isArray(value) && !value.length);
+    /// Set: a value of its own other than the default the schema declares (a switch left on as it comes is not).
+    const ownValue = (value, schemaDefault) => isSet(value) && JSON.stringify(value) !== JSON.stringify(schemaDefault);
+    /// A group's or a section's count: its number of settings, and how many are set.
+    const settingsLabel = (total, set) => set
+      ? (total === 1 ? t("1 setting · {set} set", { set }) : t("{count} settings · {set} set", { count: total, set }))
+      : total === 1 ? t("1 setting") : t("{count} settings", { count: total });
     function splitFields(entries) {
       const shown = [], more = [];
       for (const { element, required, value } of entries) (required || isSet(value) ? shown : more).push(element);
@@ -566,7 +597,81 @@
       return [...shown, el("details", { class: "more-options" }, el("summary", { text: t("More options ({count})", { count: more.length }) }), el("div", { class: "fields" }, more))];
     }
 
-    function buildObject(objectSchema, current, index) {
+    /// A list's entry in a side panel (common.js's openSheet): its fields under General, each section of settings (a
+    /// schedule, a notification) a tab of its own, which says when it holds a value. The fields move into the panel and
+    /// back into the row as it closes; the panel sits in the form, so what is typed there reaches it as from the row.
+    const sectionIcon = (key) => [[/schedule|cron|time/i, "calendar"], [/reset|restore/i, "restore"], [/notif|alert/i, "bell"],
+      [/sensor/i, "sensor"], [/limit/i, "clock"], [/condition|rule|trigger/i, "workflow"], [/simulat|motion/i, "blind"],
+      [/fade|dim|light/i, "bulb"], [/auth|account|login|token/i, "key"], [/network|address|host/i, "globe"]].find(([pattern]) => pattern.test(key))?.[1] ?? "sliders";
+    let panels = 0;
+    function openEntry(nested, title, trigger) {
+      const body = nested.element;
+      const home = body.parentElement;
+      const sections = [...body.querySelectorAll(":scope > .fields > .object-box")];
+      const id = `entry-panel-${++panels}`;
+      const tabs = el("div", { class: "plugins-tabs entry-tabs", role: "tablist", "aria-label": t("Sections") });
+      const pages = [{ label: t("General"), icon: "gear", section: null }, ...sections.map((section) => ({
+        label: section.querySelector(":scope > summary > span").textContent, icon: section.dataset.icon || "sliders", section }))];
+      let current = 0;
+      const show = (index) => {
+        current = index;
+        body.dataset.page = index ? "section" : "general";
+        sections.forEach((section) => { section.open = true; section.classList.toggle("entry-page", section === pages[index].section); });
+        [...tabs.children].forEach((tab, at) => { tab.setAttribute("aria-selected", String(at === index)); tab.tabIndex = at === index ? 0 : -1; });
+        // The tabs scroll sideways on a phone: the chosen one comes into sight.
+        tabs.children[index]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        body.scrollTop = 0;
+      };
+      // A section its conditions hide (a lamp's fade without Dimmer) leaves the tabs; one with a value is marked. Run
+      // after the form has applied its conditions (its listeners come first).
+      const sync = () => {
+        pages.forEach(({ section }, index) => {
+          if (!section) return;
+          const tab = tabs.children[index];
+          section.recount();
+          tab.hidden = section.classList.contains("hidden");
+          tab.classList.toggle("has-value", section.dataset.set !== "0");
+          tab.title = section.querySelector(".group-count").textContent;
+        });
+        if (tabs.children[current]?.hidden) show(0);
+      };
+      pages.forEach((page, index) => tabs.append(el("button", { type: "button", role: "tab", "aria-controls": `${id}-body`, actionIcon: page.icon, text: page.label,
+        onclick: () => show(index),
+        onkeydown: (event) => {
+          const visible = [...tabs.children].filter((tab) => !tab.hidden);
+          const at = visible.indexOf(event.currentTarget);
+          const next = event.key === "ArrowRight" ? visible[(at + 1) % visible.length] : event.key === "ArrowLeft" ? visible[(at + visible.length - 1) % visible.length]
+            : event.key === "Home" ? visible[0] : event.key === "End" ? visible.at(-1) : null;
+          if (next) { event.preventDefault(); next.focus(); next.click(); }
+        } })));
+      container.addEventListener("input", sync);
+      container.addEventListener("change", sync);
+      const heading = el("h2", { id: `${id}-title`, text: title() });
+      body.id = `${id}-body`;
+      const dialog = HomeswiftCommon.openSheet((dismiss) => {
+        const panel = el("div", { class: "plugins-panel entry-panel" },
+          el("div", { class: "plugins-panel-head" }, heading,
+            el("button", { type: "button", class: "plugins-close", actionIcon: "close", "aria-label": t("Close"), onclick: () => dismiss() })),
+          sections.length ? tabs : null, body,
+          el("div", { class: "actions" }, el("button", { type: "button", class: "primary", actionIcon: "check", text: t("Done"), onclick: () => dismiss() })));
+        panel.addEventListener("input", () => { heading.textContent = title(); });
+        return panel;
+      }, `${id}-title`, { returnFocus: trigger, parent: container, onClose: () => {
+        container.removeEventListener("input", sync);
+        container.removeEventListener("change", sync);
+        delete body.dataset.page;
+        body.removeAttribute("id");
+        sections.forEach((section) => { section.classList.remove("entry-page"); section.open = false; });
+        home.append(body);
+        if (trigger.isConnected) trigger.focus();
+      } });
+      dialog.classList.add("entry-sheet");
+      show(0);
+      sync();
+      return dialog;
+    }
+
+    function buildObject(objectSchema, current, index, { split: splitting = true } = {}) {
       const props = objectSchema.properties || {};
       const required = new Set(Array.isArray(objectSchema.required) ? objectSchema.required : []);
       const parts = new Map();
@@ -578,10 +683,10 @@
         parts.set(key, f);
         entries.push({ element: f.element, required: isRequired, value: current[key] });
       }
-      const split = splitFields(entries);
+      const split = splitting ? splitFields(entries) : entries.map((entry) => entry.element);
       const first = split.filter((node) => !node.classList?.contains("more-options"));
       element.append(el("div", { class: "fields" }, first), ...split.filter((node) => node.classList?.contains("more-options")));
-      return { element, getValue: () => {
+      return { element, parts, getValue: () => {
         const out = {};
         for (const [key, value] of Object.entries(current)) if (!props[key]) out[key] = value;
         for (const [key, f] of parts) { const v = f.get(); if (v !== undefined) out[key] = v; }
@@ -682,6 +787,12 @@
         const control = element.querySelector("input, select, textarea");
         if (control) control.required = needed;
       }
+      // More options counts the ones its conditions show (a garage door's, not a thermostat's), and goes when none is.
+      for (const more of container.querySelectorAll("details.more-options")) {
+        const shown = more.querySelectorAll(":scope > .fields > :not(.hidden)").length;
+        more.querySelector(":scope > summary").textContent = t("More options ({count})", { count: shown });
+        more.classList.toggle("hidden", !shown);
+      }
     };
     const countGroups = () => {
       if (!groupCounts.length) return;
@@ -689,11 +800,8 @@
       for (const { count, keys: all } of groupCounts) {
         // The ones on screen: a field its condition hides (another provider's) is not counted.
         const keys = all.filter((key) => !fields.get(key)?.element.classList.contains("hidden"));
-        // Set: a value of its own other than the default the schema declares (a switch left on as it comes is not).
-        const set = keys.filter((key) => isSet(model[key]) && JSON.stringify(model[key]) !== JSON.stringify(properties[key]?.default)).length;
-        const one = keys.length === 1;
-        count.textContent = set ? (one ? t("1 setting · {set} set", { set }) : t("{count} settings · {set} set", { count: keys.length, set }))
-          : one ? t("1 setting") : t("{count} settings", { count: keys.length });
+        const set = keys.filter((key) => ownValue(model[key], properties[key]?.default)).length;
+        count.textContent = settingsLabel(keys.length, set);
       }
     };
     container.addEventListener("input", applyConditions);
