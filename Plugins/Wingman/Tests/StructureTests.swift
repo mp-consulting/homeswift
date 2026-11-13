@@ -189,7 +189,7 @@ struct StructureTests {
         }
         let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": accessories]
         let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
-        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge, "CHILD"], own: childBridge ? [] : ["TV"])
+        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge, "CHILD"], own: childBridge ? [] : [.init(serialNumber: "TV")])
         #expect(structure.incompleteIdentityReason?.contains("Serial Number of unresolved") == true)
     }
 
@@ -219,8 +219,38 @@ struct StructureTests {
         if ownFound { accessories.append(homeAccessory("homeswift-tv", serialNumber: "tv")) }
         let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": accessories]
         let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
-        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge], own: ["TV"])
+        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge], own: [.init(serialNumber: "TV")])
         #expect((structure.incompleteIdentityReason == nil) == ownFound)
+    }
+
+    /// An accessory of no bridge that does not respond, whose serial number Apple Home has not read, holds the Home Link
+    /// down only when it may be one of Homeswift's own accessories still missing: Apple Home's manufacturer or model for
+    /// it, which it keeps meanwhile, is that of one of them, or unknown.
+    @Test(arguments: [
+        ("IKEA of Sweden", "KAJPLATS E27 WS globe 1521lm", false),
+        ("Philips", "65OLED936", true),
+        ("philips", "65oled936", true),
+        // Respelled since Apple Home read it.
+        ("Philips Electronics", "65OLED936/12", true),
+        // Either one is enough.
+        ("Philips", "55OLED806", true),
+        ("TP Vision", "65OLED936", true),
+        // Fewer than four characters are not looked for inside another.
+        ("Apple Inc.", "936", false),
+        (nil, nil, true),
+    ] as [(String?, String?, Bool)])
+    func anUnreachableAccessoryBlocksTheLinkOnlyWhenItMayBeHomeswifts(manufacturer: String?, model: String?, blocks: Bool) throws {
+        let bridge = TestEnvironment.bridgeID
+        var light = homeAccessory("matter-light", serialNumber: "")
+        light["name"] = "Plafonnier"
+        if let manufacturer { light["manufacturer"] = manufacturer }
+        if let model { light["model"] = model }
+        let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": [homeAccessory("main-bridge", serialNumber: bridge), light]]
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
+        // Homeswift's television, published on its own, is not in Apple Home with its serial number.
+        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge],
+                                  own: [.init(serialNumber: "TV", manufacturer: "Philips", model: "65OLED936")])
+        #expect((structure.incompleteIdentityReason?.contains("Plafonnier") == true) == blocks)
     }
 
     /// A plugin that respells a serial number (Hue's 00:17:88:… as 001788…) is still found while Apple Home keeps the old
@@ -252,7 +282,7 @@ struct StructureTests {
             homeAccessory("hub-tv", serialNumber: "TV", bridge: ["id": "hue-bridge", "name": "Hue Bridge"]),
         ]]
         let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
-        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge], own: ["TV"])
+        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge], own: [.init(serialNumber: "TV")])
 
         #expect(structure.homeKitID(of: "Hue:light", place: .init(bridge: bridge, serialNumber: "SN")) == "homeswift-light")
         #expect(structure.homeKitID(of: "PhilipsAmbilightTV:tv", place: .init(bridge: nil, serialNumber: "TV")) == "homeswift-tv")

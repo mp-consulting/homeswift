@@ -672,9 +672,32 @@ public final class PluginContext: @unchecked Sendable {
         accessory.information[.serialNumber]?.value.stringValue.map(serialKey)
     }
 
+    /// One of the accessories Homeswift publishes on its own server (`publishExternal`), as Apple Home knows it.
+    public struct OwnAccessory: Sendable, Hashable {
+        /// As `PluginContext.serialKey` spells it.
+        public var serialNumber: String
+        public var manufacturer: String?
+        public var model: String?
+
+        public init(serialNumber: String, manufacturer: String? = nil, model: String? = nil) {
+            self.serialNumber = PluginContext.serialKey(serialNumber)
+            self.manufacturer = manufacturer
+            self.model = model
+        }
+    }
+
     /// The Serial Numbers (`serialKey`) of the accessories Homeswift publishes on their own servers (`publishExternal`).
-    public var ownSerialNumbers: Set<String> {
-        Set(publishedServers().filter(\.isExternal).flatMap(\.published).compactMap(Self.serialKey(of:)))
+    @available(*, deprecated, message: "Use ownAccessories, which also gives each one's manufacturer and model")
+    public var ownSerialNumbers: Set<String> { Set(ownAccessories.map(\.serialNumber)) }
+
+    /// The accessories Homeswift publishes on their own servers (`publishExternal`).
+    public var ownAccessories: Set<OwnAccessory> {
+        Set(publishedServers().filter(\.isExternal).flatMap(\.published).compactMap { accessory in
+            Self.serialKey(of: accessory).map {
+                OwnAccessory(serialNumber: $0, manufacturer: accessory.information[.manufacturer]?.value.stringValue,
+                             model: accessory.information[.model]?.value.stringValue)
+            }
+        })
     }
 
     /// Where Homeswift publishes the accessory with this id, mirrored ones left out.
