@@ -473,8 +473,34 @@ extension HomeswiftCatalog {
            let refusal = await homeLinkRefusal() {
             throw CatalogError(refusal)
         }
-        return try await retryingWhenConfigChanges {
+        // Separate Functions turned on or off: the Functions' keys, read before the accessories change, for the Remotes'
+        // Controls that name them (docs/adr/0011-a-control-names-a-function.md).
+        let separating = dryRun ? [] : changes.compactMap { change -> (device: String, keys: [String], separated: Bool)? in
+            guard let value = change.settings["separateFunctions"], let device = find(id: change.accessoryID)?.device else { return nil }
+            let keys = Separation.functions(of: device).dropFirst().map(\.key)
+            return keys.isEmpty ? nil : (device.id, keys, value.boolValue == true)
+        }
+        let answer = try await retryingWhenConfigChanges {
             try await writeAccessorySettings(changes, instance: instance, dryRun: dryRun, fromHome: fromHome, by: writer, who: who)
+        }
+        if !separating.isEmpty { await renameControlTargets(separating, by: writer, who: who) }
+        return answer
+    }
+
+    /// The Remotes' Controls naming a Function whose accessory was separated or joined, renamed: `<id>#<key>` and
+    /// `<id>:<key>` one into the other, so the button goes on driving it.
+    private func renameControlTargets(_ separating: [(device: String, keys: [String], separated: Bool)], by writer: ConfigWriter, who: String) async {
+        var changes: [(accessoryID: String, settings: [String: JSONValue])] = []
+        for located in located() where located.accessory.isRemote {
+            guard let controls = host.remote(of: located.accessory.id)?.controls, !controls.isEmpty else { continue }
+            let renamed = separating.reduce(controls) { RemoteControl.rewritten($0, device: $1.device, keys: $1.keys, separated: $1.separated) }
+            if renamed != controls { changes.append((located.accessory.id, ["controls": RemoteControl.json(renamed)])) }
+        }
+        guard !changes.isEmpty else { return }
+        do {
+            _ = try await updateAccessorySettings(changes, by: writer, who: who)
+        } catch {
+            logger.warning("The remotes' controls naming separated functions were not renamed", metadata: ["error": "\(error)"])
         }
     }
 
@@ -889,7 +915,15 @@ extension HomeswiftCatalog {
                     "settings": ["type": "object", "description": "The settings to change, by key; null clears one"],
                     "accessories": ["type": "object", "maxProperties": 500, "additionalProperties": ["type": "object"], "description": "Settings by Accessory Id, for several accessories at once"],
                 ]) { $1 })],
-                scope: .admin, supportsDryRun: true, confirmsWhen: Self.settingsChangeAsks
+                scope: .admin, supportsDryRun: true,
+                confirmsWhen: { arguments in
+                    // A remote given a lock, a garage door or an alarm to drive asks too (docs/adr/0012-a-remote-drives-what-it-is-given.md).
+                    if Self.settingsChangeAsks(arguments) { return true }
+                    if let many = arguments["accessories"]?.objectValue {
+                        return many.contains { id, settings in catalog.remoteControlsAsk(settings["controls"], of: id) }
+                    }
+                    return catalog.remoteControlsAsk(arguments["settings"]?["controls"], of: arguments["accessory"]?.stringValue)
+                }
             ) { call in
                 let who = "MCP \(call.session.clientInfo?.name ?? "client")"
                 if let many = call.arguments["accessories"]?.objectValue {

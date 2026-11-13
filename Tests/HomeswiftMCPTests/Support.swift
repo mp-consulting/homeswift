@@ -29,6 +29,8 @@ actor DevicesPlugin: HomeswiftPlugin {
         var secondMirroredRoom: String?
         /// A remote, `Devices:remote`, with two buttons (`top`, `bottom`).
         var remote: Bool?
+        /// A two-channel relay, `Devices:relay` (Functions `channel1`, `channel2`), an Appliance.
+        var relay: Bool?
     }
 
     static let platform = "Devices"
@@ -82,6 +84,10 @@ actor DevicesPlugin: HomeswiftPlugin {
         if configuration.remote == true {
             let buttons = ["top", "bottom"].map { (button: String) in Service(.statelessProgrammableSwitch, name: button.capitalized, subtype: button, optional: [.serviceLabelIndex]) }
             try context.add(Accessory(id: "Devices:remote", name: "Hall Remote", category: .programmableSwitch, services: buttons))
+        }
+        if configuration.relay == true {
+            let channels = (1...2).map { Service(.switch, name: "Channel \($0)", subtype: "channel\($0)", isPrimary: $0 == 1) }
+            try context.add(Accessory(id: "Devices:relay", name: "Relay", category: .switch, services: channels))
         }
 
         let bulbs = configuration.colourBulbs ?? 0

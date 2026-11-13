@@ -325,9 +325,18 @@ _Avoid_: Mode, page, bank
 
 **Control**:
 What one gesture of a Remote's Button or Wheel does, run by the bridge the moment it comes: toggle its targets, turn
-them on or off, run a Scene, stop shutters, dim or move them while held, or step them as the Wheel turns. It is not an
-Automation: it has no Conditions and no history of its own.
+them on or off, stop shutters, dim or move them while held, or step them as the Wheel turns; a press also runs its
+Scenes. Its targets
+are lights, which it dims, shutters, which it moves, and Appliances, which it only turns on and off, each a whole
+accessory or one of its Functions. It is not an Automation: it has no Conditions and no history of its own; a press
+that starts an Automation is that Automation's Trigger, not a Control.
 _Avoid_: Binding, mapping, shortcut, button action
+
+**Appliance**:
+Something a Control only turns on and off, never dims or moves: a switch, an outlet, a fan, an air purifier, a TV, a
+valve, a garage door (on is open), a lock (on is unlocked), an alarm (on is armed). A light or a shutter is not an
+Appliance.
+_Avoid_: On/off device, switchable, other
 
 **Power Switch**:
 A switch or outlet that powers a Control's lights, switched on before they brighten and off once they are dimmed past

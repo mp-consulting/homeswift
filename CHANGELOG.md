@@ -14,6 +14,20 @@ All notable changes to this project are documented here. The format follows
 - **Automations' Overlapping and Queued modes**: a trigger during a run starts another run alongside it, or runs it
   again once the run under way ends; at most 10 runs of one Automation at a time.
 - **The Assistant's automation drafts** choose the mode, the steps at the same time and the steps that start together.
+- **Remotes drive Appliances**: a remote's press, double or long press turns switches, outlets, fans, air purifiers,
+  TVs, heaters, humidifiers and valves on and off, beside lights and shutters (a hold or a wheel still dims lights and
+  moves shutters only).
+- **A remote's gestures each have their own list**: the Button sheet has a card per gesture, its action and what it
+  acts on, devices, Scenes and Automations in one searchable list; a press runs Scenes and starts Automations beside
+  turning its devices on or off. A Control's `scene` is now `scenes`, a list (the old key is still read).
+- **Remotes open garage doors**, and lock and unlock, arm and disarm: a remote drives whatever it is given, doors and
+  windows moving as shutters do. The Assistant asks before it attaches one of them to a remote.
+- **One Function of an accessory as a remote's target**: a two-channel relay's channel, a power strip's outlet, a fan's
+  light, picked under its accessory, without separating its Functions in Apple Home; turning Separate Functions on or
+  off keeps the remote's controls on them.
+- **A remote's button starts Automations from the Remotes page**: **Also starts** under a press, a double or a long
+  press adds the Automation's press Trigger for that button, its Conditions still checked; `set_remote_controls` takes
+  them as `automations`.
 
 ## [0.30.1] - 2026-11-12
 

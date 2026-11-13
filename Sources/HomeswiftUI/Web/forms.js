@@ -364,7 +364,24 @@
       }
       if (type === "object" && property.properties) {
         const nested = buildObject(property, current || {}, index);
-        return { element: el("fieldset", {}, el("legend", { text: title }), help, nested.element), get: () => { const v = nested.getValue(); return Object.keys(v).length ? v : undefined; } };
+        const get = () => { const v = nested.getValue(); return Object.keys(v).length ? v : undefined; };
+        if (index === undefined) return { element: el("fieldset", {}, el("legend", { text: title }), help, nested.element), get };
+        // In a list's entry (a Dummy accessory's schedule, its auto-reset), a closed section that says what it holds:
+        // an entry of a dozen of them open would run for pages.
+        const total = Object.keys(property.properties).length;
+        const count = el("span", { class: "group-count" });
+        const counted = () => {
+          const set = Object.values(nested.getValue()).filter(isSet).length;
+          const one = total === 1;
+          count.textContent = set ? (one ? t("1 setting · {set} set", { set }) : t("{count} settings · {set} set", { count: total, set }))
+            : one ? t("1 setting") : t("{count} settings", { count: total });
+        };
+        const element = el("details", { class: "group-box object-box" },
+          el("summary", {}, el("span", { text: title }), count), help, nested.element);
+        element.addEventListener("input", counted);
+        element.addEventListener("change", counted);
+        counted();
+        return { element, get };
       }
       if (type === "array") {
         const items = property.items || { type: "string" };
@@ -779,8 +796,12 @@
     const add = el("button", { type: "button", class: "add-choice", actionIcon: "plus", "aria-haspopup": "menu", text: t("Choose…") });
     const draw = () => {
       list.replaceChildren(...values.map((value) => {
-        const title = choices.find((c) => same(c.value, value))?.title ?? String(value);
-        return el("span", { class: "chip removable" }, el("span", { class: "chosen-name", text: title, title }),
+        const choice = choices.find((c) => same(c.value, value));
+        const title = choice?.title ?? String(value);
+        // A choice's `icon` says its kind on its chip and in the menu (a light, a Scene, an Automation).
+        return el("span", { class: choice?.icon ? "chip removable with-icon" : "chip removable" },
+          choice?.icon ? el("span", { class: "chip-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(choice.icon)) : null,
+          el("span", { class: "chosen-name", text: title, title }),
           el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name: title }),
             onclick: () => { values = values.filter((v) => !same(v, value)); draw(); announce(list); add.focus(); } }, HomeswiftCommon.icon("close")));
       }));
@@ -790,7 +811,7 @@
     // choice with `members` (a Group) ticks them all, or none once they all are; `nested` ones are its members.
     const has = (value) => values.some((v) => same(v, value));
     add.addEventListener("click", () => HomeswiftCommon.menu(add, choices.map((c) => {
-      const common = { label: c.label ?? c.title, group: c.group, filter: c.filter, search: c.search, nested: c.nested, checkbox: true, keepOpen: true };
+      const common = { label: c.label ?? c.title, group: c.group, filter: c.filter, search: c.search, nested: c.nested, icon: c.icon, checkbox: true, keepOpen: true };
       if (c.members) {
         const state = () => c.members.every(has) ? true : c.members.some(has) ? "mixed" : false;
         return { ...common, aggregate: true, checked: state, onSelect: () => {

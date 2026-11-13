@@ -62,9 +62,8 @@ public struct Separation: Sendable {
         let information = accessory.information
         let value = { (type: CharacteristicType) in information[type]?.value.stringValue }
         var observations: [(Characteristic, Int)] = []
-        // A Function's key in its accessory's id: its subtype, else its type, as the bridge's other keys are (`Slug`).
         let others = Array(groups.dropFirst())
-        let keys = Slug.unique(others.map { $0[0].subtype?.isEmpty == false ? $0[0].subtype! : $0[0].type.name }, fallback: "function")
+        let keys = otherKeys(others)
         let parts = zip(others, keys).map { group, key -> Accessory in
             let function = group[0]
             var services = group
@@ -84,6 +83,29 @@ public struct Separation: Sendable {
             return part
         }
         return Separation(main: main, parts: parts, observations: observations)
+    }
+
+    /// A Function's key in its accessory's id (`<id>:<key>`): its subtype, else its type, as the bridge's other keys are
+    /// (`Slug`), for the Functions other than the main one, in their order.
+    static func otherKeys(_ others: [[Service]]) -> [String] {
+        Slug.unique(others.map(source(of:)), fallback: "function")
+    }
+
+    private static func source(of function: [Service]) -> String {
+        function[0].subtype?.isEmpty == false ? function[0].subtype! : function[0].type.name
+    }
+
+    /// The Functions of `accessory` with their keys, the main one first, for a Control that names one
+    /// (docs/adr/0011-a-control-names-a-function.md): the others' keys are their separated accessories' (`<id>:<key>`), the
+    /// main one's its subtype or type the same way, `-main` added should another Function have it. Empty when there is
+    /// nothing to separate (`groups(of:)`).
+    public static func functions(of accessory: Accessory) -> [(key: String, services: [Service])] {
+        guard let groups = groups(of: accessory) else { return [] }
+        let others = otherKeys(Array(groups.dropFirst()))
+        let made = Slug.make(source(of: groups[0]))
+        let base = made.isEmpty ? "function" : made
+        let main = others.contains(base) ? "\(base)-main" : base
+        return zip([main] + others, groups).map { (key: $0, services: $1) }
     }
 
     /// The name a separated Function goes by: its own when it has one other than the accessory's, else the accessory's

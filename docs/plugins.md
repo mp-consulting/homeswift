@@ -651,6 +651,12 @@ seconds). A plugin whose devices say more declares the remote and reports each m
 Matter Devices (`MatterRemote`), Philips Hue (`noteButton`, `noteRotary`), Zigbee2MQTT (`ActionHandler`) and Z-Wave
 (`buildCentralScene`) are the examples.
 
+What a Control drives needs nothing from its plugin: its lights, shutters and Appliances (switches, outlets, fans,
+purifiers, TVs, valves) are written through their characteristics. A device with several channels on one accessory (a
+relay, a power strip) gives each Function a stable subtype: a Control names one as `<id>#<key>`, the key Separate
+Functions gives it (its subtype, else its type; docs/adr/0011-a-control-names-a-function.md), so a changed subtype loses
+the remote's button.
+
 ### Web pages
 
 A plugin can give the web UI a page of its own: a `Web/` directory next to `Sources`, embedded as
