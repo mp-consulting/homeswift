@@ -1412,8 +1412,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .valve-running-controls[hidden] { display: none !important; }
 .valve-countdown { display: flex; gap: var(--space-8); }
 .valve-countdown[hidden] { display: none; }
-.widget-valve.size-medium .w-middle { display: grid; justify-items: start; align-items: center; pointer-events: none; }
-.widget-valve.size-medium .valve-flap { min-width: 52px; height: 54px; font-size: 34px; }
+/* The medium tile fits its icon, the clock and the name in one card height, as the light's medium tile does. */
+.widget-valve.size-medium .w-middle { display: grid; justify-items: center; align-items: center; padding: 0; pointer-events: none; }
+.widget-valve.size-medium:has(.w-middle) { gap: var(--space-4); padding: var(--space-10); }
+.widget-valve.size-medium:has(.w-middle) .tile { width: 24px; height: 24px; }
+.widget-valve.size-medium:has(.w-middle) .tile svg { width: 16px; height: 16px; }
+.widget-valve.size-medium .valve-flap { min-width: 46px; height: 48px; font-size: 30px; }
+/* The narrow wall's shorter tile has no room for the captions; the timer's label still says the time. */
+@container (max-width: 520px) { .widget-valve.size-medium .valve-clock-part small { display: none; } }
 .widget-valve.size-medium .valve-clock-part small { font-size: 9px; }
 .valve-clock-part { display: grid; justify-items: center; gap: var(--space-4); }
 .valve-clock-part small { font-size: 10px; font-weight: var(--weight-semibold); color: var(--accent-ink); text-transform: uppercase; letter-spacing: .04em; }

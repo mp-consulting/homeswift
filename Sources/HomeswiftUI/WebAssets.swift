@@ -37531,8 +37531,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .valve-running-controls[hidden] { display: none !important; }
 .valve-countdown { display: flex; gap: var(--space-8); }
 .valve-countdown[hidden] { display: none; }
-.widget-valve.size-medium .w-middle { display: grid; justify-items: start; align-items: center; pointer-events: none; }
-.widget-valve.size-medium .valve-flap { min-width: 52px; height: 54px; font-size: 34px; }
+/* The medium tile fits its icon, the clock and the name in one card height, as the light's medium tile does. */
+.widget-valve.size-medium .w-middle { display: grid; justify-items: center; align-items: center; padding: 0; pointer-events: none; }
+.widget-valve.size-medium:has(.w-middle) { gap: var(--space-4); padding: var(--space-10); }
+.widget-valve.size-medium:has(.w-middle) .tile { width: 24px; height: 24px; }
+.widget-valve.size-medium:has(.w-middle) .tile svg { width: 16px; height: 16px; }
+.widget-valve.size-medium .valve-flap { min-width: 46px; height: 48px; font-size: 30px; }
+/* The narrow wall's shorter tile has no room for the captions; the timer's label still says the time. */
+@container (max-width: 520px) { .widget-valve.size-medium .valve-clock-part small { display: none; } }
 .widget-valve.size-medium .valve-clock-part small { font-size: 9px; }
 .valve-clock-part { display: grid; justify-items: center; gap: var(--space-4); }
 .valve-clock-part small { font-size: 10px; font-weight: var(--weight-semibold); color: var(--accent-ink); text-transform: uppercase; letter-spacing: .04em; }
@@ -44841,6 +44847,8 @@ self.addEventListener("notificationclick", (event) => {
       const active = ctx.take(primary, "Active"), inUse = ctx.take(primary, "In Use");
       const set = ctx.take(primary, "Set Duration"), remaining = ctx.take(primary, "Remaining Duration");
       ctx.take(primary, "Valve Type");
+      // A valve without durations (no Set Duration, no Remaining Duration) has no time to show: Run or Stop alone.
+      const timed = Boolean(set || remaining);
       // Remaining Duration is sent when the valve opens; the page counts down from there.
       let endsAt = null, lastRemaining, wasRunning = false;
       // Active reflects a stop immediately; In Use may arrive later from the device.
@@ -44874,21 +44882,21 @@ self.addEventListener("notificationclick", (event) => {
       const toggleRun = () => ctx.write(primary, active, isOn(active) ? 0 : 1);
       const built = {
         on: () => running(), tap: toggleRun, tapLabel: () => isOn(active) ? t("stop") : t("run"),
-        hero: () => !ctx.tall && running() ? clock(left()) : "",
-        middle: ctx.tall ? countdown : null,
+        hero: () => timed && !ctx.tall && running() ? clock(left()) : "",
+        middle: ctx.tall && timed ? countdown : null,
         status: () => running() ? (flowing() ? [t("Running"), "cool"] : [t("Starting…"), "cool"]) : [t("Off")],
       };
       // The figures move each second while it runs.
       const ticker = setInterval(() => {
         if (ctx.node && !ctx.node.isConnected && Date.now() - ctx.born > 2000) { clearInterval(ticker); return; }
-        if (running()) ctx.paint();
+        if (timed && running()) ctx.paint();
       }, 1000);
       if (size === "small") return built;
       const actionLabel = el("span");
       const action = el("button", { type: "button", actionIcon: "play", onclick: toggleRun }, actionLabel);
       // Run, and under it the duration, beside the countdown.
       const actions = el("div", { class: "valve-actions" }, action);
-      const runningControls = el("div", { class: "valve-running-controls" }, countdown, actions);
+      const runningControls = el("div", { class: "valve-running-controls" }, ...(timed ? [countdown] : []), actions);
       const runControl = el("div", { class: "valve-run-control" }, runningControls);
       let shownOn;
       ctx.watch(() => {

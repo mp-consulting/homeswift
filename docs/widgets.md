@@ -157,6 +157,9 @@ only shows them: the tile gives a small press and the status line names the butt
 ("Button 2 · Double press") until the next; from medium up, a key per button (in its Service Label Index order) lights
 at once and fades out. Under reduced motion only the colour changes.
 
+A valve shows its time (the clock, the duration menu) only when it has Set Duration or Remaining Duration; a valve
+without either (a Dummy valve with no auto-reset timer) shows Run or Stop alone.
+
 ![Sensors and a remote at their sizes, and a remote's press](images/widgets/remote.png)
 
 The Weather plugin's accessory is a Temperature sensor with Eve's weather characteristics, drawn by the Weather widget: the

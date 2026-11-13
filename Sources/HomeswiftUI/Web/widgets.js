@@ -1870,6 +1870,8 @@
       const active = ctx.take(primary, "Active"), inUse = ctx.take(primary, "In Use");
       const set = ctx.take(primary, "Set Duration"), remaining = ctx.take(primary, "Remaining Duration");
       ctx.take(primary, "Valve Type");
+      // A valve without durations (no Set Duration, no Remaining Duration) has no time to show: Run or Stop alone.
+      const timed = Boolean(set || remaining);
       // Remaining Duration is sent when the valve opens; the page counts down from there.
       let endsAt = null, lastRemaining, wasRunning = false;
       // Active reflects a stop immediately; In Use may arrive later from the device.
@@ -1903,21 +1905,21 @@
       const toggleRun = () => ctx.write(primary, active, isOn(active) ? 0 : 1);
       const built = {
         on: () => running(), tap: toggleRun, tapLabel: () => isOn(active) ? t("stop") : t("run"),
-        hero: () => !ctx.tall && running() ? clock(left()) : "",
-        middle: ctx.tall ? countdown : null,
+        hero: () => timed && !ctx.tall && running() ? clock(left()) : "",
+        middle: ctx.tall && timed ? countdown : null,
         status: () => running() ? (flowing() ? [t("Running"), "cool"] : [t("Starting…"), "cool"]) : [t("Off")],
       };
       // The figures move each second while it runs.
       const ticker = setInterval(() => {
         if (ctx.node && !ctx.node.isConnected && Date.now() - ctx.born > 2000) { clearInterval(ticker); return; }
-        if (running()) ctx.paint();
+        if (timed && running()) ctx.paint();
       }, 1000);
       if (size === "small") return built;
       const actionLabel = el("span");
       const action = el("button", { type: "button", actionIcon: "play", onclick: toggleRun }, actionLabel);
       // Run, and under it the duration, beside the countdown.
       const actions = el("div", { class: "valve-actions" }, action);
-      const runningControls = el("div", { class: "valve-running-controls" }, countdown, actions);
+      const runningControls = el("div", { class: "valve-running-controls" }, ...(timed ? [countdown] : []), actions);
       const runControl = el("div", { class: "valve-run-control" }, runningControls);
       let shownOn;
       ctx.watch(() => {
