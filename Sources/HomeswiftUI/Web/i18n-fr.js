@@ -878,7 +878,6 @@ HomeswiftI18n.add("fr", {
   "Checking the backup…": "Vérification de la sauvegarde…",
   "Checking the request…": "Vérification de la demande…",
   "Checking…": "Vérification…",
-  "child bridge": "pont enfant",
   "Child bridge": "Pont enfant",
   "Child bridges": "Ponts enfants",
   "Child lock": "Sécurité enfants",

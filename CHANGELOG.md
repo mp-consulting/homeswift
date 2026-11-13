@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Plugins on a child bridge stand out**: a violet Child bridge pill on the Plugins page, and the violet child bridge
+  tile with the pill in Settings › Child bridges' list of plugins, where those on the main bridge are grey.
+
 ## [0.31.0] - 2026-11-13
 
 ### Added
