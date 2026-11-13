@@ -11,6 +11,13 @@ All notable changes to this project are documented here. The format follows
 - **Plugins on a child bridge stand out**: a violet Child bridge pill on the Plugins page, and the violet child bridge
   tile with the pill in Settings › Child bridges' list of plugins, where those on the main bridge are grey.
 
+### Fixed
+
+- **The Home Link no longer waits on devices that are not the bridge's**: an accessory of Apple Home that does not
+  respond (a Matter light showing No Response) kept the link down, and its Pending Changes waiting, while one of the
+  accessories Homeswift publishes on its own was not in Apple Home. It now waits only when Apple Home's manufacturer or
+  model for that accessory may be that of one of Homeswift's, or is unknown.
+
 ## [0.31.0] - 2026-11-13
 
 ### Added
