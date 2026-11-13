@@ -284,7 +284,11 @@
             const [, action, direction] = picked;
             control.targets = targets;
             const old = mine.find((before) => before.gesture === one.gesture && before.targets?.length);
-            const switches = old && !powerChanged ? old.power ?? [] : power;
+            // Its own power stays while it drives the same things and the Power Switches were left alone.
+            const same = old && old.targets.length === targets.length && old.targets.every((id) => targets.includes(id));
+            const kept = same && !powerChanged ? old.power ?? [] : power;
+            // The Power Switches are one list for every gesture: what this one switches itself is its target, not its power.
+            const switches = kept.filter((id) => !targets.includes(id));
             if (switches.length) { control.power = switches; if (Number(powerDelay.value) !== 5) control.powerDelay = Number(powerDelay.value); }
             if (direction) control.direction = direction;
             if (["dim", "step", "toggle"].includes(action) && Number(step.value) !== 5) control.step = Number(step.value);

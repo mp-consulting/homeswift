@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **A remote's Button saves again when one gesture switches a Power Switch**: the Button sheet's Power Switches are one
+  list for every gesture, and each Control got all of it, so a press that toggles an outlet listed there was refused
+  ("is both what it drives and its power"). A Control now leaves its own targets out of its power, and keeps its saved
+  power only while it drives the same things.
 - **The Home Link no longer waits on devices that are not the bridge's**: an accessory of Apple Home that does not
   respond (a Matter light showing No Response) kept the link down, and its Pending Changes waiting, while one of the
   accessories Homeswift publishes on its own was not in Apple Home. It now waits only when Apple Home's manufacturer or
