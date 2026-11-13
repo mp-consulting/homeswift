@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Removing a group Apple Home already deleted is no longer "refused"**: when a plugin moves to a child bridge, Apple
+  Home deletes its groups, and the bridge's own removal of them, sent once the Home Link was back, showed as
+  "Apple Home refused: no group …". It now counts as done, and such a refusal already shown goes away.
+
 ## [0.31.1] - 2026-11-13
 
 ### Changed

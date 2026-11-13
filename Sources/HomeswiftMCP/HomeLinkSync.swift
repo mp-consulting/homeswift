@@ -66,6 +66,13 @@ public struct HomeLinkFile: Codable, Sendable, Equatable {
             }
         }
 
+        /// A group's removal, which a group Apple Home no longer has has already had (its accessories left the home, as
+        /// when a plugin moves to a child bridge): done, not refused.
+        var isGroupDeletion: Bool {
+            if case .deleteGroup = self { return true }
+            return false
+        }
+
         /// What it is about: the Rooms (by name), Zones, Groups or accessories it changes. A change that reaches Apple
         /// Home settles an earlier refusal about the same.
         var subjects: Set<String> {
@@ -393,6 +400,12 @@ extension HomeswiftCatalog {
             return group.members.count >= 2 ? group : nil
         }
         if groups != current { try setWallGroups(groups) }
+        // A removal refused before 0.31.2 of a group Apple Home no longer has is done after all: it stops being shown.
+        let gone = { (refused: HomeLinkFile.Refused) -> Bool in
+            guard case .deleteGroup(let id) = refused.change else { return false }
+            return !snapshot.groups.contains { $0.id == id }
+        }
+        if home.homeLink.value.refused.contains(where: gone) { try home.homeLink.update { $0.refused.removeAll(where: gone) } }
     }
 
     /// Puts these groups in place of the Groups (`home.json`), checked as the wall checks them.
@@ -557,8 +570,8 @@ extension HomeswiftCatalog {
             } catch let error as HomeChangeError where error.kind == .unreachable {
                 logger.info("Apple Home is not reachable: \(home.homeLink.value.pending.count) changes wait for it")
                 return refused
-            } catch let error as HomeChangeError where error.kind == .notFound && !change.isGroupChange {
-                // A move of an accessory Apple Home does not have (Not in Home), a room or zone already gone there.
+            } catch let error as HomeChangeError where error.kind == .notFound && (!change.isGroupChange || change.isGroupDeletion) {
+                // A move of an accessory Apple Home does not have (Not in Home), a room, zone or group already gone there.
                 logger.debug("\(change.described): no longer in Apple Home")
                 settleRefusals(of: change, keeping: refused)
             } catch {

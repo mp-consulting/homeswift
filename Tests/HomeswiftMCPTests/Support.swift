@@ -544,6 +544,8 @@ final class FakeHomeLink: @unchecked Sendable {
                 guard let index = state.home.groups.firstIndex(where: { $0.id == id }) else { throw HomeChangeError(.notFound, "no group") }
                 state.home.groups[index].name = name
             case .deleteGroup(let id):
+                // As Wingman: a group the home no longer has is a 404.
+                guard state.home.groups.contains(where: { $0.id == id }) else { throw HomeChangeError(.notFound, "no group \(id)") }
                 state.home.groups.removeAll { $0.id == id }
             case .setGroupMembers(let id, let add, let remove):
                 try have(add)
