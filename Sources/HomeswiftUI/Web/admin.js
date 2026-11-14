@@ -1493,6 +1493,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     targetController: t("Remote"), wifiRouter: t("Wi-Fi router"), audioReceiver: t("Audio receiver"), tvSetTopBox: t("Set-top box"),
     tvStreamingStick: t("Streaming stick") };
   const categoryName = (key = "") => categoryNames[key] ?? key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (first) => first.toUpperCase());
+  /// Whether `accessory` is of the device type `category` in a filter: a doorbell is a Camera too, its camera being one.
+  const hasCategory = (accessory, category) => accessory.category === category || ((category === "ipCamera" || category === "camera") && accessory.camera === true);
   /// The icon that stands for a device's category: its widget tile's, else a generic one.
   const deviceIcon = (category) => HomeswiftWidgets.categoryIcon(category) ?? "generic";
   /// An accessory's icon: the one its tile shows (its main service's widget, else its category's), else a generic one.
@@ -1783,7 +1785,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       keeps(leaf) {
         if (from && leaf.mirroredFrom !== from) return false;
         if (bridges.size && !bridges.has(leaf.bridge)) return false;
-        if (categories.size && !categories.has(leaf.category)) return false;
+        if (categories.size && ![...categories].some((category) => hasCategory(leaf, category))) return false;
         // As the wall's Online and No Response: a paused plugin's accessories do not answer either.
         if ((unavailable || online) && HomeswiftWidgets.answers(leaf) !== online) return false;
         if (!words.length) return true;
@@ -2427,5 +2429,5 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("tbody", {}, rows)));
   }
 
-  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, consumptionCards, confirmAction, categoryName, deviceIcon };
+  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, consumptionCards, confirmAction, categoryName, hasCategory, deviceIcon };
 })();

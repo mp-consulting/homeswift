@@ -1502,6 +1502,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     targetController: t("Remote"), wifiRouter: t("Wi-Fi router"), audioReceiver: t("Audio receiver"), tvSetTopBox: t("Set-top box"),
     tvStreamingStick: t("Streaming stick") };
   const categoryName = (key = "") => categoryNames[key] ?? key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (first) => first.toUpperCase());
+  /// Whether `accessory` is of the device type `category` in a filter: a doorbell is a Camera too, its camera being one.
+  const hasCategory = (accessory, category) => accessory.category === category || ((category === "ipCamera" || category === "camera") && accessory.camera === true);
   /// The icon that stands for a device's category: its widget tile's, else a generic one.
   const deviceIcon = (category) => HomeswiftWidgets.categoryIcon(category) ?? "generic";
   /// An accessory's icon: the one its tile shows (its main service's widget, else its category's), else a generic one.
@@ -1792,7 +1794,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       keeps(leaf) {
         if (from && leaf.mirroredFrom !== from) return false;
         if (bridges.size && !bridges.has(leaf.bridge)) return false;
-        if (categories.size && !categories.has(leaf.category)) return false;
+        if (categories.size && ![...categories].some((category) => hasCategory(leaf, category))) return false;
         // As the wall's Online and No Response: a paused plugin's accessories do not answer either.
         if ((unavailable || online) && HomeswiftWidgets.answers(leaf) !== online) return false;
         if (!words.length) return true;
@@ -2436,7 +2438,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("tbody", {}, rows)));
   }
 
-  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, consumptionCards, confirmAction, categoryName, deviceIcon };
+  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, consumptionCards, confirmAction, categoryName, hasCategory, deviceIcon };
 })();
 
 """#),
@@ -5873,17 +5875,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       api("/api/zones").then((answer) => answer.zones).catch(() => []), isAdmin() ? loadMatterOwn() : null]);
     const all = withSlugs(list, "accessory");
     const params = new URLSearchParams(location.search);
-    // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
-    const showHidden = params.get("hidden") === "1";
-    const noResponse = params.get("unavailable") === "1";
-    // Online (?online=1): the accessories that answer, the other side of No Response; the two never at once.
-    const online = !noResponse && params.get("online") === "1";
+    // The filters, read from the address again when one is chosen (`readFilters`): the wall is drawn again in place.
+    let showHidden, noResponse, online, from, chosen, accessories, servers, ordered;
     const { answers } = HomeswiftWidgets;
     // Full screen (?full=1): the widgets alone, a room or plugin a page when grouped; an address a wall tablet can open.
     const fullScreen = params.get("full") === "1";
     // The controllers some accessories mirror (Apple Home, through Wingman): each gets a filter.
     const sources = [...new Set(all.map((accessory) => accessory.mirroredFrom).filter(Boolean))];
-    const from = sources.includes(params.get("from")) ? params.get("from") : null;
     // The bridges and device types chosen (?bridge=…&type=…, each as often as chosen), as on the graph.
     // A server that is one accessory of its own (a camera, a television) is that accessory, filtered by its type, not a bridge.
     const ownServer = (name) => {
@@ -5894,27 +5892,38 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const categories = [...new Set(all.map((accessory) => accessory.category).filter(Boolean))]
       .sort((a, b) => HomeswiftAdmin.categoryName(a).localeCompare(HomeswiftAdmin.categoryName(b), HomeswiftI18n.locale));
     const zoneNames = zoneList.map((zone) => zone.name);
-    const chosen = { bridge: new Set(params.getAll("bridge").filter((name) => bridgeNames.includes(name))),
-      type: new Set(params.getAll("type").filter((category) => categories.includes(category))),
-      zone: new Set(params.getAll("zone").filter((name) => zoneNames.includes(name))) };
     // In a Zone: its room is one of the Zone's.
     const inZone = (accessory, name) => Boolean(accessory.room) && (zoneList.find((zone) => zone.name === name)?.rooms ?? []).includes(accessory.room);
+    // A device type keeps its kind; Camera keeps every camera, a doorbell's too.
     const keepsChosen = (accessory, except = null) => (except === "bridge" || !chosen.bridge.size || chosen.bridge.has(accessory.bridge))
-      && (except === "type" || !chosen.type.size || chosen.type.has(accessory.category))
+      && (except === "type" || !chosen.type.size || [...chosen.type].some((category) => HomeswiftAdmin.hasCategory(accessory, category)))
       && (except === "zone" || !chosen.zone.size || [...chosen.zone].some((name) => inZone(accessory, name)));
     const keepsShown = (accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || !answers(accessory)) && (!online || answers(accessory));
-    const accessories = all.filter((accessory) => keepsShown(accessory) && keepsChosen(accessory));
     const hiddenCount = all.filter((accessory) => accessory.hidden).length;
     const rooms = home.rooms.map((room) => room.name);
-    const servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
     const layout = { order: [], sizes: {}, defaults: {}, grouping: "none", ...saved };
-    const kinds = new Map(accessories.map((accessory) => [accessory.id, HomeswiftWidgets.kindOf(accessory)]));
+    const kinds = new Map(all.map((accessory) => [accessory.id, HomeswiftWidgets.kindOf(accessory)]));
     const kindOf = (accessory) => kinds.get(accessory.id).kind;
     const sizeOf = (accessory) => layout.sizes[accessory.id] || (accessory.members ? "large" : layout.defaults[kindOf(accessory)] || kinds.get(accessory.id).size);
-    // The order kept first; accessories it does not list yet after them, by plugin and name.
-    const rank = new Map(layout.order.map((id, index) => [id, index]));
-    const ordered = groupByPlugin(accessories).flatMap(([, group]) => group)
-      .map((accessory, index) => [accessory, rank.get(accessory.id) ?? layout.order.length + index]).sort((a, b) => a[1] - b[1]).map(([accessory]) => accessory);
+    function readFilters() {
+      const params = new URLSearchParams(location.search);
+      // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
+      showHidden = params.get("hidden") === "1";
+      noResponse = params.get("unavailable") === "1";
+      // Online (?online=1): the accessories that answer, the other side of No Response; the two never at once.
+      online = !noResponse && params.get("online") === "1";
+      from = sources.includes(params.get("from")) ? params.get("from") : null;
+      chosen = { bridge: new Set(params.getAll("bridge").filter((name) => bridgeNames.includes(name))),
+        type: new Set(params.getAll("type").filter((category) => categories.includes(category))),
+        zone: new Set(params.getAll("zone").filter((name) => zoneNames.includes(name))) };
+      accessories = all.filter((accessory) => keepsShown(accessory) && keepsChosen(accessory));
+      servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
+      // The order kept first; accessories it does not list yet after them, by plugin and name.
+      const rank = new Map(layout.order.map((id, index) => [id, index]));
+      ordered = groupByPlugin(accessories).flatMap(([, group]) => group)
+        .map((accessory, index) => [accessory, rank.get(accessory.id) ?? layout.order.length + index]).sort((a, b) => a[1] - b[1]).map(([accessory]) => accessory);
+    }
+    readFilters();
     const plugin = (accessory) => accessory.platformName ?? "";
     // What a widget may move beside when the wall is split: its plugin, or its room.
     const section = (accessory) => layout.grouping === "room" ? accessory.room ?? "" : plugin(accessory);
@@ -6575,48 +6584,68 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const canSuggest = isAdmin() && window.HomeswiftChat?.available() && all.length;
 
+    /// The filters in the address `next`, the page left as it is: the wall drawn again in place, the menu left open.
+    /// An empty wall or one filled again is a view of its own: drawn again from the start.
+    const setFilters = (next) => {
+      const wasEmpty = !accessories.length;
+      history.replaceState(history.state, "", `/accessories${next.size ? `?${next}` : ""}`);
+      readFilters();
+      if (wasEmpty || !accessories.length) { route(); return; }
+      render();
+      subtitle.textContent = headline();
+      paintFilters();
+      // Scrolled down a long wall: the top of a shorter one, its count in the head.
+      if (content.getBoundingClientRect().top < 0) window.scrollTo({ top: 0, behavior: "instant" });
+    };
     /// One filter on or off; `clears` are the filters it cannot go with (Online and No Response).
     const changeFilter = (key, value, enabled, clears = []) => {
       const next = new URLSearchParams(location.search);
       for (const other of clears) next.delete(other);
       if (enabled) next.set(key, value); else next.delete(key);
-      navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+      setFilters(next);
     };
     const searchCount = (predicate) => all.filter((accessory) => predicate(accessory) && HomeswiftWidgets.searchText(accessory).includes(search.value.trim().toLowerCase())).length;
-    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + Number(online) + chosen.bridge.size + chosen.type.size + chosen.zone.size;
+    const activeFilters = () => Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + Number(online) + chosen.bridge.size + chosen.type.size + chosen.zone.size;
     // A bridge, device type or Zone: a toggle in the address, counting what it would add with the other filters as they are.
-    const matchesChoice = (accessory, key, value) => key === "zone" ? inZone(accessory, value) : (key === "bridge" ? accessory.bridge : accessory.category) === value;
-    const choice = (key, value, label, icon) => ({ label, icon, checked: chosen[key].has(value), checkbox: true, toggle: true,
-      count: searchCount((accessory) => keepsShown(accessory) && keepsChosen(accessory, key) && matchesChoice(accessory, key, value)),
+    const matchesChoice = (accessory, key, value) => key === "zone" ? inZone(accessory, value) : key === "bridge" ? accessory.bridge === value : HomeswiftAdmin.hasCategory(accessory, value);
+    // A toggle keeps the menu open: its ticks and counts follow the filters chosen.
+    const choice = (key, value, label, icon) => ({ label, icon, checked: () => chosen[key].has(value), checkbox: true, toggle: true, keepOpen: true,
+      count: () => searchCount((accessory) => keepsShown(accessory) && keepsChosen(accessory, key) && matchesChoice(accessory, key, value)),
       onSelect: () => {
         const next = new URLSearchParams(location.search);
         const values = new Set(chosen[key]);
         if (!values.delete(value)) values.add(value);
         next.delete(key);
         for (const one of values) next.append(key, one);
-        navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+        setFilters(next);
       } });
-    const filters = el("button", { type: "button", class: `accessories-filters${activeFilters ? " on" : ""}`, "aria-haspopup": "menu" },
-      HomeswiftCommon.icon("filter"), el("span", { class: "toolbar-label", text: t("Filters") }), activeFilters ? el("span", { class: "toolbar-count", text: activeFilters }) : null);
+    const filters = el("button", { type: "button", class: "accessories-filters", "aria-haspopup": "menu" });
+    function paintFilters() {
+      const active = activeFilters();
+      filters.classList.toggle("on", active > 0);
+      filters.replaceChildren(HomeswiftCommon.icon("filter"), el("span", { class: "toolbar-label", text: t("Filters") }), active ? el("span", { class: "toolbar-count", text: active }) : null);
+    }
+    paintFilters();
     filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [
-      ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), count: searchCount((accessory) => accessory.mirroredFrom === source), checked: from === source, checkbox: true, toggle: true,
+      ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), count: () => searchCount((accessory) => accessory.mirroredFrom === source), checked: () => from === source,
+        checkbox: true, toggle: true, keepOpen: true,
         icon: source === "Apple Home" ? el("img", { src: "/apple-home.png", width: 20, height: 20, alt: "" }) : null,
         onSelect: () => changeFilter("from", source, from !== source) })),
-      { label: t("Online"), icon: "check", tone: "ok", count: searchCount(answers), checked: online, checkbox: true, toggle: true, onSelect: () => changeFilter("online", "1", !online, ["unavailable"]) },
-      { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => !answers(accessory)), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse, ["online"]) },
-      ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
+      { label: t("Online"), icon: "check", tone: "ok", count: () => searchCount(answers), checked: () => online, checkbox: true, toggle: true, keepOpen: true, onSelect: () => changeFilter("online", "1", !online, ["unavailable"]) },
+      { label: t("No Response"), icon: "warning", tone: "error", count: () => searchCount((accessory) => !answers(accessory)), checked: () => noResponse, checkbox: true, toggle: true, keepOpen: true, onSelect: () => changeFilter("unavailable", "1", !noResponse, ["online"]) },
+      ...(hiddenCount ? [{ label: t("Show hidden"), count: () => searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: () => showHidden, checkbox: true, toggle: true, keepOpen: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
       ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, "bridge"))] : []),
       ...(categories.length ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
       ...(zoneNames.length ? [{ separator: true }, ...zoneNames.map((name) => choice("zone", name, name, "grid"))] : []),
       { separator: true },
-      { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && activeFilters === 0, onSelect: () => {
+      { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: () => !search.value && activeFilters() === 0, onSelect: () => {
         search.value = "";
         replaceQuery("q", "");
-        if (activeFilters) {
+        if (activeFilters()) {
           const next = new URLSearchParams(location.search);
           // Every filter but the search, cleared above, and the graph's arrangement, which is no filter.
           for (const key of accessoryFilterKeys.filter((key) => key !== "q" && key !== "by")) next.delete(key);
-          navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+          setFilters(next);
         } else filter();
       } },
     ]));
@@ -6750,10 +6779,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       addEventListener("resize", onResize);
     }
     render();
+    const headline = () => !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
+      : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
+      : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers });
+    const head = pageHead(t("Accessories"), headline());
+    const subtitle = head.querySelector(".who p") ?? el("p");
     show(main,
-      pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
-        : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
-        : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers })),
+      head,
       accessoriesBar(el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more),
         accessoryTabs("", accessories.length ? fullScreenButton : null, addButton)),
       note,
@@ -12098,7 +12130,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const role = choice ? (item.checkbox ? "menuitemcheckbox" : "menuitemradio") : "menuitem";
       const tick = item.toggle ? el("span", { class: "menu-toggle", "aria-hidden": "true" }, el("span"))
         : choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: mark(checkedNow()) }) : null;
-      const count = item.count === undefined ? null : el("span", { class: "menu-item-count", text: String(item.count) });
+      // `count` may be a function too, asked again with `checked` (a filter's count follows the others chosen).
+      const countNow = () => typeof item.count === "function" ? item.count() : item.count;
+      const count = item.count === undefined ? null : el("span", { class: "menu-item-count", text: String(countNow()) });
       const node = item.href
         ? el("a", { role, href: item.href, class: item.danger ? "danger" : item.accent ? "accent" : "", tabIndex: -1 }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick)
         : el("button", { type: "button", role, class: item.danger ? "danger" : item.accent ? "accent" : "", tabIndex: -1, "aria-checked": choice ? String(checkedNow()) : null }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick);
@@ -12106,11 +12140,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // A Group's member, under its row.
       if (item.nested) node.classList.add("menu-nested");
       if (typeof item.checked === "function") refreshChecked.push(() => paint(checkedNow()));
-      const isDisabled = () => (typeof item.disabled === "function" ? item.disabled() : Boolean(item.disabled)) || (item.count === 0 && item.checked === false);
+      if (typeof item.count === "function") refreshChecked.push(() => { count.textContent = String(countNow()); });
+      const isDisabled = () => (typeof item.disabled === "function" ? item.disabled() : Boolean(item.disabled)) || (countNow() === 0 && checkedNow() === false);
       const updateDisabled = () => {
         if (isDisabled()) node.setAttribute("aria-disabled", "true"); else node.removeAttribute("aria-disabled");
         if (node.tagName === "BUTTON") node.disabled = isDisabled();
-        node.title = isDisabled() && item.count === 0 ? (item.disabledReason || t("No accessories match the current search.")) : "";
+        node.title = isDisabled() && countNow() === 0 ? (item.disabledReason || t("No accessories match the current search.")) : "";
       };
       updateDisabled();
       refreshDisabled.push(updateDisabled);
@@ -12173,6 +12208,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const checked = await item.onSelect?.();
           if (typeof checked === "boolean") paint(checked);
           refreshChecked.forEach((update) => update());
+          refreshDisabled.forEach((update) => update());
         } finally { pending = false; node.removeAttribute("aria-busy"); }
       });
       // A room heading's name is searched too ("kitchen" finds its lights), and an item's `search` words (a Group's

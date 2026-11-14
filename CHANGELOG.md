@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Accessories page's Filters menu filters in place**: choosing a bridge, a device type, a Zone, Online, No
+  Response or Show hidden redraws the wall without loading the page again, keeps the menu open with its ticks and
+  counts following, and brings a long wall back to its top. Before, the page reloaded, the menu closed and a wall
+  scrolled down showed only the end of what was left.
+- **The Camera filter keeps doorbells**: a doorbell's camera is a Camera too, on the wall and on the Graph.
+
 ## [0.32.0] - 2026-11-14
 
 ### Added
