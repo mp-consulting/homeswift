@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-11-14
+
 ### Added
 
 - **Voice transcription on the bridge**: a `transcription` in the HomeswiftAiKit block (an OpenAI-compatible
@@ -2797,7 +2799,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.33.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.34.0...HEAD
+[0.34.0]: https://github.com/mp-consulting/homeswift/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/mp-consulting/homeswift/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/mp-consulting/homeswift/compare/v0.31.1...v0.32.0
 [0.31.1]: https://github.com/mp-consulting/homeswift/compare/v0.31.0...v0.31.1
