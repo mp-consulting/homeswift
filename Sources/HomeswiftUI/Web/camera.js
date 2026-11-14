@@ -178,12 +178,15 @@
   // Milliseconds of audio per message: short over the WebSocket, longer per request. Audio waits at most TALK_BACKLOG
   // milliseconds to go, the rest dropped, so speech stays live. The WebSocket has SOCKET_WAIT to open before requests
   // take over.
-  const SOCKET_CHUNK = 40, REQUEST_CHUNK = 100, TALK_BACKLOG = 1000, SOCKET_WAIT = 3000;
+  // A failure's reason stays FAILURE_HOLD milliseconds beside the buttons: long enough to read why the button went off.
+  const SOCKET_CHUNK = 40, REQUEST_CHUNK = 100, TALK_BACKLOG = 1000, SOCKET_WAIT = 3000, FAILURE_HOLD = 8000;
 
   /// The microphone of a camera with a speaker (`talk` in /api/cameras/<id>/controls): a button that starts and stops
   /// a Talk. The microphone is resampled to the camera's rate by talk-worklet.js and sent over a WebSocket
   /// (/api/cameras/<id>/talk), or, when none opens (a proxy that does not pass them), in short requests one after the
-  /// other. `hooks.started()` and `hooks.stopped()` let the view quiet the camera's own sound meanwhile.
+  /// other. `hooks.started()` and `hooks.stopped()` let the view quiet the camera's own sound meanwhile. The button turns
+  /// red only once the bridge has started the Talk and the microphone runs: until then it waits (a tap cancels), and a
+  /// refusal (someone else talking, the camera unreachable) leaves it off, its reason held beside the buttons.
   function talker(camera, url, setStatus, ask, hooks) {
     // The rate the camera takes once asked; false for a camera without a speaker, which is not asked again.
     let format = null, session = null;
@@ -191,10 +194,13 @@
     toggle.classList.add("hidden", "talk-toggle");
     toggle.setAttribute("aria-pressed", "false");
 
-    function mark(on) {
-      const label = on ? t("Stop talking") : t("Talk");
-      toggle.classList.toggle("talking", on);
-      toggle.setAttribute("aria-pressed", String(on));
+    // "off", "starting" (asked, not yet talking) or "on".
+    function mark(state) {
+      const label = state === "off" ? t("Talk") : t("Stop talking");
+      toggle.classList.toggle("talking", state === "on");
+      toggle.classList.toggle("starting", state === "starting");
+      toggle.setAttribute("aria-pressed", String(state === "on"));
+      toggle.setAttribute("aria-busy", String(state === "starting"));
       toggle.setAttribute("aria-label", label);
       toggle.title = label;
     }
@@ -206,10 +212,9 @@
         setStatus(window.isSecureContext ? t("This browser cannot use the microphone") : t("The microphone needs the web UI over HTTPS"), true);
         return;
       }
-      const current = { id: null, seq: 0, queue: [], sending: false, ended: false, socket: null };
+      const current = { id: null, seq: 0, queue: [], sending: false, ended: false, talking: false, socket: null };
       session = current;
-      mark(true);
-      hooks.started();
+      mark("starting");
       setStatus(t("Starting the microphone…"));
       try {
         // Made during the click, so Safari lets it run.
@@ -239,6 +244,9 @@
         const silent = current.context.createGain();
         silent.gain.value = 0;
         source.connect(current.node).connect(silent).connect(current.context.destination);
+        current.talking = true;
+        mark("on");
+        hooks.started();
         setStatus(t("Talking on {name}", { name: camera.name }));
       } catch (error) {
         if (current.ended) return;
@@ -326,8 +334,8 @@
       current.socket?.close(1000);
       if (session === current) {
         session = null;
-        mark(false);
-        hooks.stopped();
+        mark("off");
+        if (current.talking) hooks.stopped();
       }
     }
     // Over requests, the end follows what is still on its way; a Talk still starting is ended once its id comes (start).
@@ -339,7 +347,7 @@
     function fail(current, text) {
       release(current);
       current.queue.length = 0;
-      setStatus(text, true);
+      setStatus(text, true, FAILURE_HOLD);
     }
     function stop() {
       const current = session;
@@ -421,12 +429,13 @@
     const url = (what, query = "") => `/api/cameras/${encodeURIComponent(camera.id)}/${what}${query}`;
     // What the camera is doing after a pan or tilt or with the microphone: under way, or why it did not.
     const ptzStatus = el("span", { class: "ptz-status hidden", role: "status", "aria-live": "polite" });
-    const setStatus = (text, failed = false) => {
+    // A failure shows for `hold` milliseconds.
+    const setStatus = (text, failed = false, hold = 4000) => {
       ptzStatus.textContent = text;
       ptzStatus.classList.toggle("hidden", !text);
       ptzStatus.classList.toggle("failed", failed);
       clearTimeout(ptzStatus.timer);
-      if (failed) ptzStatus.timer = setTimeout(() => ptzStatus.classList.add("hidden"), 4000);
+      if (failed) ptzStatus.timer = setTimeout(() => ptzStatus.classList.add("hidden"), hold);
     };
     // What the live view's buttons can do (/api/cameras/<id>/controls), asked once for both: the answer, false for a
     // camera that neither moves nor talks or a read-only user, undefined when it could not be asked (asked again later).

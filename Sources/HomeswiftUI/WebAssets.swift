@@ -9629,12 +9629,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // Milliseconds of audio per message: short over the WebSocket, longer per request. Audio waits at most TALK_BACKLOG
   // milliseconds to go, the rest dropped, so speech stays live. The WebSocket has SOCKET_WAIT to open before requests
   // take over.
-  const SOCKET_CHUNK = 40, REQUEST_CHUNK = 100, TALK_BACKLOG = 1000, SOCKET_WAIT = 3000;
+  // A failure's reason stays FAILURE_HOLD milliseconds beside the buttons: long enough to read why the button went off.
+  const SOCKET_CHUNK = 40, REQUEST_CHUNK = 100, TALK_BACKLOG = 1000, SOCKET_WAIT = 3000, FAILURE_HOLD = 8000;
 
   /// The microphone of a camera with a speaker (`talk` in /api/cameras/<id>/controls): a button that starts and stops
   /// a Talk. The microphone is resampled to the camera's rate by talk-worklet.js and sent over a WebSocket
   /// (/api/cameras/<id>/talk), or, when none opens (a proxy that does not pass them), in short requests one after the
-  /// other. `hooks.started()` and `hooks.stopped()` let the view quiet the camera's own sound meanwhile.
+  /// other. `hooks.started()` and `hooks.stopped()` let the view quiet the camera's own sound meanwhile. The button turns
+  /// red only once the bridge has started the Talk and the microphone runs: until then it waits (a tap cancels), and a
+  /// refusal (someone else talking, the camera unreachable) leaves it off, its reason held beside the buttons.
   function talker(camera, url, setStatus, ask, hooks) {
     // The rate the camera takes once asked; false for a camera without a speaker, which is not asked again.
     let format = null, session = null;
@@ -9642,10 +9645,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     toggle.classList.add("hidden", "talk-toggle");
     toggle.setAttribute("aria-pressed", "false");
 
-    function mark(on) {
-      const label = on ? t("Stop talking") : t("Talk");
-      toggle.classList.toggle("talking", on);
-      toggle.setAttribute("aria-pressed", String(on));
+    // "off", "starting" (asked, not yet talking) or "on".
+    function mark(state) {
+      const label = state === "off" ? t("Talk") : t("Stop talking");
+      toggle.classList.toggle("talking", state === "on");
+      toggle.classList.toggle("starting", state === "starting");
+      toggle.setAttribute("aria-pressed", String(state === "on"));
+      toggle.setAttribute("aria-busy", String(state === "starting"));
       toggle.setAttribute("aria-label", label);
       toggle.title = label;
     }
@@ -9657,10 +9663,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         setStatus(window.isSecureContext ? t("This browser cannot use the microphone") : t("The microphone needs the web UI over HTTPS"), true);
         return;
       }
-      const current = { id: null, seq: 0, queue: [], sending: false, ended: false, socket: null };
+      const current = { id: null, seq: 0, queue: [], sending: false, ended: false, talking: false, socket: null };
       session = current;
-      mark(true);
-      hooks.started();
+      mark("starting");
       setStatus(t("Starting the microphone…"));
       try {
         // Made during the click, so Safari lets it run.
@@ -9690,6 +9695,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const silent = current.context.createGain();
         silent.gain.value = 0;
         source.connect(current.node).connect(silent).connect(current.context.destination);
+        current.talking = true;
+        mark("on");
+        hooks.started();
         setStatus(t("Talking on {name}", { name: camera.name }));
       } catch (error) {
         if (current.ended) return;
@@ -9777,8 +9785,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       current.socket?.close(1000);
       if (session === current) {
         session = null;
-        mark(false);
-        hooks.stopped();
+        mark("off");
+        if (current.talking) hooks.stopped();
       }
     }
     // Over requests, the end follows what is still on its way; a Talk still starting is ended once its id comes (start).
@@ -9790,7 +9798,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     function fail(current, text) {
       release(current);
       current.queue.length = 0;
-      setStatus(text, true);
+      setStatus(text, true, FAILURE_HOLD);
     }
     function stop() {
       const current = session;
@@ -9872,12 +9880,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const url = (what, query = "") => `/api/cameras/${encodeURIComponent(camera.id)}/${what}${query}`;
     // What the camera is doing after a pan or tilt or with the microphone: under way, or why it did not.
     const ptzStatus = el("span", { class: "ptz-status hidden", role: "status", "aria-live": "polite" });
-    const setStatus = (text, failed = false) => {
+    // A failure shows for `hold` milliseconds.
+    const setStatus = (text, failed = false, hold = 4000) => {
       ptzStatus.textContent = text;
       ptzStatus.classList.toggle("hidden", !text);
       ptzStatus.classList.toggle("failed", failed);
       clearTimeout(ptzStatus.timer);
-      if (failed) ptzStatus.timer = setTimeout(() => ptzStatus.classList.add("hidden"), 4000);
+      if (failed) ptzStatus.timer = setTimeout(() => ptzStatus.classList.add("hidden"), hold);
     };
     // What the live view's buttons can do (/api/cameras/<id>/controls), asked once for both: the answer, false for a
     // camera that neither moves nor talks or a read-only user, undefined when it could not be asked (asked again later).
@@ -39399,6 +39408,10 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 /* The microphone while it is on: red and breathing, so nobody forgets it; the controls stay in view meanwhile. */
 .camera-button.talking { background: #ff453a; border-color: transparent; color: #fff; animation: talk-pulse 1.6s ease-in-out infinite; }
 @keyframes talk-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 69, 58, 0.55); } 50% { box-shadow: 0 0 0 7px rgba(255, 69, 58, 0); } }
+/* Asked, not yet talking: the microphone dims in and out until the bridge has started the Talk, then turns red. */
+.camera-button.starting { cursor: progress; }
+.camera-button.starting svg { animation: talk-wait 1s ease-in-out infinite; }
+@keyframes talk-wait { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .camera-view:has(.camera-button.talking) > .camera-controls { opacity: 1; }
 /* Pan and tilt: a pad to press or drag like a joystick over the picture's lower right, under the thumb of the hand that
    holds a phone and beside the button that opens it, the presets on its left. */
@@ -39475,7 +39488,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 }
 @media (pointer: coarse) { .camera-button { width: 40px; height: 40px; min-height: 40px; } }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .camera-view { margin: -6px -8px 0; } }
-@media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh, .camera-button.talking { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh, .camera-button.talking, .camera-button.starting svg { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
 @media (prefers-reduced-transparency: reduce) {
   .camera-badge, .camera-button { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(20, 22, 28, 0.85); }
   .camera-button.talking { background: #ff453a; }
