@@ -180,6 +180,73 @@
   // take over.
   // A failure's reason stays FAILURE_HOLD milliseconds beside the buttons: long enough to read why the button went off.
   const SOCKET_CHUNK = 40, REQUEST_CHUNK = 100, TALK_BACKLOG = 1000, SOCKET_WAIT = 3000, FAILURE_HOLD = 8000;
+  // The waveform while someone talks: WAVE_BARS bars, one more every WAVE_STEP milliseconds, the newest on the right.
+  const WAVE_BARS = 28, WAVE_STEP = 50;
+
+  /// The microphone's level as the Home app shows it while someone talks: bars that rise with each syllable, fall in
+  /// the pauses and scroll left. The scale follows the voice: its floor the room's quiet (down at once, up slowly), its
+  /// top the voice's recent peaks (up at once, down slowly), so a soft voice moves the bars as much as a loud one and a
+  /// steady noise stays low. `start(analyser)` follows an AnalyserNode on the microphone; `stop()` clears it.
+  function waveform() {
+    const canvas = el("canvas", { class: "talk-wave hidden", "aria-hidden": "true" });
+    let frame = 0, levels = [], last = 0, samples = null, floor = -60, peak = -30;
+    function draw() {
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.round(canvas.clientWidth * ratio), height = Math.round(canvas.clientHeight * ratio);
+      if (!width || !height) return;
+      if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+      const context = canvas.getContext("2d");
+      context.clearRect(0, 0, width, height);
+      const pitch = width / WAVE_BARS, bar = Math.max(1, pitch * 0.5), floor = 2 * ratio;
+      levels.forEach((level, index) => {
+        const h = Math.max(floor, level * (height - 4 * ratio));
+        const x = width - (levels.length - index) * pitch + (pitch - bar) / 2;
+        context.globalAlpha = 0.5 + 0.5 * level;
+        context.fillStyle = "#fff";
+        context.beginPath();
+        context.roundRect(x, (height - h) / 2, bar, h, bar / 2);
+        context.fill();
+      });
+    }
+    return {
+      canvas,
+      start(analyser) {
+        samples = new Float32Array(analyser.fftSize);
+        levels = Array(WAVE_BARS).fill(0);
+        floor = -60;
+        peak = -30;
+        canvas.classList.remove("hidden");
+        const tick = (now) => {
+          if (now - last >= WAVE_STEP) {
+            last = now;
+            analyser.getFloatTimeDomainData(samples);
+            let sum = 0;
+            for (const sample of samples) sum += sample * sample;
+            const decibels = Math.max(-90, 20 * Math.log10(Math.sqrt(sum / samples.length) || 1e-6));
+            // Digital silence (a microphone starting, muted) is no sound at all: it would drag the floor far below the
+            // room's quiet, every pause then reading as speech until it climbed back.
+            if (decibels > -80) {
+              // The room's quiet: down at once, up 0.3 dB a step (3 s to rise 18 dB), never above a speaking voice.
+              floor = Math.min(decibels, floor + 0.3, -25);
+              // The voice's peaks: up at once, down 0.25 dB a step; at least 20 dB above the floor.
+              peak = Math.max(decibels, peak - 0.25, floor + 20);
+            }
+            // Above the floor's margin, over the range to the peak; squared, so a syllable stands out from its tail.
+            const level = Math.min(1, Math.max(0, (decibels - floor - 4) / (peak - floor - 4)));
+            levels.push(level * level);
+            levels.shift();
+            draw();
+          }
+          frame = requestAnimationFrame(tick);
+        };
+        frame = requestAnimationFrame(tick);
+      },
+      stop() {
+        cancelAnimationFrame(frame);
+        canvas.classList.add("hidden");
+      },
+    };
+  }
 
   /// The microphone of a camera with a speaker (`talk` in /api/cameras/<id>/controls): a button that starts and stops
   /// a Talk. The microphone is resampled to the camera's rate by talk-worklet.js and sent over a WebSocket
@@ -192,6 +259,9 @@
     let format = null, session = null;
     const toggle = button("mic", t("Talk"), () => (session ? stop() : start()));
     toggle.classList.add("hidden", "talk-toggle");
+    // The waveform is the button's: it widens into a pill around it while someone talks.
+    const wave = waveform();
+    toggle.append(wave.canvas);
     toggle.setAttribute("aria-pressed", "false");
 
     // "off", "starting" (asked, not yet talking) or "on".
@@ -244,10 +314,18 @@
         const silent = current.context.createGain();
         silent.gain.value = 0;
         source.connect(current.node).connect(silent).connect(current.context.destination);
+        // The waveform follows the same microphone.
+        const analyser = current.context.createAnalyser();
+        // 2048 samples: 43 ms at 48 kHz, the length of a bar's step, so every bar sees all of its sound.
+        analyser.fftSize = 2048;
+        source.connect(analyser);
         current.talking = true;
         mark("on");
         hooks.started();
-        setStatus(t("Talking on {name}", { name: camera.name }));
+        // The waveform says it is on; the name is the button's, for a screen reader.
+        setStatus("");
+        toggle.setAttribute("aria-label", t("Stop talking on {name}", { name: camera.name }));
+        wave.start(analyser);
       } catch (error) {
         if (current.ended) return;
         const blocked = error?.name === "NotAllowedError" || error?.name === "SecurityError";
@@ -327,6 +405,7 @@
 
     function release(current) {
       current.ended = true;
+      if (session === current) wave.stop();
       current.node?.port.close();
       current.stream?.getTracks().forEach((track) => track.stop());
       current.context?.close().catch(() => {});
@@ -432,6 +511,8 @@
     // A failure shows for `hold` milliseconds.
     const setStatus = (text, failed = false, hold = 4000) => {
       ptzStatus.textContent = text;
+      // Two lines at most beside the buttons: the whole of a longer one on hover.
+      ptzStatus.title = text;
       ptzStatus.classList.toggle("hidden", !text);
       ptzStatus.classList.toggle("failed", failed);
       clearTimeout(ptzStatus.timer);

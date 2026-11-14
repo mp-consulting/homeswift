@@ -3096,7 +3096,7 @@ HomeswiftI18n.add("fr", {
   "This browser cannot use the microphone": "Ce navigateur ne peut pas utiliser le micro",
   "The microphone needs the web UI over HTTPS": "Le micro demande l’interface web en HTTPS",
   "Starting the microphone…": "Démarrage du micro…",
-  "Talking on {name}": "Vous parlez sur {name}",
+  "Stop talking on {name}": "Arrêter de parler sur {name}",
   "The microphone is blocked for this page": "Le micro est bloqué pour cette page",
   "No microphone found": "Aucun micro trouvé",
   "The camera could not take the microphone": "La caméra n’a pas pu prendre le micro",

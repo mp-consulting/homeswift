@@ -307,7 +307,8 @@ screenshots, and what a plugin does to get good ones.
   `{"preset": "<id>"}` or `{"home": true}`; both for users who may control accessories, not read-only tokens). On the
   wall, only a large camera tile has it. A camera with a speaker (UniFi Protect with two-way audio, Reolink, IMOU, an
   IP camera with a `returnAudioTarget`) gets a **Talk** button: it turns the browser's microphone on and sends what it
-  hears to the camera's speaker until pressed again or the view leaves the screen, red while it is on. Browsers give
+  hears to the camera's speaker until pressed again or the view leaves the screen, widening while it is on into a red
+  pill with the microphone's level as a waveform, as in the Home app. Browsers give
   the microphone to HTTPS pages (or localhost) only, so on plain HTTP the button says so. While someone talks, the
   camera's own sound is muted, so its speaker does not come back through the microphones as an echo; it comes back on
   afterwards, unless they turned it on meanwhile (with headphones); the browser's echo cancellation stays on too. The

@@ -9678,6 +9678,73 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // take over.
   // A failure's reason stays FAILURE_HOLD milliseconds beside the buttons: long enough to read why the button went off.
   const SOCKET_CHUNK = 40, REQUEST_CHUNK = 100, TALK_BACKLOG = 1000, SOCKET_WAIT = 3000, FAILURE_HOLD = 8000;
+  // The waveform while someone talks: WAVE_BARS bars, one more every WAVE_STEP milliseconds, the newest on the right.
+  const WAVE_BARS = 28, WAVE_STEP = 50;
+
+  /// The microphone's level as the Home app shows it while someone talks: bars that rise with each syllable, fall in
+  /// the pauses and scroll left. The scale follows the voice: its floor the room's quiet (down at once, up slowly), its
+  /// top the voice's recent peaks (up at once, down slowly), so a soft voice moves the bars as much as a loud one and a
+  /// steady noise stays low. `start(analyser)` follows an AnalyserNode on the microphone; `stop()` clears it.
+  function waveform() {
+    const canvas = el("canvas", { class: "talk-wave hidden", "aria-hidden": "true" });
+    let frame = 0, levels = [], last = 0, samples = null, floor = -60, peak = -30;
+    function draw() {
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.round(canvas.clientWidth * ratio), height = Math.round(canvas.clientHeight * ratio);
+      if (!width || !height) return;
+      if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+      const context = canvas.getContext("2d");
+      context.clearRect(0, 0, width, height);
+      const pitch = width / WAVE_BARS, bar = Math.max(1, pitch * 0.5), floor = 2 * ratio;
+      levels.forEach((level, index) => {
+        const h = Math.max(floor, level * (height - 4 * ratio));
+        const x = width - (levels.length - index) * pitch + (pitch - bar) / 2;
+        context.globalAlpha = 0.5 + 0.5 * level;
+        context.fillStyle = "#fff";
+        context.beginPath();
+        context.roundRect(x, (height - h) / 2, bar, h, bar / 2);
+        context.fill();
+      });
+    }
+    return {
+      canvas,
+      start(analyser) {
+        samples = new Float32Array(analyser.fftSize);
+        levels = Array(WAVE_BARS).fill(0);
+        floor = -60;
+        peak = -30;
+        canvas.classList.remove("hidden");
+        const tick = (now) => {
+          if (now - last >= WAVE_STEP) {
+            last = now;
+            analyser.getFloatTimeDomainData(samples);
+            let sum = 0;
+            for (const sample of samples) sum += sample * sample;
+            const decibels = Math.max(-90, 20 * Math.log10(Math.sqrt(sum / samples.length) || 1e-6));
+            // Digital silence (a microphone starting, muted) is no sound at all: it would drag the floor far below the
+            // room's quiet, every pause then reading as speech until it climbed back.
+            if (decibels > -80) {
+              // The room's quiet: down at once, up 0.3 dB a step (3 s to rise 18 dB), never above a speaking voice.
+              floor = Math.min(decibels, floor + 0.3, -25);
+              // The voice's peaks: up at once, down 0.25 dB a step; at least 20 dB above the floor.
+              peak = Math.max(decibels, peak - 0.25, floor + 20);
+            }
+            // Above the floor's margin, over the range to the peak; squared, so a syllable stands out from its tail.
+            const level = Math.min(1, Math.max(0, (decibels - floor - 4) / (peak - floor - 4)));
+            levels.push(level * level);
+            levels.shift();
+            draw();
+          }
+          frame = requestAnimationFrame(tick);
+        };
+        frame = requestAnimationFrame(tick);
+      },
+      stop() {
+        cancelAnimationFrame(frame);
+        canvas.classList.add("hidden");
+      },
+    };
+  }
 
   /// The microphone of a camera with a speaker (`talk` in /api/cameras/<id>/controls): a button that starts and stops
   /// a Talk. The microphone is resampled to the camera's rate by talk-worklet.js and sent over a WebSocket
@@ -9690,6 +9757,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let format = null, session = null;
     const toggle = button("mic", t("Talk"), () => (session ? stop() : start()));
     toggle.classList.add("hidden", "talk-toggle");
+    // The waveform is the button's: it widens into a pill around it while someone talks.
+    const wave = waveform();
+    toggle.append(wave.canvas);
     toggle.setAttribute("aria-pressed", "false");
 
     // "off", "starting" (asked, not yet talking) or "on".
@@ -9742,10 +9812,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const silent = current.context.createGain();
         silent.gain.value = 0;
         source.connect(current.node).connect(silent).connect(current.context.destination);
+        // The waveform follows the same microphone.
+        const analyser = current.context.createAnalyser();
+        // 2048 samples: 43 ms at 48 kHz, the length of a bar's step, so every bar sees all of its sound.
+        analyser.fftSize = 2048;
+        source.connect(analyser);
         current.talking = true;
         mark("on");
         hooks.started();
-        setStatus(t("Talking on {name}", { name: camera.name }));
+        // The waveform says it is on; the name is the button's, for a screen reader.
+        setStatus("");
+        toggle.setAttribute("aria-label", t("Stop talking on {name}", { name: camera.name }));
+        wave.start(analyser);
       } catch (error) {
         if (current.ended) return;
         const blocked = error?.name === "NotAllowedError" || error?.name === "SecurityError";
@@ -9825,6 +9903,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     function release(current) {
       current.ended = true;
+      if (session === current) wave.stop();
       current.node?.port.close();
       current.stream?.getTracks().forEach((track) => track.stop());
       current.context?.close().catch(() => {});
@@ -9930,6 +10009,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // A failure shows for `hold` milliseconds.
     const setStatus = (text, failed = false, hold = 4000) => {
       ptzStatus.textContent = text;
+      // Two lines at most beside the buttons: the whole of a longer one on hover.
+      ptzStatus.title = text;
       ptzStatus.classList.toggle("hidden", !text);
       ptzStatus.classList.toggle("failed", failed);
       clearTimeout(ptzStatus.timer);
@@ -24304,7 +24385,7 @@ HomeswiftI18n.add("es", {
   "This browser cannot use the microphone": "Este navegador no puede usar el micrófono",
   "The microphone needs the web UI over HTTPS": "El micrófono requiere la interfaz web por HTTPS",
   "Starting the microphone…": "Iniciando el micrófono…",
-  "Talking on {name}": "Hablando por {name}",
+  "Stop talking on {name}": "Dejar de hablar por {name}",
   "The microphone is blocked for this page": "El micrófono está bloqueado para esta página",
   "No microphone found": "No se encontró ningún micrófono",
   "The camera could not take the microphone": "La cámara no pudo recibir el micrófono",
@@ -28091,7 +28172,7 @@ HomeswiftI18n.add("fr", {
   "This browser cannot use the microphone": "Ce navigateur ne peut pas utiliser le micro",
   "The microphone needs the web UI over HTTPS": "Le micro demande l’interface web en HTTPS",
   "Starting the microphone…": "Démarrage du micro…",
-  "Talking on {name}": "Vous parlez sur {name}",
+  "Stop talking on {name}": "Arrêter de parler sur {name}",
   "The microphone is blocked for this page": "Le micro est bloqué pour cette page",
   "No microphone found": "Aucun micro trouvé",
   "The camera could not take the microphone": "La caméra n’a pas pu prendre le micro",
@@ -31878,7 +31959,7 @@ HomeswiftI18n.add("pt", {
   "This browser cannot use the microphone": "Este navegador não pode usar o microfone",
   "The microphone needs the web UI over HTTPS": "O microfone requer a interface web por HTTPS",
   "Starting the microphone…": "A iniciar o microfone…",
-  "Talking on {name}": "A falar por {name}",
+  "Stop talking on {name}": "Parar de falar por {name}",
   "The microphone is blocked for this page": "O microfone está bloqueado para esta página",
   "No microphone found": "Nenhum microfone encontrado",
   "The camera could not take the microphone": "A câmara não conseguiu receber o microfone",
@@ -39443,6 +39524,8 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   transition: opacity var(--normal) var(--ease-out);
 }
 .camera-button {
+  /* Round whatever the row holds beside them: a long status wraps, the buttons never narrow. */
+  flex: none;
   display: inline-grid; place-items: center; width: 34px; height: 34px; min-height: 34px; padding: 0; border-radius: 50%; color: #fff;
   background: rgba(30, 32, 40, 0.42); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: none;
@@ -39503,9 +39586,21 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 .ptz-chip:active { scale: 0.97; }
 @media (hover: hover) and (pointer: fine) { .ptz-chip:hover { background: rgba(30, 32, 40, 0.62); } }
 .ptz-status {
-  margin-right: auto; padding: 3px var(--space-10); border-radius: var(--radius-pill); font-size: var(--text-xs); font-weight: var(--weight-medium);
+  margin-right: auto; min-width: 0; padding: var(--space-4) var(--space-10); border-radius: var(--radius-md); font-size: var(--text-xs); font-weight: var(--weight-medium);
+  line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
   background: rgba(20, 22, 28, 0.55); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
 }
+/* The microphone widens into a pill while someone talks, its waveform beside the icon as in the Home app. Round
+   otherwise: the icon sits where the circle centres it, so it does not move as the pill grows. */
+.camera-button.talk-toggle {
+  display: inline-flex; align-items: center; justify-content: flex-start; gap: var(--space-6); padding: 0 0 0 7px;
+  border-radius: var(--radius-pill); overflow: hidden;
+  transition: width 320ms cubic-bezier(0.2, 0.9, 0.3, 1), background-color var(--normal) var(--ease-out);
+}
+.camera-button.talk-toggle svg { flex: none; }
+.camera-button.talk-toggle.talking { width: 140px; padding-right: var(--space-12); }
+.talk-wave { flex: 1 1 auto; min-width: 0; height: 20px; }
+@media (pointer: coarse) { .camera-button.talk-toggle { padding-left: var(--space-10); } .camera-button.talk-toggle.talking { width: 156px; } .talk-wave { height: 22px; } }
 .ptz-status.failed { background: rgba(255, 69, 58, 0.88); }
 /* The panel stays while it is open, whatever the pointer does; the status shows over hidden controls too. */
 .camera-view:has(.ptz-panel:not(.hidden)) > .camera-controls, .camera-view:has(.ptz-status:not(.hidden)) > .camera-controls { opacity: 1; }
@@ -39533,7 +39628,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 }
 @media (pointer: coarse) { .camera-button { width: 40px; height: 40px; min-height: 40px; } }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .camera-view { margin: -6px -8px 0; } }
-@media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh, .camera-button.talking, .camera-button.starting svg { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh, .camera-button.talking, .camera-button.starting svg { animation: none; } .camera-view > video, .camera-controls, .camera-button.talk-toggle { transition: none; } }
 @media (prefers-reduced-transparency: reduce) {
   .camera-badge, .camera-button { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(20, 22, 28, 0.85); }
   .camera-button.talking { background: #ff453a; }

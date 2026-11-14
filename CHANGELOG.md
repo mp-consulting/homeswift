@@ -16,6 +16,11 @@ All notable changes to this project are documented here. The format follows
   IP cameras with a `returnAudioTarget` and the other plugins on the shared return audio never started, FFmpeg failing
   to bind the iPhone's address (`bind failed: Address not available`) that the SDP gave as its connection address. It
   now gives the loopback, where the demuxer forwards HomeKit's packets.
+- **A camera's buttons keep their size beside a message**: a long one ("The microphone is blocked for this page")
+  wraps onto two lines instead of narrowing the buttons.
+- **The camera's Talk button becomes a waveform**: while someone talks, the microphone button widens into a red pill
+  with the voice's level scrolling beside its icon, as in the Home app, in place of the "Talking on" text; its scale
+  follows the voice and the room, so syllables rise and pauses fall flat.
 - **The Camera filter keeps doorbells**: a doorbell's camera is a Camera too, on the wall and on the Graph.
 - **A search or a filter closes up the wall**: on a wall whose widgets were dragged to cells of their own, those left
   by a search or a filter are packed together in the order their cells read, rather than keeping the gaps of the ones
