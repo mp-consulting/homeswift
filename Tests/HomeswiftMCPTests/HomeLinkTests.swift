@@ -451,6 +451,42 @@ import Testing
         #expect(environment.catalog.home.homeLink.value.pending.isEmpty)
     }
 
+    /// A group ungrouped while the link was down that Apple Home deleted meanwhile (its accessories left the home, as when
+    /// a plugin moves to a child bridge) is gone either way: the ungroup is done, not refused.
+    @Test func pendingUngroupOfAGroupAppleHomeDeletedIsDone() async throws {
+        let environment = try await environment(bulbs: 2)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil])
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateWall(["groups": [["name": "Bulbs", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        let group = try #require(environment.catalog.wallGroups.first)
+        environment.homeLink.set { $0.state = .down("asleep") }
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateWall(["ungroup": [.string(group.id)]])
+        #expect(environment.catalog.home.homeLink.value.pending.count == 1)
+        environment.homeLink.set {
+            $0.state = .up
+            $0.home.groups = []
+        }
+        await environment.catalog.followHome()
+        #expect(environment.catalog.home.homeLink.value.pending.isEmpty)
+        #expect(environment.catalog.home.homeLink.value.refused.isEmpty)
+        #expect(await environment.catalog.homeLinkJSON()["refused"] == nil)
+    }
+
+    /// A removal refused by an older bridge, of a group Apple Home no longer has, stops being shown once the link is up.
+    @Test func anOldRefusedRemovalOfAGoneGroupIsCleared() async throws {
+        let environment = try await environment(bulbs: 2)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(placements: ["Devices:bulb1": nil, "Devices:bulb2": nil])
+        await environment.catalog.followHome()
+        try environment.catalog.home.homeLink.update {
+            $0.refused = [.init(change: .deleteGroup(homeKitID: "GONE"), reason: "no group GONE"), .init(change: .createRoom(name: "Attic"), reason: "kept")]
+        }
+        await environment.catalog.followHome()
+        #expect(environment.catalog.home.homeLink.value.refused.map(\.reason) == ["kept"])
+    }
+
     @Test func pendingMembershipPreservesUnrelatedHomeEdits() async throws {
         let environment = try await environment(bulbs: 4)
         defer { Task { await environment.stop() } }
