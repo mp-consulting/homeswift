@@ -37941,9 +37941,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .group button { border: 0; background: none; box-shadow: none; padding: 5px 13px; white-space: nowrap; transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out); }
 @media (hover: hover) and (pointer: fine) { .group button:hover:not(:disabled):not(.on) { background: var(--material-thin); } }
 .group button.on { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
-/* A form's segmented field (forms.js, `x-schema-form.type: "segmented"`): the same pill, its choices radios. */
-.segmented-field { display: flex; width: fit-content; max-width: 100%; }
-.segmented-field .segment { position: relative; margin: 0; display: grid; place-items: center; padding: 5px 13px; border-radius: var(--radius-pill); cursor: pointer; white-space: nowrap; transition: background-color var(--fast) var(--ease-out); }
+/* A form's segmented field (forms.js, `x-schema-form.type: "segmented"`): the same pill, its choices radios, across
+   the field's width with an equal share each, as its text fields are. */
+.segmented-field { display: flex; width: 100%; }
+.segmented-field .segment { flex: 1 1 0; min-width: max-content; position: relative; margin: 0; display: grid; place-items: center; padding: 5px 13px; border-radius: var(--radius-pill); cursor: pointer; white-space: nowrap; transition: background-color var(--fast) var(--ease-out); }
 .segmented-field .segment input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
 .segmented-field .segment:has(input:checked) { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
 .segmented-field .segment:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
