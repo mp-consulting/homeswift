@@ -96,6 +96,12 @@ public struct AIConfiguration: Sendable, Equatable {
                 "dailyUsd": { "title": "USD per day", "type": "number", "minimum": 0, "description": "The most it may spend each day, in US dollars. Only Claude models are priced: the others count as free." },
                 "monthlyUsd": { "title": "USD per month", "type": "number", "minimum": 0, "description": "The same, for each month." }
               } },
+              "transcription": { "title": "Voice transcription", "type": "object", "description": "Turns what you say to the chat's mic into text on the bridge, through an OpenAI-compatible speech-to-text server, before the Assistant reads it. Without it, the browser's own dictation is used.", "properties": {
+                "enabled": { "title": "Enabled", "type": "boolean", "default": true, "description": "Off keeps these settings and goes back to the browser's dictation." },
+                "baseUrl": { "title": "Server", "type": "string", "placeholder": "https://api.openai.com/v1", "description": "The server's OpenAI-compatible address, ending in /v1. Empty is OpenAI's; a local Whisper server that speaks OpenAI's API works too." },
+                "apiKey": { "title": "API key", "type": "string", "x-schema-form": { "type": "password" }, "description": "The server's key. Empty uses the Assistant's key when it is OpenAI, else OPENAI_API_KEY, on OpenAI's address only." },
+                "model": { "title": "Model", "type": "string", "placeholder": "whisper-1", "description": "The speech model, as the server names it. Empty is whisper-1." }
+              } },
               "mcp": { "title": "MCP server", "type": "object", "description": "Lets Claude Desktop, Claude Code, Cursor and other MCP clients list and set accessories, read the log and change config.json.", "properties": {
                 "http": { "title": "Over HTTP", "type": "object", "description": "The server inside the running bridge, over Streamable HTTP at /mcp. homeswift mcp forwards a stdio client to it.", "properties": {
                   "enabled": { "title": "Run the MCP server", "type": "boolean", "default": false, "description": "Lets Claude Desktop and other MCP clients read and control the bridge with a token." },
@@ -135,6 +141,7 @@ public struct AIConfiguration: Sendable, Equatable {
               "enabled"
             ] },
             { "type": "fieldset", "title": "Budget", "expandable": true, "expanded": false, "items": ["budget"] },
+            { "type": "fieldset", "title": "Voice transcription", "expandable": true, "expanded": false, "items": ["transcription"] },
             { "type": "fieldset", "title": "MCP server", "expandable": true, "expanded": false, "items": ["mcp"] }
           ],
           "i18n": {
@@ -216,7 +223,14 @@ public struct AIConfiguration: Sendable, Equatable {
               "Scope": "Portée",
               "Control": "Contrôle",
               "Read lists and reads; Control also sets accessories and runs scenes; Admin also changes the configuration and restarts.": "Lecture liste et lit ; Contrôle règle aussi les accessoires et lance les scènes ; Admin modifie aussi la configuration et redémarre.",
-              "Answers": "Réponses"
+              "Answers": "Réponses",
+              "Voice transcription": "Transcription de la voix",
+              "Server": "Serveur",
+              "Turns what you say to the chat's mic into text on the bridge, through an OpenAI-compatible speech-to-text server, before the Assistant reads it. Without it, the browser's own dictation is used.": "Transforme ce que vous dites au micro du chat en texte sur le pont, par un serveur de reconnaissance vocale compatible OpenAI, avant que l'Assistant le lise. Sans elle, c'est la dictée du navigateur qui sert.",
+              "Off keeps these settings and goes back to the browser's dictation.": "Désactivé garde ces réglages et revient à la dictée du navigateur.",
+              "The server's OpenAI-compatible address, ending in /v1. Empty is OpenAI's; a local Whisper server that speaks OpenAI's API works too.": "L'adresse compatible OpenAI du serveur, terminée par /v1. Vide : celle d'OpenAI ; un serveur Whisper local qui parle l'API d'OpenAI convient aussi.",
+              "The server's key. Empty uses the Assistant's key when it is OpenAI, else OPENAI_API_KEY, on OpenAI's address only.": "La clé du serveur. Vide : la clé de l'Assistant s'il s'agit d'OpenAI, sinon OPENAI_API_KEY, à l'adresse d'OpenAI seulement.",
+              "The speech model, as the server names it. Empty is whisper-1.": "Le modèle vocal, tel que le serveur le nomme. Vide : whisper-1."
             },
             "es": {
               "Provider": "Proveedor",
@@ -296,7 +310,14 @@ public struct AIConfiguration: Sendable, Equatable {
               "Scope": "Ámbito",
               "Control": "Control",
               "Read lists and reads; Control also sets accessories and runs scenes; Admin also changes the configuration and restarts.": "Lectura lista y lee; Control también ajusta accesorios y ejecuta escenas; Admin también cambia la configuración y reinicia.",
-              "Answers": "Respuestas"
+              "Answers": "Respuestas",
+              "Voice transcription": "Transcripción de voz",
+              "Server": "Servidor",
+              "Turns what you say to the chat's mic into text on the bridge, through an OpenAI-compatible speech-to-text server, before the Assistant reads it. Without it, the browser's own dictation is used.": "Convierte en texto en el puente lo que dice al micrófono del chat, mediante un servidor de voz a texto compatible con OpenAI, antes de que el Asistente lo lea. Sin ella, se usa el dictado del navegador.",
+              "Off keeps these settings and goes back to the browser's dictation.": "Desactivado conserva estos ajustes y vuelve al dictado del navegador.",
+              "The server's OpenAI-compatible address, ending in /v1. Empty is OpenAI's; a local Whisper server that speaks OpenAI's API works too.": "La dirección compatible con OpenAI del servidor, terminada en /v1. Vacío: la de OpenAI; también sirve un servidor Whisper local que hable la API de OpenAI.",
+              "The server's key. Empty uses the Assistant's key when it is OpenAI, else OPENAI_API_KEY, on OpenAI's address only.": "La clave del servidor. Vacío: la clave del Asistente si es OpenAI, si no OPENAI_API_KEY, solo en la dirección de OpenAI.",
+              "The speech model, as the server names it. Empty is whisper-1.": "El modelo de voz, tal como lo nombra el servidor. Vacío: whisper-1."
             },
             "pt": {
               "Provider": "Fornecedor",
@@ -376,7 +397,14 @@ public struct AIConfiguration: Sendable, Equatable {
               "Scope": "Âmbito",
               "Control": "Controlo",
               "Read lists and reads; Control also sets accessories and runs scenes; Admin also changes the configuration and restarts.": "Leitura lista e lê; Controlo também define acessórios e executa cenas; Admin também altera a configuração e reinicia.",
-              "Answers": "Respostas"
+              "Answers": "Respostas",
+              "Voice transcription": "Transcrição de voz",
+              "Server": "Servidor",
+              "Turns what you say to the chat's mic into text on the bridge, through an OpenAI-compatible speech-to-text server, before the Assistant reads it. Without it, the browser's own dictation is used.": "Converte em texto na ponte o que diz ao microfone do chat, através de um servidor de voz para texto compatível com a OpenAI, antes de o Assistente o ler. Sem ela, é usado o ditado do navegador.",
+              "Off keeps these settings and goes back to the browser's dictation.": "Desativado mantém estas definições e volta ao ditado do navegador.",
+              "The server's OpenAI-compatible address, ending in /v1. Empty is OpenAI's; a local Whisper server that speaks OpenAI's API works too.": "O endereço compatível com a OpenAI do servidor, terminado em /v1. Vazio: o da OpenAI; um servidor Whisper local que fale a API da OpenAI também serve.",
+              "The server's key. Empty uses the Assistant's key when it is OpenAI, else OPENAI_API_KEY, on OpenAI's address only.": "A chave do servidor. Vazio: a chave do Assistente quando é a OpenAI, senão OPENAI_API_KEY, apenas no endereço da OpenAI.",
+              "The speech model, as the server names it. Empty is whisper-1.": "O modelo de voz, tal como o servidor o designa. Vazio: whisper-1."
             }
           }
         }
@@ -403,6 +431,8 @@ public struct AIConfiguration: Sendable, Equatable {
     public var fallbacks: Bool?
     /// Daily and monthly limits (`budget`: `dailyTokens`, `monthlyTokens`, `dailyUsd`, `monthlyUsd`).
     public var budget = UsageBudget()
+    /// Speech to text for the chat's mic (`transcription`); nil leaves dictation to the browser.
+    public var transcription: TranscriptionConfiguration?
     /// Whether the block (or the environment) names a provider or a key at all. A block that only turns
     /// on the MCP server has neither, and then no Assistant is set up.
     public var hasProviderSettings = true
@@ -462,6 +492,7 @@ public struct AIConfiguration: Sendable, Equatable {
         promptCaching = object["promptCaching"] != .bool(false)
         fallbacks = object["fallbacks"]?.boolValue
         budget = try UsageBudget(json: object["budget"])
+        transcription = TranscriptionConfiguration(block: object["transcription"], assistant: self, environment: environment)
         hasProviderSettings = object["provider"] != nil || object["model"] != nil || apiKey != nil
     }
 

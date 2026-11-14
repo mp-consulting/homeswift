@@ -2146,9 +2146,90 @@
     });
   }
 
+  // The waveform while someone talks: WAVE_BARS bars, one more every WAVE_STEP milliseconds, the newest on the right.
+  const WAVE_BARS = 28, WAVE_STEP = 50;
+
+  /// The microphone's level as the Home app shows it while someone talks: bars that rise with each syllable, fall in
+  /// the pauses and scroll left. The scale follows the voice: its floor the room's quiet (down at once, up slowly), its
+  /// top the voice's recent peaks (up at once, down slowly), so a soft voice moves the bars as much as a loud one and a
+  /// steady noise stays low. `start(source)` follows an AnalyserNode on the microphone, or a function giving the level
+  /// in decibels when the page cannot open the microphone itself (dictation holds it); `stop()` clears it. The bars
+  /// take the canvas's CSS colour. A camera's Talk draws WAVE_BARS translucent bars; the chat's dictation (`pitch`) as
+  /// many as fit, one each `pitch` CSS pixels, solid, its quiet as dots, as the Claude app does.
+  function waveform({ pitch: barPitch = 0 } = {}) {
+    const canvas = el("canvas", { class: "talk-wave hidden", "aria-hidden": "true" });
+    const kept = barPitch ? 400 : WAVE_BARS;
+    let frame = 0, levels = [], last = 0, samples = null, floor = -60, peak = -30, color = "#fff";
+    function draw() {
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.round(canvas.clientWidth * ratio), height = Math.round(canvas.clientHeight * ratio);
+      if (!width || !height) return;
+      if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+      const context = canvas.getContext("2d");
+      context.clearRect(0, 0, width, height);
+      const pitch = barPitch ? barPitch * ratio : width / WAVE_BARS;
+      const bar = Math.max(1, pitch * (barPitch ? 0.55 : 0.5)), floor = barPitch ? bar : 2 * ratio;
+      const shown = Math.min(levels.length, Math.floor(width / pitch));
+      levels.slice(levels.length - shown).forEach((level, index) => {
+        const h = Math.max(floor, level * (height - 4 * ratio));
+        const x = width - (shown - index) * pitch + (pitch - bar) / 2;
+        context.globalAlpha = barPitch ? 1 : 0.5 + 0.5 * level;
+        context.fillStyle = color;
+        context.beginPath();
+        context.roundRect(x, (height - h) / 2, bar, h, bar / 2);
+        context.fill();
+      });
+    }
+    return {
+      canvas,
+      start(source) {
+        const analyser = typeof source === "function" ? null : source;
+        samples = analyser ? new Float32Array(analyser.fftSize) : null;
+        color = getComputedStyle(canvas).color;
+        levels = Array(kept).fill(0);
+        floor = -60;
+        peak = -30;
+        canvas.classList.remove("hidden");
+        const tick = (now) => {
+          if (now - last >= WAVE_STEP) {
+            last = now;
+            let decibels;
+            if (analyser) {
+              analyser.getFloatTimeDomainData(samples);
+              let sum = 0;
+              for (const sample of samples) sum += sample * sample;
+              decibels = Math.max(-90, 20 * Math.log10(Math.sqrt(sum / samples.length) || 1e-6));
+            } else {
+              decibels = source();
+            }
+            // Digital silence (a microphone starting, muted) is no sound at all: it would drag the floor far below the
+            // room's quiet, every pause then reading as speech until it climbed back.
+            if (decibels > -80) {
+              // The room's quiet: down at once, up 0.3 dB a step (3 s to rise 18 dB), never above a speaking voice.
+              floor = Math.min(decibels, floor + 0.3, -25);
+              // The voice's peaks: up at once, down 0.25 dB a step; at least 20 dB above the floor.
+              peak = Math.max(decibels, peak - 0.25, floor + 20);
+            }
+            // Above the floor's margin, over the range to the peak; squared, so a syllable stands out from its tail.
+            const level = Math.min(1, Math.max(0, (decibels - floor - 4) / (peak - floor - 4)));
+            levels.push(level * level);
+            levels.shift();
+            draw();
+          }
+          frame = requestAnimationFrame(tick);
+        };
+        frame = requestAnimationFrame(tick);
+      },
+      stop() {
+        cancelAnimationFrame(frame);
+        canvas.classList.add("hidden");
+      },
+    };
+  }
+
   window.HomeswiftCommon = {
     foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
-    openSheet, confirmAction,
+    openSheet, confirmAction, waveform,
     phone, viewSignal, nextView, filtersToggle, followControls, assistantButton, menuOpen: () => Boolean(openMenu),
     $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,

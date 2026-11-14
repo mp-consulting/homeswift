@@ -173,6 +173,30 @@ carry the page's language as `Accept-Language`; for French, Spanish or Portugues
 answer in it (`Prompts.answerLanguage`, `AssistantService.speaking`), and the day's digest is kept per language.
 The command line and the MCP server leave the language to the model.
 
+### Voice transcription
+
+Claude reads text and images, not audio, so what you say to the chat's mic becomes text first. Without a
+`transcription` in the block, the browser's own dictation does it (Safari sends your voice to Apple, Chrome to Google;
+iOS needs Siri dictation on). With one, the bridge does it, as the Claude app sends its voice to a speech service: the
+page records the microphone itself (`talk-worklet.js`, 16 kHz mono), and `POST /api/assistant/transcribe` sends the
+recording as a WAV to an OpenAI-compatible `/audio/transcriptions` (`Transcriber`), whose words land in the field.
+
+```json
+{ "platform": "HomeswiftAiKit", "provider": "anthropic", "apiKey": "sk-ant-…",
+  "transcription": { "apiKey": "sk-…", "model": "whisper-1" } }
+```
+
+| Key | Default | |
+|---|---|---|
+| `enabled` | `true` | `false` keeps the settings and goes back to the browser's dictation. |
+| `baseUrl` | `https://api.openai.com/v1` | Any server that speaks OpenAI's transcription API, a local Whisper server among them. |
+| `apiKey` | the block's key when the Assistant is OpenAI, else `OPENAI_API_KEY` | On OpenAI's address only: a key is never sent to a server it was not given for. |
+| `model` | `whisper-1` | The speech model, as the server names it. |
+
+The same in every browser, Firefox included, and on an iPhone without Siri dictation; the waveform follows the
+microphone everywhere. A recording is at most 90 seconds (the page stops at 80); the server's minutes are not counted
+in the Assistant's usage or budget. The page still needs HTTPS (or localhost) for the microphone.
+
 ## What goes to the provider
 
 - **Secrets never.** Configuration values under keys such as `password`, `token`, `apiKey`, `pin` are
@@ -193,6 +217,8 @@ The command line and the MCP server leave the language to the model.
   handle in a later tool's arguments becomes the secret again, so the model can put it in config.json
   without seeing it.
 - **Nothing is stored** on the provider's side where that is a choice: OpenAI requests use `store: false`.
+- **Your voice goes to the transcription server only**, when the block has one: the recording, the model's name and
+  the language; the text it returns then goes to the provider as a typed message would.
 
 ## Library
 

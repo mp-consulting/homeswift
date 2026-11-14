@@ -222,6 +222,11 @@ public final class PluginHost: @unchecked Sendable {
     public var aiConfiguration: AIConfiguration? { aiConfigurationBox.withLockedValue { $0 } }
     /// How the Assistant reaches its provider: `Options.aiTransport`, else URLSession. A connection test uses it too.
     public var aiTransport: any HTTPTransport { options.aiTransport ?? URLSessionTransport() }
+    /// Speech to text for the chat's mic, when the Assistant works and its block has a `transcription` that is on.
+    public var transcriber: Transcriber? {
+        guard assistant != nil, let configuration = aiConfiguration?.transcription else { return nil }
+        return Transcriber(configuration: configuration, transport: aiTransport)
+    }
     private let aiConfigurationBox: NIOLockedValueBox<AIConfiguration?>
 
     var instances: [Instance] { instanceList.withLockedValue { $0 } }

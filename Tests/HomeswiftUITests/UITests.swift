@@ -77,9 +77,11 @@ final class UITestEnvironment: @unchecked Sendable {
     /// `assistant`: a HomeswiftAiKit block whose provider nothing answers for (it is never reached in the tests);
     /// `model`: one whose provider answers through this transport.
     init(auth: UIConfiguration.AuthMode = .form, webRoot: URL? = nil, https: Bool = false, metrics: Metrics? = nil, assistant: Bool = false,
-         model: (any HTTPTransport)? = nil, mcp: MCPConfiguration? = nil, trustProxy: String? = nil, publicURL: String? = nil, options configure: (inout UIServer.Options) -> Void = { _ in }) throws {
+         model: (any HTTPTransport)? = nil, aiSettings: String = "", mcp: MCPConfiguration? = nil, trustProxy: String? = nil, publicURL: String? = nil,
+         options configure: (inout UIServer.Options) -> Void = { _ in }) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let ai = assistant || model != nil ? #",{ "platform": "HomeswiftAiKit", "provider": "openai-compatible", "model": "llama3.1", "baseUrl": "http://127.0.0.1:9/v1", "maxRetries": 0 }"# : ""
+        // `aiSettings`: more of the block, after a comma (a `transcription`).
+        let ai = assistant || model != nil ? #",{ "platform": "HomeswiftAiKit", "provider": "openai-compatible", "model": "llama3.1", "baseUrl": "http://127.0.0.1:9/v1", "maxRetries": 0"# + (aiSettings.isEmpty ? "" : ", " + aiSettings) + " }" : ""
         let config = """
             {
               "bridge": { "name": "UI Bridge", "username": "0E:11:22:33:44:66", "pin": "031-45-154", "port": 0 },

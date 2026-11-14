@@ -2484,10 +2484,21 @@ dd { margin: 0; }
 .chat-mic { border-color: transparent; background: none; box-shadow: none; color: var(--muted); }
 @media (hover: hover) and (pointer: fine) { .chat-mic:hover { color: var(--text); background: var(--material-thin); } }
 .chat-mic.unavailable { opacity: 0.45; }
-.chat.listening .chat-mic {
-  color: #fff; background: conic-gradient(from var(--ai-angle), var(--ai-colors)); animation: ai-turn 2s linear infinite;
-  box-shadow: 0 0 0 4px rgba(191, 90, 242, 0.2);
+/* While it listens, the field takes the whole first row and the voice's the second: discard, the waveform across the
+   composer, stop (the words stay in the field), then send, as the Claude app does. */
+.chat-voice { display: none; }
+.chat.listening .chat-composer { flex-wrap: wrap; row-gap: var(--space-4); }
+.chat.listening .chat-composer textarea { flex: 1 0 100%; }
+.chat.listening .chat-mic { display: none; }
+.chat.listening .chat-voice { display: flex; flex: 1 1 120px; min-width: 0; align-items: center; gap: var(--space-10); margin-left: calc(-1 * var(--space-8)); }
+.chat-voice-button {
+  flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%;
+  border-color: transparent; background: color-mix(in srgb, var(--text) 8%, transparent); box-shadow: none; color: var(--text);
 }
+@media (hover: hover) and (pointer: fine) { .chat-voice-button:hover { background: color-mix(in srgb, var(--text) 14%, transparent); } }
+.chat-voice-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.chat-voice-button svg.filled { fill: currentColor; stroke: none; width: 15px; height: 15px; }
+.chat-voice .talk-wave { flex: 1 1 auto; min-width: 0; height: 26px; color: var(--text); }
 .chat-send { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); }
 .chat-send .stop-icon, .chat-send.stop .send-icon { display: none; }
 .chat-send.stop .stop-icon { display: block; fill: currentColor; stroke: none; }
@@ -2512,7 +2523,7 @@ dd { margin: 0; }
   .chat-head { padding-top: var(--space-20); touch-action: none; cursor: grab; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .chat-glow, .chat.listening .chat-mic, .chat-step-mark, .chat-thinking, .chat-log > * { animation: none !important; }
+  .chat-glow, .chat-step-mark, .chat-thinking, .chat-log > * { animation: none !important; }
   .chat-thinking { color: var(--muted); background: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -2882,7 +2893,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 }
 .camera-button.talk-toggle svg { flex: none; }
 .camera-button.talk-toggle.talking { width: 140px; padding-right: var(--space-12); }
-.talk-wave { flex: 1 1 auto; min-width: 0; height: 20px; }
+.talk-wave { flex: 1 1 auto; min-width: 0; height: 20px; color: #fff; }
 @media (pointer: coarse) { .camera-button.talk-toggle { padding-left: var(--space-10); } .camera-button.talk-toggle.talking { width: 156px; } .talk-wave { height: 22px; } }
 .ptz-status.failed { background: rgba(255, 69, 58, 0.88); }
 /* The panel stays while it is open, whatever the pointer does; the status shows over hidden controls too. */

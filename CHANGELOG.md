@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Voice transcription on the bridge**: a `transcription` in the HomeswiftAiKit block (an OpenAI-compatible
+  `/audio/transcriptions`: OpenAI's, or a local Whisper server) has the chat's mic record the microphone and the bridge
+  write down what was said (`POST /api/assistant/transcribe`), as the Claude app sends its voice to a speech service:
+  the same in every browser, Firefox and iPhones without Siri dictation included. Claude reads no audio; without a
+  transcription the browser's dictation stays.
+
+### Changed
+
+- **Dictating to the Assistant shows your voice**, as in the Claude app: while the mic listens, the field takes the
+  composer's first row and the second is a waveform of your voice across it, between × (discard what you said), ■ (stop,
+  the words stay in the field) and send. On an iPhone or iPad, where dictation holds the microphone, the bars follow
+  whether a voice is heard. The waveform is now shared with a camera's Talk (`HomeswiftCommon.waveform`).
+
 ## [0.33.0] - 2026-11-14
 
 ### Changed
