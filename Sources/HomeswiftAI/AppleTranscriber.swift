@@ -2,6 +2,7 @@ import Foundation
 
 #if canImport(Speech) && canImport(AVFAudio)
 import AVFAudio
+import os
 import Speech
 #endif
 
@@ -85,16 +86,16 @@ public enum AppleTranscriber {
                   let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(Double(buffer.frameLength) * format.sampleRate / buffer.format.sampleRate) + 1024) else {
                 throw ProviderError(provider: "transcription", message: "the recording could not be converted for Apple's speech recognition")
             }
-            var fed = false
+            // The converter asks for input from its own thread: the one buffer, then the end of it.
+            let fed = OSAllocatedUnfairLock(initialState: false)
             var failure: NSError?
             converter.convert(to: output, error: &failure) { _, status in
-                if fed {
-                    status.pointee = .endOfStream
-                    return nil
+                let first = fed.withLock { sent in
+                    defer { sent = true }
+                    return !sent
                 }
-                fed = true
-                status.pointee = .haveData
-                return buffer
+                status.pointee = first ? .haveData : .endOfStream
+                return first ? buffer : nil
             }
             if let failure { throw ProviderError(provider: "transcription", message: "the recording could not be converted: \(failure.localizedDescription)") }
             return output
