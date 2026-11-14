@@ -11,19 +11,24 @@ extension IPCamerasPlugin {
     static let liveFeedTimeout: Duration = .seconds(15)
 
     public func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? {
-        guard let runtime = cameras.values.first(where: { $0.accessory.id == accessoryID }), runtime.controller.isHomeKitCameraActive else { return nil }
+        guard let runtime = runtime(accessoryID), runtime.controller.isHomeKitCameraActive else { return nil }
         return try await runtime.streamer.liveFeed(timeout: Self.liveFeedTimeout)
     }
 
     /// A camera with a `returnAudioTarget` takes the web UI's microphone, at 16 kHz.
     public func talkFormat(accessoryID: String) async -> ReturnAudioFormat? {
-        guard let runtime = cameras.values.first(where: { $0.accessory.id == accessoryID }), runtime.streamer.video.returnAudioTarget != nil else { return nil }
+        guard let runtime = runtime(accessoryID), runtime.streamer.video.returnAudioTarget != nil else { return nil }
         return ReturnAudioFormat(sampleRate: 16000)
     }
 
     public func talk(accessoryID: String, _ talk: Talk) async throws {
-        guard let runtime = cameras.values.first(where: { $0.accessory.id == accessoryID }) else { throw CameraControlError("no camera with that id") }
+        guard let runtime = runtime(accessoryID) else { throw CameraControlError("no camera with that id") }
+        guard runtime.streamer.video.returnAudioTarget != nil else { throw CameraControlError("this camera has no returnAudioTarget") }
         try await runtime.streamer.talk(talk)
+    }
+
+    private func runtime(_ accessoryID: String) -> CameraRuntime? {
+        cameras.values.first { $0.accessory.id == accessoryID }
     }
 }
 
@@ -55,7 +60,6 @@ extension CameraStreamer {
     /// The web UI's microphone to `returnAudioTarget`: each frame into FFmpeg as it comes, until the Talk ends and FFmpeg
     /// has sent the rest.
     func talk(_ talk: Talk) async throws {
-        guard video.returnAudioTarget != nil else { throw CameraControlError("this camera has no returnAudioTarget") }
         let process = FfmpegProcess(tools.returnOptions, commandLineArgs: FFmpegArguments.webTalk(video, sampleRate: talk.format.sampleRate))
         let (exited, exit) = AsyncStream.makeStream(of: Never.self)
         process.start()

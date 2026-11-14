@@ -162,14 +162,17 @@ enum FFmpegArguments {
 
     /// `decoder`: libfdk_aac's, the original's, or none for FFmpeg's own AAC-ELD decoder.
     static func returnAudio(_ video: IPCamerasPlugin.VideoConfig, decoder: [String] = ["-c:a", "libfdk_aac"]) -> [String] {
-        ["-hide_banner", "-protocol_whitelist", "pipe,udp,rtp,file,crypto", "-f", "sdp"] + decoder + ["-i", "pipe:"]
-            + split((video.returnAudioTarget ?? "") + " -loglevel level" + (video.debugReturn ? "+verbose" : ""))
+        ["-hide_banner", "-protocol_whitelist", "pipe,udp,rtp,file,crypto", "-f", "sdp"] + decoder + ["-i", "pipe:"] + returnTarget(video)
     }
 
     /// The web UI's microphone to the same target: its PCM on standard input rather than HomeKit's SRTP.
     static func webTalk(_ video: IPCamerasPlugin.VideoConfig, sampleRate: Int) -> [String] {
-        ["-hide_banner", "-f", "s16le", "-ar", "\(sampleRate)", "-ac", "1", "-i", "pipe:"]
-            + split((video.returnAudioTarget ?? "") + " -loglevel level" + (video.debugReturn ? "+verbose" : ""))
+        ["-hide_banner", "-f", "s16le", "-ar", "\(sampleRate)", "-ac", "1", "-i", "pipe:"] + returnTarget(video)
+    }
+
+    /// `returnAudioTarget`'s output arguments and the log level.
+    private static func returnTarget(_ video: IPCamerasPlugin.VideoConfig) -> [String] {
+        split((video.returnAudioTarget ?? "") + " -loglevel level" + (video.debugReturn ? "+verbose" : ""))
     }
 
     /// The SDP FFmpeg reads the return audio with: HomeKit sends it to `port`, the audio return port.

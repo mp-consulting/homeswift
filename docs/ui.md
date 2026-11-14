@@ -317,7 +317,7 @@ screenshots, and what a plugin does to get good ones.
   16-bit mono and closing the socket ends the Talk). The upgrade is granted only to a signed-in user's cookie from the
   page itself who may control accessories. When no WebSocket opens (a reverse proxy that does not pass them), it
   sends a tenth of a second per request instead, one after the other (`POST /api/cameras/<id>/talk` with
-  `{"talk": "<id>", "sampleRate": 16000}` starts a Talk; `POST /api/cameras/<id>/talk/<id>` with
+  `{"sampleRate": 16000}` starts a Talk and answers its id, `{"talk": "<id>", "sampleRate": 16000}`; `POST /api/cameras/<id>/talk/<id>` with
   `{"seq": n, "pcm": "<base64>"}` carries the audio and `{"end": true}` ends it). One person talks on a camera at a
   time; the bridge ends a Talk three seconds after its last audio, and after ten minutes. Starting one is audited and
   logged, the audio is not.

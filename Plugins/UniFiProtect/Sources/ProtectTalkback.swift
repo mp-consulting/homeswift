@@ -21,6 +21,9 @@ final class ProtectTalkback {
         var talkBack: String?
     }
 
+    /// The controller's talkback channel: the sender, and the frames it sends.
+    typealias Channel = (sender: Task<Void, Never>, frames: AsyncStream<Data>.Continuation)
+
     private let camera: ProtectCamera
     private let ffmpeg: any ProtectFfmpegKit
     private let options: any ProtectFfmpegOptions
@@ -64,17 +67,25 @@ final class ProtectTalkback {
 
     /// FFmpeg's command line: the SDP on standard input, ADTS out at the camera's talkback rate and channels.
     func returnAudioArguments(_ request: StartStreamRequest) -> [String] {
-        let talkback = camera.ufp.json
         // With Opus from the Home app, FFmpeg has no AAC-ELD encoder (ProtectStream.liveAudioCodec): its own AAC-LC
         // encoder makes the ADTS the camera takes.
         let isOpus = request.audio.codec == .opus
+        return ["-hide_banner", "-nostats", "-protocol_whitelist", "crypto,file,pipe,rtp,udp", "-f", "sdp",
+                "-codec:a", isOpus ? "libopus" : options.audioDecoder, "-i", "pipe:0"]
+            + adtsArguments(bitRate: String(request.audio.maxBitRate) + "k", fallbackAAC: isOpus)
+    }
+
+    /// The input's audio as ADTS at the camera's talkback rate and channels, then where it goes. `fallbackAAC` uses
+    /// FFmpeg's own AAC-LC encoder when the options give none; `flush` sends each frame as soon as it is encoded.
+    private func adtsArguments(bitRate: String, fallbackAAC: Bool, flush: Bool = false) -> [String] {
+        let talkback = camera.ufp.json
         let encoder = options.audioEncoder()
-        var arguments = ["-hide_banner", "-nostats", "-protocol_whitelist", "crypto,file,pipe,rtp,udp", "-f", "sdp",
-                         "-codec:a", isOpus ? "libopus" : options.audioDecoder, "-i", "pipe:0", "-map", "0:a:0"]
-            + (isOpus && encoder.isEmpty ? ["-codec:a", "aac"] : encoder)
-            + ["-flags", "+global_header", "-ar", talkback.number("talkbackSettings.samplingRate"), "-b:a", String(request.audio.maxBitRate) + "k",
-               "-ac", talkback.number("talkbackSettings.channels"), "-f", "adts"]
-        return arguments + outputArguments()
+        return ["-map", "0:a:0"]
+            + (fallbackAAC && encoder.isEmpty ? ["-codec:a", "aac"] : encoder)
+            + ["-flags", "+global_header", "-ar", talkback.number("talkbackSettings.samplingRate"), "-b:a", bitRate,
+               "-ac", talkback.number("talkbackSettings.channels")]
+            + (flush ? ["-flush_packets", "1"] : []) + ["-f", "adts"]
+            + outputArguments()
     }
 
     /// Where FFmpeg's ADTS goes, the camera directly or the talkback channel through standard output, and its log level.
@@ -99,29 +110,29 @@ final class ProtectTalkback {
 
     /// FFmpeg's command line for the web UI's microphone: its PCM on standard input, ADTS out as for HomeKit's.
     func talkArguments(sampleRate: Int) -> [String] {
-        let talkback = camera.ufp.json
-        let encoder = options.audioEncoder()
         // -f s16le -ar -ac 1             The browser's PCM: signed 16-bit little-endian mono.
         // -flush_packets 1               Each ADTS frame out as soon as it is encoded: speech, not a file.
-        return ["-hide_banner", "-nostats", "-f", "s16le", "-ar", String(sampleRate), "-ac", "1", "-i", "pipe:0", "-map", "0:a:0"]
-            + (encoder.isEmpty ? ["-codec:a", "aac"] : encoder)
-            + ["-flags", "+global_header", "-ar", talkback.number("talkbackSettings.samplingRate"), "-b:a", "32k",
-               "-ac", talkback.number("talkbackSettings.channels"), "-flush_packets", "1", "-f", "adts"]
-            + outputArguments()
+        ["-hide_banner", "-nostats", "-f", "s16le", "-ar", String(sampleRate), "-ac", "1", "-i", "pipe:0"]
+            + adtsArguments(bitRate: "32k", fallbackAAC: true, flush: true)
     }
 
-    /// Plays the web UI's microphone (`HomeswiftPlugin.talk`): its frames to FFmpeg as they come, FFmpeg's ADTS to the
-    /// controller's talkback channel (or the camera, with `Audio.TwoWay.Direct`). Returns once FFmpeg has sent the last.
+    /// Plays the web UI's microphone (`HomeswiftPlugin.talk`) on a camera with two-way audio: its frames to FFmpeg as
+    /// they come, FFmpeg's ADTS to the controller's talkback channel (or the camera, with `Audio.TwoWay.Direct`). Returns
+    /// once FFmpeg has sent the last.
     func play(_ talk: Talk) async throws {
-        guard camera.hints.twoWayAudio, camera.isOnline else { throw CameraControlError("\(camera.accessoryName) has no two-way audio now") }
-        var channel: (sender: Task<Void, Never>, frames: AsyncStream<Data>.Continuation)?
+        let ffmpeg = self.ffmpeg.startProcess(options: options, arguments: talkArguments(sampleRate: talk.format.sampleRate))
+        // The speech goes to FFmpeg while the controller opens its channel; FFmpeg's first listener gets what it wrote
+        // meanwhile.
+        async let fed: Void = Self.feed(talk.frames, to: ffmpeg)
+        var channel: Channel?
         if !camera.hints.twoWayAudioDirect {
             guard let endpoint = await camera.api.getWsEndpoint("talkback", parameters: [("camera", camera.ufp.id)]), let url = URL(string: endpoint) else {
+                ffmpeg.stop()
+                await fed
                 throw CameraControlError("the Protect controller opened no return audio channel for \(camera.accessoryName)")
             }
             channel = openChannel(url)
         }
-        let ffmpeg = self.ffmpeg.startProcess(options: options, arguments: talkArguments(sampleRate: talk.format.sampleRate))
         let outgoing = channel?.frames
         if let outgoing { _ = ffmpeg.onStdout { data in outgoing.yield(data) } }
         let (exited, exit) = AsyncStream.makeStream(of: Never.self)
@@ -129,11 +140,7 @@ final class ProtectTalkback {
             exit.finish()
             outgoing?.finish()
         }
-        for await frame in talk.frames {
-            guard ffmpeg.isStdinWritable else { break }
-            do { try await ffmpeg.writeStdin(frame.s16le) } catch { break }
-        }
-        ffmpeg.endStdin(nil)
+        await fed
         // FFmpeg encodes what it holds and exits; one that hangs is stopped.
         _ = await protectTimeout(milliseconds: Self.talkDrainTimeout) { for await _ in exited {}; return true }
         ffmpeg.stop()
@@ -141,9 +148,18 @@ final class ProtectTalkback {
         await channel?.sender.value
     }
 
+    /// The Talk's frames to FFmpeg's input as they come, which closes once they end or FFmpeg stops taking them.
+    private nonisolated static func feed(_ frames: AsyncStream<PCMFrame>, to ffmpeg: any ProtectFfmpegProcess) async {
+        for await frame in frames {
+            guard ffmpeg.isStdinWritable else { break }
+            do { try await ffmpeg.writeStdin(frame.s16le) } catch { break }
+        }
+        ffmpeg.endStdin(nil)
+    }
+
     /// The controller's talkback channel: audio frames go out in order through one sender, which closes the socket once
     /// the frames finish.
-    private func openChannel(_ url: URL) -> (sender: Task<Void, Never>, frames: AsyncStream<Data>.Continuation) {
+    private func openChannel(_ url: URL) -> Channel {
         let api = camera.api
         let log = self.log
         let (frames, continuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingNewest(256))
@@ -170,7 +186,7 @@ final class ProtectTalkback {
     private func startReturnAudio(_ request: StartStreamRequest, session: Session, sdp: String, arguments: [String], host: any HomebridgeStreamingDelegate,
                                   register: @escaping @ProtectActor (any ProtectFfmpegProcess) -> Void) async {
         // The controller's talkback channel.
-        var channel: (sender: Task<Void, Never>, frames: AsyncStream<Data>.Continuation)?
+        var channel: Channel?
         if let talkBack = session.talkBack, let url = URL(string: talkBack), !camera.hints.twoWayAudioDirect {
             channel = openChannel(url)
         }

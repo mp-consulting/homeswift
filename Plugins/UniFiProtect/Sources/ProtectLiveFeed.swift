@@ -13,31 +13,26 @@ extension UniFiProtectPlugin {
     /// The live feed of a camera or a doorbell's package camera of this instance: its lowest-resolution channel,
     /// which is plenty for a card and light on the controller. nil for another accessory, or a camera offline.
     public func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? {
-        for controller in nvrs {
-            if let camera = await controller.camera(accessoryID: accessoryID) {
-                return await camera.liveFeed()
-            }
-        }
-        return nil
+        await camera(accessoryID)?.liveFeed()
     }
 
     /// The web UI's microphone on a camera whose speaker two-way audio may use (`Audio.TwoWay`), while it is online.
     public func talkFormat(accessoryID: String) async -> ReturnAudioFormat? {
-        for controller in nvrs {
-            if let camera = await controller.camera(accessoryID: accessoryID) { return await camera.talkFormat }
-        }
-        return nil
+        await camera(accessoryID)?.talkFormat
     }
 
     /// Plays the web UI's microphone on a camera's speaker (`ProtectTalkback.play`).
     public func talk(accessoryID: String, _ talk: Talk) async throws {
+        guard let camera = await camera(accessoryID) else { throw CameraControlError("no camera with that id") }
+        try await camera.talk(talk)
+    }
+
+    /// The camera behind an accessory id, on whichever controller has it.
+    private func camera(_ accessoryID: String) async -> ProtectCamera? {
         for controller in nvrs {
-            if let camera = await controller.camera(accessoryID: accessoryID) {
-                try await camera.talk(talk)
-                return
-            }
+            if let camera = await controller.camera(accessoryID: accessoryID) { return camera }
         }
-        throw CameraControlError("no camera with that id")
+        return nil
     }
 }
 
@@ -59,7 +54,7 @@ extension ProtectCamera {
     }
 
     func talk(_ talk: Talk) async throws {
-        guard let stream else { throw CameraControlError("\(accessoryName) does not stream yet") }
+        guard talkFormat != nil, let stream else { throw CameraControlError("\(accessoryName) has no two-way audio now") }
         try await stream.talk(talk)
     }
 

@@ -8,26 +8,31 @@ import NIOConcurrencyHelpers
 // - `GET /api/cameras/<accessory id>/talk?sampleRate=16000` upgraded to a WebSocket (CameraTalkSocket.swift) is a Talk
 //   for as long as the socket is open: binary messages carry the audio, as below without base64. The page uses it
 //   when it can; a proxy that does not pass WebSockets leaves it the requests below.
-// - `POST /api/cameras/<accessory id>/talk` starts a Talk: `{"talk": "<id>", "sampleRate": 16000}`, the rate the browser
-//   sends, the camera's (`HomeswiftPlugin.talkFormat`). One Talk per camera at a time: 409 while someone else talks.
+// - `POST /api/cameras/<accessory id>/talk` starts a Talk: `{"sampleRate": 16000}`, the rate the browser sends, the
+//   camera's (`HomeswiftPlugin.talkFormat`); the answer gives the Talk's id, `{"talk": "<id>", "sampleRate": 16000}`.
+//   One Talk per camera at a time: 409 while someone else talks.
 // - `POST /api/cameras/<accessory id>/talk/<id>` carries the audio: `{"seq": n, "pcm": "<base64>"}`, signed 16-bit
 //   little-endian mono at that rate, a tenth of a second or so per request, sent one after the other; `{"end": true}`
 //   ends the Talk. A Talk the plugin gave up on answers its reason (502), one that ended 410.
 //
 // A browser cannot stream a request body over HTTP/1.1, so without the WebSocket the audio goes up in short requests.
-// A Talk ends `idleTimeout` after its last audio (a closed tab, a lost network), and after `maximum`. Starting is
-// audited; the audio is not.
+// A Talk ends `idleTimeout` after its last audio (a closed tab, a lost network), and after `maximum`. The same user
+// starting again replaces their Talk, the new one playing once the plugin is done with the old. Starting is audited; the
+// audio is not.
 
 /// The Talks under way from the web UI, one per camera.
 final class CameraTalks: Sendable {
     /// Silence from the browser that ends a Talk.
-    static let idleTimeout: Duration = .seconds(3)
+    let idleTimeout: Duration
     /// The longest Talk.
-    static let maximum: Duration = .seconds(600)
+    let maximum: Duration
     /// The most audio one request carries: a second.
     static let maxChunk: Duration = .seconds(1)
-    /// How often the watchdog looks.
-    static let watchEvery: Duration = .milliseconds(500)
+
+    init(idleTimeout: Duration = .seconds(3), maximum: Duration = .seconds(600)) {
+        self.idleTimeout = idleTimeout
+        self.maximum = maximum
+    }
 
     /// One Talk: the frames the plugin reads, cut from what the browser sends.
     final class Session: Sendable {
@@ -45,6 +50,7 @@ final class CameraTalks: Sendable {
             var ended = false
             var failure: String?
             var endHandlers: [@Sendable (String?) -> Void] = []
+            var playing: Task<Void, Never>?
         }
         private let state: NIOLockedValueBox<State>
 
@@ -60,6 +66,11 @@ final class CameraTalks: Sendable {
         var isEnded: Bool { state.withLockedValue { $0.ended } }
         var failure: String? { state.withLockedValue { $0.failure } }
         var lastHeard: ContinuousClock.Instant { state.withLockedValue { $0.lastHeard } }
+        /// The plugin playing the Talk, until it is done with it.
+        var playing: Task<Void, Never>? {
+            get { state.withLockedValue { $0.playing } }
+            set { state.withLockedValue { $0.playing = newValue } }
+        }
         /// The most audio one message may carry: `CameraTalks.maxChunk`.
         var maxChunkBytes: Int { format.sampleRate * 2 * Int(CameraTalks.maxChunk / .seconds(1)) }
 
@@ -72,11 +83,15 @@ final class CameraTalks: Sendable {
             if case .some(let failure) = ended { handler(failure) }
         }
 
-        /// Cuts a request's PCM into frames for the plugin; a request older than one already taken is dropped.
-        func push(seq: Int, pcm: Data) {
+        /// Cuts the browser's PCM into frames for the plugin. Over requests, which may arrive out of order, `seq` numbers
+        /// them: one older than one already taken is dropped.
+        func push(_ pcm: some Collection<UInt8>, seq: Int? = nil) {
             let frames: [PCMFrame] = state.withLockedValue { state in
-                guard !state.ended, seq > state.lastSeq else { return [] }
-                state.lastSeq = seq
+                guard !state.ended else { return [] }
+                if let seq {
+                    guard seq > state.lastSeq else { return [] }
+                    state.lastSeq = seq
+                }
                 state.lastHeard = .now
                 return state.framer.push(pcm).map { samples in
                     defer { state.offset += samples.count }
@@ -129,7 +144,10 @@ final class CameraTalks: Sendable {
         }
         replaced?.end()
         let talk = Talk(sessionID: id, format: format, frames: frames, volume: volume)
-        Task {
+        // A replaced Talk's plugin drains what it holds first: one speaker plays one Talk at a time.
+        let draining = replaced?.playing
+        session.playing = Task {
+            await draining?.value
             do {
                 try await play(talk)
                 session.end()
@@ -137,13 +155,14 @@ final class CameraTalks: Sendable {
                 session.end(failure: "\(error)")
             }
         }
-        // Ends the Talk once the browser falls silent or it runs too long; the plugin's task ends with its frames. An
-        // ended Talk stays until the camera's next, so the browser's next request learns why it ended.
+        // Ends the Talk once the browser falls silent or it runs too long, sleeping until the earlier of the two; the
+        // plugin's task ends with its frames. An ended Talk stays until the camera's next, so the browser's next request
+        // learns why it ended.
         Task {
             while !session.isEnded {
-                try? await Task.sleep(for: Self.watchEvery)
-                let now = ContinuousClock.now
-                if now - session.lastHeard > Self.idleTimeout || now - session.started > Self.maximum { session.end() }
+                let deadline = min(session.lastHeard + idleTimeout, session.started + maximum)
+                guard deadline > .now else { session.end(); break }
+                try? await Task.sleep(until: deadline, clock: .continuous)
             }
         }
         return .success(session)
@@ -153,7 +172,7 @@ final class CameraTalks: Sendable {
 extension UIServer {
     /// Starts the web UI's microphone on a camera, over requests.
     func startTalk(_ id: String, _ body: JSONValue, username: String) async -> Reply {
-        guard let talkID = body["talk"]?.stringValue, Self.isTalkID(talkID) else { return .error(400, "give talk, an id of 8 to 64 letters, digits and dashes") }
+        let talkID = Secrets.randomToken()
         switch await beginTalk(id, talkID: talkID, sampleRate: body["sampleRate"]?.saturatingIntValue, username: username) {
         case .failure(let refusal): return .error(refusal.status, refusal.message)
         case .success(let session): return .json(["talk": .string(talkID), "sampleRate": .number(Double(session.format.sampleRate))])
@@ -202,12 +221,7 @@ extension UIServer {
             return .error(400, "give seq and pcm, base64 signed 16-bit little-endian mono")
         }
         guard pcm.count <= session.maxChunkBytes else { return .error(413, "at most a second of audio per request") }
-        session.push(seq: seq, pcm: pcm)
+        session.push(pcm, seq: seq)
         return .json(JSONValue.object([:]))
-    }
-
-    /// A Talk's id, from the browser: it lands in a path and the log.
-    static func isTalkID(_ id: String) -> Bool {
-        (8...64).contains(id.count) && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
     }
 }

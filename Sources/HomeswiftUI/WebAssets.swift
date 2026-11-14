@@ -9495,8 +9495,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// focused (the camera steps that way while it is held), then the presets and the home position. Each step waits for
   /// the camera's answer before the next: a battery camera answers late, and requests must not pile up.
   function panTilt(camera, url, setStatus, ask) {
-    // The camera's controls once asked; false for a camera that does not move, which is not asked again.
-    let controls = null, held = null, busy = false, timer = null;
+    // The camera's controls once asked; false for a camera that does not move, which is not asked again. `askedLive`: an
+    // answer from before the picture was live may lack the pan and tilt a camera knows only while it streams (Tapo), so it
+    // is asked afresh once.
+    let controls = null, held = null, busy = false, timer = null, askedLive = false;
+    const moves = (answer) => !!(answer?.directions?.length || answer?.presets?.length || answer?.home);
     const thumb = el("span", { class: "ptz-thumb", "aria-hidden": "true" });
     const arrows = Object.fromEntries(Object.entries(arrowIcons).map(([direction, name]) => [direction,
       el("span", { class: `ptz-arrow ${direction}`, "aria-hidden": "true" }, HomeswiftCommon.icon(name))]));
@@ -9609,9 +9612,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         if (!on) { open(false); return; }
         if (controls === false) return;
         if (controls) { toggle.classList.remove("hidden"); return; }
-        const answer = await ask();
+        let answer = await ask();
+        if (answer !== undefined && !moves(answer) && !askedLive) { askedLive = true; answer = await ask(true); }
         if (answer === undefined || controls) return;
-        if (!answer?.directions?.length && !answer?.presets?.length && !answer?.home) { controls = false; return; }
+        if (!moves(answer)) { controls = false; return; }
         controls = { directions: answer.directions ?? [], presets: answer.presets ?? [], home: !!answer.home };
         draw();
         toggle.classList.remove("hidden");
@@ -9645,7 +9649,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       toggle.setAttribute("aria-label", label);
       toggle.title = label;
     }
-    const randomID = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
     const bridgeMessage = (text) => window.HomeswiftI18n?.message(text) ?? text;
 
     async function start() {
@@ -9654,7 +9657,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         setStatus(window.isSecureContext ? t("This browser cannot use the microphone") : t("The microphone needs the web UI over HTTPS"), true);
         return;
       }
-      const current = { id: randomID(), seq: 0, queue: [], sending: false, ended: false, socket: null };
+      const current = { id: null, seq: 0, queue: [], sending: false, ended: false, socket: null };
       session = current;
       mark(true);
       hooks.started();
@@ -9662,20 +9665,27 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       try {
         // Made during the click, so Safari lets it run.
         current.context = new AudioContext();
+        // The worklet loads while the microphone and the Talk start; a failure is caught once awaited.
+        const worklet = current.context.audioWorklet.addModule("/talk-worklet.js");
+        worklet.catch(() => {});
         current.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
         if (current.ended) return;
-        // The Talk starts once the microphone is granted: the bridge ends one that stays silent.
+        // The Talk starts once the microphone is granted: the bridge ends one that stays silent. Over requests, the
+        // bridge names it.
         current.socket = await openSocket(current);
         if (current.ended) { current.socket?.close(1000); return; }
-        if (!current.socket) await HomeswiftCommon.api(url("talk"), { method: "POST", body: { talk: current.id, sampleRate: format.sampleRate } });
-        if (current.ended) return;
-        await current.context.audioWorklet.addModule("/talk-worklet.js");
+        if (!current.socket) {
+          current.id = (await HomeswiftCommon.api(url("talk"), { method: "POST", body: { sampleRate: format.sampleRate } })).talk;
+          // Stopped while the bridge started it: it ends now rather than when it falls silent.
+          if (current.ended) { endRequests(current); return; }
+        }
+        await worklet;
         await current.context.resume();
         if (current.ended) return;
         const source = current.context.createMediaStreamSource(current.stream);
-        const chunk = current.socket ? SOCKET_CHUNK : REQUEST_CHUNK;
+        const [chunk, send] = current.socket ? [SOCKET_CHUNK, sendSocket] : [REQUEST_CHUNK, enqueue];
         current.node = new AudioWorkletNode(current.context, "homeswift-talk", { processorOptions: { rate: format.sampleRate, chunk } });
-        current.node.port.onmessage = (event) => (current.socket ? sendSocket(current, event.data) : enqueue(current, event.data));
+        current.node.port.onmessage = (event) => send(current, event.data);
         // The worklet runs only while it leads to the speakers: through a silent gain, so nothing is heard here.
         const silent = current.context.createGain();
         silent.gain.value = 0;
@@ -9741,7 +9751,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (current.queue.length > TALK_BACKLOG / REQUEST_CHUNK) current.queue.shift();
       pump(current);
     }
-    // One request at a time, in order; the end goes after the audio before it.
+    // One request at a time, in order: the end (stop) goes after the audio before it.
     async function pump(current) {
       if (current.sending) return;
       current.sending = true;
@@ -9760,7 +9770,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     function release(current) {
       current.ended = true;
-      current.queue.length = 0;
       current.node?.port.close();
       current.stream?.getTracks().forEach((track) => track.stop());
       current.context?.close().catch(() => {});
@@ -9772,21 +9781,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         hooks.stopped();
       }
     }
+    // Over requests, the end follows what is still on its way; a Talk still starting is ended once its id comes (start).
+    function endRequests(current) {
+      if (!current.id) return;
+      current.queue.push({ end: true });
+      pump(current);
+    }
     function fail(current, text) {
       release(current);
+      current.queue.length = 0;
       setStatus(text, true);
     }
     function stop() {
       const current = session;
       if (!current) return;
-      const overRequests = !!current.node && !current.socket;
       release(current);
       setStatus("");
-      // What is still on its way goes first; the bridge ends a Talk that falls silent anyway.
-      if (overRequests) {
-        const end = () => HomeswiftCommon.api(url(`talk/${current.id}`), { method: "POST", body: { end: true } }).catch(() => {});
-        if (current.sending) setTimeout(end, REQUEST_CHUNK * 2); else end();
-      }
+      endRequests(current);
     }
 
     return {
@@ -9870,16 +9881,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     // What the live view's buttons can do (/api/cameras/<id>/controls), asked once for both: the answer, false for a
     // camera that neither moves nor talks or a read-only user, undefined when it could not be asked (asked again later).
+    // `fresh` asks again rather than take the answer kept.
     let controlsAnswer = null, controlsAsking = null;
-    const askControls = () => {
-      if (controlsAnswer !== null) return Promise.resolve(controlsAnswer);
-      controlsAsking ??= HomeswiftCommon.api(url("controls"))
-        .then((answer) => (controlsAnswer = answer ?? false))
-        .catch((error) => {
-          if (error.status === 404 || error.status === 403) controlsAnswer = false;
-          return controlsAnswer === false ? false : undefined;
-        })
-        .finally(() => { controlsAsking = null; });
+    const askControls = (fresh = false) => {
+      if (!fresh && controlsAnswer !== null) return Promise.resolve(controlsAnswer);
+      if (fresh || !controlsAsking) {
+        const asking = HomeswiftCommon.api(url("controls"))
+          .then((answer) => (controlsAnswer = answer ?? false))
+          .catch((error) => {
+            if (error.status === 404 || error.status === 403) controlsAnswer = false;
+            return controlsAnswer === false ? false : undefined;
+          })
+          .finally(() => { if (controlsAsking === asking) controlsAsking = null; });
+        controlsAsking = asking;
+      }
       return controlsAsking;
     };
     const ptz = panTilt(camera, url, setStatus, askControls);

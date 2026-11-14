@@ -59,8 +59,6 @@ public actor ImouPlugin: HomeswiftPlugin {
     private let tasks = TaskBag()
     /// The cameras by accessory id.
     private(set) var cameras: [String: ImouCamera] = [:]
-    /// The talk of each camera with a speaker, by accessory id: HomeKit's return audio and the web UI's microphone.
-    private var talks: [String: ImouTalk] = [:]
     /// The cloud's camera devices, by Device Id, from its last listing.
     private(set) var cloudDevices: [String: ImouDevice] = [:]
     private var queues: [String: SerialQueue] = [:]
@@ -215,7 +213,6 @@ public actor ImouPlugin: HomeswiftPlugin {
                 let id = Self.accessoryID(deviceID: device.deviceID, channel: channel.id)
                 guard cameras[id] == nil || changed, !context.isExcluded(accessoryID: id) else { continue }
                 var events: Bool?
-                talks[id] = nil
                 if let old = cameras.removeValue(forKey: id) {
                     events = await old.localEventsUp
                     await old.shutdown()
@@ -233,7 +230,6 @@ public actor ImouPlugin: HomeswiftPlugin {
             if keep.contains(id) { republished[id] = .some(await camera.localEventsUp) }
             await camera.shutdown()
             cameras.removeValue(forKey: id)
-            talks[id] = nil
         }
         await context.removeAccessories(keeping: keep)
         if !republished.isEmpty {
@@ -333,10 +329,9 @@ public actor ImouPlugin: HomeswiftPlugin {
             camera.bindWrites()
             accessory.configureController(controller)
             context.configureController(controller, accessoryID: id)
-            await camera.attach(accessory: accessory, controller: controller, streamer: streamer, recorder: recorder)
+            await camera.attach(accessory: accessory, controller: controller, streamer: streamer, recorder: recorder, talk: talk)
             try await context.publishExternal(accessory)
             cameras[id] = camera
-            talks[id] = talk
             logger.info("Added \(name) (\(device.model), \(device.deviceID))\(local == nil ? "" : ", on the local network at \(local?.host ?? "")")")
         } catch {
             logger.error("Could not publish \(name): \(error)")
@@ -347,13 +342,13 @@ public actor ImouPlugin: HomeswiftPlugin {
 
     /// The PCM a camera with a speaker takes from the web UI's microphone, as HomeKit's Talks.
     public func talkFormat(accessoryID: String) async -> ReturnAudioFormat? {
-        talks[accessoryID]?.settings.codec.format
+        await cameras[accessoryID]?.talk?.settings.codec.format
     }
 
     /// Plays the web UI's microphone on a camera's speaker.
     public func talk(accessoryID: String, _ talk: Talk) async throws {
-        guard let camera = talks[accessoryID] else { throw CameraControlError("no camera with a speaker with that id") }
-        await camera.handle(talk)
+        guard let speaker = await cameras[accessoryID]?.talk else { throw CameraControlError("no camera with a speaker with that id") }
+        await speaker.handle(talk)
     }
 
     /// The camera's talk (ImouTalk.md, sections 2 and 6), when its `twoWayAudio` setting allows it, it is reached on the LAN

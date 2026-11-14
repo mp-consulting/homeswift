@@ -138,6 +138,9 @@ extension UIServer {
             } catch {
                 return .error(500, "\(error)")
             }
+        case "talk":
+            // A Talk's WebSocket that was not upgraded: what refused it (sign-in, scope, the camera) answered before.
+            return .error(426, "talk over a WebSocket, or POST to start a talk")
         default:
             return .error(404, "unknown camera route \(action)")
         }

@@ -111,6 +111,8 @@ actor ImouCamera {
     private(set) var controller: CameraController?
     private(set) var streamer: RTSPCameraStreamer?
     private(set) var recorder: RTSPCameraRecorder?
+    /// The camera's talk when it has a speaker: HomeKit's return audio and the web UI's microphone.
+    private(set) var talk: ImouTalk?
 
     private(set) var online: ImouOnline = .online
     private(set) var privacyOn = false
@@ -186,11 +188,12 @@ actor ImouCamera {
         services.siren?.characteristic(.on).isSecurityControl = true
     }
 
-    func attach(accessory: Accessory, controller: CameraController, streamer: RTSPCameraStreamer?, recorder: RTSPCameraRecorder?) {
+    func attach(accessory: Accessory, controller: CameraController, streamer: RTSPCameraStreamer?, recorder: RTSPCameraRecorder?, talk: ImouTalk?) {
         self.accessory = accessory
         self.controller = controller
         self.streamer = streamer
         self.recorder = recorder
+        self.talk = talk
     }
 
     /// The write handlers: each goes to the cloud, one at a time per device; the state is set at once and put back on a

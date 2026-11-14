@@ -197,7 +197,6 @@ extension ReolinkPlugin {
         return list
     }
 
-    /// A published camera with PTZ, by accessory id or Device Id.
     /// The PCM a camera with a speaker takes from the web UI's microphone: its Talks' (`ReolinkTalker.format`).
     public func talkFormat(accessoryID: String) async -> ReturnAudioFormat? {
         talker(accessoryID)?.format
@@ -217,6 +216,7 @@ extension ReolinkPlugin {
         return batteryRuntimes.values.first { $0.camera.accessory.id == accessoryID }?.camera.talker
     }
 
+    /// A published camera with PTZ, by accessory id or Device Id.
     private func ptzTarget(_ id: String) async -> (host: ReolinkHost, channel: Int, ptz: ReolinkPTZ)? {
         let accessoryID = id.hasPrefix("\(Self.platform):") ? id : Self.accessoryID(deviceID: id)
         for runtime in runtimes.values {

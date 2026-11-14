@@ -2,6 +2,7 @@ import Foundation
 import Homeswift
 import HomeswiftAI
 import HomeswiftNetwork
+import NIOConcurrencyHelpers
 import NIOCore
 import NIOHTTP1
 import NIOWebSocket
@@ -12,36 +13,42 @@ import NIOWebSocket
 // signed 16-bit little-endian mono at that rate, at most a second of it; closing the socket ends the Talk. When the
 // plugin gives up, the bridge sends `{"error": "…", "status": 502}` and closes.
 //
-// The upgrade is granted only to what the same request over the API could do: a host the UI answers to, a signed-in
-// user's cookie from the page itself (a browser always sends `Origin` with a WebSocket), allowed to control accessories.
-// Anything else is not upgraded and reaches the API's own route, which says why; the page then talks over requests.
+// The upgrade is granted only to what the same request's POST could do (`authorize`): a host the UI answers to, a
+// signed-in user's cookie from the page itself (a browser always sends `Origin` with a WebSocket), allowed to control
+// accessories. Anything else is not upgraded and reaches the API as a GET, which says why; the page then talks over
+// requests.
 
 extension UIServer {
-    /// The upgrader the UI's pipeline offers.
+    /// What a Talk's WebSocket request was granted: its camera, user and rate.
+    struct TalkSocketTarget: Sendable {
+        var accessoryID: String
+        var caller: Caller
+        var sampleRate: Int?
+    }
+
+    /// The upgrader the UI's pipeline offers a connection.
     func talkSocketUpgrader() -> NIOWebSocketServerUpgrader {
-        NIOWebSocketServerUpgrader(maxFrameSize: 1 << 16, automaticErrorHandling: true) { [self] channel, head in
-            let allowed = talkSocketTarget(head) != nil
-            return channel.eventLoop.makeSucceededFuture(allowed ? HTTPHeaders() : nil)
-        } upgradePipelineHandler: { [self] channel, head in
-            guard let target = talkSocketTarget(head) else { return channel.close() }
+        // What the upgrade request was granted, for the handler: the upgrader is the connection's own.
+        let granted = NIOLockedValueBox<TalkSocketTarget?>(nil)
+        return NIOWebSocketServerUpgrader(maxFrameSize: 1 << 16, automaticErrorHandling: true) { [self] channel, head in
+            let target = talkSocketTarget(head, remote: channel.remoteAddress?.ipAddress ?? "?")
+            granted.withLockedValue { $0 = target }
+            return channel.eventLoop.makeSucceededFuture(target == nil ? nil : HTTPHeaders())
+        } upgradePipelineHandler: { [self] channel, _ in
+            guard let target = granted.withLockedValue({ $0 }) else { return channel.close() }
             let handler = TalkSocketHandler(server: self, accessoryID: target.accessoryID, caller: target.caller, sampleRate: target.sampleRate)
             return channel.eventLoop.makeCompletedFuture { try channel.pipeline.syncOperations.addHandler(handler) }
         }
     }
 
     /// The camera and user of a Talk's WebSocket request, when the request may have one.
-    func talkSocketTarget(_ head: HTTPRequestHead) -> (accessoryID: String, caller: Caller, sampleRate: Int?)? {
-        guard head.method == .GET, let components = URLComponents(string: head.uri) else { return nil }
-        let parts = components.percentEncodedPath.split(separator: "/").map { String($0).removingPercentEncoding ?? String($0) }
-        guard parts.count == 4, parts[0] == "api", parts[1] == "cameras", parts[3] == "talk" else { return nil }
-        var headers: [String: String] = [:]
-        for (name, value) in head.headers { headers[name.lowercased()] = value }
-        let request = Request(method: .GET, path: components.percentEncodedPath, headers: headers, body: Data(), remote: "")
-        guard isAllowedHost(headers["host"]), headers["origin"] != nil, refuseCrossSite(request) == nil,
-              let caller = caller(request, bearer: false), caller.token == nil,
-              caller.scope >= Self.requiredScope(.POST, ["cameras", parts[2], "talk"]) else { return nil }
-        let rate = components.queryItems?.first { $0.name == "sampleRate" }?.value.flatMap { Int($0) }
-        return (parts[2], caller, rate)
+    func talkSocketTarget(_ head: HTTPRequestHead, remote: String) -> TalkSocketTarget? {
+        let request = request(head, headers: Self.headers(of: head), body: Data(), remote: remote)
+        guard request.method == .GET, isAllowedHost(request.headers["host"]), request.headers["origin"] != nil else { return nil }
+        let parts = pathParts(request)
+        guard parts.count == 4, parts[0] == "api", parts[1] == "cameras", parts[3] == "talk",
+              case .allowed(let caller) = authorize(request, route: Array(parts.dropFirst()), as: .POST, bearer: false) else { return nil }
+        return TalkSocketTarget(accessoryID: parts[2], caller: caller, sampleRate: request.query["sampleRate"].flatMap { Int($0) })
     }
 }
 
@@ -57,7 +64,6 @@ final class TalkSocketHandler: ChannelInboundHandler, @unchecked Sendable {
     private let sampleRate: Int?
     // On the channel's event loop only.
     private var session: CameraTalks.Session?
-    private var seq = 0
     private var closing = false
     private var context: ChannelHandlerContext?
 
@@ -74,8 +80,8 @@ final class TalkSocketHandler: ChannelInboundHandler, @unchecked Sendable {
         let loop = context.eventLoop
         Task { [self, server, accessoryID, caller, sampleRate] in
             let started = await server.beginTalk(accessoryID, talkID: talkID, sampleRate: sampleRate, username: caller.username)
-            server.auditTalkSocket(accessoryID, caller: caller, started: started)
             loop.execute { self.began(started) }
+            server.auditTalkSocket(accessoryID, caller: caller, sampleRate: sampleRate, started: started)
         }
     }
 
@@ -101,14 +107,13 @@ final class TalkSocketHandler: ChannelInboundHandler, @unchecked Sendable {
         let frame = unwrapInboundIn(data)
         switch frame.opcode {
         case .binary:
-            var payload = frame.unmaskedData
-            guard let session, let bytes = payload.readBytes(length: payload.readableBytes) else { return }
-            guard bytes.count <= session.maxChunkBytes else {
+            guard let session else { return }
+            let payload = frame.unmaskedData
+            guard payload.readableBytes <= session.maxChunkBytes else {
                 close(["error": "at most a second of audio per message", "status": 413], code: .messageTooLarge)
                 return
             }
-            session.push(seq: seq, pcm: Data(bytes))
-            seq += 1
+            session.push(payload.readableBytesView)
         case .connectionClose:
             session?.end()
             close(nil, code: .normalClosure)
@@ -128,7 +133,8 @@ final class TalkSocketHandler: ChannelInboundHandler, @unchecked Sendable {
     }
 
     func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
-        // Nothing from the page for the UI's idle time: the Talk is over.
+        // Nothing from the page for the UI's idle time (the Talk's own watchdog ends it sooner): a socket whose Talk never
+        // started, or a page gone.
         if let idle = event as? IdleStateHandler.IdleStateEvent, idle == .read {
             session?.end()
             close(nil, code: .goingAway)
@@ -157,9 +163,10 @@ final class TalkSocketHandler: ChannelInboundHandler, @unchecked Sendable {
 }
 
 extension UIServer {
-    /// A Talk started over a WebSocket is audited as one started over a request.
-    func auditTalkSocket(_ accessoryID: String, caller: Caller, started: Result<CameraTalks.Session, ReplyError>) {
-        let request = Request(method: .GET, path: "/api/cameras/\(accessoryID)/talk", headers: [:], body: Data(), remote: "")
+    /// A Talk started over a WebSocket is audited as one started over a request: its POST.
+    func auditTalkSocket(_ accessoryID: String, caller: Caller, sampleRate: Int?, started: Result<CameraTalks.Session, ReplyError>) {
+        let body = sampleRate.map { JSONValue.object(["sampleRate": .number(Double($0))]).encoded() } ?? Data()
+        let request = Request(method: .POST, path: "/api/cameras/\(accessoryID)/talk", headers: [:], body: body, remote: "")
         let reply: Reply = switch started {
         case .success: .json(JSONValue.object([:]))
         case .failure(let refusal): .error(refusal.status, refusal.message)

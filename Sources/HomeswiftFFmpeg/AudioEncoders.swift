@@ -200,13 +200,7 @@ public final class AACTalkEncoder: Sendable {
     }
 
     public func write(_ samples: [Int16]) async throws {
-        // s16le: the samples' own bytes on a little-endian host, swapped on a big-endian one.
-        #if _endian(little)
-        let data = samples.withUnsafeBytes { Data($0) }
-        #else
-        let data = samples.map(\.littleEndian).withUnsafeBytes { Data($0) }
-        #endif
-        try await process.writeStdin(data)
+        try await process.writeStdin(samples.s16le)
     }
 
     /// Closes FFmpeg's input: it writes what it has and ends.

@@ -49,6 +49,8 @@ final class FeedSource: @unchecked Sendable {
     /// What reached the door camera's speaker: the frames of each Talk, and how many Talks ended.
     let spoken = NIOLockedValueBox<[[PCMFrame]]>([])
     let talksEnded = NIOLockedValueBox(0)
+    /// Talks that began while another was still playing.
+    let overlaps = NIOLockedValueBox(0)
 }
 
 /// A plugin with a camera that has a live feed, one that has snapshots only, and a lamp.
@@ -91,6 +93,7 @@ actor CameraPlugin: HomeswiftPlugin {
         guard accessoryID == "Cams:door" else { throw CameraControlError("the speaker is unplugged") }
         let source = source
         let index = source.spoken.withLockedValue { $0.append([]); return $0.count - 1 }
+        if index > source.talksEnded.withLockedValue({ $0 }) { source.overlaps.withLockedValue { $0 += 1 } }
         for await frame in talk.frames { source.spoken.withLockedValue { $0[index].append(frame) } }
         source.talksEnded.withLockedValue { $0 += 1 }
     }
@@ -103,7 +106,8 @@ final class CameraUIEnvironment: @unchecked Sendable {
     let host: PluginHost
     let server: UIServer
 
-    init() throws {
+    /// `talkIdleTimeout`: the silence that ends a Talk, shortened for the tests that wait for it.
+    init(talkIdleTimeout: Duration? = nil) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let config = """
             { "bridge": { "name": "Camera Bridge", "username": "0E:11:22:33:44:77", "pin": "031-45-154", "port": 0 },
@@ -123,6 +127,7 @@ final class CameraUIEnvironment: @unchecked Sendable {
         var serverOptions = UIServer.Options()
         serverOptions.hashIterations = 1000
         serverOptions.logger = testLogger
+        if let talkIdleTimeout { serverOptions.talkIdleTimeout = talkIdleTimeout }
         server = UIServer(configuration: configuration, catalog: catalog, usersURL: directory.appendingPathComponent("ui-users.json"), options: serverOptions)
     }
 
@@ -342,35 +347,73 @@ struct CameraUITests {
         #expect(try await browser.get("/api/cameras/Cams:lamp/controls").status == 404)
 
         // The browser must send at the camera's rate.
-        #expect(try await browser.post("/api/cameras/Cams:door/talk", ["talk": "talk-0001", "sampleRate": 16000]).status == 409)
-        #expect(try await browser.post("/api/cameras/Cams:door/talk", ["talk": "../x", "sampleRate": 8000]).status == 400)
-        let start = try await browser.post("/api/cameras/Cams:door/talk", ["talk": "talk-0001", "sampleRate": 8000])
+        #expect(try await browser.post("/api/cameras/Cams:door/talk", ["sampleRate": 16000]).status == 409)
+        let start = try await browser.post("/api/cameras/Cams:door/talk", ["sampleRate": 8000])
         #expect(start.status == 200)
         #expect(start.json?["sampleRate"] == 8000)
+        // The bridge names the Talk.
+        let talk = try #require(start.json?["talk"]?.stringValue)
 
         // 20 ms frames at 8 kHz are 160 samples: a frame and a part, then the rest of the second frame; a request older
         // than one taken is dropped.
         let samples = (0..<320).map { Int16($0 * 50 - 8000) }
-        #expect(try await browser.post("/api/cameras/Cams:door/talk/talk-0001", ["seq": 0, "pcm": Self.pcm(Array(samples[0..<250]))]).status == 200)
-        #expect(try await browser.post("/api/cameras/Cams:door/talk/talk-0001", ["seq": 0, "pcm": Self.pcm(Array(samples[0..<250]))]).status == 200)
-        #expect(try await browser.post("/api/cameras/Cams:door/talk/talk-0001", ["seq": 1, "pcm": Self.pcm(Array(samples[250...]))]).status == 200)
+        #expect(try await browser.post("/api/cameras/Cams:door/talk/\(talk)", ["seq": 0, "pcm": Self.pcm(Array(samples[0..<250]))]).status == 200)
+        #expect(try await browser.post("/api/cameras/Cams:door/talk/\(talk)", ["seq": 0, "pcm": Self.pcm(Array(samples[0..<250]))]).status == 200)
+        #expect(try await browser.post("/api/cameras/Cams:door/talk/\(talk)", ["seq": 1, "pcm": Self.pcm(Array(samples[250...]))]).status == 200)
         // Someone else cannot talk on it meanwhile.
         _ = try environment.server.users.create(username: "linus", password: "correct horse battery staple")
         let other = Browser(base: base)
         other.cookie = "\(UIServer.cookieName)=\(environment.server.sessions.create(username: "linus"))"
         other.origin = browser.origin
-        let refused = try await other.post("/api/cameras/Cams:door/talk", ["talk": "talk-0002", "sampleRate": 8000])
+        let refused = try await other.post("/api/cameras/Cams:door/talk", ["sampleRate": 8000])
         #expect(refused.status == 409)
         #expect(refused.json?["error"]?.stringValue?.contains("rosaly") == true)
-        #expect(try await other.post("/api/cameras/Cams:door/talk/talk-0001", ["seq": 2, "pcm": Self.pcm([1])]).status == 410)
+        #expect(try await other.post("/api/cameras/Cams:door/talk/\(talk)", ["seq": 2, "pcm": Self.pcm([1])]).status == 410)
 
-        #expect(try await browser.post("/api/cameras/Cams:door/talk/talk-0001", ["end": true]).status == 200)
+        #expect(try await browser.post("/api/cameras/Cams:door/talk/\(talk)", ["end": true]).status == 200)
         #expect(await eventually { environment.source.talksEnded.withLockedValue { $0 } == 1 })
         let frames = try #require(environment.source.spoken.withLockedValue { $0.first })
         #expect(frames.map(\.offset) == [0, 160])
         #expect(frames.flatMap(\.samples) == samples)
         // An ended Talk takes nothing more.
-        #expect(try await browser.post("/api/cameras/Cams:door/talk/talk-0001", ["seq": 3, "pcm": Self.pcm([1])]).status == 410)
+        #expect(try await browser.post("/api/cameras/Cams:door/talk/\(talk)", ["seq": 3, "pcm": Self.pcm([1])]).status == 410)
+    }
+
+    @Test func endsATalkThatFallsSilent() async throws {
+        let environment = try CameraUIEnvironment(talkIdleTimeout: .milliseconds(200))
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = try environment.signedIn(base)
+        browser.origin = "http://127.0.0.1:\(environment.server.port!)"
+        let start = try await browser.post("/api/cameras/Cams:door/talk", ["sampleRate": 8000])
+        let talk = try #require(start.json?["talk"]?.stringValue)
+        #expect(try await browser.post("/api/cameras/Cams:door/talk/\(talk)", ["seq": 0, "pcm": Self.pcm(Array(repeating: 1, count: 160))]).status == 200)
+        // Nothing more from the browser (a closed tab): the Talk ends, and the camera is free for someone else.
+        #expect(await eventually { environment.source.talksEnded.withLockedValue { $0 } == 1 })
+        #expect(try await browser.post("/api/cameras/Cams:door/talk/\(talk)", ["seq": 1, "pcm": Self.pcm([1])]).status == 410)
+        _ = try environment.server.users.create(username: "linus", password: "correct horse battery staple")
+        let other = Browser(base: base)
+        other.cookie = "\(UIServer.cookieName)=\(environment.server.sessions.create(username: "linus"))"
+        other.origin = browser.origin
+        #expect(try await other.post("/api/cameras/Cams:door/talk", ["sampleRate": 8000]).status == 200)
+    }
+
+    @Test func playsTalksOneAfterTheOther() async throws {
+        let environment = try CameraUIEnvironment()
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = try environment.signedIn(base)
+        browser.origin = "http://127.0.0.1:\(environment.server.port!)"
+        let first = try #require(try await browser.post("/api/cameras/Cams:door/talk", ["sampleRate": 8000]).json?["talk"]?.stringValue)
+        // A second tab of the same user replaces the first: the plugin finishes the first before it gets the second.
+        let second = try #require(try await browser.post("/api/cameras/Cams:door/talk", ["sampleRate": 8000]).json?["talk"]?.stringValue)
+        #expect(first != second)
+        #expect(try await browser.post("/api/cameras/Cams:door/talk/\(first)", ["seq": 0, "pcm": Self.pcm([1])]).status == 410)
+        #expect(try await browser.post("/api/cameras/Cams:door/talk/\(second)", ["seq": 0, "pcm": Self.pcm(Array(repeating: 2, count: 160))]).status == 200)
+        #expect(try await browser.post("/api/cameras/Cams:door/talk/\(second)", ["end": true]).status == 200)
+        #expect(await eventually { environment.source.talksEnded.withLockedValue { $0 } == 2 })
+        #expect(environment.source.spoken.withLockedValue { $0.map { $0.flatMap(\.samples).count } } == [0, 160])
+        #expect(environment.source.overlaps.withLockedValue { $0 } == 0)
     }
 
     @Test func saysWhyTheCameraGaveUp() async throws {
@@ -379,13 +422,15 @@ struct CameraUITests {
         defer { Task { await environment.stop() } }
         let browser = try environment.signedIn(base)
         browser.origin = "http://127.0.0.1:\(environment.server.port!)"
-        #expect(try await browser.post("/api/cameras/Cams:still/talk", ["talk": "talk-0003", "sampleRate": 8000]).status == 200)
+        let start = try await browser.post("/api/cameras/Cams:still/talk", ["sampleRate": 8000])
+        #expect(start.status == 200)
+        let talk = try #require(start.json?["talk"]?.stringValue)
         #expect(await eventually {
-            let reply = try? await browser.post("/api/cameras/Cams:still/talk/talk-0003", ["seq": 0, "pcm": Self.pcm([1, 2])])
+            let reply = try? await browser.post("/api/cameras/Cams:still/talk/\(talk)", ["seq": 0, "pcm": Self.pcm([1, 2])])
             return reply?.status == 502 && reply?.json?["error"]?.stringValue == "the speaker is unplugged"
         })
         // A camera without a speaker has no microphone.
-        #expect(try await browser.post("/api/cameras/Cams:lamp/talk", ["talk": "talk-0004"]).status == 404)
+        #expect(try await browser.post("/api/cameras/Cams:lamp/talk", [:]).status == 404)
     }
 }
 
@@ -441,6 +486,9 @@ struct CameraUITests {
         await #expect(throws: (any Error).self) { _ = try await Self.connect(environment, "Cams:door", cookie: nil) }
         await #expect(throws: (any Error).self) { _ = try await Self.connect(environment, "Cams:door", cookie: browser.cookie, origin: "https://elsewhere.example") }
         #expect(environment.server.cameraTalks.session("Cams:door") == nil)
+        // A request that was not upgraded is answered as the API answers it: why.
+        #expect(try await Browser(base: base).get("/api/cameras/Cams:door/talk").status == 401)
+        #expect(try await browser.get("/api/cameras/Cams:door/talk").status == 426)
 
         // Someone else talking: the socket opens and says so.
         let first = try await Self.connect(environment, "Cams:door", cookie: browser.cookie)

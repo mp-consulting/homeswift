@@ -33,14 +33,18 @@ public struct PCMFrame: Sendable, Equatable {
 
 extension PCMFrame {
     /// The samples as signed 16-bit little-endian bytes: FFmpeg's `s16le`.
+    public var s16le: Data { samples.s16le }
+}
+
+extension Array where Element == Int16 {
+    /// Signed 16-bit little-endian bytes, FFmpeg's `s16le`: the samples' own bytes on a little-endian host, swapped on a
+    /// big-endian one.
     public var s16le: Data {
-        var data = Data(capacity: samples.count * 2)
-        for sample in samples {
-            let value = UInt16(bitPattern: sample)
-            data.append(UInt8(value & 0xFF))
-            data.append(UInt8(value >> 8))
-        }
-        return data
+        #if _endian(little)
+        withUnsafeBytes { Data($0) }
+        #else
+        map(\.littleEndian).withUnsafeBytes { Data($0) }
+        #endif
     }
 }
 
