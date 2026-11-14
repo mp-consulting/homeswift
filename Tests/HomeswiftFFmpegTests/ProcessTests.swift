@@ -845,3 +845,21 @@ final class RecordingStreamingDelegate: HomebridgeStreamingDelegate {
         #expect(await eventually(timeout: .seconds(15)) { released == nil })
     }
 }
+
+@Suite struct FfmpegLogLevelTests {
+    @Test func aLoweredLogLevelKeepsFFmpegQuiet() {
+        for level in ["error", "level+error", "warning", "quiet", "+repeat+level+fatal", "16"] {
+            #expect(!FfmpegProcess.asksForOutput(["-hide_banner", "-loglevel", level, "-i", "pipe:0"]), "\(level)")
+        }
+        #expect(!FfmpegProcess.asksForOutput(["-hide_banner", "-i", "pipe:0"]))
+    }
+
+    @Test func aRaisedLogLevelShowsFFmpegsOutput() {
+        for level in ["level+verbose", "debug", "level", "info", "32"] {
+            #expect(FfmpegProcess.asksForOutput(["-loglevel", level, "-i", "pipe:0"]), "\(level)")
+        }
+        // FFmpeg reads the last one.
+        #expect(FfmpegProcess.asksForOutput(["-loglevel", "level+verbose", "-loglevel", "level+debug"]))
+        #expect(!FfmpegProcess.asksForOutput(["-loglevel", "level+verbose", "-loglevel", "error"]))
+    }
+}
