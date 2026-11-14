@@ -3113,6 +3113,21 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 .rows > * + * { border-top: 1px solid var(--line); }
 .rows .row > .who { flex: 1; min-width: 0; }
 .rows .row > .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The Users page: a row per person, their initials on the tiles' colours (orange an administrator, blue anyone else),
+   held to AA under white letters; the role in words beside them. */
+.user-rows > .user-row { padding-block: var(--space-12); }
+.user-initials { width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: var(--text-sm); font-weight: var(--weight-semibold); letter-spacing: 0.02em;
+  background: linear-gradient(160deg, #2b78db, #1b58b8); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.user-initials.admin { background: linear-gradient(160deg, var(--accent-fill-top), var(--accent-fill)); }
+.user-row strong { display: flex; align-items: center; gap: var(--space-8); min-width: 0; }
+.pill.user-you, .pill.user-2fa { flex: none; }
+.pill.user-you::before, .pill.user-2fa::before { display: none; }
+.pill.user-you { padding: 0 var(--space-8); font-weight: var(--weight-medium); }
+.pill.user-2fa svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.pill.user-2fa.on { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.pill.user-2fa.off { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+/* A phone keeps the shield or the warning, the words in its label, and lets the username, role and date wrap. */
+@media (max-width: 640px) { .pill.user-2fa .label { display: none; } .pill.user-2fa { padding: var(--space-6); } .user-row .who > .muted { white-space: normal; } .user-added { white-space: nowrap; } }
 .row-detail { padding: 0 var(--space-16) var(--space-12); }
 .row-detail:empty { display: none; }
 .row-block > div:not(.row):not(:empty) { padding: 0 var(--space-16) var(--space-12); }
