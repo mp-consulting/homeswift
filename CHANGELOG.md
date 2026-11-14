@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **FFmpeg asked to be quiet stays out of the log**: a command line with `-loglevel error` (a Tapo camera's live view and
+  snapshots, a talk's audio) no longer has its command and every line FFmpeg writes logged at info, such as a Tapo camera's
+  `Could not find ref with POC` on each live view; FFmpeg's output still shows when it ends unexpectedly, and with a raised
+  level (`level+verbose`, debug).
+
 ## [0.33.0] - 2026-11-14
 
 ### Changed

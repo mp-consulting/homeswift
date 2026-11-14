@@ -160,8 +160,8 @@ public class FfmpegProcess: @unchecked Sendable {
     private func prepareProcess(_ commandLineArgs: [String]?) {
         let (arguments, isLogging) = base.withLockedValue { state -> ([String], Bool) in
             if let commandLineArgs { state.commandLineArgs = commandLineArgs }
-            // A command line with a log level asks for FFmpeg's output.
-            state.isLogging = state.commandLineArgs.contains("-loglevel")
+            // A command line that raises FFmpeg's log level asks for its output; one that lowers it (`error`) asks for quiet.
+            state.isLogging = Self.asksForOutput(state.commandLineArgs)
             state.isStarted = false
             state.isEnded = false
             // Fresh diagnostics: a reused instance never reports a previous process's output.
@@ -176,6 +176,20 @@ public class FfmpegProcess: @unchecked Sendable {
         } else {
             log.debug(message)
         }
+    }
+
+    /// Whether a command line's `-loglevel` (the last one, as FFmpeg reads it) shows more than warnings: `info`, `verbose`,
+    /// `debug`, `trace`, or flags alone (`level`), which keep FFmpeg's `info`. `quiet` to `warning` ask for no output.
+    static func asksForOutput(_ arguments: [String]) -> Bool {
+        guard let index = arguments.lastIndex(of: "-loglevel"), index + 1 < arguments.count else { return false }
+        let flags: Set<String> = ["level", "repeat", "time", "datetime", "color", ""]
+        let level = arguments[index + 1].split(separator: "+", omittingEmptySubsequences: false)
+            .map { $0.hasPrefix("-") ? String($0.dropFirst()) : String($0) }
+            .filter { !flags.contains($0) }
+            .last
+        guard let level else { return true }
+        if let number = Int(level) { return number > 24 }
+        return !["quiet", "panic", "fatal", "error", "warning"].contains(level)
     }
 
     /// Starts FFmpeg, with a new command line if one is given. `errorHandler` is called with a message when FFmpeg cannot start or
