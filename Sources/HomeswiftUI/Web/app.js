@@ -5646,10 +5646,7 @@
     bitmap.close?.();
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
     if (!blob) throw new Error(t("The image could not be read."));
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = "";
-    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    return btoa(binary);
+    return HomeswiftCommon.base64(new Uint8Array(await blob.arrayBuffer()));
   }
 
   // ---- Config --------------------------------------------------------------

@@ -223,9 +223,8 @@
         // Made during the click, so Safari lets it run.
         current.context = new AudioContext();
         // The worklet loads while the microphone and the Talk start; a failure is caught once awaited.
-        const worklet = current.context.audioWorklet.addModule("/talk-worklet.js");
-        worklet.catch(() => {});
-        current.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+        HomeswiftCommon.talkWorklet(current.context);
+        current.stream = await HomeswiftCommon.openMicrophone();
         if (current.ended) return;
         // The Talk starts once the microphone is granted: the bridge ends one that stays silent. Over requests, the
         // bridge names it.
@@ -236,22 +235,10 @@
           // Stopped while the bridge started it: it ends now rather than when it falls silent.
           if (current.ended) { endRequests(current); return; }
         }
-        await worklet;
-        await current.context.resume();
-        if (current.ended) return;
-        const source = current.context.createMediaStreamSource(current.stream);
         const [chunk, send] = current.socket ? [SOCKET_CHUNK, sendSocket] : [REQUEST_CHUNK, enqueue];
-        current.node = new AudioWorkletNode(current.context, "homeswift-talk", { processorOptions: { rate: format.sampleRate, chunk } });
-        current.node.port.onmessage = (event) => send(current, event.data);
-        // The worklet runs only while it leads to the speakers: through a silent gain, so nothing is heard here.
-        const silent = current.context.createGain();
-        silent.gain.value = 0;
-        source.connect(current.node).connect(silent).connect(current.context.destination);
-        // The waveform follows the same microphone.
-        const analyser = current.context.createAnalyser();
-        // 2048 samples: 43 ms at 48 kHz, the length of a bar's step, so every bar sees all of its sound.
-        analyser.fftSize = 2048;
-        source.connect(analyser);
+        const { node, analyser } = await HomeswiftCommon.listenTo(current.context, current.stream, { rate: format.sampleRate, chunk, onChunk: (data) => send(current, data) });
+        current.node = node;
+        if (current.ended) return;
         current.talking = true;
         mark("on");
         hooks.started();
@@ -312,10 +299,7 @@
 
     function enqueue(current, buffer) {
       if (current.ended) return;
-      const bytes = new Uint8Array(buffer);
-      let text = "";
-      for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      current.queue.push({ seq: current.seq++, pcm: btoa(text) });
+      current.queue.push({ seq: current.seq++, pcm: HomeswiftCommon.base64(new Uint8Array(buffer)) });
       if (current.queue.length > TALK_BACKLOG / REQUEST_CHUNK) current.queue.shift();
       pump(current);
     }

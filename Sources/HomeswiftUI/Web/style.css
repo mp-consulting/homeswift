@@ -2399,7 +2399,7 @@ dd { margin: 0; }
 /* A phone: the tools a little tighter, so the model's name keeps room beside them. */
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .chat-tools .chat-icon { width: 36px; height: 36px; min-height: 0; } }
 .chat-icon { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 50%; font-size: var(--text-2xl); line-height: 1; }
-.chat-icon svg, .chat-mic svg, .chat-send svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chat-icon svg, .chat-mic svg, .chat-send svg, .chat-voice-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .chat-grabber { display: none; }
 
 .chat-log {
@@ -2480,7 +2480,7 @@ dd { margin: 0; }
   font: inherit; white-space: pre-wrap; line-height: 1.4;
 }
 .chat-composer textarea:focus { box-shadow: none; }
-.chat-mic, .chat-send { flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
+.chat-mic, .chat-send, .chat-voice-button { flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
 .chat-mic { border-color: transparent; background: none; box-shadow: none; color: var(--muted); }
 @media (hover: hover) and (pointer: fine) { .chat-mic:hover { color: var(--text); background: var(--material-thin); } }
 .chat-mic.unavailable { opacity: 0.45; }
@@ -2491,12 +2491,8 @@ dd { margin: 0; }
 .chat.listening .chat-composer textarea { flex: 1 0 100%; }
 .chat.listening .chat-mic { display: none; }
 .chat.listening .chat-voice { display: flex; flex: 1 1 120px; min-width: 0; align-items: center; gap: var(--space-10); margin-left: calc(-1 * var(--space-8)); }
-.chat-voice-button {
-  flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%;
-  border-color: transparent; background: color-mix(in srgb, var(--text) 8%, transparent); box-shadow: none; color: var(--text);
-}
+.chat-voice-button { border-color: transparent; background: color-mix(in srgb, var(--text) 8%, transparent); box-shadow: none; color: var(--text); }
 @media (hover: hover) and (pointer: fine) { .chat-voice-button:hover { background: color-mix(in srgb, var(--text) 14%, transparent); } }
-.chat-voice-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .chat-voice-button svg.filled { fill: currentColor; stroke: none; width: 15px; height: 15px; }
 .chat-voice .talk-wave { flex: 1 1 auto; min-width: 0; height: 26px; color: var(--text); }
 .chat-send { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); }

@@ -2146,19 +2146,26 @@
     });
   }
 
-  // The waveform while someone talks: WAVE_BARS bars, one more every WAVE_STEP milliseconds, the newest on the right.
-  const WAVE_BARS = 28, WAVE_STEP = 50;
+  // The waveform while someone talks: one more bar every WAVE_STEP milliseconds, the newest on the right.
+  const WAVE_STEP = 50;
+  /// Its two looks. `talk`, a camera's Talk as in the Home app: 28 bars across the pill, brighter as they rise.
+  /// `dictation`, the chat's mic as in the Claude app: a bar each 6 CSS pixels, as many as fit, solid, the quiet as dots.
+  const WAVE_STYLES = {
+    talk: { bars: 28, width: 0.5, solid: false, dots: false },
+    dictation: { pitch: 6, width: 0.55, solid: true, dots: true },
+  };
 
   /// The microphone's level as the Home app shows it while someone talks: bars that rise with each syllable, fall in
   /// the pauses and scroll left. The scale follows the voice: its floor the room's quiet (down at once, up slowly), its
   /// top the voice's recent peaks (up at once, down slowly), so a soft voice moves the bars as much as a loud one and a
   /// steady noise stays low. `start(source)` follows an AnalyserNode on the microphone, or a function giving the level
   /// in decibels when the page cannot open the microphone itself (dictation holds it); `stop()` clears it. The bars
-  /// take the canvas's CSS colour. A camera's Talk draws WAVE_BARS translucent bars; the chat's dictation (`pitch`) as
-  /// many as fit, one each `pitch` CSS pixels, solid, its quiet as dots, as the Claude app does.
-  function waveform({ pitch: barPitch = 0 } = {}) {
+  /// take the canvas's CSS colour; `look` is one of WAVE_STYLES.
+  function waveform(look = "talk") {
+    const style = WAVE_STYLES[look];
     const canvas = el("canvas", { class: "talk-wave hidden", "aria-hidden": "true" });
-    const kept = barPitch ? 400 : WAVE_BARS;
+    // As many levels as the widest canvas shows.
+    const kept = style.bars || Math.ceil(screen.width / style.pitch);
     let frame = 0, levels = [], last = 0, samples = null, floor = -60, peak = -30, color = "#fff";
     function draw() {
       const ratio = window.devicePixelRatio || 1;
@@ -2167,18 +2174,24 @@
       if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
       const context = canvas.getContext("2d");
       context.clearRect(0, 0, width, height);
-      const pitch = barPitch ? barPitch * ratio : width / WAVE_BARS;
-      const bar = Math.max(1, pitch * (barPitch ? 0.55 : 0.5)), floor = barPitch ? bar : 2 * ratio;
+      const pitch = style.pitch ? style.pitch * ratio : width / style.bars;
+      const bar = Math.max(1, pitch * style.width), lowest = style.dots ? bar : 2 * ratio;
       const shown = Math.min(levels.length, Math.floor(width / pitch));
-      levels.slice(levels.length - shown).forEach((level, index) => {
-        const h = Math.max(floor, level * (height - 4 * ratio));
+      context.fillStyle = color;
+      // Solid bars are one path; translucent ones each their own, for their brightness.
+      if (style.solid) context.beginPath();
+      for (let index = 0; index < shown; index++) {
+        const level = levels[levels.length - shown + index];
+        const h = Math.max(lowest, level * (height - 4 * ratio));
         const x = width - (shown - index) * pitch + (pitch - bar) / 2;
-        context.globalAlpha = barPitch ? 1 : 0.5 + 0.5 * level;
-        context.fillStyle = color;
-        context.beginPath();
+        if (!style.solid) {
+          context.globalAlpha = 0.5 + 0.5 * level;
+          context.beginPath();
+        }
         context.roundRect(x, (height - h) / 2, bar, h, bar / 2);
-        context.fill();
-      });
+        if (!style.solid) context.fill();
+      }
+      if (style.solid) context.fill();
     }
     return {
       canvas,
@@ -2227,9 +2240,50 @@
     };
   }
 
+  /// Bytes as base64, in slices: a spread of a whole recording would overflow the call stack.
+  function base64(bytes) {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(binary);
+  }
+
+  /// The microphone for a camera's Talk and the chat's mic: its stream, voice-processed and mono.
+  const openMicrophone = () => navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+
+  // talk-worklet.js, loaded once per audio context: a caller may start it early, while the microphone opens.
+  const talkWorklets = new WeakMap();
+  function talkWorklet(context) {
+    if (!talkWorklets.has(context)) {
+      const loading = context.audioWorklet.addModule("/talk-worklet.js");
+      loading.catch(() => {});
+      talkWorklets.set(context, loading);
+    }
+    return talkWorklets.get(context);
+  }
+
+  /// The microphone's `stream` through talk-worklet.js in `context` (made during the tap: Safari starts one only then):
+  /// `onChunk` gets its signed 16-bit little-endian mono at `rate`, every `chunk` milliseconds, and `analyser` follows its
+  /// level for the waveform.
+  async function listenTo(context, stream, { rate, chunk, onChunk }) {
+    await talkWorklet(context);
+    await context.resume();
+    const source = context.createMediaStreamSource(stream);
+    const node = new AudioWorkletNode(context, "homeswift-talk", { processorOptions: { rate, chunk } });
+    node.port.onmessage = (event) => onChunk(event.data);
+    // The worklet runs only while it leads to the speakers: through a silent gain, so nothing is heard here.
+    const silent = context.createGain();
+    silent.gain.value = 0;
+    source.connect(node).connect(silent).connect(context.destination);
+    const analyser = context.createAnalyser();
+    // 2048 samples: 43 ms at 48 kHz, the length of a bar's step, so every bar sees all of its sound.
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+    return { node, analyser };
+  }
+
   window.HomeswiftCommon = {
     foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
-    openSheet, confirmAction, waveform,
+    openSheet, confirmAction, waveform, base64, openMicrophone, talkWorklet, listenTo,
     phone, viewSignal, nextView, filtersToggle, followControls, assistantButton, menuOpen: () => Boolean(openMenu),
     $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,

@@ -8091,10 +8091,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     bitmap.close?.();
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
     if (!blob) throw new Error(t("The image could not be read."));
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = "";
-    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    return btoa(binary);
+    return HomeswiftCommon.base64(new Uint8Array(await blob.arrayBuffer()));
   }
 
   // ---- Config --------------------------------------------------------------
@@ -9721,9 +9718,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // Made during the click, so Safari lets it run.
         current.context = new AudioContext();
         // The worklet loads while the microphone and the Talk start; a failure is caught once awaited.
-        const worklet = current.context.audioWorklet.addModule("/talk-worklet.js");
-        worklet.catch(() => {});
-        current.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+        HomeswiftCommon.talkWorklet(current.context);
+        current.stream = await HomeswiftCommon.openMicrophone();
         if (current.ended) return;
         // The Talk starts once the microphone is granted: the bridge ends one that stays silent. Over requests, the
         // bridge names it.
@@ -9734,22 +9730,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           // Stopped while the bridge started it: it ends now rather than when it falls silent.
           if (current.ended) { endRequests(current); return; }
         }
-        await worklet;
-        await current.context.resume();
-        if (current.ended) return;
-        const source = current.context.createMediaStreamSource(current.stream);
         const [chunk, send] = current.socket ? [SOCKET_CHUNK, sendSocket] : [REQUEST_CHUNK, enqueue];
-        current.node = new AudioWorkletNode(current.context, "homeswift-talk", { processorOptions: { rate: format.sampleRate, chunk } });
-        current.node.port.onmessage = (event) => send(current, event.data);
-        // The worklet runs only while it leads to the speakers: through a silent gain, so nothing is heard here.
-        const silent = current.context.createGain();
-        silent.gain.value = 0;
-        source.connect(current.node).connect(silent).connect(current.context.destination);
-        // The waveform follows the same microphone.
-        const analyser = current.context.createAnalyser();
-        // 2048 samples: 43 ms at 48 kHz, the length of a bar's step, so every bar sees all of its sound.
-        analyser.fftSize = 2048;
-        source.connect(analyser);
+        const { node, analyser } = await HomeswiftCommon.listenTo(current.context, current.stream, { rate: format.sampleRate, chunk, onChunk: (data) => send(current, data) });
+        current.node = node;
+        if (current.ended) return;
         current.talking = true;
         mark("on");
         hooks.started();
@@ -9810,10 +9794,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     function enqueue(current, buffer) {
       if (current.ended) return;
-      const bytes = new Uint8Array(buffer);
-      let text = "";
-      for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      current.queue.push({ seq: current.seq++, pcm: btoa(text) });
+      current.queue.push({ seq: current.seq++, pcm: HomeswiftCommon.base64(new Uint8Array(buffer)) });
       if (current.queue.length > TALK_BACKLOG / REQUEST_CHUNK) current.queue.shift();
       pump(current);
     }
@@ -10859,13 +10840,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const providerNames = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Gemini", apple: "Apple" };
 
   function build() {
+    const speakable = canSpeak();
     const log = el("div", { class: "chat-log", "aria-live": "polite", "aria-relevant": "additions" });
     const input = el("textarea", { rows: 1, placeholder: t("Ask, or tell it what to set up…"), "aria-label": t("Message to the Assistant"), maxLength: 4000 });
     const mic = el("button", { type: "button", class: "chat-mic", "aria-label": t("Dictate"), title: t("Dictate: tap, or hold while you speak") });
     mic.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>';
     // While it listens, the field's row gives way to the voice's: discard, the waveform across the field, stop (the words stay
     // in the field) and send, as the Claude app does.
-    const wave = waveform({ pitch: 6 });
+    const wave = waveform("dictation");
     const discard = el("button", { type: "button", class: "chat-voice-button", "aria-label": t("Discard what you said"), title: t("Discard what you said"),
       onclick: () => stopListening("discard") });
     discard.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
@@ -10890,8 +10872,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       voiceChoice = value;
       try { localStorage.setItem("homeswift.voiceLanguage", value); } catch {}
     } })));
-    const form = el("form", { class: "chat-composer", onsubmit: (event) => { event.preventDefault(); listening ? stopListening("send") : running ? stop() : submit(); } },
-      input, canSpeak() ? mic : null, canSpeak() ? voice : null, send);
+    const form = el("form", { class: "chat-composer", onsubmit: (event) => { event.preventDefault(); listening() ? stopListening("send") : running ? stop() : submit(); } },
+      input, speakable ? mic : null, speakable ? voice : null, send);
     const close = el("button", { type: "button", class: "chat-icon", "aria-label": t("Close"), title: t("Close (Esc)"), text: "×", onclick: () => toggle(false) });
     const fresh = el("button", { type: "button", class: "chat-icon", "aria-label": t("New chat"), title: t("New chat"), onclick: reset });
     fresh.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
@@ -10901,10 +10883,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // and the voice's language where the browser can listen.
     const canSettle = !document.querySelector('header nav a[href="/settings"]')?.classList.contains("hidden");
     const voiceName = () => languages.find(([value]) => value === voiceChoice)?.[1] ?? languages[0][1];
-    const settings = canSettle || canSpeak() ? el("button", { type: "button", class: "chat-icon", "aria-label": t("Settings"), title: t("Settings"), "aria-haspopup": "menu",
+    const settings = canSettle || speakable ? el("button", { type: "button", class: "chat-icon", "aria-label": t("Settings"), title: t("Settings"), "aria-haspopup": "menu",
       onclick: (event) => menu(event.currentTarget, [
         canSettle ? { label: t("Assistant settings"), icon: "gear", onSelect: () => { toggle(false); HomeswiftApp.navigate("/settings/assistant"); } } : null,
-        canSpeak() ? { label: t("Voice language"), icon: "globe", count: voiceName(), onSelect: () => setTimeout(() => chooseVoice(settings)) } : null,
+        speakable ? { label: t("Voice language"), icon: "globe", count: voiceName(), onSelect: () => setTimeout(() => chooseVoice(settings)) } : null,
       ], { keyboard: event.detail === 0 }) }, icon("gear")) : null;
     // Under the title, the model that answers: a menu of the provider's others, the choice kept for this user.
     const modelLabel = el("span", { class: "chat-model-label", text: info.model || "" });
@@ -10922,7 +10904,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("div", { class: "chat-surface" }, head, log, foot, form));
     const scrim = el("div", { class: "chat-scrim", hidden: true, onclick: () => toggle(false) });
     document.body.append(scrim, sheet);
-    panel = { sheet, scrim, log, input, mic, wave, send, foot, note, head, earlier, copy, modelButton, modelLabel };
+    panel = { sheet, scrim, log, input, mic, wave, voice, keep, send, foot, note, head, earlier, copy, modelButton, modelLabel };
     showModel();
     loadModels();
     showCopied(false);
@@ -10932,9 +10914,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
     });
     sheet.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") { event.preventDefault(); listening ? stopListening("keep") : toggle(false); }
+      if (event.key === "Escape") { event.preventDefault(); listening() ? stopListening("keep") : toggle(false); }
     });
-    if (canSpeak()) setUpMic();
+    if (speakable) setUpMic();
     setUpDrag();
     setUpKeyboard();
     renderControls();
@@ -10995,7 +10977,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       load();
       // A touch screen keeps its keyboard down until the field is tapped: up at once, it would cover the sheet.
       if (!touch.matches) setTimeout(() => panel.input.focus({ preventScroll: true }), 50);
-    } else if (listening) {
+    } else if (listening()) {
       stopListening("keep");
     }
     spring(openness, openness.target, {
@@ -11450,6 +11432,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (!panel) return;
     const { sheet, send, note, log } = panel;
     sheet.classList.toggle("working", running);
+    sheet.classList.toggle("listening", listening());
     log.setAttribute("aria-busy", String(running));
     send.classList.toggle("stop", running);
     send.setAttribute("aria-label", running ? t("Stop") : t("Send"));
@@ -11462,7 +11445,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const provider = providerNames[info.provider] || info.provider || t("Assistant");
     const cost = usage && usage.cost != null && usage.cost > 0
       ? new Intl.NumberFormat(HomeswiftI18n.numberLocale, { style: "currency", currency: "USD", minimumFractionDigits: usage.cost < 0.01 ? 4 : 2, maximumFractionDigits: usage.cost < 0.01 ? 4 : 2 }).format(usage.cost) : null;
-    note.textContent = listening ? t("Listening…") : voiceNote
+    note.textContent = listening() ? t("Listening…") : voiceNote
       || (cost ? t("{provider} · {cost} so far. Changes always ask first.", { provider, cost }) : t("{provider}. Changes always ask first.", { provider }));
   }
 
@@ -11509,11 +11492,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- Voice ------------------------------------------------------------------------------------------------
 
-  let recognition = null;
-  let recording = null;   // the page's own recording, for the bridge to write down
-  let hearing = null;   // the waveform's microphone while dictation runs
-  let listening = false;
+  // One dictation at a time: the browser's recognition, or the page's own recording for the bridge to write down. Each
+  // has `original` (the field before it) and `stop(how)`: `send` sends what was said, `keep` leaves it in the field,
+  // `discard` puts the field back as it was.
+  let dictation = null;
   let voiceNote = "";
+  const listening = () => Boolean(dictation);
+  // iOS gives the microphone to one listener at a time: while recognition holds it, the waveform follows the speech.
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
   function setUpMic() {
     const { mic } = panel;
@@ -11521,27 +11507,30 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       mic.classList.add("unavailable");
       mic.title = t("Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.");
     }
-    let pressedAt = 0;
+    // The mic gives way to the voice's row while it listens, so it only ever starts one.
     // A mouse starts on the press, so holding it down is push to talk. A finger starts on the tap (its click): Safari
     // lets a page listen only from a tap that ended, and a touch's press is not one, so it refused to start.
     mic.addEventListener("pointerdown", (event) => {
       if (event.pointerType !== "mouse" || event.button !== 0) return;
-      pressedAt = event.timeStamp;
-      if (listening) return stopListening("send");
+      const pressedAt = event.timeStamp;
       startListening();
-      // Held down and let go: push to talk. The mic gives way to the voice's row as it starts, so the release is the
-      // window's. A click keeps listening until stop, send or a pause.
-      addEventListener("pointerup", (up) => {
-        if (listening && up.timeStamp - pressedAt > 400) stopListening("send");
-      }, { once: true });
+      // Held down and let go: push to talk. The mic is hidden by then, so the release is the window's. A click keeps
+      // listening until stop, send or a pause.
+      const release = (up) => {
+        removeEventListener("pointerup", release);
+        removeEventListener("pointercancel", release);
+        if (up.type === "pointerup" && up.timeStamp - pressedAt > 400) stopListening("send");
+      };
+      addEventListener("pointerup", release);
+      addEventListener("pointercancel", release);
     });
     mic.addEventListener("click", (event) => {
       // A mouse was handled on its press; a keyboard's Enter or Space below.
       if (event.pointerType === "mouse" || event.detail === 0) return;
-      listening ? stopListening("send") : startListening();
+      startListening();
     });
     mic.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); listening ? stopListening("send") : startListening(); }
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); startListening(); }
     });
   }
 
@@ -11552,206 +11541,188 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       return;
     }
     // A press while an answer runs still listens: the words wait in the field until the answer is done.
-    if (recognition || recording) return;   // the last one is still finishing
+    if (dictation) return;   // the last one is still finishing
     voiceNote = "";
     window.speechSynthesis?.cancel();
-    if (transcribes()) return startRecording();
-    const current = new Recognition();
-    recognition = current;
-    current.lang = voiceLanguage();
-    current.interimResults = true;
-    current.continuous = false;
-    const original = panel.input.value;
-    const before = original ? `${original} ` : "";
+    transcribes() ? record() : recognize();
+  }
+
+  function stopListening(how) {
+    dictation?.stop(how);
+  }
+
+  /// The voice's row takes the composer; a keyboard that started it lands on stop.
+  function beginDictation(session) {
+    dictation = session;
+    if (document.activeElement === panel.mic) panel.keep.focus();
+    renderControls();
+  }
+
+  /// The voice's row goes, its focus back to the field. False when `session` ended already.
+  function endDictation(session, note = "") {
+    if (dictation !== session) return false;
+    dictation = null;
+    voiceNote = note;
+    if (panel.voice.contains(document.activeElement)) panel.input.focus();
+    renderControls();
+    return true;
+  }
+
+  const joined = (original, words) => words ? (original ? `${original} ${words}` : words) : original;
+
+  /// What was said, into the field (or the field as it was), sent on when asked.
+  function deliver(original, words, how) {
+    panel.input.value = how === "discard" ? original : joined(original, words);
+    grow();
+    const send = how === "send" && Boolean(words);
+    if (send && running) voiceNote = t("Your words are in the field: send them once the answer is done.");
+    renderControls();
+    const message = panel.input.value.trim();
+    if (send && !running && message) submit(message, true);
+  }
+
+  /// The browser's recognition, its words in the field as they come.
+  function recognize() {
+    const recognition = new Recognition();
+    const session = { original: panel.input.value, how: "send", note: "", stop(how) {
+      session.how = how;
+      how === "discard" ? recognition.abort() : recognition.stop();
+    } };
+    recognition.lang = voiceLanguage();
+    recognition.interimResults = true;
+    recognition.continuous = false;
     // What was heard: Safari on iOS often ends without marking a result final, so the last words count either way.
-    let heardText = "";
-    let failed = false;
-    current.onresult = (event) => {
-      if (current.discard) return;
-      heardText = [...event.results].map((result) => result[0].transcript).join("");
-      panel.input.value = before + heardText;
+    let heard = "", failed = false, speaking = false;
+    recognition.onresult = (event) => {
+      if (session.how === "discard") return;
+      heard = [...event.results].map((result) => result[0].transcript).join("");
+      panel.input.value = joined(session.original, heard);
       grow();
     };
-    current.onerror = (event) => {
+    recognition.onerror = (event) => {
       // Our own stop or cancel: nothing to say.
       if (event.error === "aborted") return;
       failed = true;
-      voiceNote = event.error === "not-allowed" ? t("The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.")
+      session.note = event.error === "not-allowed" ? t("The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.")
         // Safari says so when Siri & Dictation is off, or when dictation is not offered where the page runs.
         : event.error === "service-not-allowed" ? t("Dictation is not available here. On an iPhone or iPad, turn on Enable Dictation in Settings › General › Keyboard; if this page was added to the Home Screen, try it in Safari.")
         : event.error === "audio-capture" ? t("No microphone was found.")
         : event.error === "network" ? t("Dictation could not reach its speech service. Check the connection and try again.")
-        : event.error === "language-not-supported" ? t("Dictation does not support {language}: choose another Voice language from the Settings menu.", { language: current.lang })
+        : event.error === "language-not-supported" ? t("Dictation does not support {language}: choose another Voice language from the Settings menu.", { language: recognition.lang })
         : event.error === "no-speech" ? t("Nothing was heard. Tap the mic and speak.") : t("Voice stopped: {error}.", { error: event.error });
     };
     // Whether a voice is heard, for the waveform where the page cannot open the microphone beside dictation.
-    let speaking = false;
-    current.onspeechstart = () => { speaking = true; };
-    current.onspeechend = () => { speaking = false; };
-    current.onend = () => {
-      hearing?.stop();
-      hearing = null;
-      if (recognition !== current) return;
-      const send = current.sendWhenDone !== false;
-      listening = false;
-      recognition = null;
-      panel.sheet.classList.remove("listening");
-      if (current.discard) {
-        panel.input.value = original;
-        grow();
-      }
-      // The voice's row goes: its focus comes back to the field.
-      if (panel.sheet.querySelector(".chat-voice")?.contains(document.activeElement)) panel.input.focus();
-      const heard = send && !failed && !current.discard && heardText.trim();
-      if (heard && running) voiceNote = t("Your words are in the field: send them once the answer is done.");
-      renderControls();
-      const text = panel.input.value.trim();
-      if (heard && text && !running) submit(text, true);
+    recognition.onspeechstart = () => { speaking = true; };
+    recognition.onspeechend = () => { speaking = false; };
+    let stopWave = () => {};
+    recognition.onend = () => {
+      stopWave();
+      if (!endDictation(session, session.note)) return;
+      // A failure keeps what was heard in the field, unsent.
+      deliver(session.original, heard.trim(), failed && session.how === "send" ? "keep" : session.how);
     };
     try {
-      current.start();
+      recognition.start();
     } catch (e) {
-      recognition = null;
       voiceNote = t("Voice did not start: {error}", { error: e.message });
       renderControls();
       return;
     }
-    listening = true;
-    panel.sheet.classList.add("listening");
-    // A keyboard that started it stays in the composer: the mic gives way to stop.
-    if (document.activeElement === panel.mic) panel.sheet.querySelector(".chat-voice-button:last-of-type")?.focus();
-    renderControls();
-    hearing = listenForWave(current, () => speaking);
+    beginDictation(session);
+    stopWave = waveBeside(session, () => speaking);
   }
 
-  /// The mic's waveform while dictation runs: the microphone's level through an AnalyserNode of the page's own, opened
-  /// beside the browser's recognition. iOS gives the microphone to one of them at a time, so there, and wherever the
-  /// page cannot open it, the bars follow whether a voice is heard. Returns what stops it.
-  function listenForWave(current, speaking) {
+  /// The waveform while the browser's recognition runs: the microphone's level, opened beside it. iOS gives the
+  /// microphone to one of them at a time, so there, and wherever the page cannot open it, the bars follow whether a
+  /// voice is heard. Returns what stops it.
+  function waveBeside(session, speaking) {
     const { wave } = panel;
     const heard = () => speaking() ? -28 - Math.random() * 14 : -62 + Math.random() * 3;
-    const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     let stream = null, context = null, stopped = false;
-    if (ios || !navigator.mediaDevices?.getUserMedia) {
-      wave.start(heard);
-    } else {
-      navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } }).then((opened) => {
-        stream = opened;
-        if (stopped || recognition !== current) return stop();
-        context = new AudioContext();
-        const analyser = context.createAnalyser();
-        analyser.fftSize = 2048;
-        context.createMediaStreamSource(stream).connect(analyser);
-        wave.start(analyser);
-      }).catch(() => { if (!stopped) wave.start(heard); });
-    }
-    function stop() {
+    const stop = () => {
       stopped = true;
       wave.stop();
       stream?.getTracks().forEach((track) => track.stop());
       context?.close().catch(() => {});
       stream = context = null;
+    };
+    if (ios || !navigator.mediaDevices?.getUserMedia) {
+      wave.start(heard);
+      return stop;
     }
-    return { stop };
-  }
-
-  /// `send` sends what was said once it is heard, `keep` leaves it in the field, `discard` puts the field back as it was.
-  function stopListening(how) {
-    if (recording) return stopRecording(recording, how);
-    if (!recognition) return;
-    recognition.sendWhenDone = how === "send";
-    recognition.discard = how === "discard";
-    if (recognition.discard) recognition.abort?.(); else recognition.stop();
-  }
-
-  /// Records the microphone for the bridge: its level draws the waveform, its 16-bit samples wait here until stop.
-  async function startRecording() {
-    const current = { chunks: [], bytes: 0, how: null, original: panel.input.value };
-    recording = current;
-    listening = true;
-    panel.sheet.classList.add("listening");
-    if (document.activeElement === panel.mic) panel.sheet.querySelector(".chat-voice-button:last-of-type")?.focus();
-    renderControls();
-    // Made during the tap, before any wait: Safari starts an audio context only from one.
-    current.context = new AudioContext();
-    try {
-      current.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
-      if (current.how) return finishRecording(current);
-      await current.context.audioWorklet.addModule("/talk-worklet.js");
-      if (current.how) return finishRecording(current);
-      const source = current.context.createMediaStreamSource(current.stream);
-      current.node = new AudioWorkletNode(current.context, "homeswift-talk", { processorOptions: { rate: VOICE_RATE, chunk: 100 } });
-      current.node.port.onmessage = (event) => {
-        if (current.how) return;
-        current.chunks.push(new Uint8Array(event.data));
-        current.bytes += event.data.byteLength;
-        // The longest the bridge takes: what was said so far goes to the field.
-        if (current.bytes >= VOICE_RATE * 2 * VOICE_SECONDS) stopRecording(current, "keep");
-      };
-      // The worklet runs only while it leads to the speakers: through a silent gain, so nothing is heard here.
-      const silent = current.context.createGain();
-      silent.gain.value = 0;
-      source.connect(current.node).connect(silent).connect(current.context.destination);
-      const analyser = current.context.createAnalyser();
+    HomeswiftCommon.openMicrophone().then((opened) => {
+      stream = opened;
+      if (stopped || dictation !== session) return stop();
+      context = new AudioContext();
+      const analyser = context.createAnalyser();
       analyser.fftSize = 2048;
-      source.connect(analyser);
+      context.createMediaStreamSource(stream).connect(analyser);
+      wave.start(analyser);
+    }).catch(() => { if (!stopped) wave.start(heard); });
+    return stop;
+  }
+
+  /// The page's own recording for the bridge: its level draws the waveform, its 16-bit samples wait here until stop,
+  /// then go to the bridge to be written down.
+  async function record() {
+    const session = { original: panel.input.value, how: null, chunks: [], bytes: 0, stop(how) {
+      if (session.how) return;
+      session.how = how;
+      // Still opening the microphone: it finishes once it is open.
+      if (session.node || session.failed) finish(session);
+    } };
+    beginDictation(session);
+    // Made during the tap, before any wait: Safari starts an audio context only from one.
+    session.context = new AudioContext();
+    HomeswiftCommon.talkWorklet(session.context);
+    try {
+      session.stream = await HomeswiftCommon.openMicrophone();
+      if (session.how) return finish(session);
+      const { node, analyser } = await HomeswiftCommon.listenTo(session.context, session.stream, { rate: VOICE_RATE, chunk: 100, onChunk: (data) => {
+        if (session.how) return;
+        session.chunks.push(new Uint8Array(data));
+        session.bytes += data.byteLength;
+        // The longest the bridge takes: what was said so far goes to the field.
+        if (session.bytes >= VOICE_RATE * 2 * VOICE_SECONDS) session.stop("keep");
+      } });
+      session.node = node;
+      if (session.how) return finish(session);
       panel.wave.start(analyser);
     } catch (error) {
-      current.failed = error?.name === "NotAllowedError" || error?.name === "SecurityError"
+      session.failed = error?.name === "NotAllowedError" || error?.name === "SecurityError"
         ? t("The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.")
         : error?.name === "NotFoundError" ? t("No microphone was found.") : t("Voice did not start: {error}", { error: error?.message || String(error) });
-      finishRecording(current);
+      finish(session);
     }
   }
 
-  function stopRecording(current, how) {
-    if (current.how) return;
-    current.how = how;
-    // Still opening the microphone: it finishes once it is open.
-    if (current.node || current.failed) finishRecording(current);
-  }
-
-  /// Lets the microphone go, then sends what was said to the bridge: into the field, and sent on when asked.
-  async function finishRecording(current) {
-    if (current.finished) return;
-    current.finished = true;
-    current.node?.port.close();
-    current.stream?.getTracks().forEach((track) => track.stop());
-    current.context?.close().catch(() => {});
+  /// Lets the microphone go, then has the bridge write down what was said.
+  async function finish(session) {
+    session.node?.port.close();
+    session.stream?.getTracks().forEach((track) => track.stop());
+    session.context?.close().catch(() => {});
     panel.wave.stop();
-    if (recording === current) recording = null;
-    listening = false;
-    panel.sheet.classList.remove("listening");
-    if (panel.sheet.querySelector(".chat-voice")?.contains(document.activeElement)) panel.input.focus();
-    if (current.failed) voiceNote = current.failed;
-    else if (current.how !== "discard" && current.bytes < VOICE_RATE * 2 * 0.3) voiceNote = t("Nothing was heard. Tap the mic and speak.");
-    renderControls();
-    if (current.failed || current.how === "discard" || current.bytes < VOICE_RATE * 2 * 0.3) return;
-    const audio = new Uint8Array(current.bytes);
+    const short = session.bytes < VOICE_RATE * 2 * 0.3;
+    const note = session.failed || (session.how !== "discard" && short ? t("Nothing was heard. Tap the mic and speak.") : "");
+    if (!endDictation(session, note) || session.failed || session.how === "discard" || short) return;
+    // One buffer for the request; the chunks go.
+    const audio = new Uint8Array(session.bytes);
     let offset = 0;
-    for (const chunk of current.chunks) { audio.set(chunk, offset); offset += chunk.length; }
-    let binary = "";
-    for (let i = 0; i < audio.length; i += 0x8000) binary += String.fromCharCode.apply(null, audio.subarray(i, i + 0x8000));
+    for (const chunk of session.chunks) { audio.set(chunk, offset); offset += chunk.length; }
+    session.chunks = null;
     voiceNote = t("Writing down what you said…");
     renderControls();
-    let text = "";
+    let words = "";
     try {
-      ({ text } = await api("/api/assistant/transcribe", { method: "POST", body: { audio: btoa(binary), sampleRate: VOICE_RATE, language: voiceLanguage() } }));
+      ({ text: words } = await api("/api/assistant/transcribe", { method: "POST", body: { audio: HomeswiftCommon.base64(audio), sampleRate: VOICE_RATE, language: voiceLanguage() } }));
     } catch (error) {
       voiceNote = t("Voice transcription failed: {error}", { error: error.message });
       renderControls();
       return;
     }
-    text = (text || "").trim();
-    voiceNote = text ? "" : t("Nothing was heard. Tap the mic and speak.");
-    if (text) {
-      panel.input.value = current.original ? `${current.original} ${text}` : text;
-      grow();
-    }
-    if (text && current.how === "send" && running) voiceNote = t("Your words are in the field: send them once the answer is done.");
-    renderControls();
-    const message = panel.input.value.trim();
-    if (text && current.how === "send" && !running && message) submit(message, true);
+    words = (words || "").trim();
+    voiceNote = words ? "" : t("Nothing was heard. Tap the mic and speak.");
+    deliver(session.original, words, session.how);
   }
 
   /// An answer to a spoken message, read out: plain text, without Markdown's marks.
@@ -11817,7 +11788,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function signedOut() {
     session++;
     if (!panel) return;
-    if (listening) stopListening("keep");
+    if (listening()) stopListening("keep");
     window.speechSynthesis?.cancel();
     cancelAnimationFrame(openness.frame);
     openness.value = 0;
@@ -13996,19 +13967,26 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     });
   }
 
-  // The waveform while someone talks: WAVE_BARS bars, one more every WAVE_STEP milliseconds, the newest on the right.
-  const WAVE_BARS = 28, WAVE_STEP = 50;
+  // The waveform while someone talks: one more bar every WAVE_STEP milliseconds, the newest on the right.
+  const WAVE_STEP = 50;
+  /// Its two looks. `talk`, a camera's Talk as in the Home app: 28 bars across the pill, brighter as they rise.
+  /// `dictation`, the chat's mic as in the Claude app: a bar each 6 CSS pixels, as many as fit, solid, the quiet as dots.
+  const WAVE_STYLES = {
+    talk: { bars: 28, width: 0.5, solid: false, dots: false },
+    dictation: { pitch: 6, width: 0.55, solid: true, dots: true },
+  };
 
   /// The microphone's level as the Home app shows it while someone talks: bars that rise with each syllable, fall in
   /// the pauses and scroll left. The scale follows the voice: its floor the room's quiet (down at once, up slowly), its
   /// top the voice's recent peaks (up at once, down slowly), so a soft voice moves the bars as much as a loud one and a
   /// steady noise stays low. `start(source)` follows an AnalyserNode on the microphone, or a function giving the level
   /// in decibels when the page cannot open the microphone itself (dictation holds it); `stop()` clears it. The bars
-  /// take the canvas's CSS colour. A camera's Talk draws WAVE_BARS translucent bars; the chat's dictation (`pitch`) as
-  /// many as fit, one each `pitch` CSS pixels, solid, its quiet as dots, as the Claude app does.
-  function waveform({ pitch: barPitch = 0 } = {}) {
+  /// take the canvas's CSS colour; `look` is one of WAVE_STYLES.
+  function waveform(look = "talk") {
+    const style = WAVE_STYLES[look];
     const canvas = el("canvas", { class: "talk-wave hidden", "aria-hidden": "true" });
-    const kept = barPitch ? 400 : WAVE_BARS;
+    // As many levels as the widest canvas shows.
+    const kept = style.bars || Math.ceil(screen.width / style.pitch);
     let frame = 0, levels = [], last = 0, samples = null, floor = -60, peak = -30, color = "#fff";
     function draw() {
       const ratio = window.devicePixelRatio || 1;
@@ -14017,18 +13995,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
       const context = canvas.getContext("2d");
       context.clearRect(0, 0, width, height);
-      const pitch = barPitch ? barPitch * ratio : width / WAVE_BARS;
-      const bar = Math.max(1, pitch * (barPitch ? 0.55 : 0.5)), floor = barPitch ? bar : 2 * ratio;
+      const pitch = style.pitch ? style.pitch * ratio : width / style.bars;
+      const bar = Math.max(1, pitch * style.width), lowest = style.dots ? bar : 2 * ratio;
       const shown = Math.min(levels.length, Math.floor(width / pitch));
-      levels.slice(levels.length - shown).forEach((level, index) => {
-        const h = Math.max(floor, level * (height - 4 * ratio));
+      context.fillStyle = color;
+      // Solid bars are one path; translucent ones each their own, for their brightness.
+      if (style.solid) context.beginPath();
+      for (let index = 0; index < shown; index++) {
+        const level = levels[levels.length - shown + index];
+        const h = Math.max(lowest, level * (height - 4 * ratio));
         const x = width - (shown - index) * pitch + (pitch - bar) / 2;
-        context.globalAlpha = barPitch ? 1 : 0.5 + 0.5 * level;
-        context.fillStyle = color;
-        context.beginPath();
+        if (!style.solid) {
+          context.globalAlpha = 0.5 + 0.5 * level;
+          context.beginPath();
+        }
         context.roundRect(x, (height - h) / 2, bar, h, bar / 2);
-        context.fill();
-      });
+        if (!style.solid) context.fill();
+      }
+      if (style.solid) context.fill();
     }
     return {
       canvas,
@@ -14077,9 +14061,50 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
   }
 
+  /// Bytes as base64, in slices: a spread of a whole recording would overflow the call stack.
+  function base64(bytes) {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(binary);
+  }
+
+  /// The microphone for a camera's Talk and the chat's mic: its stream, voice-processed and mono.
+  const openMicrophone = () => navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+
+  // talk-worklet.js, loaded once per audio context: a caller may start it early, while the microphone opens.
+  const talkWorklets = new WeakMap();
+  function talkWorklet(context) {
+    if (!talkWorklets.has(context)) {
+      const loading = context.audioWorklet.addModule("/talk-worklet.js");
+      loading.catch(() => {});
+      talkWorklets.set(context, loading);
+    }
+    return talkWorklets.get(context);
+  }
+
+  /// The microphone's `stream` through talk-worklet.js in `context` (made during the tap: Safari starts one only then):
+  /// `onChunk` gets its signed 16-bit little-endian mono at `rate`, every `chunk` milliseconds, and `analyser` follows its
+  /// level for the waveform.
+  async function listenTo(context, stream, { rate, chunk, onChunk }) {
+    await talkWorklet(context);
+    await context.resume();
+    const source = context.createMediaStreamSource(stream);
+    const node = new AudioWorkletNode(context, "homeswift-talk", { processorOptions: { rate, chunk } });
+    node.port.onmessage = (event) => onChunk(event.data);
+    // The worklet runs only while it leads to the speakers: through a silent gain, so nothing is heard here.
+    const silent = context.createGain();
+    silent.gain.value = 0;
+    source.connect(node).connect(silent).connect(context.destination);
+    const analyser = context.createAnalyser();
+    // 2048 samples: 43 ms at 48 kHz, the length of a bar's step, so every bar sees all of its sound.
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+    return { node, analyser };
+  }
+
   window.HomeswiftCommon = {
     foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
-    openSheet, confirmAction, waveform,
+    openSheet, confirmAction, waveform, base64, openMicrophone, talkWorklet, listenTo,
     phone, viewSignal, nextView, filtersToggle, followControls, assistantButton, menuOpen: () => Boolean(openMenu),
     $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
@@ -39402,7 +39427,7 @@ dd { margin: 0; }
 /* A phone: the tools a little tighter, so the model's name keeps room beside them. */
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .chat-tools .chat-icon { width: 36px; height: 36px; min-height: 0; } }
 .chat-icon { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 50%; font-size: var(--text-2xl); line-height: 1; }
-.chat-icon svg, .chat-mic svg, .chat-send svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chat-icon svg, .chat-mic svg, .chat-send svg, .chat-voice-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .chat-grabber { display: none; }
 
 .chat-log {
@@ -39483,7 +39508,7 @@ dd { margin: 0; }
   font: inherit; white-space: pre-wrap; line-height: 1.4;
 }
 .chat-composer textarea:focus { box-shadow: none; }
-.chat-mic, .chat-send { flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
+.chat-mic, .chat-send, .chat-voice-button { flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
 .chat-mic { border-color: transparent; background: none; box-shadow: none; color: var(--muted); }
 @media (hover: hover) and (pointer: fine) { .chat-mic:hover { color: var(--text); background: var(--material-thin); } }
 .chat-mic.unavailable { opacity: 0.45; }
@@ -39494,12 +39519,8 @@ dd { margin: 0; }
 .chat.listening .chat-composer textarea { flex: 1 0 100%; }
 .chat.listening .chat-mic { display: none; }
 .chat.listening .chat-voice { display: flex; flex: 1 1 120px; min-width: 0; align-items: center; gap: var(--space-10); margin-left: calc(-1 * var(--space-8)); }
-.chat-voice-button {
-  flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%;
-  border-color: transparent; background: color-mix(in srgb, var(--text) 8%, transparent); box-shadow: none; color: var(--text);
-}
+.chat-voice-button { border-color: transparent; background: color-mix(in srgb, var(--text) 8%, transparent); box-shadow: none; color: var(--text); }
 @media (hover: hover) and (pointer: fine) { .chat-voice-button:hover { background: color-mix(in srgb, var(--text) 14%, transparent); } }
-.chat-voice-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .chat-voice-button svg.filled { fill: currentColor; stroke: none; width: 15px; height: 15px; }
 .chat-voice .talk-wave { flex: 1 1 auto; min-width: 0; height: 26px; color: var(--text); }
 .chat-send { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); }

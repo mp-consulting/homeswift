@@ -140,12 +140,13 @@ extension UIServer {
             let language = body["language"]?.stringValue.flatMap { $0.isEmpty ? nil : String($0.prefix(35)) }
             do {
                 return .json(["text": .string(try await transcriber.transcribe(pcm: pcm, sampleRate: sampleRate, language: language))])
-            } catch is CancellationError {
-                return .error(499, "Stopped.")
+            } catch let error as ProviderError {
+                // The reply is redacted on its way out; the log line here.
+                logger.warning("Voice transcription failed", metadata: ["error": "\(Redaction.redactText(error.message))"])
+                return .error(502, "voice transcription failed: \(error.message)")
             } catch {
-                let detail = Redaction.redactText((error as? ProviderError)?.message ?? "\(error)")
-                logger.warning("Voice transcription failed", metadata: ["error": "\(detail)"])
-                return .error(502, "voice transcription failed: \(detail)")
+                let (status, message) = Self.assistantFailure(error)
+                return .error(status, message)
             }
         case (.POST, ["cancel"]):
             guard let id = body["requestId"]?.stringValue else { return .error(400, "requestId is required") }
