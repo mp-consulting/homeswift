@@ -1091,7 +1091,7 @@ HomeswiftI18n.add("pt", {
   "Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach.": "Os acessórios de todos os plugins saem do HomeKit e os plugins recomeçam com caches vazias, adicionando os dispositivos que alcançam.",
   "Every subscribed browser has unsubscribed": "Todos os navegadores subscritos cancelaram a subscrição",
   "Everything an administrator does, except users and tokens.": "Tudo o que um administrador faz, exceto utilizadores e tokens.",
-  "Everything kept": "Tudo o que está guardado",
+  "Everything kept": "Todo o histórico",
   "Excellent": "Excelente",
   "Expand": "Expandir",
   "Expected a key in double quotes": "Era esperada uma chave entre aspas duplas",
