@@ -96,15 +96,15 @@ public struct AIConfiguration: Sendable, Equatable {
                 "dailyUsd": { "title": "USD per day", "type": "number", "minimum": 0, "description": "The most it may spend each day, in US dollars. Only Claude models are priced: the others count as free." },
                 "monthlyUsd": { "title": "USD per month", "type": "number", "minimum": 0, "description": "The same, for each month." }
               } },
-              "transcription": { "title": "Voice transcription", "type": "object", "description": "Turns what you say to the chat's mic into text on the bridge, before the Assistant reads it: on this Mac, or through a speech-to-text server. Without it, the browser's own dictation is used.", "properties": {
-                "engine": { "title": "Engine", "type": "string", "default": "server", "oneOf": [
-                  { "title": "A speech server (OpenAI, Whisper)", "enum": ["server"] },
-                  { "title": "On this Mac (Apple, macOS 26)", "enum": ["apple"] }
-                ], "description": "Where your voice becomes text. On this Mac uses Apple's speech recognition on the device: free, private, no key (macOS 26; a language's model downloads once). A server is OpenAI or a local Whisper server." },
-                "enabled": { "title": "Enabled", "type": "boolean", "default": true, "description": "Off keeps these settings and goes back to the browser's dictation." },
-                "baseUrl": { "condition": { "functionBody": "return model.transcription.engine !== 'apple';" }, "title": "Server", "type": "string", "placeholder": "https://api.openai.com/v1", "description": "The server's OpenAI-compatible address, ending in /v1. Empty is OpenAI's; a local Whisper server that speaks OpenAI's API works too." },
-                "apiKey": { "condition": { "functionBody": "return model.transcription.engine !== 'apple';" }, "title": "API key", "type": "string", "x-schema-form": { "type": "password" }, "description": "The server's key. Empty uses the Assistant's key when it is OpenAI, else OPENAI_API_KEY, on OpenAI's address only." },
-                "model": { "condition": { "functionBody": "return model.transcription.engine !== 'apple';" }, "title": "Model", "type": "string", "placeholder": "whisper-1", "description": "The speech model, as the server names it. Empty is whisper-1." }
+              "transcription": { "title": "Voice transcription", "type": "object", "description": "How what you say to the chat's mic becomes text before the Assistant reads it.", "properties": {
+                "engine": { "title": "Engine", "type": "string", "default": "browser", "required": true, "x-schema-form": { "type": "segmented" }, "description": "Where what you say becomes text.", "oneOf": [
+                  { "title": "Browser", "enum": ["browser"], "description": "The browser's own dictation: Safari sends your voice to Apple, Chrome to Google, and an iPhone needs Siri dictation on. Nothing to set up." },
+                  { "title": "This Mac", "enum": ["apple"], "description": "Apple's speech recognition on this Mac: free and private, nothing leaves it, no key. Needs macOS 26; a language's model downloads once." },
+                  { "title": "Server", "enum": ["server"], "description": "An OpenAI-compatible speech server, OpenAI's or a local Whisper server: the recording goes there and its words come back." }
+                ] },
+                "baseUrl": { "condition": { "functionBody": "return model.transcription.engine === 'server';" }, "title": "Address", "type": "string", "placeholder": "https://api.openai.com/v1", "description": "The server's OpenAI-compatible address, ending in /v1. Empty is OpenAI's; a local Whisper server that speaks OpenAI's API works too." },
+                "apiKey": { "condition": { "functionBody": "return model.transcription.engine === 'server';" }, "title": "API key", "type": "string", "x-schema-form": { "type": "password" }, "description": "The server's key. Empty uses the Assistant's key when it is OpenAI, else OPENAI_API_KEY, on OpenAI's address only." },
+                "model": { "condition": { "functionBody": "return model.transcription.engine === 'server';" }, "title": "Model", "type": "string", "placeholder": "whisper-1", "description": "The speech model, as the server names it. Empty is whisper-1." }
               } },
               "mcp": { "title": "MCP server", "type": "object", "description": "Lets Claude Desktop, Claude Code, Cursor and other MCP clients list and set accessories, read the log and change config.json.", "properties": {
                 "http": { "title": "Over HTTP", "type": "object", "description": "The server inside the running bridge, over Streamable HTTP at /mcp. homeswift mcp forwards a stdio client to it.", "properties": {
@@ -230,15 +230,18 @@ public struct AIConfiguration: Sendable, Equatable {
               "Answers": "Réponses",
               "Voice transcription": "Transcription de la voix",
               "Server": "Serveur",
-              "Off keeps these settings and goes back to the browser's dictation.": "Désactivé garde ces réglages et revient à la dictée du navigateur.",
               "The server's OpenAI-compatible address, ending in /v1. Empty is OpenAI's; a local Whisper server that speaks OpenAI's API works too.": "L'adresse compatible OpenAI du serveur, terminée par /v1. Vide : celle d'OpenAI ; un serveur Whisper local qui parle l'API d'OpenAI convient aussi.",
               "The server's key. Empty uses the Assistant's key when it is OpenAI, else OPENAI_API_KEY, on OpenAI's address only.": "La clé du serveur. Vide : la clé de l'Assistant s'il s'agit d'OpenAI, sinon OPENAI_API_KEY, à l'adresse d'OpenAI seulement.",
               "The speech model, as the server names it. Empty is whisper-1.": "Le modèle vocal, tel que le serveur le nomme. Vide : whisper-1.",
               "Engine": "Moteur",
-              "A speech server (OpenAI, Whisper)": "Un serveur vocal (OpenAI, Whisper)",
-              "On this Mac (Apple, macOS 26)": "Sur ce Mac (Apple, macOS 26)",
-              "Turns what you say to the chat's mic into text on the bridge, before the Assistant reads it: on this Mac, or through a speech-to-text server. Without it, the browser's own dictation is used.": "Transforme ce que vous dites au micro du chat en texte sur le pont, avant que l'Assistant le lise : sur ce Mac, ou par un serveur de reconnaissance vocale. Sans elle, c'est la dictée du navigateur qui sert.",
-              "Where your voice becomes text. On this Mac uses Apple's speech recognition on the device: free, private, no key (macOS 26; a language's model downloads once). A server is OpenAI or a local Whisper server.": "Où votre voix devient du texte. Sur ce Mac utilise la reconnaissance vocale d'Apple sur l'appareil : gratuite, privée, sans clé (macOS 26 ; le modèle d'une langue se télécharge une fois). Un serveur, c'est OpenAI ou un serveur Whisper local."
+              "How what you say to the chat's mic becomes text before the Assistant reads it.": "Comment ce que vous dites au micro du chat devient du texte avant que l'Assistant le lise.",
+              "Browser": "Navigateur",
+              "This Mac": "Ce Mac",
+              "The browser's own dictation: Safari sends your voice to Apple, Chrome to Google, and an iPhone needs Siri dictation on. Nothing to set up.": "La dictée du navigateur : Safari envoie votre voix à Apple, Chrome à Google, et un iPhone demande la dictée de Siri activée. Rien à régler.",
+              "Apple's speech recognition on this Mac: free and private, nothing leaves it, no key. Needs macOS 26; a language's model downloads once.": "La reconnaissance vocale d'Apple sur ce Mac : gratuite et privée, rien n'en sort, sans clé. Demande macOS 26 ; le modèle d'une langue se télécharge une fois.",
+              "An OpenAI-compatible speech server, OpenAI's or a local Whisper server: the recording goes there and its words come back.": "Un serveur vocal compatible OpenAI, celui d'OpenAI ou un serveur Whisper local : l'enregistrement y part et ses mots reviennent.",
+              "Address": "Adresse",
+              "Where what you say becomes text.": "Où ce que vous dites devient du texte."
             },
             "es": {
               "Provider": "Proveedor",
@@ -321,15 +324,18 @@ public struct AIConfiguration: Sendable, Equatable {
               "Answers": "Respuestas",
               "Voice transcription": "Transcripción de voz",
               "Server": "Servidor",
-              "Off keeps these settings and goes back to the browser's dictation.": "Desactivado conserva estos ajustes y vuelve al dictado del navegador.",
               "The server's OpenAI-compatible address, ending in /v1. Empty is OpenAI's; a local Whisper server that speaks OpenAI's API works too.": "La dirección compatible con OpenAI del servidor, terminada en /v1. Vacío: la de OpenAI; también sirve un servidor Whisper local que hable la API de OpenAI.",
               "The server's key. Empty uses the Assistant's key when it is OpenAI, else OPENAI_API_KEY, on OpenAI's address only.": "La clave del servidor. Vacío: la clave del Asistente si es OpenAI, si no OPENAI_API_KEY, solo en la dirección de OpenAI.",
               "The speech model, as the server names it. Empty is whisper-1.": "El modelo de voz, tal como lo nombra el servidor. Vacío: whisper-1.",
               "Engine": "Motor",
-              "A speech server (OpenAI, Whisper)": "Un servidor de voz (OpenAI, Whisper)",
-              "On this Mac (Apple, macOS 26)": "En este Mac (Apple, macOS 26)",
-              "Turns what you say to the chat's mic into text on the bridge, before the Assistant reads it: on this Mac, or through a speech-to-text server. Without it, the browser's own dictation is used.": "Convierte en texto en el puente lo que dice al micrófono del chat, antes de que el Asistente lo lea: en este Mac o mediante un servidor de voz a texto. Sin ella, se usa el dictado del navegador.",
-              "Where your voice becomes text. On this Mac uses Apple's speech recognition on the device: free, private, no key (macOS 26; a language's model downloads once). A server is OpenAI or a local Whisper server.": "Dónde su voz se convierte en texto. En este Mac usa el reconocimiento de voz de Apple en el dispositivo: gratuito, privado, sin clave (macOS 26; el modelo de un idioma se descarga una vez). Un servidor es OpenAI o un servidor Whisper local."
+              "How what you say to the chat's mic becomes text before the Assistant reads it.": "Cómo lo que dice al micrófono del chat se convierte en texto antes de que el Asistente lo lea.",
+              "Browser": "Navegador",
+              "This Mac": "Este Mac",
+              "The browser's own dictation: Safari sends your voice to Apple, Chrome to Google, and an iPhone needs Siri dictation on. Nothing to set up.": "El dictado del navegador: Safari envía su voz a Apple, Chrome a Google, y un iPhone necesita el dictado de Siri activado. Nada que configurar.",
+              "Apple's speech recognition on this Mac: free and private, nothing leaves it, no key. Needs macOS 26; a language's model downloads once.": "El reconocimiento de voz de Apple en este Mac: gratuito y privado, nada sale de él, sin clave. Necesita macOS 26; el modelo de un idioma se descarga una vez.",
+              "An OpenAI-compatible speech server, OpenAI's or a local Whisper server: the recording goes there and its words come back.": "Un servidor de voz compatible con OpenAI, el de OpenAI o un servidor Whisper local: la grabación va allí y sus palabras vuelven.",
+              "Address": "Dirección",
+              "Where what you say becomes text.": "Dónde lo que dice se convierte en texto."
             },
             "pt": {
               "Provider": "Fornecedor",
@@ -412,15 +418,18 @@ public struct AIConfiguration: Sendable, Equatable {
               "Answers": "Respostas",
               "Voice transcription": "Transcrição de voz",
               "Server": "Servidor",
-              "Off keeps these settings and goes back to the browser's dictation.": "Desativado mantém estas definições e volta ao ditado do navegador.",
               "The server's OpenAI-compatible address, ending in /v1. Empty is OpenAI's; a local Whisper server that speaks OpenAI's API works too.": "O endereço compatível com a OpenAI do servidor, terminado em /v1. Vazio: o da OpenAI; um servidor Whisper local que fale a API da OpenAI também serve.",
               "The server's key. Empty uses the Assistant's key when it is OpenAI, else OPENAI_API_KEY, on OpenAI's address only.": "A chave do servidor. Vazio: a chave do Assistente quando é a OpenAI, senão OPENAI_API_KEY, apenas no endereço da OpenAI.",
               "The speech model, as the server names it. Empty is whisper-1.": "O modelo de voz, tal como o servidor o designa. Vazio: whisper-1.",
               "Engine": "Motor",
-              "A speech server (OpenAI, Whisper)": "Um servidor de voz (OpenAI, Whisper)",
-              "On this Mac (Apple, macOS 26)": "Neste Mac (Apple, macOS 26)",
-              "Turns what you say to the chat's mic into text on the bridge, before the Assistant reads it: on this Mac, or through a speech-to-text server. Without it, the browser's own dictation is used.": "Converte em texto na ponte o que diz ao microfone do chat, antes de o Assistente o ler: neste Mac ou através de um servidor de voz para texto. Sem ela, é usado o ditado do navegador.",
-              "Where your voice becomes text. On this Mac uses Apple's speech recognition on the device: free, private, no key (macOS 26; a language's model downloads once). A server is OpenAI or a local Whisper server.": "Onde a sua voz se torna texto. Neste Mac usa o reconhecimento de voz da Apple no dispositivo: gratuito, privado, sem chave (macOS 26; o modelo de um idioma é descarregado uma vez). Um servidor é a OpenAI ou um servidor Whisper local."
+              "How what you say to the chat's mic becomes text before the Assistant reads it.": "Como o que diz ao microfone do chat se torna texto antes de o Assistente o ler.",
+              "Browser": "Navegador",
+              "This Mac": "Este Mac",
+              "The browser's own dictation: Safari sends your voice to Apple, Chrome to Google, and an iPhone needs Siri dictation on. Nothing to set up.": "O ditado do navegador: o Safari envia a sua voz à Apple, o Chrome à Google, e um iPhone precisa do ditado da Siri ativado. Nada a configurar.",
+              "Apple's speech recognition on this Mac: free and private, nothing leaves it, no key. Needs macOS 26; a language's model downloads once.": "O reconhecimento de voz da Apple neste Mac: gratuito e privado, nada sai dele, sem chave. Precisa do macOS 26; o modelo de um idioma é descarregado uma vez.",
+              "An OpenAI-compatible speech server, OpenAI's or a local Whisper server: the recording goes there and its words come back.": "Um servidor de voz compatível com a OpenAI, o da OpenAI ou um servidor Whisper local: a gravação vai para lá e as suas palavras voltam.",
+              "Address": "Endereço",
+              "Where what you say becomes text.": "Onde o que diz se torna texto."
             }
           }
         }

@@ -13,7 +13,7 @@ All notable changes to this project are documented here. The format follows
   write down what was said (`POST /api/assistant/transcribe`), as the Claude app sends its voice to a speech service:
   the same in every browser, Firefox and iPhones without Siri dictation included. Claude reads no audio; without a
   transcription the browser's dictation stays.
-- **Voice transcription on this Mac**: `"engine": "apple"` in the `transcription` has macOS 26's on-device speech
+- **Voice transcription on this Mac**: `"engine": "apple"` in the `transcription` (Settings: Browser, This Mac or Server) has macOS 26's on-device speech
   recognition write the words down: free, private, no key, a language's model downloaded once; on Linux or an earlier
   macOS the bridge logs it and the browser's dictation stays.
 

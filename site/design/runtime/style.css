@@ -849,6 +849,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .group button { border: 0; background: none; box-shadow: none; padding: 5px 13px; white-space: nowrap; transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out); }
 @media (hover: hover) and (pointer: fine) { .group button:hover:not(:disabled):not(.on) { background: var(--material-thin); } }
 .group button.on { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
+/* A form's segmented field (forms.js, `x-schema-form.type: "segmented"`): the same pill, its choices radios. */
+.segmented-field { display: flex; width: fit-content; max-width: 100%; }
+.segmented-field .segment { position: relative; margin: 0; display: grid; place-items: center; padding: 5px 13px; border-radius: var(--radius-pill); cursor: pointer; white-space: nowrap; transition: background-color var(--fast) var(--ease-out); }
+.segmented-field .segment input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.segmented-field .segment:has(input:checked) { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
+.segmented-field .segment:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (hover: hover) and (pointer: fine) { .segmented-field .segment:hover:not(:has(input:checked)) { background: var(--material-thin); } }
+@media (pointer: coarse) { .segmented-field .segment { min-height: 40px; } }
 /* A segmented control whose choices carry a glyph before their name (a phone shows the glyph alone). */
 
 /* The mini remote (remote.js): a round pad with OK in the middle, round keys and a volume rocker. Keys give

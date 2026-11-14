@@ -14,8 +14,10 @@ public protocol SpeechToText: Sendable {
 
 /// The HomeswiftAiKit block's `transcription` object:
 ///
-///     "transcription": { "enabled": true, "baseUrl": "https://api.openai.com/v1", "apiKey": "sk-…", "model": "whisper-1" }
+///     "transcription": { "engine": "server", "baseUrl": "https://api.openai.com/v1", "apiKey": "sk-…", "model": "whisper-1" }
 ///     "transcription": { "engine": "apple" }
+///
+/// `browser` (the default) leaves it to the browser's own dictation.
 ///
 /// Without a key of its own the server engine uses the block's key when the Assistant is OpenAI, else OPENAI_API_KEY,
 /// on OpenAI's address only: a key is never sent to a server it was not given for.
@@ -26,6 +28,8 @@ public struct TranscriptionConfiguration: Sendable, Equatable {
     public static let maxSeconds = 90
 
     public enum Engine: String, Sendable, Equatable, CaseIterable {
+        /// The browser's own dictation: the bridge writes nothing down.
+        case browser
         /// An OpenAI-compatible speech server.
         case server
         /// Apple's speech recognition, on this Mac (macOS 26).
@@ -47,14 +51,16 @@ public struct TranscriptionConfiguration: Sendable, Equatable {
         self.maxRetries = maxRetries
     }
 
-    /// The block's `transcription`; nil when there is none or it is off. An engine it does not know throws.
+    /// The block's `transcription`; nil when there is none, it is off, or its engine is the browser's. An engine it does
+    /// not know throws.
     init?(block: JSONValue?, assistant: AIConfiguration, environment: [String: String]) throws {
         guard let object = block?.objectValue, object["enabled"] != .bool(false) else { return nil }
         func string(_ key: String) -> String? { object[key]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty }
-        let engineName = string("engine") ?? Engine.server.rawValue
+        let engineName = string("engine") ?? Engine.browser.rawValue
         guard let engine = Engine(rawValue: engineName) else {
-            throw AIConfigurationError.invalid(key: "transcription.engine", expected: Engine.allCases.map(\.rawValue).joined(separator: " or "))
+            throw AIConfigurationError.invalid(key: "transcription.engine", expected: Engine.allCases.map(\.rawValue).joined(separator: ", "))
         }
+        guard engine != .browser else { return nil }
         self.engine = engine
         baseURL = (string("baseUrl") ?? Self.openAIBaseURL).replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
         let atOpenAI = baseURL == Self.openAIBaseURL
@@ -68,6 +74,7 @@ public struct TranscriptionConfiguration: Sendable, Equatable {
     /// Whether this engine runs here: Apple's needs macOS 26.
     public var isAvailable: Bool {
         switch engine {
+        case .browser: false
         case .server: true
         case .apple: AppleTranscriber.isAvailable
         }
@@ -76,6 +83,7 @@ public struct TranscriptionConfiguration: Sendable, Equatable {
     /// The engine, or nil where it cannot run.
     public func makeTranscriber(transport: any HTTPTransport) -> (any SpeechToText)? {
         switch engine {
+        case .browser: nil
         case .server: Transcriber(configuration: self, transport: transport)
         case .apple: AppleTranscriber.make()
         }

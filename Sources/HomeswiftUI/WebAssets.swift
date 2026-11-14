@@ -17982,6 +17982,27 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         picker.button.setAttribute("aria-label", typeof title === "string" ? title : property.title ?? key);
         return { element, get: picker.get };
       }
+      // `x-schema-form.type: "segmented"`: a few choices side by side, one always chosen, the chosen one's
+      // `description` under them (what it does), rather than a menu that hides the others.
+      if (options && property["x-schema-form"]?.type === "segmented") {
+        const name = `segmented-${key}-${index ?? ""}-${++segmentedFields}`;
+        const chosen = current !== undefined ? current : property.default;
+        const describe = el("div", { class: "help" });
+        const described = (value) => {
+          const text = tr(property.oneOf?.find((o) => same(o.enum?.[0], value))?.description) ?? tr(property.description);
+          describe.textContent = text ?? "";
+          describe.hidden = !text;
+        };
+        const group = el("div", { class: "group segmented-field", role: "radiogroup", "aria-label": typeof title === "string" ? title : property.title ?? key },
+          ...options.map((o) => {
+            const input = el("input", { type: "radio", name, value: JSON.stringify(o.value), checked: same(o.value, chosen) });
+            input.addEventListener("change", () => described(o.value));
+            return el("label", { class: "segment" }, input, el("span", { text: o.title }));
+          }));
+        described(chosen);
+        return { element: el("div", { class: "field" }, el("span", { class: "field-title" }, title), group, describe),
+          get: () => { const on = group.querySelector("input:checked"); return on ? JSON.parse(on.value) : undefined; } };
+      }
       if (options) {
         const option = (o) => el("option", { value: JSON.stringify(o.value), text: o.title, selected: current !== undefined ? same(o.value, current) : !inherits && same(o.value, property.default) });
         const select = el("select", {}, el("option", { value: "", text: inherits ? defaultText(named(fallback ?? property.default)) : "—" }), ...options.map(option));
@@ -18466,7 +18487,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const isRequired = required.has(key) || property.required === true;
         const f = field(key, property, current[key], isRequired, index);
         parts.set(key, f);
-        entries.push({ element: f.element, required: isRequired, value: current[key] });
+        // A field with a condition shows while it holds, not under More options: as at the top of the form.
+        const conditioned = Boolean(property.condition ?? property["x-schema-form"]?.condition ?? property["x-schema-form"]?.requiredWhen);
+        entries.push({ element: f.element, required: isRequired || conditioned, value: current[key] });
       }
       const split = splitting ? splitFields(entries) : entries.map((entry) => entry.element);
       const first = split.filter((node) => !node.classList?.contains("more-options"));
@@ -18636,6 +18659,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// Beyond this many choices a field shows what is chosen and a searchable menu of the rest, rather than every choice
   /// (a home's hundred lights or scenes in a remote's channel).
   const manyChoices = 10;
+  // Names for each segmented field's radios, unique on the page.
+  let segmentedFields = 0;
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   /// Tells the form a picker's value changed, as a select or a checkbox would: the settings sheet saves on `change`.
   const announce = (node) => { node.dispatchEvent(new Event("input", { bubbles: true })); node.dispatchEvent(new Event("change", { bubbles: true })); };
@@ -37916,6 +37941,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .group button { border: 0; background: none; box-shadow: none; padding: 5px 13px; white-space: nowrap; transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out); }
 @media (hover: hover) and (pointer: fine) { .group button:hover:not(:disabled):not(.on) { background: var(--material-thin); } }
 .group button.on { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
+/* A form's segmented field (forms.js, `x-schema-form.type: "segmented"`): the same pill, its choices radios. */
+.segmented-field { display: flex; width: fit-content; max-width: 100%; }
+.segmented-field .segment { position: relative; margin: 0; display: grid; place-items: center; padding: 5px 13px; border-radius: var(--radius-pill); cursor: pointer; white-space: nowrap; transition: background-color var(--fast) var(--ease-out); }
+.segmented-field .segment input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.segmented-field .segment:has(input:checked) { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
+.segmented-field .segment:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (hover: hover) and (pointer: fine) { .segmented-field .segment:hover:not(:has(input:checked)) { background: var(--material-thin); } }
+@media (pointer: coarse) { .segmented-field .segment { min-height: 40px; } }
 /* A segmented control whose choices carry a glyph before their name (a phone shows the glyph alone). */
 
 /* The mini remote (remote.js): a round pad with OK in the middle, round keys and a volume rocker. Keys give

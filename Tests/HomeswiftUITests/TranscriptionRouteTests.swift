@@ -25,7 +25,7 @@ struct TranscriptionRouteTests {
     /// The chat's recording goes to the block's speech server as a WAV, in the page's language, and its words come back.
     @Test func writesDownWhatWasSaid() async throws {
         let speech = SpeechServer()
-        let environment = try UITestEnvironment(auth: .none, model: speech, aiSettings: #""transcription": { "baseUrl": "http://127.0.0.1:9/v1/", "model": "whisper-local" }"#)
+        let environment = try UITestEnvironment(auth: .none, model: speech, aiSettings: #""transcription": { "engine": "server", "baseUrl": "http://127.0.0.1:9/v1/", "model": "whisper-local" }"#)
         let base = try await environment.start()
         defer { Task { await environment.stop() } }
         let browser = Browser(base: base)

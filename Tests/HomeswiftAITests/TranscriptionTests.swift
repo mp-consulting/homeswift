@@ -11,16 +11,18 @@ import Testing
             try AIConfiguration(block: try JSONValue(string: block), environment: environment).transcription
         }
         #expect(try transcription(#"{ "provider": "anthropic", "apiKey": "sk-ant" }"#) == nil)
-        #expect(try transcription(#"{ "provider": "openai", "apiKey": "sk-a", "transcription": { "enabled": false } }"#) == nil)
-        let openai = try #require(try transcription(#"{ "provider": "openai", "apiKey": "sk-a", "transcription": {} }"#))
+        // The browser's dictation unless an engine is chosen.
+        #expect(try transcription(#"{ "provider": "openai", "apiKey": "sk-a", "transcription": { "apiKey": "own" } }"#) == nil)
+        #expect(try transcription(#"{ "provider": "openai", "apiKey": "sk-a", "transcription": { "engine": "server", "enabled": false } }"#) == nil)
+        let openai = try #require(try transcription(#"{ "provider": "openai", "apiKey": "sk-a", "transcription": { "engine": "server" } }"#))
         #expect(openai.baseURL == TranscriptionConfiguration.openAIBaseURL)
         #expect(openai.apiKey == "sk-a")
         #expect(openai.model == "whisper-1")
-        #expect(try transcription(#"{ "provider": "anthropic", "apiKey": "sk-ant", "transcription": {} }"#)?.apiKey == "sk-env")
-        let local = try #require(try transcription(#"{ "provider": "openai", "apiKey": "sk-a", "transcription": { "baseUrl": "http://10.0.0.5:8000/v1/" } }"#))
+        #expect(try transcription(#"{ "provider": "anthropic", "apiKey": "sk-ant", "transcription": { "engine": "server" } }"#)?.apiKey == "sk-env")
+        let local = try #require(try transcription(#"{ "provider": "openai", "apiKey": "sk-a", "transcription": { "engine": "server", "baseUrl": "http://10.0.0.5:8000/v1/" } }"#))
         #expect(local.baseURL == "http://10.0.0.5:8000/v1")
         #expect(local.apiKey == nil)
-        #expect(try transcription(#"{ "provider": "anthropic", "apiKey": "x", "transcription": { "baseUrl": "http://10.0.0.5:8000/v1", "apiKey": "own", "model": "large-v3" } }"#)
+        #expect(try transcription(#"{ "provider": "anthropic", "apiKey": "x", "transcription": { "engine": "server", "baseUrl": "http://10.0.0.5:8000/v1", "apiKey": "own", "model": "large-v3" } }"#)
             == TranscriptionConfiguration(baseURL: "http://10.0.0.5:8000/v1", apiKey: "own", model: "large-v3"))
     }
 
@@ -37,8 +39,9 @@ import Testing
         #expect(throws: AIConfigurationError.self) {
             try AIConfiguration(block: try JSONValue(string: #"{ "provider": "anthropic", "apiKey": "x", "transcription": { "engine": "siri" } }"#))
         }
-        // The server engine is the default.
-        #expect(try AIConfiguration(block: try JSONValue(string: #"{ "provider": "anthropic", "apiKey": "x", "transcription": {} }"#)).transcription?.engine == .server)
+        // The browser's dictation is the default: nothing for the bridge to do.
+        #expect(try AIConfiguration(block: try JSONValue(string: #"{ "provider": "anthropic", "apiKey": "x", "transcription": {} }"#)).transcription == nil)
+        #expect(try AIConfiguration(block: try JSONValue(string: #"{ "provider": "anthropic", "apiKey": "x", "transcription": { "engine": "browser" } }"#)).transcription == nil)
     }
 
     /// One multipart request: the model, the language's first part, and the recording as a WAV file.
