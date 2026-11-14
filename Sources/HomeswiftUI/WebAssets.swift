@@ -10851,7 +10851,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const discard = el("button", { type: "button", class: "chat-voice-button", "aria-label": t("Discard what you said"), title: t("Discard what you said"),
       onclick: () => stopListening("discard") });
     discard.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-    const keep = el("button", { type: "button", class: "chat-voice-button", "aria-label": t("Stop and keep the words"), title: t("Stop and keep the words"),
+    const keep = el("button", { type: "button", class: "chat-voice-button keep", "aria-label": t("Stop and keep the words"), title: t("Stop and keep the words"),
       onclick: () => stopListening("keep") });
     keep.innerHTML = '<svg class="filled" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2.5"/></svg>';
     const voice = el("div", { class: "chat-voice" }, discard, wave.canvas, keep);
@@ -10859,7 +10859,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     send.innerHTML = '<svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>'
       + '<svg class="stop-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>';
     // Over the field, one line: who answers, and that changes ask first.
-    const note = el("span", { class: "chat-note" });
+    // Who answers, or what the mic is doing: read out when it changes.
+    const note = el("span", { class: "chat-note", role: "status" });
     const foot = el("div", { class: "chat-foot" }, note);
     // The language spoken to the mic and in which answers are read out; this browser remembers it.
     const languages = [["", t("Browser's language")], ["en-US", "English (US)"], ["en-GB", "English (UK)"], ["fr-FR", "Français"], ["de-DE", "Deutsch"],
@@ -11433,6 +11434,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const { sheet, send, note, log } = panel;
     sheet.classList.toggle("working", running);
     sheet.classList.toggle("listening", listening());
+    // Written down by the bridge: the voice is in, so stop has nothing left to do and the field waits for the words.
+    const writing = Boolean(dictation?.writing);
+    sheet.classList.toggle("transcribing", writing);
+    panel.keep.disabled = writing;
+    panel.input.readOnly = writing;
     log.setAttribute("aria-busy", String(running));
     send.classList.toggle("stop", running);
     send.setAttribute("aria-label", running ? t("Stop") : t("Send"));
@@ -11445,7 +11451,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const provider = providerNames[info.provider] || info.provider || t("Assistant");
     const cost = usage && usage.cost != null && usage.cost > 0
       ? new Intl.NumberFormat(HomeswiftI18n.numberLocale, { style: "currency", currency: "USD", minimumFractionDigits: usage.cost < 0.01 ? 4 : 2, maximumFractionDigits: usage.cost < 0.01 ? 4 : 2 }).format(usage.cost) : null;
-    note.textContent = listening() ? t("Listening…") : voiceNote
+    note.textContent = dictation?.writing ? t("Writing down what you said…") : listening() ? t("Listening…") : voiceNote
       || (cost ? t("{provider} · {cost} so far. Changes always ask first.", { provider, cost }) : t("{provider}. Changes always ask first.", { provider }));
   }
 
@@ -11551,9 +11557,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     dictation?.stop(how);
   }
 
-  /// The voice's row takes the composer; a keyboard that started it lands on stop.
+  /// The voice's row takes the composer, a flat line at once until the microphone opens; a keyboard that started it
+  /// lands on stop.
   function beginDictation(session) {
     dictation = session;
+    panel.wave.start(() => -90);
     if (document.activeElement === panel.mic) panel.keep.focus();
     renderControls();
   }
@@ -11562,6 +11570,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function endDictation(session, note = "") {
     if (dictation !== session) return false;
     dictation = null;
+    panel.wave.stop();
     voiceNote = note;
     if (panel.voice.contains(document.activeElement)) panel.input.focus();
     renderControls();
@@ -11665,7 +11674,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// The page's own recording for the bridge: its level draws the waveform, its 16-bit samples wait here until stop,
   /// then go to the bridge to be written down.
   async function record() {
-    const session = { original: panel.input.value, how: null, chunks: [], bytes: 0, stop(how) {
+    const session = { original: panel.input.value, how: null, chunks: [], bytes: 0, writing: false, stop(how) {
+      // Being written down: × lets the words go, ↑ sends them once they come.
+      if (session.writing) {
+        if (how === "discard") endDictation(session);
+        else session.how = how;
+        return;
+      }
       if (session.how) return;
       session.how = how;
       // Still opening the microphone: it finishes once it is open.
@@ -11696,32 +11711,39 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
   }
 
-  /// Lets the microphone go, then has the bridge write down what was said.
+  /// Lets the microphone go, then has the bridge write down what was said: the row stays, its waveform still, until the
+  /// words come.
   async function finish(session) {
     session.node?.port.close();
     session.stream?.getTracks().forEach((track) => track.stop());
     session.context?.close().catch(() => {});
-    panel.wave.stop();
     const short = session.bytes < VOICE_RATE * 2 * 0.3;
-    const note = session.failed || (session.how !== "discard" && short ? t("Nothing was heard. Tap the mic and speak.") : "");
-    if (!endDictation(session, note) || session.failed || session.how === "discard" || short) return;
+    if (session.failed || session.how === "discard" || short) {
+      panel.wave.stop();
+      endDictation(session, session.failed || (session.how !== "discard" ? t("Nothing was heard. Tap the mic and speak.") : ""));
+      return;
+    }
     // One buffer for the request; the chunks go.
     const audio = new Uint8Array(session.bytes);
     let offset = 0;
     for (const chunk of session.chunks) { audio.set(chunk, offset); offset += chunk.length; }
     session.chunks = null;
-    voiceNote = t("Writing down what you said…");
+    session.writing = true;
+    panel.wave.freeze();
+    // Stop, pressed from the keyboard, goes quiet: send is next.
+    if (document.activeElement === panel.keep) panel.send.focus();
     renderControls();
-    let words = "";
+    let words = "", note = "";
     try {
       ({ text: words } = await api("/api/assistant/transcribe", { method: "POST", body: { audio: HomeswiftCommon.base64(audio), sampleRate: VOICE_RATE, language: voiceLanguage() } }));
+      words = (words || "").trim();
+      if (!words) note = t("Nothing was heard. Tap the mic and speak.");
     } catch (error) {
-      voiceNote = t("Voice transcription failed: {error}", { error: error.message });
-      renderControls();
-      return;
+      note = t("Voice transcription failed: {error}", { error: error.message });
     }
-    words = (words || "").trim();
-    voiceNote = words ? "" : t("Nothing was heard. Tap the mic and speak.");
+    panel.wave.stop();
+    // Discarded while it was written down: the words go.
+    if (!endDictation(session, note) || !words) return;
     deliver(session.original, words, session.how);
   }
 
@@ -14016,7 +14038,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
     return {
       canvas,
+      /// Follows `source`, from a flat line: a new start (the microphone once it opens) takes over from the last.
       start(source) {
+        cancelAnimationFrame(frame);
+        canvas.classList.remove("frozen");
         const analyser = typeof source === "function" ? null : source;
         samples = analyser ? new Float32Array(analyser.fftSize) : null;
         color = getComputedStyle(canvas).color;
@@ -14057,6 +14082,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       stop() {
         cancelAnimationFrame(frame);
         canvas.classList.add("hidden");
+        canvas.classList.remove("frozen");
+      },
+      /// Holds what was said on screen, still: the voice is in, the words are being written down.
+      freeze() {
+        cancelAnimationFrame(frame);
+        canvas.classList.add("frozen");
       },
     };
   }
@@ -39518,7 +39549,16 @@ dd { margin: 0; }
 .chat.listening .chat-composer { flex-wrap: wrap; row-gap: var(--space-4); }
 .chat.listening .chat-composer textarea { flex: 1 0 100%; }
 .chat.listening .chat-mic { display: none; }
-.chat.listening .chat-voice { display: flex; flex: 1 1 120px; min-width: 0; align-items: center; gap: var(--space-10); margin-left: calc(-1 * var(--space-8)); }
+.chat.listening .chat-voice {
+  display: flex; flex: 1 1 120px; min-width: 0; align-items: center; gap: var(--space-10); margin-left: calc(-1 * var(--space-8));
+  transition: opacity var(--normal) var(--ease-out), transform var(--normal) var(--ease-out);
+}
+/* The row eases in under the field rather than snapping in. */
+@starting-style { .chat.listening .chat-voice { opacity: 0; transform: translateY(4px); } }
+/* Being written down: the voice is in, still and quieter, breathing while the bridge works; stop has nothing to do. */
+.chat-voice .talk-wave.frozen { opacity: 0.35; animation: chat-writing 1.4s ease-in-out infinite alternate; }
+@keyframes chat-writing { from { opacity: 0.25; } to { opacity: 0.5; } }
+.chat.transcribing .chat-voice-button.keep { opacity: 0.35; }
 .chat-voice-button { border-color: transparent; background: color-mix(in srgb, var(--text) 8%, transparent); box-shadow: none; color: var(--text); }
 @media (hover: hover) and (pointer: fine) { .chat-voice-button:hover { background: color-mix(in srgb, var(--text) 14%, transparent); } }
 .chat-voice-button svg.filled { fill: currentColor; stroke: none; width: 15px; height: 15px; }
@@ -39547,7 +39587,9 @@ dd { margin: 0; }
   .chat-head { padding-top: var(--space-20); touch-action: none; cursor: grab; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .chat-glow, .chat-step-mark, .chat-thinking, .chat-log > * { animation: none !important; }
+  .chat-glow, .chat-step-mark, .chat-thinking, .chat-log > *, .chat-voice .talk-wave.frozen { animation: none !important; }
+  .chat.listening .chat-voice { transition: opacity var(--normal) ease; }
+  @starting-style { .chat.listening .chat-voice { transform: none; } }
   .chat-thinking { color: var(--muted); background: none; }
 }
 @media (prefers-reduced-transparency: reduce) {

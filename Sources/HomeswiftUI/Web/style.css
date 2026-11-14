@@ -2490,7 +2490,16 @@ dd { margin: 0; }
 .chat.listening .chat-composer { flex-wrap: wrap; row-gap: var(--space-4); }
 .chat.listening .chat-composer textarea { flex: 1 0 100%; }
 .chat.listening .chat-mic { display: none; }
-.chat.listening .chat-voice { display: flex; flex: 1 1 120px; min-width: 0; align-items: center; gap: var(--space-10); margin-left: calc(-1 * var(--space-8)); }
+.chat.listening .chat-voice {
+  display: flex; flex: 1 1 120px; min-width: 0; align-items: center; gap: var(--space-10); margin-left: calc(-1 * var(--space-8));
+  transition: opacity var(--normal) var(--ease-out), transform var(--normal) var(--ease-out);
+}
+/* The row eases in under the field rather than snapping in. */
+@starting-style { .chat.listening .chat-voice { opacity: 0; transform: translateY(4px); } }
+/* Being written down: the voice is in, still and quieter, breathing while the bridge works; stop has nothing to do. */
+.chat-voice .talk-wave.frozen { opacity: 0.35; animation: chat-writing 1.4s ease-in-out infinite alternate; }
+@keyframes chat-writing { from { opacity: 0.25; } to { opacity: 0.5; } }
+.chat.transcribing .chat-voice-button.keep { opacity: 0.35; }
 .chat-voice-button { border-color: transparent; background: color-mix(in srgb, var(--text) 8%, transparent); box-shadow: none; color: var(--text); }
 @media (hover: hover) and (pointer: fine) { .chat-voice-button:hover { background: color-mix(in srgb, var(--text) 14%, transparent); } }
 .chat-voice-button svg.filled { fill: currentColor; stroke: none; width: 15px; height: 15px; }
@@ -2519,7 +2528,9 @@ dd { margin: 0; }
   .chat-head { padding-top: var(--space-20); touch-action: none; cursor: grab; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .chat-glow, .chat-step-mark, .chat-thinking, .chat-log > * { animation: none !important; }
+  .chat-glow, .chat-step-mark, .chat-thinking, .chat-log > *, .chat-voice .talk-wave.frozen { animation: none !important; }
+  .chat.listening .chat-voice { transition: opacity var(--normal) ease; }
+  @starting-style { .chat.listening .chat-voice { transform: none; } }
   .chat-thinking { color: var(--muted); background: none; }
 }
 @media (prefers-reduced-transparency: reduce) {

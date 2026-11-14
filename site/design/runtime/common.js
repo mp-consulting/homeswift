@@ -2195,7 +2195,10 @@
     }
     return {
       canvas,
+      /// Follows `source`, from a flat line: a new start (the microphone once it opens) takes over from the last.
       start(source) {
+        cancelAnimationFrame(frame);
+        canvas.classList.remove("frozen");
         const analyser = typeof source === "function" ? null : source;
         samples = analyser ? new Float32Array(analyser.fftSize) : null;
         color = getComputedStyle(canvas).color;
@@ -2236,6 +2239,12 @@
       stop() {
         cancelAnimationFrame(frame);
         canvas.classList.add("hidden");
+        canvas.classList.remove("frozen");
+      },
+      /// Holds what was said on screen, still: the voice is in, the words are being written down.
+      freeze() {
+        cancelAnimationFrame(frame);
+        canvas.classList.add("frozen");
       },
     };
   }
