@@ -305,7 +305,22 @@ screenshots, and what a plugin does to get good ones.
   joystick, or to steer with the arrow keys, which turns the camera a step at a time while held, with its presets and
   home position beside it (`GET /api/cameras/<id>/controls`, `POST /api/cameras/<id>/control` with `{"move": "left"}`,
   `{"preset": "<id>"}` or `{"home": true}`; both for users who may control accessories, not read-only tokens). On the
-  wall, only a large camera tile has it.
+  wall, only a large camera tile has it. A camera with a speaker (UniFi Protect with two-way audio, Reolink, IMOU, an
+  IP camera with a `returnAudioTarget`) gets a **Talk** button: it turns the browser's microphone on and sends what it
+  hears to the camera's speaker until pressed again or the view leaves the screen, red while it is on. Browsers give
+  the microphone to HTTPS pages (or localhost) only, so on plain HTTP the button says so. While someone talks, the
+  camera's own sound is muted, so its speaker does not come back through the microphones as an echo; it comes back on
+  afterwards, unless they turned it on meanwhile (with headphones); the browser's echo cancellation stays on too. The
+  page resamples the microphone to the camera's rate (`talk-worklet.js`) and sends it over a WebSocket
+  (`GET /api/cameras/<id>/talk?sampleRate=16000`, the rate the controls' `talk` gives, upgraded: the bridge answers
+  `{"talk": "<id>", "sampleRate": n}` or `{"error": "…", "status": n}`, then each binary message is 40 ms of signed
+  16-bit mono and closing the socket ends the Talk). The upgrade is granted only to a signed-in user's cookie from the
+  page itself who may control accessories. When no WebSocket opens (a reverse proxy that does not pass them), it
+  sends a tenth of a second per request instead, one after the other (`POST /api/cameras/<id>/talk` with
+  `{"sampleRate": 16000}` starts a Talk and answers its id, `{"talk": "<id>", "sampleRate": 16000}`; `POST /api/cameras/<id>/talk/<id>` with
+  `{"seq": n, "pcm": "<base64>"}` carries the audio and `{"end": true}` ends it). One person talks on a camera at a
+  time; the bridge ends a Talk three seconds after its last audio, and after ten minutes. Starting one is audited and
+  logged, the audio is not.
 - **Rooms**: an accessory's room and Hidden are in its Settings sheet (a new room name adds the room); hidden
   accessories stay out unless **Show hidden** (`?hidden=1`). Its room and Hidden are Accessory Settings
   (`room`, `hidden` in its plugin's block, `PATCH /api/settings/accessories/<id>`); the Quick Controls and the rooms'

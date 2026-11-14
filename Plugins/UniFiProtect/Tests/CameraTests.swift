@@ -80,6 +80,8 @@ final class FakeProcess: ProtectFfmpegStreamingProcess, ProtectFfmpegRecording, 
     }
 
     func writeStdin(_ data: Data) async throws { state.withLockedValue { $0.stdin.append(data) } }
+    func finish() { endStdin(nil) }
+
     func endStdin(_ data: Data?) {
         state.withLockedValue { state in
             if let data { state.stdin.append(data) }
@@ -795,6 +797,47 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
         #expect(talkback.isStopped)
         #expect(await eventually { socket.isClosed })
         #expect(ffmpeg.state.withLockedValue { $0.demuxers.first?.closed.withLockedValue { $0 } } == true)
+    }
+
+    /// The web UI's microphone: its PCM into FFmpeg, FFmpeg's ADTS to the controller's talkback WebSocket, as HomeKit's.
+    @Test func webMicrophone() async throws {
+        let ffmpeg = FakeFfmpegKit()
+        let controller = FakeController()
+        controller.update { state in
+            state.bootstrap = Fixtures.bootstrap(cameras: [Fixtures.camera(), Fixtures.doorbell().setting("talkbackSettings", [
+                "samplingRate": 24000, "channels": 1, "bindPort": 7004, "typeFmt": "aac",
+            ])])
+        }
+        let environment = ProtectTestEnvironment(controller: controller, ffmpeg: ffmpeg)
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        _ = await self.controller(environment, host, Self.doorbellID)
+        _ = await self.controller(environment, host, Self.cameraID)
+        // The doorbell has a speaker; the camera has none.
+        #expect(await host.talkFormat(accessoryID: Self.doorbellID) == ReturnAudioFormat(sampleRate: 16000))
+        #expect(await host.talkFormat(accessoryID: Self.cameraID) == nil)
+
+        let (frames, speech) = AsyncStream.makeStream(of: PCMFrame.self)
+        let talk = Talk(sessionID: "web", format: ReturnAudioFormat(sampleRate: 16000), frames: frames, volume: 100)
+        let playing = Task { try await host.talk(accessoryID: Self.doorbellID, talk) }
+        #expect(await eventually { controller.requests("/proxy/protect/api/ws/talkback").last?.query?.contains("camera=doorbell-id") == true })
+        let process = try #require(await eventually { !ffmpeg.processes.isEmpty } ? ffmpeg.processes.last : nil)
+        // The browser's PCM in, the camera's AAC out at its rate.
+        #expect(process.argument(after: "-f") == "s16le" && process.argument(after: "-i") == "pipe:0")
+        #expect(process.arguments.firstIndex(of: "16000") != nil && process.arguments.contains("24000") && process.arguments.last == "pipe:1")
+        #expect(process.arguments.contains("adts") && process.argument(after: "-flush_packets") == "1")
+        speech.yield(PCMFrame(samples: [1, -2, 0x0102], offset: 0))
+        #expect(await eventually { process.written == Data([1, 0, 0xFE, 0xFF, 0x02, 0x01]) })
+        let socket = try #require(await eventually { environment.webSockets.connections.contains { $0.path.contains("talkback") } }
+            ? environment.webSockets.connections.last { $0.path.contains("talkback") } : nil)
+        process.output(Data([0xFF, 0xF1, 9]))
+        #expect(await eventually { socket.sentData == [Data([0xFF, 0xF1, 9])] })
+        // The Talk ends: FFmpeg's input closes, and once it is done the channel closes and the Talk returns.
+        speech.finish()
+        #expect(await eventually { process.state.withLockedValue { $0.stdinEnded } })
+        process.exit()
+        try await playing.value
+        #expect(await eventually { socket.isClosed })
     }
 
     /// ffmpeg-for-homeswift: no libfdk_aac, libopus. Live streams offer and send Opus; talkback decodes it and

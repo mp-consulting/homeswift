@@ -329,7 +329,7 @@ public actor ImouPlugin: HomeswiftPlugin {
             camera.bindWrites()
             accessory.configureController(controller)
             context.configureController(controller, accessoryID: id)
-            await camera.attach(accessory: accessory, controller: controller, streamer: streamer, recorder: recorder)
+            await camera.attach(accessory: accessory, controller: controller, streamer: streamer, recorder: recorder, talk: talk)
             try await context.publishExternal(accessory)
             cameras[id] = camera
             logger.info("Added \(name) (\(device.model), \(device.deviceID))\(local == nil ? "" : ", on the local network at \(local?.host ?? "")")")
@@ -339,6 +339,17 @@ public actor ImouPlugin: HomeswiftPlugin {
     }
 
     // MARK: Two-way talk
+
+    /// The PCM a camera with a speaker takes from the web UI's microphone, as HomeKit's Talks.
+    public func talkFormat(accessoryID: String) async -> ReturnAudioFormat? {
+        await cameras[accessoryID]?.talk?.settings.codec.format
+    }
+
+    /// Plays the web UI's microphone on a camera's speaker.
+    public func talk(accessoryID: String, _ talk: Talk) async throws {
+        guard let speaker = await cameras[accessoryID]?.talk else { throw CameraControlError("no camera with a speaker with that id") }
+        await speaker.handle(talk)
+    }
 
     /// The camera's talk (ImouTalk.md, sections 2 and 6), when its `twoWayAudio` setting allows it, it is reached on the LAN
     /// and it has a speaker (`on` takes that for granted): `devAudioOutput` says so, or, when it cannot, a backchannel track

@@ -20,6 +20,7 @@
     fullscreen: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
     refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
     move: '<path d="M12 3v18M3 12h18"/><path d="m9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>',
+    mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
   };
   function glyph(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -42,9 +43,12 @@
   /// the panel it opens over the picture: a pad to press or drag like a joystick, or to steer with the arrow keys once
   /// focused (the camera steps that way while it is held), then the presets and the home position. Each step waits for
   /// the camera's answer before the next: a battery camera answers late, and requests must not pile up.
-  function panTilt(camera, url, setStatus) {
-    // The camera's controls once asked; false for a camera that does not move, which is not asked again.
-    let controls = null, held = null, busy = false, timer = null, asking = false;
+  function panTilt(camera, url, setStatus, ask) {
+    // The camera's controls once asked; false for a camera that does not move, which is not asked again. `askedLive`: an
+    // answer from before the picture was live may lack the pan and tilt a camera knows only while it streams (Tapo), so it
+    // is asked afresh once.
+    let controls = null, held = null, busy = false, timer = null, askedLive = false;
+    const moves = (answer) => !!(answer?.directions?.length || answer?.presets?.length || answer?.home);
     const thumb = el("span", { class: "ptz-thumb", "aria-hidden": "true" });
     const arrows = Object.fromEntries(Object.entries(arrowIcons).map(([direction, name]) => [direction,
       el("span", { class: `ptz-arrow ${direction}`, "aria-hidden": "true" }, HomeswiftCommon.icon(name))]));
@@ -155,24 +159,218 @@
       /// Asks what the camera can do once its picture is live; a camera that does not move keeps no button.
       async live(on) {
         if (!on) { open(false); return; }
-        if (controls === false || asking) return;
+        if (controls === false) return;
         if (controls) { toggle.classList.remove("hidden"); return; }
-        asking = true;
-        try {
-          const answer = await HomeswiftCommon.api(url("controls"));
-          if (!answer?.directions?.length && !answer?.presets?.length && !answer?.home) { controls = false; return; }
-          controls = { directions: answer.directions ?? [], presets: answer.presets ?? [], home: !!answer.home };
-          draw();
-          toggle.classList.remove("hidden");
-        } catch (error) {
-          // A camera that does not move answers 404, a read-only user 403: not asked again. Anything else (asleep, busy):
-          // asked at the next live start.
-          if (error.status === 404 || error.status === 403) controls = false;
-        } finally {
-          asking = false;
-        }
+        let answer = await ask();
+        if (answer !== undefined && !moves(answer) && !askedLive) { askedLive = true; answer = await ask(true); }
+        if (answer === undefined || controls) return;
+        if (!moves(answer)) { controls = false; return; }
+        controls = { directions: answer.directions ?? [], presets: answer.presets ?? [], home: !!answer.home };
+        draw();
+        toggle.classList.remove("hidden");
       },
       hide() { toggle.classList.add("hidden"); open(false); },
+    };
+  }
+
+  // ---- Talk ----
+
+  // Milliseconds of audio per message: short over the WebSocket, longer per request. Audio waits at most TALK_BACKLOG
+  // milliseconds to go, the rest dropped, so speech stays live. The WebSocket has SOCKET_WAIT to open before requests
+  // take over.
+  // A failure's reason stays FAILURE_HOLD milliseconds beside the buttons: long enough to read why the button went off.
+  const SOCKET_CHUNK = 40, REQUEST_CHUNK = 100, TALK_BACKLOG = 1000, SOCKET_WAIT = 3000, FAILURE_HOLD = 8000;
+
+  /// The microphone of a camera with a speaker (`talk` in /api/cameras/<id>/controls): a button that starts and stops
+  /// a Talk. The microphone is resampled to the camera's rate by talk-worklet.js and sent over a WebSocket
+  /// (/api/cameras/<id>/talk), or, when none opens (a proxy that does not pass them), in short requests one after the
+  /// other. `hooks.started()` and `hooks.stopped()` let the view quiet the camera's own sound meanwhile. The button turns
+  /// red only once the bridge has started the Talk and the microphone runs: until then it waits (a tap cancels), and a
+  /// refusal (someone else talking, the camera unreachable) leaves it off, its reason held beside the buttons.
+  function talker(camera, url, setStatus, ask, hooks) {
+    // The rate the camera takes once asked; false for a camera without a speaker, which is not asked again.
+    let format = null, session = null;
+    const toggle = button("mic", t("Talk"), () => (session ? stop() : start()));
+    toggle.classList.add("hidden", "talk-toggle");
+    toggle.setAttribute("aria-pressed", "false");
+
+    // "off", "starting" (asked, not yet talking) or "on".
+    function mark(state) {
+      const label = state === "off" ? t("Talk") : t("Stop talking");
+      toggle.classList.toggle("talking", state === "on");
+      toggle.classList.toggle("starting", state === "starting");
+      toggle.setAttribute("aria-pressed", String(state === "on"));
+      toggle.setAttribute("aria-busy", String(state === "starting"));
+      toggle.setAttribute("aria-label", label);
+      toggle.title = label;
+    }
+    const bridgeMessage = (text) => window.HomeswiftI18n?.message(text) ?? text;
+
+    async function start() {
+      if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) {
+        // Browsers give the microphone to secure pages only: HTTPS, or localhost.
+        setStatus(window.isSecureContext ? t("This browser cannot use the microphone") : t("The microphone needs the web UI over HTTPS"), true);
+        return;
+      }
+      const current = { id: null, seq: 0, queue: [], sending: false, ended: false, talking: false, socket: null };
+      session = current;
+      mark("starting");
+      setStatus(t("Starting the microphone…"));
+      try {
+        // Made during the click, so Safari lets it run.
+        current.context = new AudioContext();
+        // The worklet loads while the microphone and the Talk start; a failure is caught once awaited.
+        const worklet = current.context.audioWorklet.addModule("/talk-worklet.js");
+        worklet.catch(() => {});
+        current.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+        if (current.ended) return;
+        // The Talk starts once the microphone is granted: the bridge ends one that stays silent. Over requests, the
+        // bridge names it.
+        current.socket = await openSocket(current);
+        if (current.ended) { current.socket?.close(1000); return; }
+        if (!current.socket) {
+          current.id = (await HomeswiftCommon.api(url("talk"), { method: "POST", body: { sampleRate: format.sampleRate } })).talk;
+          // Stopped while the bridge started it: it ends now rather than when it falls silent.
+          if (current.ended) { endRequests(current); return; }
+        }
+        await worklet;
+        await current.context.resume();
+        if (current.ended) return;
+        const source = current.context.createMediaStreamSource(current.stream);
+        const [chunk, send] = current.socket ? [SOCKET_CHUNK, sendSocket] : [REQUEST_CHUNK, enqueue];
+        current.node = new AudioWorkletNode(current.context, "homeswift-talk", { processorOptions: { rate: format.sampleRate, chunk } });
+        current.node.port.onmessage = (event) => send(current, event.data);
+        // The worklet runs only while it leads to the speakers: through a silent gain, so nothing is heard here.
+        const silent = current.context.createGain();
+        silent.gain.value = 0;
+        source.connect(current.node).connect(silent).connect(current.context.destination);
+        current.talking = true;
+        mark("on");
+        hooks.started();
+        setStatus(t("Talking on {name}", { name: camera.name }));
+      } catch (error) {
+        if (current.ended) return;
+        const blocked = error?.name === "NotAllowedError" || error?.name === "SecurityError";
+        fail(current, blocked ? t("The microphone is blocked for this page") : error?.name === "NotFoundError" ? t("No microphone found") : error.message || t("The camera could not take the microphone"));
+      }
+    }
+
+    /// The Talk's WebSocket once the bridge said the Talk started; null when none opened, for the requests to try (they
+    /// say why the bridge refuses, which a refused upgrade cannot); throws the bridge's refusal of the Talk itself.
+    function openSocket(current) {
+      if (!window.WebSocket) return Promise.resolve(null);
+      return new Promise((resolve, reject) => {
+        let socket = null, settled = false, timer = null;
+        const settle = (value, error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (error) reject(error); else resolve(value);
+        };
+        try {
+          socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}${url(`talk?sampleRate=${format.sampleRate}`)}`);
+        } catch {
+          resolve(null);
+          return;
+        }
+        socket.binaryType = "arraybuffer";
+        timer = setTimeout(() => { socket.close(); settle(null); }, SOCKET_WAIT);
+        socket.onmessage = (event) => {
+          let message = null;
+          try { message = JSON.parse(event.data); } catch {}
+          if (!settled) {
+            if (message?.talk) settle(socket);
+            else settle(null, new Error(bridgeMessage(message?.error) || t("The camera could not take the microphone")));
+          } else if (message?.error && !current.ended) {
+            // The camera gave up.
+            fail(current, bridgeMessage(message.error));
+          }
+        };
+        socket.onclose = () => {
+          if (!settled) settle(null);
+          else if (!current.ended) fail(current, t("The camera stopped taking the microphone"));
+        };
+      });
+    }
+    function sendSocket(current, buffer) {
+      if (current.ended || current.socket.readyState !== WebSocket.OPEN) return;
+      // A slow link: audio that would wait longer than TALK_BACKLOG is dropped rather than piling up.
+      if (current.socket.bufferedAmount > format.sampleRate * 2 * TALK_BACKLOG / 1000) return;
+      current.socket.send(buffer);
+    }
+
+    function enqueue(current, buffer) {
+      if (current.ended) return;
+      const bytes = new Uint8Array(buffer);
+      let text = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      current.queue.push({ seq: current.seq++, pcm: btoa(text) });
+      if (current.queue.length > TALK_BACKLOG / REQUEST_CHUNK) current.queue.shift();
+      pump(current);
+    }
+    // One request at a time, in order: the end (stop) goes after the audio before it.
+    async function pump(current) {
+      if (current.sending) return;
+      current.sending = true;
+      try {
+        while (current.queue.length) {
+          const body = current.queue.shift();
+          await HomeswiftCommon.api(url(`talk/${current.id}`), { method: "POST", body });
+        }
+      } catch (error) {
+        // The Talk is over on the bridge's side: the camera gave up (502), or it ended (410).
+        if (!current.ended) fail(current, error.message || t("The camera stopped taking the microphone"));
+      } finally {
+        current.sending = false;
+      }
+    }
+
+    function release(current) {
+      current.ended = true;
+      current.node?.port.close();
+      current.stream?.getTracks().forEach((track) => track.stop());
+      current.context?.close().catch(() => {});
+      // Closing after what is buffered: the bridge ends the Talk with the socket.
+      current.socket?.close(1000);
+      if (session === current) {
+        session = null;
+        mark("off");
+        if (current.talking) hooks.stopped();
+      }
+    }
+    // Over requests, the end follows what is still on its way; a Talk still starting is ended once its id comes (start).
+    function endRequests(current) {
+      if (!current.id) return;
+      current.queue.push({ end: true });
+      pump(current);
+    }
+    function fail(current, text) {
+      release(current);
+      current.queue.length = 0;
+      setStatus(text, true, FAILURE_HOLD);
+    }
+    function stop() {
+      const current = session;
+      if (!current) return;
+      release(current);
+      setStatus("");
+      endRequests(current);
+    }
+
+    return {
+      toggle, stop,
+      /// Asks whether the camera has a speaker once the view runs; one without keeps no button. A Talk goes on while the
+      /// picture reconnects: only the view stopping (hide) ends it.
+      async show() {
+        if (format === false) return;
+        if (format) { toggle.classList.remove("hidden"); return; }
+        const answer = await ask();
+        if (answer === undefined || format) return;
+        if (!answer?.talk?.sampleRate) { format = false; return; }
+        format = { sampleRate: answer.talk.sampleRate };
+        toggle.classList.remove("hidden");
+      },
+      hide() { stop(); toggle.classList.add("hidden"); },
     };
   }
 
@@ -204,12 +402,20 @@
     const message = el("div", { class: "camera-message", text: t("Connecting…") });
     // No picture from the camera: an old television's snow behind the message, drawn small and scaled up.
     const snow = el("canvas", { class: "camera-snow", width: 160, height: 90, "aria-hidden": "true" });
-    const sound = button("muted", t("Unmute"), () => {
-      video.muted = !video.muted;
-      sound.replaceChildren(glyph(video.muted ? "muted" : "sound"));
-      sound.setAttribute("aria-label", video.muted ? t("Unmute") : t("Mute"));
+    function setMuted(muted) {
+      video.muted = muted;
+      sound.replaceChildren(glyph(muted ? "muted" : "sound"));
+      sound.setAttribute("aria-label", muted ? t("Unmute") : t("Mute"));
       sound.title = sound.getAttribute("aria-label");
-      if (!video.muted) video.play().catch(() => {});
+      if (!muted) video.play().catch(() => {});
+    }
+    // The camera's sound is muted while someone talks through it (`mutedForTalk`), so what its speaker plays does not
+    // come back through its microphone and this one as an echo; it comes back with the Talk's end, unless the person
+    // turned it on meanwhile (with headphones, say).
+    let mutedForTalk = false;
+    const sound = button("muted", t("Unmute"), () => {
+      mutedForTalk = false;
+      setMuted(!video.muted);
     });
     sound.classList.add("hidden");
     const fullscreen = button("fullscreen", t("Full screen"), () => {
@@ -221,21 +427,45 @@
     });
     const refresh = button("refresh", t("Refresh"), () => { state.noLive = false; restart(); });
     const url = (what, query = "") => `/api/cameras/${encodeURIComponent(camera.id)}/${what}${query}`;
-    // What the camera is doing after a pan or tilt: under way, or why it did not move.
+    // What the camera is doing after a pan or tilt or with the microphone: under way, or why it did not.
     const ptzStatus = el("span", { class: "ptz-status hidden", role: "status", "aria-live": "polite" });
-    const ptz = panTilt(camera, url, (text, failed = false) => {
+    // A failure shows for `hold` milliseconds.
+    const setStatus = (text, failed = false, hold = 4000) => {
       ptzStatus.textContent = text;
       ptzStatus.classList.toggle("hidden", !text);
       ptzStatus.classList.toggle("failed", failed);
       clearTimeout(ptzStatus.timer);
-      if (failed) ptzStatus.timer = setTimeout(() => ptzStatus.classList.add("hidden"), 4000);
+      if (failed) ptzStatus.timer = setTimeout(() => ptzStatus.classList.add("hidden"), hold);
+    };
+    // What the live view's buttons can do (/api/cameras/<id>/controls), asked once for both: the answer, false for a
+    // camera that neither moves nor talks or a read-only user, undefined when it could not be asked (asked again later).
+    // `fresh` asks again rather than take the answer kept.
+    let controlsAnswer = null, controlsAsking = null;
+    const askControls = (fresh = false) => {
+      if (!fresh && controlsAnswer !== null) return Promise.resolve(controlsAnswer);
+      if (fresh || !controlsAsking) {
+        const asking = HomeswiftCommon.api(url("controls"))
+          .then((answer) => (controlsAnswer = answer ?? false))
+          .catch((error) => {
+            if (error.status === 404 || error.status === 403) controlsAnswer = false;
+            return controlsAnswer === false ? false : undefined;
+          })
+          .finally(() => { if (controlsAsking === asking) controlsAsking = null; });
+        controlsAsking = asking;
+      }
+      return controlsAsking;
+    };
+    const ptz = panTilt(camera, url, setStatus, askControls);
+    const talk = talker(camera, url, setStatus, askControls, {
+      started() { if (!video.muted) { setMuted(true); mutedForTalk = true; } },
+      stopped() { if (mutedForTalk && video.muted) setMuted(false); mutedForTalk = false; },
     });
     const element = el("div", { class: "camera-view", "data-camera": camera.id },
       still, video, snow, message, ptz.panel,
       el("div", { class: "camera-top" },
         el("strong", { class: "camera-name", text: camera.name }),
         el("span", { class: "camera-badges" }, liveBadge, stillBadge, recordingBadge, motionBadge, ringBadge)),
-      el("div", { class: "camera-controls" }, ptzStatus, ptz.toggle, sound, refresh, fullscreen));
+      el("div", { class: "camera-controls" }, ptzStatus, talk.toggle, ptz.toggle, sound, refresh, fullscreen));
 
     const state = { visible: false, running: false, live: false, noLive: !MediaSourceType, abort: null, timer: null, lastRing: camera.lastRing ? new Date(camera.lastRing) : null, stalls: 0 };
     // A gap in the buffer (a fragment the server dropped for a slow reader): jump over it.
@@ -447,6 +677,8 @@
       state.running = true;
       state.abort = new AbortController();
       show(still.src ? "still" : "message", still.src ? "" : t("Connecting…"));
+      // Talking needs no picture: a camera that shows snapshots has its microphone too.
+      talk.show();
       run(state.abort.signal);
     }
     function stop() {
@@ -458,6 +690,7 @@
       liveBadge.classList.add("hidden");
       element.classList.remove("is-live");
       ptz.hide();
+      talk.hide();
     }
     function restart() { stop(); update(); }
     function update() {
