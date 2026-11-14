@@ -13,6 +13,9 @@ All notable changes to this project are documented here. The format follows
   counts following, and brings a long wall back to its top. Before, the page reloaded, the menu closed and a wall
   scrolled down showed only the end of what was left.
 - **The Camera filter keeps doorbells**: a doorbell's camera is a Camera too, on the wall and on the Graph.
+- **A search or a filter closes up the wall**: on a wall whose widgets were dragged to cells of their own, those left
+  by a search or a filter are packed together in the order their cells read, rather than keeping the gaps of the ones
+  left out. Edit still shows the cells, and the cells themselves never change.
 
 ## [0.32.0] - 2026-11-14
 

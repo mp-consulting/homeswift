@@ -3704,11 +3704,15 @@
     /// row}, which goes first): each keeps its cell, moved down past a widget already there and left when the screen
     /// has fewer columns, and the others fill the first free cells in their order. Gaps stay. A wall with no cell of its
     /// own flows as the grid packs it. Answers each widget's cell.
+    /// Narrowed by a search or a filter outside Edit, the widgets left are packed together in the order their cells read,
+    /// leaving no gap where the others were; Edit keeps the cells, which a drag there saves.
     function arrange(wall, pin = null) {
-      const places = placesOf();
+      const order = placesOf();
       const widgets = [...wall.children].filter((child) => (child.dataset.id || child === pin?.node) && !child.classList.contains("lifted"));
+      const packed = !editing && !pin && narrowed() && widgets.some((child) => order[child.dataset.id]);
+      const places = packed ? {} : order;
       const result = new Map();
-      if (!pin && !widgets.some((child) => places[child.dataset.id])) {
+      if (!packed && !pin && !widgets.some((child) => places[child.dataset.id])) {
         for (const child of widgets) { child.style.gridColumn = ""; child.style.gridRow = ""; cells.delete(child); }
         return result;
       }
@@ -3732,7 +3736,11 @@
       const rest = widgets.filter((child) => child !== pin?.node && !child.classList.contains("hidden"));
       const at = (child) => places[child.dataset.id];
       for (const child of rest.filter(at).sort((a, b) => at(a)[1] - at(b)[1] || at(a)[0] - at(b)[0])) put(child, ...at(child));
-      for (const child of rest.filter((one) => !at(one))) {
+      // Packed: those with a cell first, as their cells read, then the others in their order.
+      const reading = (child) => order[child.dataset.id] ? order[child.dataset.id][1] * 1000 + order[child.dataset.id][0] : Number.MAX_SAFE_INTEGER;
+      const unplaced = rest.filter((one) => !at(one));
+      if (packed) unplaced.sort((a, b) => reading(a) - reading(b));
+      for (const child of unplaced) {
         const [spanColumns, height] = spanOf(child), width = Math.min(spanColumns, columns);
         let row = 1, column = 1;
         while (!fits(column, row, width, height)) { column++; if (column > columns - width + 1) { column = 1; row++; } }
@@ -4124,6 +4132,8 @@
         shown += inSection;
       }
       none.classList.toggle("hidden", shown > 0);
+      // Widgets with cells of their own close up around those the search leaves out.
+      arrangeSoon();
     }
     search.value = params.get("q") ?? "";
     search.addEventListener("input", () => { filter(); replaceQuery("q", search.value.trim()); });
@@ -4160,6 +4170,8 @@
       setFilters(next);
     };
     const searchCount = (predicate) => all.filter((accessory) => predicate(accessory) && HomeswiftWidgets.searchText(accessory).includes(search.value.trim().toLowerCase())).length;
+    /// Whether a search or a filter leaves out some of the wall: `arrange` packs what is left.
+    const narrowed = () => Boolean(search.value.trim()) || activeFilters() > 0;
     const activeFilters = () => Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + Number(online) + chosen.bridge.size + chosen.type.size + chosen.zone.size;
     // A bridge, device type or Zone: a toggle in the address, counting what it would add with the other filters as they are.
     const matchesChoice = (accessory, key, value) => key === "zone" ? inZone(accessory, value) : key === "bridge" ? accessory.bridge === value : HomeswiftAdmin.hasCategory(accessory, value);
@@ -4178,7 +4190,7 @@
     function paintFilters() {
       const active = activeFilters();
       filters.classList.toggle("on", active > 0);
-      filters.replaceChildren(HomeswiftCommon.icon("filter"), el("span", { class: "toolbar-label", text: t("Filters") }), active ? el("span", { class: "toolbar-count", text: active }) : null);
+      filters.replaceChildren(...[HomeswiftCommon.icon("filter"), el("span", { class: "toolbar-label", text: t("Filters") }), active ? el("span", { class: "toolbar-count", text: active }) : null].filter(Boolean));
     }
     paintFilters();
     filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [

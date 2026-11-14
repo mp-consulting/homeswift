@@ -330,7 +330,9 @@ screenshots, and what a plugin does to get good ones.
   (`?bridge=<name>`) and device types (`?type=<category>`), each as often as chosen, as on the Graph, and to the
   accessories that answer, **Online** (`?online=1`: neither No Response nor paused), or those that do not, **No Response**
   (`?unavailable=1`); choosing one clears the other. **Camera** keeps every accessory with a camera, doorbells included.
-  A choice redraws the wall in place, at its top, and leaves the menu open with its counts following. The Arrangement is the bridge's, shared by every user, in
+  A choice redraws the wall in place, at its top, and leaves the menu open with its counts following.
+  While a search or a filter narrows a wall whose widgets have cells of their own, those left are packed together in the
+  order their cells read; Edit shows the cells, which stay as they were. The Arrangement is the bridge's, shared by every user, in
   `accessory-layout.json` next to config.json (owner-only; `/api/rooms`), where older versions also kept rooms, Hidden and
   display names: those are read until the accessory's settings are next written, which moves them there. The order of the
   Rooms is the bridge's own; the MCP tools filter by the Rooms (`list_accessories`, `set_accessories`), and by the Zones
