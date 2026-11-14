@@ -17669,6 +17669,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // Shown, not changed (`readOnly`: a Helper's kind, set when it was added).
       if (property.readOnly) for (const control of made.element.querySelectorAll("input, select, textarea, button")) control.disabled = true;
       watch(made.element, property.condition ?? property["x-schema-form"]?.condition, index);
+      // Where a list's entry places it (buildObject's arrangeEntry): another tab (`x-section`), under its switch (`x-parent`).
+      if (property["x-section"]) made.element.dataset.section = property["x-section"];
+      if (property["x-parent"]) made.element.dataset.parent = property["x-parent"];
+      made.element.dataset.key = key;
+      // `x-schema-form.wide`: a whole row for a long value (a stream's address), not a column of two.
+      if (property["x-schema-form"]?.wide) made.element.classList.add("wide");
       // Required only while a condition holds (`x-schema-form.requiredWhen`, read as `condition`s are): a block whose
       // settings depend on another (an account or keys, by the route chosen) marks the ones it needs now.
       if (!required) watch(made.element, property["x-schema-form"]?.requiredWhen, index, true);
@@ -17795,7 +17801,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       if (type === "integer" || type === "number") {
         const input = el("input", { type: "number", value: current ?? "", placeholder: inherits ? defaultText(fallback ?? property.default) : tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", min: property.minimum, max: property.maximum, step: property.step ?? (type === "integer" ? 1 : "any"), required });
-        return { element: wrap(input), get: () => (input.value === "" ? undefined : Number(input.value)) };
+        // `x-schema-form.unit`: the unit after the number (s, %, W), rather than in the title.
+        const unit = property["x-schema-form"]?.unit;
+        return { element: wrap(unit ? el("span", { class: "unit-input" }, input, el("span", { class: "unit", "aria-hidden": "true", text: tr(unit) })) : input),
+          get: () => (input.value === "" ? undefined : Number(input.value)) };
       }
       if (type === "object" && !property.properties) {
         // A map (`additionalProperties`, such as a light's parts by id): a row per entry, its key and its value as the
@@ -17835,7 +17844,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // In a list's entry (a Dummy accessory's schedule, its auto-reset), a closed section that says what it holds:
         // an entry of a dozen of them open would run for pages.
         const count = el("span", { class: "group-count" });
-        const element = el("details", { class: "group-box object-box", "data-icon": property["x-icon"] ?? sectionIcon(key) },
+        const element = el("details", { class: "group-box object-box", "data-icon": property["x-icon"] ?? sectionIcon(key), "data-key": key },
           el("summary", {}, el("span", { text: title }), count), help, nested.element);
         // The settings its conditions show (a timeout's time, not a cron's expression), and how many have a value of
         // their own; the panel's tab reads `data-set`. Recounted while its entry's panel is open (openEntry).
@@ -17901,7 +17910,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           if (items.type === "object" && items.properties) {
             // An entry (a light, a TV) is a row with its name and address; it opens to edit in a side panel, a new one
             // at once. Its fields are whole there (no More options): the panel has the room, and its sections are tabs.
-            const nested = buildObject(items, itemValue || {}, () => rows.indexOf(entry), { split: false });
+            const nested = buildObject(items, itemValue || {}, () => rows.indexOf(entry), { split: false, entry: true });
             const name = el("span", { class: "entry-name" });
             const detail = el("span", { class: "entry-detail" });
             const describe = () => {
@@ -18075,7 +18084,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const sections = [...body.querySelectorAll(":scope > .fields > .object-box")];
       const id = `entry-panel-${++panels}`;
       const tabs = el("div", { class: "plugins-tabs entry-tabs", role: "tablist", "aria-label": t("Sections") });
-      const pages = [{ label: t("General"), icon: "gear", section: null }, ...sections.map((section) => ({
+      // The first tab: General, or what the entry's `x-general` calls it (a camera's Camera).
+      const general = nested.general ?? {};
+      const pages = [{ label: tr(general.title) || t("General"), icon: general.icon ?? "gear", section: null }, ...sections.map((section) => ({
         label: section.querySelector(":scope > summary > span").textContent, icon: section.dataset.icon || "sliders", section }))];
       let current = 0;
       const show = (index) => {
@@ -18136,7 +18147,78 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       return dialog;
     }
 
-    function buildObject(objectSchema, current, index, { split: splitting = true } = {}) {
+    /// A list's entry laid out for its panel, from its schema's hints, its values' shape untouched:
+    /// - `x-section` on a property (an object's included) moves it to another tab: `general` to the first, an object
+    ///   key of the entry to that object's tab, a name of the entry's `x-sections` (`{ title, icon, description }`) to a
+    ///   tab of its own, which stands where its first setting was; a setting of an object inside may move up too
+    ///   (a camera's stream to its first tab).
+    /// - `x-parent` puts a setting under the switch it depends on (a motion sensor's timeout), indented.
+    /// - Switches in a row, and what sits under them, make a list: each one a row, its switch at the end.
+    /// A setting keeps its control wherever it moves: what the form reads is the same.
+    function arrangeEntry(objectSchema, element, parts) {
+      const top = element.querySelector(":scope > .fields");
+      if (!top) return;
+      const own = (node) => node.closest(".fields") ;
+      const created = new Map();
+      const sectionFor = (name) => {
+        if (name === "general") return top;
+        const box = top.querySelector(`:scope > .object-box[data-key="${CSS.escape(name)}"]`);
+        if (box) return box.querySelector(":scope > .entry-body > .fields");
+        const declared = objectSchema["x-sections"]?.[name];
+        if (!declared) return null;
+        if (created.has(name)) return created.get(name).fields;
+        const fields = el("div", { class: "fields" });
+        const count = el("span", { class: "group-count" });
+        const box2 = el("details", { class: "group-box object-box", "data-icon": declared.icon ?? sectionIcon(name), "data-key": name },
+          el("summary", {}, el("span", { text: tr(declared.title) || name }), count),
+          declared.description ? el("div", { class: "help", text: tr(declared.description) }) : null, el("div", { class: "entry-body" }, fields));
+        created.set(name, { box: box2, fields, count });
+        return fields;
+      };
+      // In document order, so a tab's settings keep the schema's.
+      for (const node of [...element.querySelectorAll("[data-section]")]) {
+        const target = sectionFor(node.dataset.section);
+        if (!target || own(node) === target) continue;
+        const made = created.get(node.dataset.section);
+        // A tab of its own stands where its first setting was.
+        if (made && !made.box.isConnected) node.before(made.box);
+        target.append(node);
+      }
+      // A tab of its own counts its settings as an object's does, for its tab's dot.
+      for (const [, { box, fields, count }] of created) {
+        box.recount = () => {
+          const shown = [...fields.querySelectorAll("[data-key]")].filter((node) => !node.closest(".hidden") && parts.has(node.dataset.key));
+          const set = shown.filter((node) => ownValue(parts.get(node.dataset.key).get(), objectSchema.properties[node.dataset.key]?.default)).length;
+          count.textContent = settingsLabel(shown.length, set);
+          box.dataset.set = String(set);
+        };
+        box.recount();
+      }
+      // Under its switch: after it and the others already there.
+      for (const node of [...element.querySelectorAll("[data-parent]")]) {
+        const parent = node.parentElement?.querySelector(`:scope > [data-key="${CSS.escape(node.dataset.parent)}"]`);
+        if (!parent) continue;
+        let last = parent;
+        while (last.nextElementSibling?.dataset.parent === node.dataset.parent || last.nextElementSibling?.classList.contains("nested")) {
+          if (last.nextElementSibling === node) break;
+          last = last.nextElementSibling;
+        }
+        node.classList.add("nested");
+        last.after(node);
+      }
+      // Switches and what sits under them, a list each run of them.
+      for (const fields of element.querySelectorAll(".fields")) {
+        let list = null;
+        for (const node of [...fields.children]) {
+          const row = node.matches("label.toggle") || node.classList.contains("nested");
+          if (!row) { list = null; continue; }
+          if (!list) { list = el("div", { class: "toggle-list" }); node.before(list); }
+          list.append(node);
+        }
+      }
+    }
+
+    function buildObject(objectSchema, current, index, { split: splitting = true, entry = false } = {}) {
       const props = objectSchema.properties || {};
       const required = new Set(Array.isArray(objectSchema.required) ? objectSchema.required : []);
       const parts = new Map();
@@ -18151,7 +18233,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const split = splitting ? splitFields(entries) : entries.map((entry) => entry.element);
       const first = split.filter((node) => !node.classList?.contains("more-options"));
       element.append(el("div", { class: "fields" }, first), ...split.filter((node) => node.classList?.contains("more-options")));
-      return { element, parts, getValue: () => {
+      if (entry) arrangeEntry(objectSchema, element, parts);
+      return { element, parts, general: objectSchema["x-general"], getValue: () => {
         const out = {};
         for (const [key, value] of Object.entries(current)) if (!props[key]) out[key] = value;
         for (const [key, f] of parts) { const v = f.get(); if (v !== undefined) out[key] = v; }
@@ -38163,7 +38246,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .server .actions { display: flex; align-items: center; gap: var(--space-10); flex-wrap: wrap; }
 .server.editor { grid-column: 1 / -1; gap: var(--space-18); }
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: var(--space-4) var(--space-18); align-items: start; }
-.fields > fieldset, .fields > .group-box { grid-column: 1 / -1; }
+.fields > fieldset, .fields > .group-box, .fields > .wide { grid-column: 1 / -1; }
 .field { margin: var(--space-10) 0 var(--space-4); }
 .field-title { display: block; font-weight: var(--weight-medium); margin-bottom: var(--space-6); }
 .field > input, .field > select { margin-top: 0; }
@@ -43580,6 +43663,30 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .entry-body[data-page] .object-box.entry-page { border: 0; border-radius: 0; background: none; box-shadow: none; margin: 0; padding: 0; }
 .entry-body[data-page] .object-box.entry-page > summary { display: none; }
 .entry-body[data-page] .object-box.entry-page > .help { margin: 0 0 var(--space-12); }
+/* Switches, and what sits under them (x-parent), as one list: a row each, its words first and its switch at the end, as
+   Settings on an iPhone; a setting under a switch is indented under it. */
+.toggle-list {
+  grid-column: 1 / -1; margin: var(--space-10) 0 var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--material-thin); overflow: hidden;
+}
+.toggle-list:not(:has(> :not(.hidden))) { display: none; }
+.toggle-list > :not(.hidden) ~ :not(.hidden) { border-top: 1px solid var(--line); }
+.toggle-list > .toggle { flex-direction: row-reverse; justify-content: space-between; align-items: center; margin: 0; padding: var(--space-10) var(--space-14); }
+.toggle-list > .toggle > .switch { flex: none; }
+.toggle-list > .toggle .field-title { margin: 0; }
+.toggle-list > .toggle .help { margin-top: 2px; }
+.toggle-list > .field {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: var(--space-12);
+  margin: 0; padding: var(--space-8) var(--space-14);
+}
+.toggle-list > .field > .field-title { margin: 0; }
+.toggle-list > .field > .help { grid-column: 1 / -1; margin-top: 2px; }
+.toggle-list > .field > input, .toggle-list > .field > select, .toggle-list > .field > .unit-input { width: 132px; }
+.toggle-list > .nested { padding-left: calc(var(--space-14) + var(--space-24)); background: var(--material-thin); }
+/* A number and its unit, the unit inside the field's end. */
+.unit-input { position: relative; display: block; }
+.unit-input > input { width: 100%; padding-right: 2.2em; }
+.unit-input > .unit { position: absolute; right: var(--space-12); top: 50%; translate: 0 -50%; color: var(--muted); pointer-events: none; font-size: var(--text-sm); }
 .entry-tabs { flex: none; scrollbar-width: none; }
 .entry-tabs::-webkit-scrollbar { display: none; }
 .entry-tabs button { flex: 0 0 auto; }

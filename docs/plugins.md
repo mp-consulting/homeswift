@@ -605,6 +605,16 @@ Plugin Settings under `schema`, as Homebridge's, and its Plugin Accessory Settin
   notification) as a tab of its own, marked when it holds a value; `x-icon` on the object names its tab's icon (common.js's
   `icons`). A field whose `condition` reads the entry (`model.<list>[arrayIndices].type`) shows only for the entries it
   fits, and a tab whose object it hides goes, so an entry lists what applies to its kind.
+  The panel's layout can follow what a person looks for rather than the shape of config.json, which stays as it is:
+  `x-general` on `items` (`{ "title": "Camera", "icon": "camera" }`) names the first tab; `x-section` on a property
+  (an object included) moves it to another tab: `general` to the first, an object key of the entry to that object's
+  tab, or a name of the entry's `x-sections` (`{ "details": { "title", "icon", "description" } }`) to a tab of its own,
+  which stands where its first setting was; a setting inside an object may move up (IP Cameras' stream, from
+  `videoConfig` to the Camera tab). `x-parent` puts a setting, indented, under the switch it depends on (a motion
+  sensor's timeout, with a `condition` on the same switch). Switches in a row, and what sits under them, make one list,
+  a row each with its switch at the end. `x-schema-form.unit` writes a number's unit at the end of its field (`"s"`);
+  `x-schema-form.wide` gives a long value (a stream's address) a whole row; a `placeholder` says what an empty
+  field uses, so its description need not.
   An array whose `items` are choices (an `enum`, or a `oneOf` of them) is a set of checkboxes, written in
   the choices' order; `uniqueItems: false` keeps a menu per entry instead, for a list that may hold a choice twice.
 - `x-default` (optional): the Plugin Setting that is the field's plugin-wide default; an accessory's own value overrules

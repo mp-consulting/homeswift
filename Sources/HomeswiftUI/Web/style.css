@@ -1446,7 +1446,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .server .actions { display: flex; align-items: center; gap: var(--space-10); flex-wrap: wrap; }
 .server.editor { grid-column: 1 / -1; gap: var(--space-18); }
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: var(--space-4) var(--space-18); align-items: start; }
-.fields > fieldset, .fields > .group-box { grid-column: 1 / -1; }
+.fields > fieldset, .fields > .group-box, .fields > .wide { grid-column: 1 / -1; }
 .field { margin: var(--space-10) 0 var(--space-4); }
 .field-title { display: block; font-weight: var(--weight-medium); margin-bottom: var(--space-6); }
 .field > input, .field > select { margin-top: 0; }
@@ -6863,6 +6863,30 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .entry-body[data-page] .object-box.entry-page { border: 0; border-radius: 0; background: none; box-shadow: none; margin: 0; padding: 0; }
 .entry-body[data-page] .object-box.entry-page > summary { display: none; }
 .entry-body[data-page] .object-box.entry-page > .help { margin: 0 0 var(--space-12); }
+/* Switches, and what sits under them (x-parent), as one list: a row each, its words first and its switch at the end, as
+   Settings on an iPhone; a setting under a switch is indented under it. */
+.toggle-list {
+  grid-column: 1 / -1; margin: var(--space-10) 0 var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--material-thin); overflow: hidden;
+}
+.toggle-list:not(:has(> :not(.hidden))) { display: none; }
+.toggle-list > :not(.hidden) ~ :not(.hidden) { border-top: 1px solid var(--line); }
+.toggle-list > .toggle { flex-direction: row-reverse; justify-content: space-between; align-items: center; margin: 0; padding: var(--space-10) var(--space-14); }
+.toggle-list > .toggle > .switch { flex: none; }
+.toggle-list > .toggle .field-title { margin: 0; }
+.toggle-list > .toggle .help { margin-top: 2px; }
+.toggle-list > .field {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: var(--space-12);
+  margin: 0; padding: var(--space-8) var(--space-14);
+}
+.toggle-list > .field > .field-title { margin: 0; }
+.toggle-list > .field > .help { grid-column: 1 / -1; margin-top: 2px; }
+.toggle-list > .field > input, .toggle-list > .field > select, .toggle-list > .field > .unit-input { width: 132px; }
+.toggle-list > .nested { padding-left: calc(var(--space-14) + var(--space-24)); background: var(--material-thin); }
+/* A number and its unit, the unit inside the field's end. */
+.unit-input { position: relative; display: block; }
+.unit-input > input { width: 100%; padding-right: 2.2em; }
+.unit-input > .unit { position: absolute; right: var(--space-12); top: 50%; translate: 0 -50%; color: var(--muted); pointer-events: none; font-size: var(--text-sm); }
 .entry-tabs { flex: none; scrollbar-width: none; }
 .entry-tabs::-webkit-scrollbar { display: none; }
 .entry-tabs button { flex: 0 0 auto; }

@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **A list entry's settings read as a settings app's**: in a plugin's list (cameras, lights, devices), switches sit in a
+  list, a row each with the switch at the end, and the settings that depend on one sit indented under it, shown only
+  while it is on; a number writes its unit at the end of its field; a long value takes a whole row. Schemas place
+  settings in tabs with `x-section`, `x-sections` and `x-general`, and under their switch with `x-parent`
+  (docs/plugins.md). IP Cameras uses them: Camera (name, stream, audio, HomeKit Secure Video, speaker), Motion and
+  doorbell (with its MQTT topics only while one is on), Video, and Details (manufacturer, model, serial, firmware, their
+  defaults in the empty fields).
+
 ### Fixed
 
 - **The Accessories page's Filters menu filters in place**: choosing a bridge, a device type, a Zone, Online, No
