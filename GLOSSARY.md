@@ -114,8 +114,9 @@ The audio HomeKit sends back to a camera while someone talks in the Home app, fo
 _Avoid_: Talkback, backchannel (a camera's own way in for it)
 
 **Talk**:
-One continuous period of Return Audio on a live stream, from its first packet to a silence; a plugin sends each to
-its camera's speaker.
+One continuous period of someone speaking through a camera's speaker: Return Audio from the Home app, from its first
+packet to a silence, or the web UI's microphone, from the person starting it to stopping it. One person talks on a
+camera at a time from the web UI, and the camera's sound is muted for them meanwhile.
 _Avoid_: Intercom session, talk session
 
 **Helper**:

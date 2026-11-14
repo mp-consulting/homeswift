@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 
 // PTZ for MCP clients and the Assistant (addendum B): HomeKit has no PTZ service, so the moves, zoom, presets, patrols and
@@ -194,6 +195,25 @@ extension ReolinkPlugin {
             }
         }
         return list
+    }
+
+    /// The PCM a camera with a speaker takes from the web UI's microphone: its Talks' (`ReolinkTalker.format`).
+    public func talkFormat(accessoryID: String) async -> ReturnAudioFormat? {
+        talker(accessoryID)?.format
+    }
+
+    /// Plays the web UI's microphone on a camera's speaker, after any Talk from HomeKit, as HomeKit's are.
+    public func talk(accessoryID: String, _ talk: Talk) async throws {
+        guard let talker = talker(accessoryID) else { throw CameraControlError("no camera with a speaker with that id") }
+        await talker.handle(talk)
+    }
+
+    /// The talker of a camera, on a host or on its own (a battery camera).
+    private func talker(_ accessoryID: String) -> ReolinkTalker? {
+        for runtime in runtimes.values {
+            if let camera = runtime.cameras.values.first(where: { $0.accessory.id == accessoryID }) { return camera.talker }
+        }
+        return batteryRuntimes.values.first { $0.camera.accessory.id == accessoryID }?.camera.talker
     }
 
     /// A published camera with PTZ, by accessory id or Device Id.

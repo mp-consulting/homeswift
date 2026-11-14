@@ -1,6 +1,7 @@
 import Foundation
 import Homeswift
 import HomeswiftFFmpeg
+import HomeswiftPlugin
 
 // The web UI's live view of a camera (docs/plugins.md, "Live video in the web UI"): FFmpeg copies the source's video into
 // fragmented MP4 while a card is on screen, and stops when it leaves. The source's own codec is sent, so a camera whose
@@ -10,8 +11,24 @@ extension IPCamerasPlugin {
     static let liveFeedTimeout: Duration = .seconds(15)
 
     public func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? {
-        guard let runtime = cameras.values.first(where: { $0.accessory.id == accessoryID }), runtime.controller.isHomeKitCameraActive else { return nil }
+        guard let runtime = runtime(accessoryID), runtime.controller.isHomeKitCameraActive else { return nil }
         return try await runtime.streamer.liveFeed(timeout: Self.liveFeedTimeout)
+    }
+
+    /// A camera with a `returnAudioTarget` takes the web UI's microphone, at 16 kHz.
+    public func talkFormat(accessoryID: String) async -> ReturnAudioFormat? {
+        guard let runtime = runtime(accessoryID), runtime.streamer.video.returnAudioTarget != nil else { return nil }
+        return ReturnAudioFormat(sampleRate: 16000)
+    }
+
+    public func talk(accessoryID: String, _ talk: Talk) async throws {
+        guard let runtime = runtime(accessoryID) else { throw CameraControlError("no camera with that id") }
+        guard runtime.streamer.video.returnAudioTarget != nil else { throw CameraControlError("this camera has no returnAudioTarget") }
+        try await runtime.streamer.talk(talk)
+    }
+
+    private func runtime(_ accessoryID: String) -> CameraRuntime? {
+        cameras.values.first { $0.accessory.id == accessoryID }
     }
 }
 
@@ -35,6 +52,29 @@ extension CameraStreamer {
             process.stop()
             Task { await self?.forgetLiveView(id) }
         }
+    }
+
+    /// How long FFmpeg has to send what it holds once a Talk from the web UI ended.
+    static let talkDrainTimeout: Duration = .seconds(3)
+
+    /// The web UI's microphone to `returnAudioTarget`: each frame into FFmpeg as it comes, until the Talk ends and FFmpeg
+    /// has sent the rest.
+    func talk(_ talk: Talk) async throws {
+        let process = FfmpegProcess(tools.returnOptions, commandLineArgs: FFmpegArguments.webTalk(video, sampleRate: talk.format.sampleRate))
+        let (exited, exit) = AsyncStream.makeStream(of: Never.self)
+        process.start()
+        guard process.onceExit({ [log] status in
+            log.debug("Two-way audio from the web UI ended (\(status)).")
+            exit.finish()
+        }) else { throw CameraControlError("FFmpeg did not start") }
+        log.info("Two-way audio from the web UI started.")
+        for await frame in talk.frames {
+            guard process.isStdinWritable else { break }
+            do { try await process.writeStdin(frame.s16le) } catch { break }
+        }
+        process.finish()
+        _ = try? await withTimeout(Self.talkDrainTimeout) { for await _ in exited {} }
+        process.stop()
     }
 
     func forgetLiveView(_ id: ObjectIdentifier) {

@@ -6,6 +6,39 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Talk through a camera from its card**: a camera with a speaker (UniFi Protect cameras and doorbells with two-way
+  audio, Reolink, IMOU, an IP camera with a `returnAudioTarget`) has a microphone button on its view in the web UI.
+  Press it to speak through the camera, again to stop; it turns red while the microphone is on, and the camera's own
+  sound is muted meanwhile so it does not echo. The audio goes over a WebSocket, or over short requests behind a
+  proxy that does not pass WebSockets. It needs the web UI over HTTPS, as browsers give the microphone to secure pages
+  only. Plugins take it through `talkFormat(accessoryID:)` and `talk(accessoryID:_:)`, the same `Talk` as HomeKit's
+  return audio.
+
+### Changed
+
+- **The Users page lists people in rows**: each with their initials, name, role and the day they were added, a
+  Two-factor pill (amber, "No two-factor", when it is off; only its icon on a phone) and the ⋯ menu, in place of a
+  card each.
+
+### Fixed
+
+- **The restart and update confirmation's buttons stay on one line**: "Update and restart" wrapped onto two lines in a
+  half-width button; each button now takes its own width, and the two stack, the main one on top, when a translation
+  leaves no room for both.
+
+- **Removing a group Apple Home already deleted is no longer "refused"**: when a plugin moves to a child bridge, Apple
+  Home deletes its groups, and the bridge's own removal of them, sent once the Home Link was back, showed as
+  "Apple Home refused: no group …". It now counts as done, and such a refusal already shown goes away.
+
+- **The Logbook's time ranges no longer wrap on a wide window**: in the filter column, "24 hours" and "Everything kept"
+  broke onto two lines two a row; the four ranges now take a row each, as the levels do.
+
+- **A talk's end is no longer logged as an FFmpeg failure**: each IMOU talk from the Home app ended with "FFmpeg process
+  ended unexpectedly with an exit code of 0" and all of FFmpeg's output as errors, though the audio played; FFmpeg
+  finishing once the talk's audio ends is now a normal end.
+
 ## [0.31.1] - 2026-11-13
 
 ### Changed

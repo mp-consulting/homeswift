@@ -232,6 +232,8 @@ extension UIServer {
     func audit(_ route: [String], _ request: Request, caller: Caller, reply: Reply) {
         // The Assistant's requests and each user's own preferences change nothing of the bridge.
         guard let auditLog, route.first != "assistant", route.first != "preferences" else { return }
+        // A Talk's audio, ten requests a second: its start is audited.
+        if route.count == 4, route[0] == "cameras", route[2] == "talk" { return }
         var status = 200
         var error: String?
         if case .data(let code, _, let body, _) = reply {

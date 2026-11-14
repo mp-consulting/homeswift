@@ -34,6 +34,8 @@ protocol ProtectFfmpegProcess: AnyObject, Sendable {
     func stop()
     func writeStdin(_ data: Data) async throws
     func endStdin(_ data: Data?)
+    /// Closes its input for it to end once it has written what it holds; a clean exit then is normal.
+    func finish()
     var isStdinWritable: Bool { get }
     @discardableResult
     func onStdout(_ handler: @escaping @Sendable (Data) -> Void) -> FfmpegProcess.StdoutListener?

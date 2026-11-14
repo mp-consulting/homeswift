@@ -112,6 +112,16 @@ public protocol HomeswiftPlugin: Sendable {
     /// cannot carry out. Defaults to throwing.
     func controlCamera(accessoryID: String, _ command: CameraCommand) async throws
 
+    /// The PCM one of the plugin's cameras plays on its speaker from the web UI's microphone button (`talk`); nil for a
+    /// camera without a speaker, or whose two-way audio is off. Asked when a card starts its live view: answer from what
+    /// the plugin knows. Defaults to nil: the card has no microphone button.
+    func talkFormat(accessoryID: String) async -> ReturnAudioFormat?
+
+    /// Plays the web UI's microphone on one of the plugin's cameras: `talk.frames`, in the format `talkFormat` gave, as
+    /// they come, until they finish; return then, as a `ReturnAudioHandler` does with HomeKit's. Throw when the camera
+    /// cannot take it (offline, its speaker gone). Defaults to throwing.
+    func talk(accessoryID: String, _ talk: Talk) async throws
+
     /// The scenes the plugin's hub keeps, for Homeswift to list with its own (`PluginScene`). Asked each time they
     /// are listed, so answer from what the plugin already knows rather than asking the hub. Defaults to none.
     func scenes() async -> [PluginScene]
@@ -254,6 +264,8 @@ extension HomeswiftPlugin {
     public func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? { nil }
     public func cameraControls(accessoryID: String) async -> CameraControls? { nil }
     public func controlCamera(accessoryID: String, _ command: CameraCommand) async throws { throw CameraControlError("\(Self.name) does not move its cameras") }
+    public func talkFormat(accessoryID: String) async -> ReturnAudioFormat? { nil }
+    public func talk(accessoryID: String, _ talk: Talk) async throws { throw CameraControlError("\(Self.name) does not play speech on its cameras") }
     public static var accountAuthorization: AuthorizationMethod { .none }
     public static var accountRequirement: AccountRequirement { .required }
     public static var newDevices: NewDevices? { nil }

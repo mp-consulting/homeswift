@@ -277,6 +277,13 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   for what the camera cannot do, in words the person can act on. `cameraControls` is asked when a live view starts:
   answer from what the plugin knows. `Plugins/Reolink/Sources/ReolinkActions.swift` and `Plugins/Tapo/Sources/TapoPTZ.swift`
   (a battery camera, moved only while a live view keeps it awake) implement it.
+- **Talking from the web UI.** A camera with a speaker gets a microphone button on its view when the plugin answers
+  `talkFormat(accessoryID:)` with the `ReturnAudioFormat` it takes (8 or 16 kHz mono PCM) and plays
+  `talk(accessoryID:_:)`'s `Talk`: the same `Talk` of `PCMFrame`s HomeKit's return audio hands a `ReturnAudioHandler`, so
+  a plugin that has one passes it on (`Plugins/Reolink/Sources/ReolinkActions.swift`, `Plugins/Imou`). Read the frames as
+  they come and return once they finish; one Talk runs per camera, and the bridge ends it when the browser falls silent.
+  A plugin that sends its camera FFmpeg's output from HomeKit's SRTP feeds FFmpeg `-f s16le` on standard input instead
+  (`PCMFrame.s16le`): `Plugins/UniFiProtect/Sources/ProtectTalkback.swift`, `Plugins/IPCameras/Sources/CameraLiveView.swift`.
 - **Adaptive Lighting.** Every Lightbulb with Brightness and Color Temperature gets one (the bridge's debug log names
   a light without it): `context.adaptiveLighting(for: lightbulb, accessoryID:, customTemperatureAdjustment:)` before the
   accessory goes on the bridge makes an automatic `AdaptiveLightingController` whose schedule survives restarts. The

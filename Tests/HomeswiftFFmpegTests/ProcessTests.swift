@@ -130,6 +130,24 @@ import Darwin
             == "from 'rtsps://cam-proxy.example.invalid:443/<redacted>?uuid=***&ts=***'")
     }
 
+    @Test func endsNormallyOnceItsInputIsFinished() async throws {
+        let (logs, options) = shellOptions()
+        // FFmpeg reading a Talk's audio: it ends once its input closes, as asked, which is not a failure.
+        let process = FfmpegProcess(options, commandLineArgs: ["-c", "cat > /dev/null; echo done >&2"])
+        process.start()
+        try await process.writeStdin(Data([1, 2, 3]))
+        let status = await waitForExit(process) { process.finish() }
+        #expect(status?.exitCode == 0)
+        #expect(!process.hasError)
+        #expect(logs.messages(.error).isEmpty)
+
+        // Its input closed without finish(): an exit nobody asked for is still reported.
+        let unexpected = FfmpegProcess(options, commandLineArgs: ["-c", "cat > /dev/null"])
+        unexpected.start()
+        _ = await waitForExit(unexpected) { unexpected.endStdin() }
+        #expect(unexpected.hasError)
+    }
+
     @Test func logsTheCommandLineWithoutPasswords() async {
         let (logs, options) = shellOptions()
         let process = FfmpegProcess(options, commandLineArgs: ["-c", "exit 0", "http://user:hunter2@camera/audio.cgi"])

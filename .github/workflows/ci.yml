@@ -101,7 +101,7 @@ jobs:
 
       - name: Test
         # A bounded pool of test bundles (Scripts/test.sh); a watchdog prints the test processes' stacks and fails when the
-        # tests stall, rather than waiting for the job.
+        # tests stall, rather than waiting for the job; a few failed tests run again alone, and pass as flaky.
         timeout-minutes: 25
         run: Scripts/ci-test.sh
 

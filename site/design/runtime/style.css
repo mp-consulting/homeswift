@@ -2814,6 +2814,14 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 @media (hover: hover) and (pointer: fine) { .camera-button:hover { background: rgba(30, 32, 40, 0.62); } }
 .camera-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .camera-button.active { background: rgba(255, 255, 255, 0.9); color: #10131a; }
+/* The microphone while it is on: red and breathing, so nobody forgets it; the controls stay in view meanwhile. */
+.camera-button.talking { background: #ff453a; border-color: transparent; color: #fff; animation: talk-pulse 1.6s ease-in-out infinite; }
+@keyframes talk-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 69, 58, 0.55); } 50% { box-shadow: 0 0 0 7px rgba(255, 69, 58, 0); } }
+/* Asked, not yet talking: the microphone dims in and out until the bridge has started the Talk, then turns red. */
+.camera-button.starting { cursor: progress; }
+.camera-button.starting svg { animation: talk-wait 1s ease-in-out infinite; }
+@keyframes talk-wait { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.camera-view:has(.camera-button.talking) > .camera-controls { opacity: 1; }
 /* Pan and tilt: a pad to press or drag like a joystick over the picture's lower right, under the thumb of the hand that
    holds a phone and beside the button that opens it, the presets on its left. */
 .ptz-panel {
@@ -2889,9 +2897,10 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 }
 @media (pointer: coarse) { .camera-button { width: 40px; height: 40px; min-height: 40px; } }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .camera-view { margin: -6px -8px 0; } }
-@media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh, .camera-button.talking, .camera-button.starting svg { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
 @media (prefers-reduced-transparency: reduce) {
   .camera-badge, .camera-button { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(20, 22, 28, 0.85); }
+  .camera-button.talking { background: #ff453a; }
 }
 
 /* Describe your setup: the Assistant's suggestion for a block, as a diff to review. */
@@ -3104,6 +3113,21 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 .rows > * + * { border-top: 1px solid var(--line); }
 .rows .row > .who { flex: 1; min-width: 0; }
 .rows .row > .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The Users page: a row per person, their initials on the tiles' colours (orange an administrator, blue anyone else),
+   held to AA under white letters; the role in words beside them. */
+.user-rows > .user-row { padding-block: var(--space-12); }
+.user-initials { width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: var(--text-sm); font-weight: var(--weight-semibold); letter-spacing: 0.02em;
+  background: linear-gradient(160deg, #2b78db, #1b58b8); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.user-initials.admin { background: linear-gradient(160deg, var(--accent-fill-top), var(--accent-fill)); }
+.user-row strong { display: flex; align-items: center; gap: var(--space-8); min-width: 0; }
+.pill.user-you, .pill.user-2fa { flex: none; }
+.pill.user-you::before, .pill.user-2fa::before { display: none; }
+.pill.user-you { padding: 0 var(--space-8); font-weight: var(--weight-medium); }
+.pill.user-2fa svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.pill.user-2fa.on { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.pill.user-2fa.off { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+/* A phone keeps the shield or the warning, the words in its label, and lets the username, role and date wrap. */
+@media (max-width: 640px) { .pill.user-2fa .label { display: none; } .pill.user-2fa { padding: var(--space-6); } .user-row .who > .muted { white-space: normal; } .user-added { white-space: nowrap; } }
 .row-detail { padding: 0 var(--space-16) var(--space-12); }
 .row-detail:empty { display: none; }
 .row-block > div:not(.row):not(:empty) { padding: 0 var(--space-16) var(--space-12); }
@@ -3549,9 +3573,11 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .log-level-row > .group { grid-row: 2; grid-column: 1 / -1; }
   .log-level-row > .group, .log-time > .group { display: flex; flex-direction: column; align-items: stretch; width: 100%; border-radius: var(--radius-lg); }
   .log-level-row > .group button, .log-time > .group button { display: flex; justify-content: space-between; text-align: start; border-radius: var(--radius-md); }
-  /* The time ranges two a row, so the column stays short enough to show every filter. */
+  /* The time ranges two a row, so the column stays short enough to show every filter. The Logbook's four, each with its
+     icon, one a row: two a row, "Everything kept" wraps, which is taller than the list. */
   .log-time > .group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .log-time > .group button { justify-content: flex-start; padding-inline: var(--space-10); }
+  .logbook-card .log-time > .group { grid-template-columns: minmax(0, 1fr); }
   .log-scope-row { grid-template-columns: minmax(0, 1fr); }
 }
 .log-card .log-action-bar { border-top: 1px solid var(--line); padding: var(--space-12) var(--space-20); gap: var(--space-14); }
@@ -4066,8 +4092,10 @@ fieldset > .help { margin-bottom: var(--space-10); }
 
 .restart-confirm-icon { display: grid; place-items: center; width: 60px; height: 60px; margin: 0 auto var(--space-18); border-radius: var(--radius-lg); background: var(--accent-soft, rgba(234,115,14,.12)); color: var(--accent); }
 .restart-confirm-icon svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.restart-confirm-actions { display: flex; gap: var(--space-12); margin-top: 26px; }
-.restart-confirm-actions button { flex: 1; min-height: 42px; }
+/* Each button on one line, at its own width, sharing what is left: two halves wrapped a longer label ("Update and
+   restart") onto two lines. When a translation leaves no room for both, they stack, the main action on top. */
+.restart-confirm-actions { display: flex; flex-wrap: wrap-reverse; gap: var(--space-12); margin-top: 26px; }
+.restart-confirm-actions button { flex: 1 1 auto; min-height: 42px; white-space: nowrap; justify-content: center; }
 
 .restart-overlay.restart-leaving { animation: restart-dialog-out var(--fast) var(--ease-out) forwards; }
 .restart-overlay.restart-leaving::backdrop { animation: restart-backdrop-out var(--fast) var(--ease-out) forwards; }

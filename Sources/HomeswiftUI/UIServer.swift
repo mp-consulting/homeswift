@@ -38,6 +38,9 @@ public final class UIServer: Sendable {
         var idleTimeout: TimeAmount = .seconds(60)
         /// How often an event stream sends a comment to stay open, and checks its caller still may read it.
         var keepalive: Duration = .seconds(20)
+        /// The silence from the browser that ends a Talk of the microphone button, and the longest Talk (tests shorten them).
+        var talkIdleTimeout: Duration = .seconds(3)
+        var talkMaximum: Duration = .seconds(600)
         public init() {}
     }
 
@@ -73,6 +76,8 @@ public final class UIServer: Sendable {
     let cameraViewers = CameraViewers()
     /// The snapshot each camera is taking, shared by the requests that come meanwhile.
     let cameraSnapshots = CameraSnapshots()
+    /// The microphone button's Talks, one per camera.
+    let cameraTalks: CameraTalks
     private let channel = NIOLockedValueBox<(any Channel)?>(nil)
     let live: LiveWebFiles?
     private let watcher = NIOLockedValueBox<Task<Void, Never>?>(nil)
@@ -94,6 +99,7 @@ public final class UIServer: Sendable {
         self.configuration = configuration
         self.catalog = catalog
         self.options = options
+        cameraTalks = CameraTalks(idleTimeout: options.talkIdleTimeout, maximum: options.talkMaximum)
         let users = UserStore(url: usersURL, iterations: options.hashIterations)
         self.users = users
         sessions = SessionStore(
@@ -144,8 +150,13 @@ public final class UIServer: Sendable {
                 channel.eventLoop.makeCompletedFuture {
                     try channel.pipeline.syncOperations.addHandler(IdleStateHandler(readTimeout: idleTimeout))
                     if let sslContext { try channel.pipeline.syncOperations.addHandler(NIOSSLServerHandler(context: sslContext)) }
-                    try channel.pipeline.syncOperations.configureHTTPServerPipeline(withErrorHandling: true)
-                    try channel.pipeline.syncOperations.addHandler(UIRequestHandler(server: self))
+                    // A Talk's WebSocket (CameraTalkSocket.swift) takes the connection over from the request handler.
+                    try channel.pipeline.syncOperations.configureHTTPServerPipeline(
+                        withServerUpgrade: (upgraders: [self.talkSocketUpgrader()], completionHandler: { context in
+                            context.pipeline.removeHandler(name: UIRequestHandler.name, promise: nil)
+                        }),
+                        withErrorHandling: true)
+                    try channel.pipeline.syncOperations.addHandler(UIRequestHandler(server: self), name: UIRequestHandler.name)
                 }
             }
         let bound = try await bootstrap.bind(host: configuration.host, port: configuration.port).get()
@@ -242,9 +253,7 @@ public final class UIServer: Sendable {
         if request.truncated {
             return .error(413, Self.acceptsArchive(request) ? "the upload is larger than \(InstanceBackups.maxArchiveSize / 1_048_576) MB" : "the request is too large")
         }
-        // On the MCP connector's shared host name (`publicURL`), its path stands for the UI's own routes.
-        let path = publicURL(for: request).flatMap { $0.route(request.path) } ?? request.path
-        let parts = path.split(separator: "/").map { String($0).removingPercentEncoding ?? String($0) }
+        let parts = pathParts(request)
         if parts == ["robots.txt"] { return .text("User-agent: *\nDisallow: /\n", contentType: "text/plain; charset=utf-8") }
         if let reply = await oauthEndpoint(parts, request) { return reply }
         // A notification's button (an ntfy http action, a Web Push action): its single-use token is its only credential,
@@ -262,13 +271,10 @@ public final class UIServer: Sendable {
         guard parts.first == "api" else { return page(for: parts, request) }
         let route = Array(parts.dropFirst())
         if route.first == "auth" { return await auth(route.dropFirst().first ?? "", request) }
-        guard let caller = self.caller(request, bearer: true) else { return .error(401, "sign in first") }
-        // A cookie rides along with any request the browser makes, so a mutation must come from the page itself;
-        // a bearer token is only sent by what holds it, which a page from another site cannot read.
-        if request.method != .GET, let refused = refuseCrossSite(request, checkOrigin: caller.token == nil) { return refused }
-        let needed = Self.requiredScope(request.method, route)
-        guard caller.scope >= needed else {
-            return .error(403, caller.token?.scope == .read ? "this API token can only read" : "only an administrator can do this")
+        let caller: Caller
+        switch authorize(request, route: route) {
+        case .allowed(let allowed): caller = allowed
+        case .refused(let refusal): return refusal
         }
         do {
             // What the request changes is its user's in the Logbook.
@@ -288,6 +294,33 @@ public final class UIServer: Sendable {
         } catch {
             return .error(400, "\(error)")
         }
+    }
+
+    /// The request's path in parts, decoded. On the MCP connector's shared host name (`publicURL`), its path stands for
+    /// the UI's own routes.
+    func pathParts(_ request: Request) -> [String] {
+        let path = publicURL(for: request).flatMap { $0.route(request.path) } ?? request.path
+        return path.split(separator: "/").map { String($0).removingPercentEncoding ?? String($0) }
+    }
+
+    /// Who makes an API request to `route`, or why it is refused: someone signed in (a bearer token too, unless `bearer`
+    /// is false), from the page itself for a mutation, with the scope the route needs. `method` judges the request as
+    /// one with that method would be (a Talk's WebSocket is a GET that does what a POST does).
+    func authorize(_ request: Request, route: [String], as method: HTTPMethod? = nil, bearer: Bool = true) -> Authorization {
+        let method = method ?? request.method
+        guard let caller = self.caller(request, bearer: bearer) else { return .refused(.error(401, "sign in first")) }
+        // A cookie rides along with any request the browser makes, so a mutation must come from the page itself;
+        // a bearer token is only sent by what holds it, which a page from another site cannot read.
+        if method != .GET, let refused = refuseCrossSite(request, checkOrigin: caller.token == nil) { return .refused(refused) }
+        guard caller.scope >= Self.requiredScope(method, route) else {
+            return .refused(.error(403, caller.token?.scope == .read ? "this API token can only read" : "only an administrator can do this"))
+        }
+        return .allowed(caller)
+    }
+
+    enum Authorization {
+        case allowed(Caller)
+        case refused(Reply)
     }
 
     // MARK: Pages
@@ -452,6 +485,30 @@ public final class UIServer: Sendable {
     /// The request's caller: by its session cookie, or, with `bearer`, by an `Authorization: Bearer` API token
     /// (which, when present, is the only thing looked at). With `auth: none`, everyone is the administrator.
     /// `refresh` false looks without counting it as activity: neither the session's expiry nor the token's last use.
+    /// A request head's headers, by lower-cased name.
+    static func headers(of head: HTTPRequestHead) -> [String: String] {
+        var headers: [String: String] = [:]
+        for (name, value) in head.headers { headers[name.lowercased()] = value }
+        return headers
+    }
+
+    /// The request a head and its body make, from `remote`: its query form-decoded, as URLSearchParams writes them (the
+    /// pages', an OAuth client's: `+` is a space), and behind a trusted reverse proxy, the client it names and the scheme
+    /// it was reached with.
+    func request(_ head: HTTPRequestHead, headers: [String: String], body: Data, remote: String) -> Request {
+        let components = URLComponents(string: head.uri)
+        let query = Dictionary((components?.percentEncodedQueryItems ?? []).map { (URLEncoding.decode($0.name), URLEncoding.decode($0.value ?? "")) },
+                               uniquingKeysWith: { _, last in last })
+        var request = Request(method: head.method, path: components?.percentEncodedPath ?? String(head.uri.prefix { $0 != "?" }), query: query,
+                              headers: headers, body: body, remote: remote)
+        let proxies = configuration.trustProxy
+        if !proxies.isEmpty {
+            request.secure = proxies.forwardedHTTPS(remote: request.remote, proto: headers["x-forwarded-proto"])
+            request.remote = proxies.client(remote: request.remote, forwardedFor: headers["x-forwarded-for"])
+        }
+        return request
+    }
+
     func caller(_ request: Request, bearer: Bool, refresh: Bool = true) -> Caller? {
         if configuration.auth == .none { return Caller(username: "local", scope: .admin) }
         if bearer, let header = request.headers["authorization"] {
@@ -473,6 +530,8 @@ public final class UIServer: Sendable {
             if [["status"], ["presence"], ["accessories"], ["plugins"], ["metrics"], ["metrics", "energy"], ["metrics", "energy", "history"], ["metrics", "energy", "story"], ["metrics", "consumption"], ["events"], ["assistant"], ["logbook"]].contains(route) { return .read }
             // A camera's pan and tilt: asking may sign in to the camera, so it is for those who may move it.
             if route.count == 3, route[0] == "cameras", route[2] == "controls" { return .control }
+            // A Talk's WebSocket (CameraTalkSocket.swift), as its POST.
+            if route.count == 3, route[0] == "cameras", route[2] == "talk" { return .control }
             if route.count == 3, route[0] == "cameras" { return .read }
             if route.count == 3, route[0] == "accessories", route[2] == "history" { return .read }
             if route.count == 3, route[0] == "scenes", route[2] == "picture" { return .read }
@@ -494,6 +553,8 @@ public final class UIServer: Sendable {
             if route.count == 3, route[0] == "accessories", route[2] == "identify" { return .control }
             // Turning a camera from its live view is controlling it.
             if route.count == 3, route[0] == "cameras", route[2] == "control" { return .control }
+            // Talking through a camera's speaker, and the audio of the Talk.
+            if route.count >= 3, route.count <= 4, route[0] == "cameras", route[2] == "talk" { return .control }
             if route.count >= 2, route[0] == "assistant", route[1] == "chat" { return .control }
             // Opening one's own earlier conversation; stopping one's own Assistant request.
             if route.count == 4, route[0] == "assistant", route[1] == "chats", route[3] == "open" { return .control }
@@ -1110,6 +1171,12 @@ public final class UIServer: Sendable {
             if route.count == 3, route[0] == "cameras", route[2] == "control" {
                 return await controlCamera(route[1], body, username: username)
             }
+            if route.count == 3, route[0] == "cameras", route[2] == "talk" {
+                return await startTalk(route[1], body, username: username)
+            }
+            if route.count == 4, route[0] == "cameras", route[2] == "talk" {
+                return talkAudio(route[1], route[3], body, username: username)
+            }
             if route.count == 3, route[0] == "accessories", route[2] == "identify" {
                 guard let found = catalog.find(id: route[1]) else { return .error(404, "no accessory \(route[1])") }
                 try await catalog.identify(found)
@@ -1713,8 +1780,10 @@ final class EventHub: Sendable {
 }
 
 /// Collects one HTTP request, hands it to the server, writes the reply.
-final class UIRequestHandler: ChannelInboundHandler {
+final class UIRequestHandler: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = HTTPServerRequestPart
+    /// Its name in the pipeline, for the WebSocket upgrade to take it out.
+    static let name = "ui-requests"
 
     /// What a signed-in caller may send; a backup to restore, an administrator's, is the one larger body: an
     /// archive, up to InstanceBackups.maxArchiveSize.
@@ -1743,8 +1812,7 @@ final class UIRequestHandler: ChannelInboundHandler {
         switch unwrapInboundIn(data) {
         case .head(let head):
             self.head = head
-            headers = [:]
-            for (name, value) in head.headers { headers[name.lowercased()] = value }
+            headers = UIServer.headers(of: head)
             body = Data()
             truncated = false
             // Who sends it, looked up without counting as activity: the route checks again with the whole request.
@@ -1761,19 +1829,7 @@ final class UIRequestHandler: ChannelInboundHandler {
             if !truncated, let bytes = buffer.readBytes(length: buffer.readableBytes) { body.append(contentsOf: bytes) }
         case .end:
             guard let head else { return }
-            let components = URLComponents(string: head.uri)
-            // Form-decoded, as URLSearchParams writes them (the pages', an OAuth client's): `+` is a space.
-            let query = Dictionary((components?.percentEncodedQueryItems ?? []).map { (URLEncoding.decode($0.name), URLEncoding.decode($0.value ?? "")) },
-                                   uniquingKeysWith: { _, last in last })
-            var request = UIServer.Request(
-                method: head.method, path: components?.percentEncodedPath ?? String(head.uri.prefix { $0 != "?" }), query: query, headers: headers, body: body,
-                remote: context.remoteAddress?.ipAddress ?? "?")
-            // Behind a trusted reverse proxy, the client it names and the scheme it was reached with.
-            let proxies = server.configuration.trustProxy
-            if !proxies.isEmpty {
-                request.secure = proxies.forwardedHTTPS(remote: request.remote, proto: headers["x-forwarded-proto"])
-                request.remote = proxies.client(remote: request.remote, forwardedFor: headers["x-forwarded-for"])
-            }
+            var request = server.request(head, headers: headers, body: body, remote: context.remoteAddress?.ipAddress ?? "?")
             request.truncated = truncated
             self.head = nil
             body = Data()

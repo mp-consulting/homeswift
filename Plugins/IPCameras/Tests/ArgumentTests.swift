@@ -143,6 +143,9 @@ struct ArgumentTests {
             + "a=fmtp:110 profile-level-id=1;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3; config=F8F0212C00BC00\r\n"
             + "a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:\(audioKey.base64EncodedString())\r\n")
         #expect(FFmpegArguments.returnAudioSDP(address: "fe80::1", isIPv6: true, port: 1, srtp: audioKey).contains("c=IN IP6 fe80::1"))
+        // The web UI's microphone goes to the same target, its PCM on standard input.
+        #expect(FFmpegArguments.webTalk(video, sampleRate: 16000) == FFmpegArguments.split(
+            "-hide_banner -f s16le -ar 16000 -ac 1 -i pipe: -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://camera:5000 -loglevel level"))
     }
 
     @Test func recordingCommand() throws {

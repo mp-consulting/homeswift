@@ -161,6 +161,11 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
     /// The session whose start turned the package camera's flashlight on.
     private var flashlightSession: String?
 
+    /// Plays the web UI's microphone on the camera's speaker (`ProtectTalkback.play`).
+    func talk(_ talk: Talk) async throws {
+        try await talkback.play(talk)
+    }
+
     init(camera: ProtectCamera, resolutions: [VideoResolution], ffmpeg: any ProtectFfmpegKit) {
         self.camera = camera
         self.ffmpeg = ffmpeg
