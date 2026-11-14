@@ -12,6 +12,10 @@ All notable changes to this project are documented here. The format follows
   Response or Show hidden redraws the wall without loading the page again, keeps the menu open with its ticks and
   counts following, and brings a long wall back to its top. Before, the page reloaded, the menu closed and a wall
   scrolled down showed only the end of what was left.
+- **Talking from the Home app reaches the camera again**: with FFmpeg 8, the return audio of UniFi Protect cameras,
+  IP cameras with a `returnAudioTarget` and the other plugins on the shared return audio never started, FFmpeg failing
+  to bind the iPhone's address (`bind failed: Address not available`) that the SDP gave as its connection address. It
+  now gives the loopback, where the demuxer forwards HomeKit's packets.
 - **The Camera filter keeps doorbells**: a doorbell's camera is a Camera too, on the wall and on the Graph.
 - **A search or a filter closes up the wall**: on a wall whose widgets were dragged to cells of their own, those left
   by a search or a filter are packed together in the order their cells read, rather than keeping the gaps of the ones

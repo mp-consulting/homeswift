@@ -215,7 +215,7 @@ actor CameraStreamer: CameraStreamingDelegate {
                 let demuxer = await RtpDemuxer(ipFamily: family, inputPort: entry.audioReturnPort, rtcpPort: rtpPort + 1, rtpPort: rtpPort,
                                                log: tools.returnOptions.log)
                 session.demuxer = demuxer
-                let sdp = FFmpegArguments.returnAudioSDP(address: entry.target.address, isIPv6: entry.target.isIPv6, port: rtpPort, srtp: entry.target.audioSRTP)
+                let sdp = FFmpegArguments.returnAudioSDP(isIPv6: entry.target.isIPv6, port: rtpPort, srtp: entry.target.audioSRTP)
                 session.tasks.append(twoWayAudio(demuxer: demuxer, sdp: sdp, sessionID: sessionID, token: token))
             } else {
                 log.error("No free UDP port for two-way audio.")
