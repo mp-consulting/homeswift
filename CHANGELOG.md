@@ -32,6 +32,13 @@ All notable changes to this project are documented here. The format follows
   Home deletes its groups, and the bridge's own removal of them, sent once the Home Link was back, showed as
   "Apple Home refused: no group …". It now counts as done, and such a refusal already shown goes away.
 
+- **The Logbook's time ranges no longer wrap on a wide window**: in the filter column, "24 hours" and "Everything kept"
+  broke onto two lines two a row; the four ranges now take a row each, as the levels do.
+
+- **A talk's end is no longer logged as an FFmpeg failure**: each IMOU talk from the Home app ended with "FFmpeg process
+  ended unexpectedly with an exit code of 0" and all of FFmpeg's output as errors, though the audio played; FFmpeg
+  finishing once the talk's audio ends is now a normal end.
+
 ## [0.31.1] - 2026-11-13
 
 ### Changed
