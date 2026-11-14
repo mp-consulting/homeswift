@@ -204,7 +204,7 @@ public final class AACTalkEncoder: Sendable {
     }
 
     /// Closes FFmpeg's input: it writes what it has and ends.
-    public func finish() { process.endStdin() }
+    public func finish() { process.finish() }
 
     public func stop() { process.stop() }
 }

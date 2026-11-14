@@ -154,7 +154,7 @@ final class ProtectTalkback {
             guard ffmpeg.isStdinWritable else { break }
             do { try await ffmpeg.writeStdin(frame.s16le) } catch { break }
         }
-        ffmpeg.endStdin(nil)
+        ffmpeg.finish()
     }
 
     /// The controller's talkback channel: audio frames go out in order through one sender, which closes the socket once

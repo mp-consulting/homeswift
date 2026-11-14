@@ -72,7 +72,7 @@ extension CameraStreamer {
             guard process.isStdinWritable else { break }
             do { try await process.writeStdin(frame.s16le) } catch { break }
         }
-        process.endStdin()
+        process.finish()
         _ = try? await withTimeout(Self.talkDrainTimeout) { for await _ in exited {} }
         process.stop()
     }

@@ -80,6 +80,8 @@ final class FakeProcess: ProtectFfmpegStreamingProcess, ProtectFfmpegRecording, 
     }
 
     func writeStdin(_ data: Data) async throws { state.withLockedValue { $0.stdin.append(data) } }
+    func finish() { endStdin(nil) }
+
     func endStdin(_ data: Data?) {
         state.withLockedValue { state in
             if let data { state.stdin.append(data) }

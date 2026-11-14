@@ -120,6 +120,8 @@ public class FfmpegProcess: @unchecked Sendable {
         var killTimer: DispatchWorkItem?
         // TypeScript keeps the handle of its kill timer after clearing it, and tells a normal exit by it: set by stop(), reset by start().
         var stopRequested = false
+        /// `finish()` closed its input: FFmpeg ends once it has written what it holds.
+        var finishRequested = false
         var readiness = Readiness.pending
         var startWaiters: [Int: CheckedContinuation<Void, any Error>] = [:]
         var nextWaiter = 0
@@ -194,6 +196,7 @@ public class FfmpegProcess: @unchecked Sendable {
             // A kill timer armed for a previous process stays armed: it ends that process only, never the replacement.
             state.killTimer = nil
             state.stopRequested = false
+            state.finishRequested = false
             if case .failed = state.readiness { state.readiness = .pending }
             if case .started = state.readiness { state.readiness = .pending }
             return state.commandLineArgs
@@ -272,7 +275,8 @@ public class FfmpegProcess: @unchecked Sendable {
             state.isEnded = true
             // We keep stderrLog for post-mortem diagnostics.
             state.child = nil
-            if state.stopRequested && status.exitCode == 0 {
+            // Stopped, or its input closed for it to finish (`finish()`): a clean exit is the one asked for.
+            if (state.stopRequested || state.finishRequested) && status.exitCode == 0 {
                 return .normal
             }
             if (status.exitCode == nil || status.exitCode == 255) && child.killed {
@@ -437,6 +441,13 @@ public class FfmpegProcess: @unchecked Sendable {
     /// Writes `data`, if any, and closes FFmpeg's standard input (Node's `stdin.end(data)`).
     public func endStdin(_ data: Data? = nil) {
         currentChild?.end(data) { [log] error in log.error("FFmpeg error: \(error).") }
+    }
+
+    /// Closes FFmpeg's input for it to end once it has written what it holds (a Talk's audio, a file): its exit with code 0,
+    /// then, is normal, as after `stop()`, rather than an unexpected end.
+    public func finish() {
+        base.withLockedValue { $0.finishRequested = true }
+        endStdin()
     }
 
     /// Whether standard input accepts data (Node's `stdin.writable`).
