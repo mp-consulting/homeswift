@@ -24975,6 +24975,10 @@ HomeswiftI18n.add("es", {
   "A press, a double or a long press also runs Scenes and starts Automations.": "Una pulsación, una pulsación doble o una pulsación larga también ejecuta escenas e inicia automatizaciones.",
   "Appliances": "Aparatos",
   "Starts {automation}": "Inicia {automation}",
+  "In the Home app: {targets}": "En la app Casa: {targets}",
+  "In the Home app: {automation}": "En la app Casa: {automation}",
+  "Off in the Home app": "Desactivada en la app Casa",
+  "Change it in the Home app": "Se cambia en la app Casa",
   "Appliances only turn on and off: a hold or a wheel dims lights and moves shutters.": "Los aparatos solo se encienden y se apagan: mantener o una rueda regula las luces y mueve las persianas.",
   "A long press and a hold are the same press: these automations also start on each hold.": "Una pulsación larga y mantener son la misma pulsación: estas automatizaciones también se inician cada vez que se mantiene.",
   "A long press and a hold are the same press: while it holds to dim, it starts no automation.": "Una pulsación larga y mantener son la misma pulsación: mientras regula al mantener, no inicia ninguna automatización.",
@@ -28762,6 +28766,10 @@ HomeswiftI18n.add("fr", {
   "A press, a double or a long press also runs Scenes and starts Automations.": "Un appui, un double appui ou un appui long lance aussi des scènes et démarre des automatisations.",
   "Appliances": "Appareils",
   "Starts {automation}": "Lance {automation}",
+  "In the Home app: {targets}": "Dans l'app Maison : {targets}",
+  "In the Home app: {automation}": "Dans l'app Maison : {automation}",
+  "Off in the Home app": "Désactivée dans l'app Maison",
+  "Change it in the Home app": "À modifier dans l'app Maison",
   "Appliances only turn on and off: a hold or a wheel dims lights and moves shutters.": "Les appareils s'allument et s'éteignent seulement : un maintien ou une molette règle les lumières et déplace les volets.",
   "A long press and a hold are the same press: these automations also start on each hold.": "Un appui long et un maintien sont le même appui : ces automatisations se lancent aussi à chaque maintien.",
   "A long press and a hold are the same press: while it holds to dim, it starts no automation.": "Un appui long et un maintien sont le même appui : tant qu'il règle en maintien, il ne lance aucune automatisation.",
@@ -32549,6 +32557,10 @@ HomeswiftI18n.add("pt", {
   "A press, a double or a long press also runs Scenes and starts Automations.": "Uma pressão, uma pressão dupla ou uma pressão longa também executa cenas e inicia automações.",
   "Appliances": "Aparelhos",
   "Starts {automation}": "Inicia {automation}",
+  "In the Home app: {targets}": "Na app Casa: {targets}",
+  "In the Home app: {automation}": "Na app Casa: {automation}",
+  "Off in the Home app": "Desativada na app Casa",
+  "Change it in the Home app": "Altera-se na app Casa",
   "Appliances only turn on and off: a hold or a wheel dims lights and moves shutters.": "Os aparelhos só ligam e desligam: manter ou uma roda regula as luzes e move os estores.",
   "A long press and a hold are the same press: these automations also start on each hold.": "Uma pressão longa e manter são a mesma pressão: estas automações também se iniciam sempre que se mantém.",
   "A long press and a hold are the same press: while it holds to dim, it starts no automation.": "Uma pressão longa e manter são a mesma pressão: enquanto regula ao manter, não inicia nenhuma automação.",
@@ -34701,7 +34713,8 @@ HomeswiftI18n.add("pt", {
       groups);
   }
 
-  /// A Button or Wheel: its name, the Home app's numbers for it, what each gesture does, the Automations it starts.
+  /// A Button or Wheel: its name, the Home app's numbers for it, what each gesture does, the Automations it starts, and
+  /// what the Home app does on its presses (set there, run by Apple Home, shown here, changed there).
   function partRow(remote, part, admin) {
     const { lists } = shown;
     const controls = remote.controls.filter((control) => control.part === part.id);
@@ -34710,9 +34723,13 @@ HomeswiftI18n.add("pt", {
     const entries = [
       ...controls.map((control) => ({ gesture: control.gesture, text: describe(control, lists) })),
       ...part.automations.map((automation) => ({ gesture: automation.gesture, text: t("Starts {automation}", { automation: automation.name }) })),
+      ...(part.hubAutomations ?? []).map((automation) => ({ gesture: automation.gesture, hub: automation,
+        text: automation.does.length ? t("In the Home app: {targets}", { targets: automation.does.join(", ") }) : t("In the Home app: {automation}", { automation: automation.name }) })),
     ].sort((a, b) => order.indexOf(a.gesture) - order.indexOf(b.gesture));
-    const lines = entries.map((entry) => el("li", {},
-      el("span", { class: "remote-gesture", text: gestureNames[entry.gesture]() }), el("span", { text: entry.text })));
+    const lines = entries.map((entry) => el("li", entry.hub ? { class: `remote-hub${entry.hub.enabled ? "" : " off"}`,
+      title: [entry.hub.name, entry.hub.enabled ? null : t("Off in the Home app"), t("Change it in the Home app")].filter(Boolean).join(" · ") } : {},
+      el("span", { class: "remote-gesture", text: gestureNames[entry.gesture]() }),
+      el("span", {}, entry.hub ? el("img", { class: "remote-hub-icon", src: "/apple-home.png", width: 14, height: 14, alt: "" }) : null, entry.text)));
     const homeKit = part.homeKit.length ? t("Home app: {buttons}", { buttons: part.homeKit.map((number) => t("Button {number}", { number })).join(", ") }) : null;
     const body = el("span", { class: "body" },
       el("span", { class: "remote-part-name" }, el("strong", { text: partName(part, remote) }), homeKit ? el("span", { class: "muted", text: homeKit }) : null),
@@ -42741,6 +42758,9 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .remote-controls { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
 .remote-controls li { display: flex; gap: var(--space-8); min-width: 0; }
 .remote-controls li > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What the Home app does on a press: its icon first; one turned off there, faded. */
+.remote-hub-icon { vertical-align: -2px; margin-inline-end: var(--space-4); }
+.remote-controls li.remote-hub.off > span:last-child { color: var(--muted); text-decoration: line-through; }
 .remote-gesture { flex: none; min-width: 7.5em; color: var(--muted); }
 .remote-part > .muted, .remote-part .body > .muted { font-size: var(--text-sm); }
 .remote-part .chevron { flex: none; color: var(--muted); display: grid; transition: color 160ms ease; }

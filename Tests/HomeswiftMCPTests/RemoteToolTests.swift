@@ -42,6 +42,39 @@ struct RemoteToolTests {
         #expect(group("Devices:bulb2") == nil)
     }
 
+    /// What the Home app does on a Button's press (Apple Home's automations, through a hub plugin) shows on that Button by
+    /// its number there, with its gesture and what it changes; another remote's press, or another Button's, does not.
+    @Test func aButtonListsWhatTheHomeAppDoesOnItsPresses() async throws {
+        let environment = try await environment()
+        defer { Task { await environment.stop() } }
+        environment.hubAutomations.withLockedValue {
+            $0["hall-double"] = PluginAutomation(id: "hall-double", name: "Hall Remote Button 2 Double Press", enabled: true,
+                triggers: [.press(accessoryID: "Devices:remote", button: 2, press: 1)],
+                actions: [PluginAutomationAction(accessoryID: "Devices:lamp", characteristic: "On", value: true)])
+            $0["other-remote"] = PluginAutomation(id: "other-remote", name: "Elsewhere", enabled: false,
+                triggers: [.press(accessoryID: "Devices:elsewhere", button: 2, press: 0)])
+        }
+        let client = DirectClient(server: environment.server)
+        try await client.initialize()
+        let listed = try #require(try await client.tool("list_remotes", [:])["structuredContent"])
+        let parts = try #require(listed["remotes"]?.arrayValue?.first { $0["id"] == "Devices:remote" }?["parts"]?.arrayValue)
+        let top = try #require(parts.first { $0["id"] == "top" }), bottom = try #require(parts.first { $0["id"] == "bottom" })
+        #expect(top["hubAutomations"] == [])
+        let hub = try #require(bottom["hubAutomations"]?.arrayValue)
+        #expect(hub.count == 1)
+        #expect(hub.first?["gesture"] == "double")
+        #expect(hub.first?["name"] == "Hall Remote Button 2 Double Press")
+        #expect(hub.first?["enabled"] == true)
+        #expect(hub.first?["does"]?.arrayValue?.isEmpty == false)
+
+        // list_hub_automations says the trigger as a press of that Button.
+        let automations = try #require(try await client.tool("list_hub_automations", [:])["structuredContent"]?["automations"]?.arrayValue)
+        let trigger = automations.first { $0["name"] == "Hall Remote Button 2 Double Press" }?["triggers"]?[0]
+        #expect(trigger?["kind"] == "press")
+        #expect(trigger?["press"] == "double")
+        #expect(trigger?["button"] == 2)
+    }
+
     @Test func theAssistantSetsARemotesControls() async throws {
         let environment = try await environment()
         defer { Task { await environment.stop() } }

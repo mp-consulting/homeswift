@@ -115,7 +115,8 @@
       groups);
   }
 
-  /// A Button or Wheel: its name, the Home app's numbers for it, what each gesture does, the Automations it starts.
+  /// A Button or Wheel: its name, the Home app's numbers for it, what each gesture does, the Automations it starts, and
+  /// what the Home app does on its presses (set there, run by Apple Home, shown here, changed there).
   function partRow(remote, part, admin) {
     const { lists } = shown;
     const controls = remote.controls.filter((control) => control.part === part.id);
@@ -124,9 +125,13 @@
     const entries = [
       ...controls.map((control) => ({ gesture: control.gesture, text: describe(control, lists) })),
       ...part.automations.map((automation) => ({ gesture: automation.gesture, text: t("Starts {automation}", { automation: automation.name }) })),
+      ...(part.hubAutomations ?? []).map((automation) => ({ gesture: automation.gesture, hub: automation,
+        text: automation.does.length ? t("In the Home app: {targets}", { targets: automation.does.join(", ") }) : t("In the Home app: {automation}", { automation: automation.name }) })),
     ].sort((a, b) => order.indexOf(a.gesture) - order.indexOf(b.gesture));
-    const lines = entries.map((entry) => el("li", {},
-      el("span", { class: "remote-gesture", text: gestureNames[entry.gesture]() }), el("span", { text: entry.text })));
+    const lines = entries.map((entry) => el("li", entry.hub ? { class: `remote-hub${entry.hub.enabled ? "" : " off"}`,
+      title: [entry.hub.name, entry.hub.enabled ? null : t("Off in the Home app"), t("Change it in the Home app")].filter(Boolean).join(" · ") } : {},
+      el("span", { class: "remote-gesture", text: gestureNames[entry.gesture]() }),
+      el("span", {}, entry.hub ? el("img", { class: "remote-hub-icon", src: "/apple-home.png", width: 14, height: 14, alt: "" }) : null, entry.text)));
     const homeKit = part.homeKit.length ? t("Home app: {buttons}", { buttons: part.homeKit.map((number) => t("Button {number}", { number })).join(", ") }) : null;
     const body = el("span", { class: "body" },
       el("span", { class: "remote-part-name" }, el("strong", { text: partName(part, remote) }), homeKit ? el("span", { class: "muted", text: homeKit }) : null),

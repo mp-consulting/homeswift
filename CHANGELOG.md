@@ -16,6 +16,11 @@ All notable changes to this project are documented here. The format follows
   doorbell (with its MQTT topics only while one is on), Video, and Details (manufacturer, model, serial, firmware, their
   defaults in the empty fields).
 
+- **The Remotes page shows what the Home app does on a press**: each Button lists Apple Home's automations on its
+  presses (single, double, long), read through Wingman with what they change ("In the Home app: Portillon"), beside
+  Homeswift's Controls. Apple Home keeps them: they are changed in the Home app. `list_hub_automations` names such a
+  trigger as a press of a remote's Button, by Homeswift's id of the remote and the Button's number in the Home app.
+
 ### Fixed
 
 - **The Accessories page's Filters menu filters in place**: choosing a bridge, a device type, a Zone, Online, No

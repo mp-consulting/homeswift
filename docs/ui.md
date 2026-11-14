@@ -598,7 +598,11 @@ its picture and its switch. Every change an Automation makes is its own in the [
 plugin, in one list by room: a section per Remote with its Buttons and Wheels (by Channel where it has them), the Home
 app's numbers for each, what each gesture does, and the Automations a Button starts. A chip says when its presses reach
 Apple Home too (an automation there on the same button runs as well; Not in Home keeps the remote out of it), or come
-through Apple Home (a remote mirrored by Wingman, a moment later). **Press a button** of a remote while the page is open:
+through Apple Home (a remote mirrored by Wingman, a moment later). What the Home app does on a Button's presses shows
+there too, with its icon ("In the Home app: Portillon", the automation's name on hover): Apple Home's automations
+whose trigger is that Button's press, read through Wingman, which names the Button by its number in the Home app (its
+Service Label Index). Apple Home keeps and runs them; they are changed in the Home app, and one turned off there is
+struck through. **Press a button** of a remote while the page is open:
 its row lights up and its Controls open.
 
 A part's sheet has a card per gesture, each with **what it does** and **what to**: a searchable list of lights,
