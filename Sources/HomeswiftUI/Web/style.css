@@ -850,8 +850,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 @media (hover: hover) and (pointer: fine) { .group button:hover:not(:disabled):not(.on) { background: var(--material-thin); } }
 .group button.on { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
 /* A form's segmented field (forms.js, `x-schema-form.type: "segmented"`): the same pill, its choices radios, across
-   the field's width with an equal share each, as its text fields are. */
-.segmented-field { display: flex; width: 100%; }
+   the field's width with an equal share each, as its text fields are; a whole row (`wide`) no wider than two of its
+   columns, so the choices stay together. */
+.segmented-field { display: flex; width: 100%; max-width: 36rem; }
+.fields > .wide:has(> .segmented-field) > .help { max-width: 36rem; }
 .segmented-field .segment { flex: 1 1 0; min-width: max-content; position: relative; margin: 0; display: grid; place-items: center; padding: 5px 13px; border-radius: var(--radius-pill); cursor: pointer; white-space: nowrap; transition: background-color var(--fast) var(--ease-out); }
 .segmented-field .segment input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
 .segmented-field .segment:has(input:checked) { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
@@ -1456,6 +1458,9 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .server.editor { grid-column: 1 / -1; gap: var(--space-18); }
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: var(--space-4) var(--space-18); align-items: start; }
 .fields > fieldset, .fields > .group-box, .fields > .wide { grid-column: 1 / -1; }
+/* A section that is one object of its name (Voice transcription, Budget) shows the object's description, then its
+   fields across the whole section, not two narrow columns side by side. */
+.fields > .entry-body, .fields > .help { grid-column: 1 / -1; }
 .field { margin: var(--space-10) 0 var(--space-4); }
 .field-title { display: block; font-weight: var(--weight-medium); margin-bottom: var(--space-6); }
 .field > input, .field > select { margin-top: 0; }

@@ -97,7 +97,7 @@ public struct AIConfiguration: Sendable, Equatable {
                 "monthlyUsd": { "title": "USD per month", "type": "number", "minimum": 0, "description": "The same, for each month." }
               } },
               "transcription": { "title": "Voice transcription", "type": "object", "description": "How what you say to the chat's mic becomes text before the Assistant reads it.", "properties": {
-                "engine": { "title": "Engine", "type": "string", "default": "browser", "required": true, "x-schema-form": { "type": "segmented" }, "description": "Where what you say becomes text.", "oneOf": [
+                "engine": { "title": "Engine", "type": "string", "default": "browser", "required": true, "x-schema-form": { "type": "segmented", "wide": true }, "description": "Where what you say becomes text.", "oneOf": [
                   { "title": "Browser", "enum": ["browser"], "description": "The browser's own dictation: Safari sends your voice to Apple, Chrome to Google, and an iPhone needs Siri dictation on. Nothing to set up." },
                   { "title": "This Mac", "enum": ["apple"], "description": "Apple's speech recognition on this Mac: free and private, nothing leaves it, no key. Needs macOS 26; a language's model downloads once." },
                   { "title": "Server", "enum": ["server"], "description": "An OpenAI-compatible speech server, OpenAI's or a local Whisper server: the recording goes there and its words come back." }
