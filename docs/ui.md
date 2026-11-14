@@ -307,7 +307,8 @@ screenshots, and what a plugin does to get good ones.
   `{"preset": "<id>"}` or `{"home": true}`; both for users who may control accessories, not read-only tokens). On the
   wall, only a large camera tile has it. A camera with a speaker (UniFi Protect with two-way audio, Reolink, IMOU, an
   IP camera with a `returnAudioTarget`) gets a **Talk** button: it turns the browser's microphone on and sends what it
-  hears to the camera's speaker until pressed again or the view leaves the screen, red while it is on. Browsers give
+  hears to the camera's speaker until pressed again or the view leaves the screen, widening while it is on into a red
+  pill with the microphone's level as a waveform, as in the Home app. Browsers give
   the microphone to HTTPS pages (or localhost) only, so on plain HTTP the button says so. While someone talks, the
   camera's own sound is muted, so its speaker does not come back through the microphones as an echo; it comes back on
   afterwards, unless they turned it on meanwhile (with headphones); the browser's echo cancellation stays on too. The
@@ -329,7 +330,10 @@ screenshots, and what a plugin does to get good ones.
   of their own, the **Apple Home** switch (`?from=Apple%20Home`). The Filters menu also narrows the wall to bridges
   (`?bridge=<name>`) and device types (`?type=<category>`), each as often as chosen, as on the Graph, and to the
   accessories that answer, **Online** (`?online=1`: neither No Response nor paused), or those that do not, **No Response**
-  (`?unavailable=1`); choosing one clears the other. The Arrangement is the bridge's, shared by every user, in
+  (`?unavailable=1`); choosing one clears the other. **Camera** keeps every accessory with a camera, doorbells included.
+  A choice redraws the wall in place, at its top, and leaves the menu open with its counts following.
+  While a search or a filter narrows a wall whose widgets have cells of their own, those left are packed together in the
+  order their cells read; Edit shows the cells, which stay as they were. The Arrangement is the bridge's, shared by every user, in
   `accessory-layout.json` next to config.json (owner-only; `/api/rooms`), where older versions also kept rooms, Hidden and
   display names: those are read until the accessory's settings are next written, which moves them there. The order of the
   Rooms is the bridge's own; the MCP tools filter by the Rooms (`list_accessories`, `set_accessories`), and by the Zones
@@ -594,7 +598,11 @@ its picture and its switch. Every change an Automation makes is its own in the [
 plugin, in one list by room: a section per Remote with its Buttons and Wheels (by Channel where it has them), the Home
 app's numbers for each, what each gesture does, and the Automations a Button starts. A chip says when its presses reach
 Apple Home too (an automation there on the same button runs as well; Not in Home keeps the remote out of it), or come
-through Apple Home (a remote mirrored by Wingman, a moment later). **Press a button** of a remote while the page is open:
+through Apple Home (a remote mirrored by Wingman, a moment later). What the Home app does on a Button's presses shows
+there too, with its icon ("In the Home app: Portillon", the automation's name on hover): Apple Home's automations
+whose trigger is that Button's press, read through Wingman, which names the Button by its number in the Home app (its
+Service Label Index). Apple Home keeps and runs them; they are changed in the Home app, and one turned off there is
+struck through. **Press a button** of a remote while the page is open:
 its row lights up and its Controls open.
 
 A part's sheet has a card per gesture, each with **what it does** and **what to**: a searchable list of lights,

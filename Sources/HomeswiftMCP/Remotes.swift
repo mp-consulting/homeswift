@@ -11,7 +11,10 @@ extension HomeswiftCatalog {
     /// The Remotes page and `list_remotes`: every Remote, what a Control may drive, power and run.
     public func remotesPageJSON() async -> JSONValue {
         let all = located()
-        var answer = remotesJSON(all).objectValue ?? [:]
+        // The Home app's automations a Button's press starts (Apple Home's, through Wingman), and the hub scenes they run.
+        let hub = await foundHubAutomations()
+        let hubScenes = hub.isEmpty ? [:] : Dictionary(await foundPluginScenes().map { ($0.id, $0.scene.name) }, uniquingKeysWith: { first, _ in first })
+        var answer = remotesJSON(all, hub: hub, hubScenes: hubScenes).objectValue ?? [:]
         for (key, value) in (await remoteTargetsJSON(all)).objectValue ?? [:] { answer[key] = value }
         // The rooms in the home's order, which the page lists the targets in.
         answer["rooms"] = .array(allRoomNames(all).map(JSONValue.string))
@@ -20,8 +23,8 @@ extension HomeswiftCatalog {
         return .object(answer)
     }
 
-    /// Every Remote on the bridge, in room then name order.
-    func remotesJSON(_ all: [Located]) -> JSONValue {
+    /// Every Remote on the bridge, in room then name order; `hub` the hubs' automations, whose presses each Button lists.
+    func remotesJSON(_ all: [Located], hub: [FoundHubAutomation] = [], hubScenes: [String: String] = [:]) -> JSONValue {
         let automations = home.automations.value.automations
         let notInHome = Set(host.configuration.platforms.flatMap(\.hiddenFromHomeKit))
         let remotes = all.filter { $0.accessory.isRemote && !$0.isSeparatedFunction }
@@ -36,7 +39,10 @@ extension HomeswiftCatalog {
                 // Its presses reach Apple Home too, unless it is Not in Home; one Apple Home has is mirrored through Wingman.
                 "inAppleHome": .bool(!notInHome.contains(accessory.id) && accessory.mirroredFrom == nil),
                 "mirrored": .bool(accessory.mirroredFrom != nil),
-                "parts": .array(layout.parts.enumerated().map { partJSON($1, number: $0 + 1, of: accessory, automations: automations) }),
+                "parts": .array(layout.parts.enumerated().map {
+                    partJSON($1, number: $0 + 1, of: accessory, automations: automations,
+                             hub: hub, hubScenes: hubScenes, onlyButton: layout.parts.filter { $0.kind == .button }.count == 1)
+                }),
                 "controls": RemoteControl.json(state.controls),
             ]
             if accessory.isUnavailable { remote["unavailable"] = true }
@@ -46,7 +52,8 @@ extension HomeswiftCatalog {
 
     /// One Button or Wheel: its name (nil when neither its plugin nor HomeKit gives one: the page numbers it), the gestures
     /// it has, HomeKit's numbers for it, and the Automations it starts, each with the gesture its press Trigger is.
-    private func partJSON(_ part: RemotePart, number: Int, of accessory: Accessory, automations: [Automation]) -> JSONValue {
+    private func partJSON(_ part: RemotePart, number: Int, of accessory: Accessory, automations: [Automation],
+                          hub: [FoundHubAutomation] = [], hubScenes: [String: String] = [:], onlyButton: Bool = false) -> JSONValue {
         let services = Self.switches(of: part, in: accessory)
         let name = part.name ?? services.first?[.name]?.value.stringValue
         let gestures = Self.gestures(of: part, switches: services)
@@ -61,7 +68,43 @@ extension HomeswiftCatalog {
             "homeKit": .array(services.compactMap { $0[.serviceLabelIndex]?.value.intValue }.map { .number(Double($0)) }),
             "gestures": .array(gestures.map { .string($0.rawValue) }),
             "automations": .array(starts.map { automation, gesture in Self.automationJSON(automation, gesture: gesture) }),
+            "hubAutomations": .array(hubPresses(of: part, switches: services, accessory: accessory, hub: hub, onlyButton: onlyButton).map { found, gesture in
+                hubPressJSON(found, gesture: gesture, scenes: hubScenes)
+            }),
         ]
+    }
+
+    /// The hubs' automations a Button's press starts (the Home app's, set on the button there), each with its gesture: a
+    /// press Trigger on this remote with the Button's number, or with none on a remote of one Button.
+    func hubPresses(of part: RemotePart, switches: [Service], accessory: Accessory, hub: [FoundHubAutomation],
+                    onlyButton: Bool) -> [(FoundHubAutomation, RemoteControl.Gesture)] {
+        guard part.kind == .button else { return [] }
+        let numbers = Set(switches.compactMap { $0[.serviceLabelIndex]?.value.intValue })
+        let gestures: [RemoteControl.Gesture] = [.press, .double, .long]
+        return hub.flatMap { found in
+            let pressed = Set(found.automation.triggers.compactMap { trigger -> RemoteControl.Gesture? in
+                guard case .press(let id, let button, let press) = trigger, id == accessory.id, gestures.indices.contains(press) else { return nil }
+                let fits = button.map { numbers.contains($0) } ?? (numbers.isEmpty || onlyButton)
+                return fits ? gestures[press] : nil
+            })
+            return gestures.filter(pressed.contains).map { (found, $0) }
+        }
+    }
+
+    /// A hub automation on a Button: what it does in words a person set in the Home app (the accessories it changes, the
+    /// scenes it runs), its name (the Home app's, often "Room Button 1 Single Press"), its source and whether it is on.
+    func hubPressJSON(_ found: FoundHubAutomation, gesture: RemoteControl.Gesture, scenes: [String: String]) -> JSONValue {
+        let automation = found.automation
+        var does: [String] = []
+        for action in automation.actions {
+            let name = find(id: action.accessoryID)?.accessory.name ?? automation.names[action.accessoryID] ?? action.accessoryID
+            if !does.contains(name) { does.append(name) }
+        }
+        for scene in automation.sceneIDs {
+            if let name = scenes[Self.pluginSceneID(platform: found.instance.platform, name: found.instance.name, scene: scene)], !does.contains(name) { does.append(name) }
+        }
+        return ["id": .string(found.id), "name": .string(automation.name), "enabled": .bool(automation.enabled), "gesture": .string(gesture.rawValue),
+                "source": .string(found.instance.platform), "does": .array(does.map(JSONValue.string))]
     }
 
     /// An Automation's summary for the Remotes page, with the gesture whose press starts it when it is a Button's.
@@ -218,7 +261,8 @@ extension HomeswiftCatalog {
             MCPTool(
                 name: "list_remotes", title: "List remotes",
                 description: "Every Remote (an accessory with Buttons, from any plugin): its Buttons and Wheels (part ids, names, Channels, the gestures each has: "
-                    + "press, double, long, hold, turn), their Controls (what each gesture does, run by the bridge at once), and the Automations each Button starts. "
+                    + "press, double, long, hold, turn), their Controls (what each gesture does, run by the bridge at once), the Automations each Button starts, "
+                    + "and hubAutomations: what the Home app does on a Button's presses (Apple Home's automations through Wingman, read-only here: changed in the Home app). "
                     + "Also what a Control may drive (lights and shutters, and appliances it only turns on and off: switches, outlets, fans, purifiers, TVs, valves, "
                     + "garage doors (on is open), locks (on is unlocked) and alarms (on is armed Away), those with security: true; "
                     + "an accessory with several lists each Function as <id>#<key>), power (switches and outlets) and run (Scenes). Change a Remote's Controls with update_settings "

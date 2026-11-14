@@ -12,14 +12,15 @@ import NIOConcurrencyHelpers
 /// The SDP and command line FFmpeg decodes return audio with (sections 3.1 and 3.2).
 public enum ReturnAudioArguments {
     /// The SDP on FFmpeg's standard input: HomeKit's AAC-ELD at 16 kHz, forwarded to `port` on the loopback; `srtp` is the
-    /// controller's key and salt (30 bytes), a secret: never logged.
-    public static func sdp(address: String, isIPv6: Bool, port: Int, payloadType: Int, srtp: Data) -> String {
-        let version = isIPv6 ? "IP6" : "IP4"
+    /// controller's key and salt (30 bytes), a secret: never logged. The connection address is the loopback, where the
+    /// demuxer forwards the packets: FFmpeg 8 binds its socket to it, and fails on the controller's address.
+    public static func sdp(isIPv6: Bool, port: Int, payloadType: Int, srtp: Data) -> String {
+        let (version, loopback) = isIPv6 ? ("IP6", "::1") : ("IP4", "127.0.0.1")
         return [
             "v=0",
-            "o=- 0 0 IN \(version) \(address)",
+            "o=- 0 0 IN \(version) \(loopback)",
             "s=Talk",
-            "c=IN \(version) \(address)",
+            "c=IN \(version) \(loopback)",
             "t=0 0",
             "m=audio \(port) RTP/AVP \(payloadType)",
             "b=AS:24",
@@ -340,7 +341,7 @@ public actor ReturnAudioReceiver {
         defer { decoderStarting = false }
         let decoderArguments = await ffmpeg.returnAudioDecoder()
         guard !closed, let rtpPort else { return }
-        let sdp = ReturnAudioArguments.sdp(address: stream.controllerAddress, isIPv6: stream.ipFamily == .ipv6, port: rtpPort,
+        let sdp = ReturnAudioArguments.sdp(isIPv6: stream.ipFamily == .ipv6, port: rtpPort,
                                            payloadType: stream.payloadType, srtp: stream.srtp)
         let arguments = ReturnAudioArguments.decode(decoder: decoderArguments, sampleRate: options.format.sampleRate, debug: debug)
         generation += 1

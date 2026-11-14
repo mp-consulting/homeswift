@@ -466,7 +466,9 @@
       const role = choice ? (item.checkbox ? "menuitemcheckbox" : "menuitemradio") : "menuitem";
       const tick = item.toggle ? el("span", { class: "menu-toggle", "aria-hidden": "true" }, el("span"))
         : choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: mark(checkedNow()) }) : null;
-      const count = item.count === undefined ? null : el("span", { class: "menu-item-count", text: String(item.count) });
+      // `count` may be a function too, asked again with `checked` (a filter's count follows the others chosen).
+      const countNow = () => typeof item.count === "function" ? item.count() : item.count;
+      const count = item.count === undefined ? null : el("span", { class: "menu-item-count", text: String(countNow()) });
       const node = item.href
         ? el("a", { role, href: item.href, class: item.danger ? "danger" : item.accent ? "accent" : "", tabIndex: -1 }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick)
         : el("button", { type: "button", role, class: item.danger ? "danger" : item.accent ? "accent" : "", tabIndex: -1, "aria-checked": choice ? String(checkedNow()) : null }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick);
@@ -474,11 +476,12 @@
       // A Group's member, under its row.
       if (item.nested) node.classList.add("menu-nested");
       if (typeof item.checked === "function") refreshChecked.push(() => paint(checkedNow()));
-      const isDisabled = () => (typeof item.disabled === "function" ? item.disabled() : Boolean(item.disabled)) || (item.count === 0 && item.checked === false);
+      if (typeof item.count === "function") refreshChecked.push(() => { count.textContent = String(countNow()); });
+      const isDisabled = () => (typeof item.disabled === "function" ? item.disabled() : Boolean(item.disabled)) || (countNow() === 0 && checkedNow() === false);
       const updateDisabled = () => {
         if (isDisabled()) node.setAttribute("aria-disabled", "true"); else node.removeAttribute("aria-disabled");
         if (node.tagName === "BUTTON") node.disabled = isDisabled();
-        node.title = isDisabled() && item.count === 0 ? (item.disabledReason || t("No accessories match the current search.")) : "";
+        node.title = isDisabled() && countNow() === 0 ? (item.disabledReason || t("No accessories match the current search.")) : "";
       };
       updateDisabled();
       refreshDisabled.push(updateDisabled);
@@ -541,6 +544,7 @@
           const checked = await item.onSelect?.();
           if (typeof checked === "boolean") paint(checked);
           refreshChecked.forEach((update) => update());
+          refreshDisabled.forEach((update) => update());
         } finally { pending = false; node.removeAttribute("aria-busy"); }
       });
       // A room heading's name is searched too ("kitchen" finds its lights), and an item's `search` words (a Group's

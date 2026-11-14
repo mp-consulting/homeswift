@@ -350,7 +350,7 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
         let session = ProtectTalkback.Session(address: "10.0.0.2", audioIncomingRtpPort: 50002, audioSRTP: Data(repeating: 7, count: 30), rtpDemuxer: nil, talkBack: nil)
         let sdp = ProtectTalkback.sdp(request, session: session, sdpIpVersion: "IP4", accessoryName: "Front Door").split(separator: "\n").map(String.init)
         #expect(sdp == [
-            "v=0", "o=- 0 0 IN IP4 127.0.0.1", "s=Front Door Audio Talkback", "c=IN IP4 10.0.0.2", "t=0 0", "m=audio 50002 RTP/AVP 110", "b=AS:24",
+            "v=0", "o=- 0 0 IN IP4 127.0.0.1", "s=Front Door Audio Talkback", "c=IN IP4 127.0.0.1", "t=0 0", "m=audio 50002 RTP/AVP 110", "b=AS:24",
             "a=rtpmap:110 MPEG4-GENERIC/16000/1",
             "a=fmtp:110 profile-level-id=1;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3; config=F8F0212C00BC00",
             "a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:" + Data(repeating: 7, count: 30).base64EncodedString(),
@@ -358,7 +358,7 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
         var wide = request
         wide.audio.sampleRate = 24
         let wideSDP = ProtectTalkback.sdp(wide, session: session, sdpIpVersion: "IP6", accessoryName: "Front Door")
-        #expect(wideSDP.contains("MPEG4-GENERIC/24000/1") && wideSDP.contains("config=F8EC212C00BC00") && wideSDP.contains("c=IN IP6 10.0.0.2"))
+        #expect(wideSDP.contains("MPEG4-GENERIC/24000/1") && wideSDP.contains("config=F8EC212C00BC00") && wideSDP.contains("c=IN IP6 ::1"))
     }
 
     @Test func snapshotCommandLine() {

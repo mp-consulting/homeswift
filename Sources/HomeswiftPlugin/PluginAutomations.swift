@@ -98,6 +98,10 @@ public enum PluginAutomationTrigger: Sendable, Equatable {
     case time(PluginAutomationTime)
     /// A characteristic reaching a value, or entering a range (`minimum`, `maximum`, either open).
     case accessory(accessoryID: String, characteristic: String, value: JSONValue?, minimum: Double?, maximum: Double?)
+    /// A press of a remote's Button (its Stateless Programmable Switch's event), `accessoryID` Homeswift's id of the remote
+    /// when it is one of Homeswift's: `button` is the Button's number in the Home app (its Service Label Index), nil for a
+    /// remote that gives none; `press` is HomeKit's 0 single, 1 double, 2 long. The Remotes page lists it by its Button.
+    case press(accessoryID: String, button: Int?, press: Int)
     /// `who` is "anyone", "me" or "everyone".
     case presence(who: String, arriving: Bool)
     /// A while after it started.

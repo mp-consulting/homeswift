@@ -71,54 +71,97 @@ extension IPCamerasPlugin {
               "title": "Name",
               "type": "string",
               "description": "The camera's name in HomeKit. It identifies the camera: renaming it here makes a new accessory.",
-              "required": true
-            },
-            "manufacturer": {
-              "title": "Manufacturer",
-              "type": "string",
-              "description": "Shown in the accessory's information. Empty uses Homebridge."
-            },
-            "model": {
-              "title": "Model",
-              "type": "string",
-              "description": "Shown in the accessory's information. Empty uses Camera FFmpeg."
-            },
-            "serialNumber": {
-              "title": "Serial Number",
-              "type": "string",
-              "description": "Shown in the accessory's information. Empty uses SerialNumber."
-            },
-            "firmwareRevision": {
-              "title": "Firmware Revision",
-              "type": "string",
-              "description": "Shown in the accessory's information. Empty uses the bridge's version."
+              "required": true,
+              "x-schema-form": {
+                "wide": true
+              }
             },
             "motion": {
               "title": "Motion Sensor",
               "type": "boolean",
-              "description": "Add a motion sensor, triggered over MQTT, HTTP or its switch."
+              "description": "Add a motion sensor, triggered over MQTT, HTTP or its switch.",
+              "x-section": "events"
             },
             "doorbell": {
               "title": "Doorbell",
               "type": "boolean",
-              "description": "Add a doorbell, rung over MQTT, HTTP or its switch."
+              "description": "Add a doorbell, rung over MQTT, HTTP or its switch.",
+              "x-section": "events"
             },
             "switches": {
               "title": "Trigger Switches",
               "type": "boolean",
-              "description": "Add switches in HomeKit that trigger the motion sensor and the doorbell."
+              "description": "Switches in HomeKit that set off the motion sensor and the doorbell.",
+              "x-section": "events",
+              "condition": {
+                "functionBody": "return model.cameras[arrayIndices].motion === true || model.cameras[arrayIndices].doorbell === true;"
+              }
             },
             "motionTimeout": {
-              "title": "Motion Timeout (seconds)",
+              "title": "Stays On For",
               "type": "integer",
-              "description": "How long motion stays detected after a trigger, and the doorbell switch stays on. 0 keeps motion on until it is reset. Empty uses 1.",
+              "description": "How long motion stays detected after a trigger, and the doorbell switch on. 0 keeps motion on until it is reset.",
               "placeholder": 1,
-              "minimum": 0
+              "minimum": 0,
+              "x-section": "events",
+              "x-parent": "motion",
+              "x-schema-form": {
+                "unit": "s"
+              },
+              "condition": {
+                "functionBody": "return model.cameras[arrayIndices].motion === true;"
+              }
             },
             "motionDoorbell": {
               "title": "Motion Rings the Doorbell",
               "type": "boolean",
-              "description": "A motion trigger also rings the doorbell."
+              "description": "A motion trigger also rings the doorbell.",
+              "x-section": "events",
+              "x-parent": "doorbell",
+              "condition": {
+                "functionBody": "return model.cameras[arrayIndices].motion === true && model.cameras[arrayIndices].doorbell === true;"
+              }
+            },
+            "mqtt": {
+              "title": "MQTT Topics",
+              "type": "object",
+              "description": "The MQTT messages that trigger this camera, with the MQTT Broker set.",
+              "properties": {
+                "motionTopic": {
+                  "title": "Motion Topic",
+                  "type": "string",
+                  "description": "The topic whose message triggers motion."
+                },
+                "motionMessage": {
+                  "title": "Motion Message",
+                  "type": "string",
+                  "description": "The exact message that triggers motion. Empty is the camera's name."
+                },
+                "motionResetTopic": {
+                  "title": "Motion Reset Topic",
+                  "type": "string",
+                  "description": "The topic whose message resets motion."
+                },
+                "motionResetMessage": {
+                  "title": "Motion Reset Message",
+                  "type": "string",
+                  "description": "The exact message that resets motion. Empty is the camera's name."
+                },
+                "doorbellTopic": {
+                  "title": "Doorbell Topic",
+                  "type": "string",
+                  "description": "The topic whose message rings the doorbell."
+                },
+                "doorbellMessage": {
+                  "title": "Doorbell Message",
+                  "type": "string",
+                  "description": "The exact message that rings the doorbell. Empty is the camera's name."
+                }
+              },
+              "x-section": "events",
+              "condition": {
+                "functionBody": "return model.cameras[arrayIndices].motion === true || model.cameras[arrayIndices].doorbell === true;"
+              }
             },
             "videoConfig": {
               "title": "Video",
@@ -126,20 +169,22 @@ extension IPCamerasPlugin {
               "description": "How FFmpeg reads the camera and what it sends to HomeKit.",
               "properties": {
                 "source": {
-                  "title": "Source",
+                  "title": "Stream",
                   "type": "string",
                   "description": "FFmpeg's input options, such as -i rtsp://user:password@address:554/stream. Options may come before -i (-rtsp_transport tcp -i …).",
-                  "required": true
+                  "required": true,
+                  "x-section": "general",
+                  "x-schema-form": {
+                    "wide": true
+                  }
                 },
                 "stillImageSource": {
                   "title": "Still Image Source",
                   "type": "string",
-                  "description": "FFmpeg's input options for snapshots, written as Source. Empty uses Source."
-                },
-                "returnAudioTarget": {
-                  "title": "Two-way Audio Target (experimental)",
-                  "type": "string",
-                  "description": "FFmpeg's output options for the audio HomeKit sends back to the camera, such as -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://address:port. Turns two-way audio on."
+                  "description": "FFmpeg's input options for snapshots, written as Source. Empty uses Source.",
+                  "x-schema-form": {
+                    "wide": true
+                  }
                 },
                 "maxStreams": {
                   "title": "Maximum Streams",
@@ -215,7 +260,8 @@ extension IPCamerasPlugin {
                 "audio": {
                   "title": "Audio",
                   "type": "boolean",
-                  "description": "Send the camera's audio to HomeKit. Needs an FFmpeg with libfdk_aac."
+                  "description": "Send the camera's audio to HomeKit. Needs an FFmpeg with libfdk_aac.",
+                  "x-section": "general"
                 },
                 "debug": {
                   "title": "Debug Logging",
@@ -230,51 +276,73 @@ extension IPCamerasPlugin {
                 "recording": {
                   "title": "HomeKit Secure Video",
                   "type": "boolean",
-                  "description": "Let a home hub record this camera's events in iCloud."
+                  "description": "Let a home hub record this camera's events in iCloud.",
+                  "x-section": "general"
                 },
                 "prebuffer": {
                   "title": "Prebuffer",
                   "type": "boolean",
-                  "description": "Keep the last seconds of video ready, so recordings start before the event. Only with HomeKit Secure Video; FFmpeg then reads the camera all the time."
+                  "description": "Keep the last seconds of video ready, so recordings start before the event. Only with HomeKit Secure Video; FFmpeg then reads the camera all the time.",
+                  "x-section": "general",
+                  "x-parent": "recording",
+                  "condition": {
+                    "functionBody": "return model.cameras[arrayIndices].videoConfig.recording === true;"
+                  }
+                },
+                "returnAudioTarget": {
+                  "title": "Speaker (Two-way Audio)",
+                  "type": "string",
+                  "description": "FFmpeg's output options for what the Home app and the web UI's microphone send to the camera's speaker, such as -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://address:port. Empty: no talking.",
+                  "x-section": "general",
+                  "x-schema-form": {
+                    "wide": true
+                  }
                 }
-              }
+              },
+              "x-icon": "play"
             },
-            "mqtt": {
-              "title": "MQTT Topics",
-              "type": "object",
-              "description": "The MQTT messages that trigger this camera, with the MQTT Broker set.",
-              "properties": {
-                "motionTopic": {
-                  "title": "Motion Topic",
-                  "type": "string",
-                  "description": "The topic whose message triggers motion."
-                },
-                "motionMessage": {
-                  "title": "Motion Message",
-                  "type": "string",
-                  "description": "The exact message that triggers motion. Empty is the camera's name."
-                },
-                "motionResetTopic": {
-                  "title": "Motion Reset Topic",
-                  "type": "string",
-                  "description": "The topic whose message resets motion."
-                },
-                "motionResetMessage": {
-                  "title": "Motion Reset Message",
-                  "type": "string",
-                  "description": "The exact message that resets motion. Empty is the camera's name."
-                },
-                "doorbellTopic": {
-                  "title": "Doorbell Topic",
-                  "type": "string",
-                  "description": "The topic whose message rings the doorbell."
-                },
-                "doorbellMessage": {
-                  "title": "Doorbell Message",
-                  "type": "string",
-                  "description": "The exact message that rings the doorbell. Empty is the camera's name."
-                }
-              }
+            "manufacturer": {
+              "title": "Manufacturer",
+              "type": "string",
+              "description": "Shown in the Home app's accessory details.",
+              "x-section": "details",
+              "placeholder": "Homebridge"
+            },
+            "model": {
+              "title": "Model",
+              "type": "string",
+              "description": "Shown in the Home app's accessory details.",
+              "x-section": "details",
+              "placeholder": "Camera FFmpeg"
+            },
+            "serialNumber": {
+              "title": "Serial Number",
+              "type": "string",
+              "description": "Shown in the Home app's accessory details.",
+              "x-section": "details",
+              "placeholder": "SerialNumber"
+            },
+            "firmwareRevision": {
+              "title": "Firmware Revision",
+              "type": "string",
+              "description": "Shown in the Home app's accessory details.",
+              "x-section": "details",
+              "placeholder": "Bridge version"
+            }
+          },
+          "x-general": {
+            "title": "Camera",
+            "icon": "camera"
+          },
+          "x-sections": {
+            "events": {
+              "title": "Motion and doorbell",
+              "icon": "bell"
+            },
+            "details": {
+              "title": "Details",
+              "icon": "clipboard",
+              "description": "What the Home app shows in the camera's accessory details. An empty field shows its default in grey."
             }
           }
         }
@@ -302,20 +370,23 @@ extension IPCamerasPlugin {
       "switches": {
         "title": "Trigger Switches",
         "type": "boolean",
-        "description": "Add switches in HomeKit that trigger the motion sensor and the doorbell.",
+        "description": "Switches in HomeKit that set off the motion sensor and the doorbell.",
         "x-kinds": [
           "camera"
         ]
       },
       "motionTimeout": {
-        "title": "Motion Timeout (seconds)",
+        "title": "Stays On For",
         "type": "integer",
-        "description": "How long motion stays detected after a trigger, and the doorbell switch stays on. 0 keeps motion on until it is reset. Empty uses 1.",
+        "description": "How long motion stays detected after a trigger, and the doorbell switch on. 0 keeps motion on until it is reset.",
         "placeholder": 1,
         "minimum": 0,
         "x-kinds": [
           "camera"
-        ]
+        ],
+        "x-schema-form": {
+          "unit": "s"
+        }
       },
       "motionDoorbell": {
         "title": "Motion Rings the Doorbell",
@@ -332,7 +403,6 @@ extension IPCamerasPlugin {
       "A motion trigger also rings the doorbell.": "Un déclenchement du mouvement fait aussi sonner la sonnette.",
       "Add a doorbell, rung over MQTT, HTTP or its switch.": "Ajouter une sonnette, sonnée par MQTT, HTTP ou son interrupteur.",
       "Add a motion sensor, triggered over MQTT, HTTP or its switch.": "Ajouter un capteur de mouvement, déclenché par MQTT, HTTP ou son interrupteur.",
-      "Add switches in HomeKit that trigger the motion sensor and the doorbell.": "Ajouter dans HomeKit des interrupteurs qui déclenchent le capteur de mouvement et la sonnette.",
       "Always send the maximums above, even when HomeKit asks for less.": "Toujours envoyer les maximums ci-dessus, même quand HomeKit demande moins.",
       "Audio": "Audio",
       "Audio Stream": "Flux audio",
@@ -349,14 +419,12 @@ extension IPCamerasPlugin {
       "Extra options for the video encoder. Empty uses -preset ultrafast -tune zerolatency with libx264.": "Des options en plus pour l'encodeur vidéo. Vide, -preset ultrafast -tune zerolatency est utilisé avec libx264.",
       "FFmpeg's input options for snapshots, written as Source. Empty uses Source.": "Les options d'entrée de FFmpeg pour les instantanés, écrites comme Source. Vide, Source est utilisée.",
       "FFmpeg's input options, such as -i rtsp://user:password@address:554/stream. Options may come before -i (-rtsp_transport tcp -i …).": "Les options d'entrée de FFmpeg, comme -i rtsp://user:password@address:554/stream. Des options peuvent précéder -i (-rtsp_transport tcp -i …).",
-      "FFmpeg's output options for the audio HomeKit sends back to the camera, such as -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://address:port. Turns two-way audio on.": "Les options de sortie de FFmpeg pour l'audio que HomeKit renvoie à la caméra, comme -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://address:port. Active l'audio bidirectionnel.",
       "Firmware Revision": "Version du firmware",
       "Force Maximums": "Forcer les maximums",
       "HTTP Port": "Port HTTP",
       "HomeKit Secure Video": "HomeKit Secure Video",
       "Host name or IP address of the MQTT broker. Empty turns MQTT off.": "Nom d'hôte ou adresse IP du broker MQTT. Vide, MQTT est désactivé.",
       "How FFmpeg reads the camera and what it sends to HomeKit.": "Comment FFmpeg lit la caméra et ce qu'il envoie à HomeKit.",
-      "How long motion stays detected after a trigger, and the doorbell switch stays on. 0 keeps motion on until it is reset. Empty uses 1.": "Combien de temps le mouvement reste détecté après un déclenchement, et l'interrupteur de la sonnette allumé. 0 garde le mouvement jusqu'à sa fin. Vide, 1 est utilisé.",
       "How many live streams may run at once. Empty uses 2.": "Le nombre de flux en direct simultanés. Vide, 2 est utilisé.",
       "Keep the last seconds of video ready, so recordings start before the event. Only with HomeKit Secure Video; FFmpeg then reads the camera all the time.": "Garder les dernières secondes de vidéo, pour que les enregistrements commencent avant l'événement. Seulement avec HomeKit Secure Video ; FFmpeg lit alors la caméra en permanence.",
       "Let a home hub record this camera's events in iCloud.": "Laisser un concentrateur domestique enregistrer les événements de cette caméra dans iCloud.",
@@ -379,7 +447,6 @@ extension IPCamerasPlugin {
       "Motion Reset Topic": "Topic de fin du mouvement",
       "Motion Rings the Doorbell": "Le mouvement fait sonner la sonnette",
       "Motion Sensor": "Capteur de mouvement",
-      "Motion Timeout (seconds)": "Durée du mouvement (secondes)",
       "Motion Topic": "Topic du mouvement",
       "Name": "Nom",
       "Packet Size": "Taille des paquets",
@@ -388,10 +455,6 @@ extension IPCamerasPlugin {
       "Prebuffer": "Pré-enregistrement",
       "Send the camera's audio to HomeKit. Needs an FFmpeg with libfdk_aac.": "Envoyer l'audio de la caméra à HomeKit. Demande un FFmpeg avec libfdk_aac.",
       "Serial Number": "Numéro de série",
-      "Shown in the accessory's information. Empty uses Camera FFmpeg.": "Affiché dans les informations de l'accessoire. Vide, Camera FFmpeg est utilisé.",
-      "Shown in the accessory's information. Empty uses Homebridge.": "Affiché dans les informations de l'accessoire. Vide, Homebridge est utilisé.",
-      "Shown in the accessory's information. Empty uses SerialNumber.": "Affiché dans les informations de l'accessoire. Vide, SerialNumber est utilisé.",
-      "Shown in the accessory's information. Empty uses the bridge's version.": "Affiché dans les informations de l'accessoire. Vide, la version du pont est utilisée.",
       "Source": "Source",
       "Still Image Source": "Source des instantanés",
       "The FFmpeg executable for every camera: a path, or a name found in PATH. Empty uses ffmpeg.": "L'exécutable FFmpeg de toutes les caméras : un chemin, ou un nom trouvé dans PATH. Vide, ffmpeg est utilisé.",
@@ -416,19 +479,29 @@ extension IPCamerasPlugin {
       "The video packets' size in bytes, a multiple of 188. Empty uses 1316.": "La taille des paquets vidéo en octets, un multiple de 188. Vide, 1316 est utilisé.",
       "The widest stream sent, in pixels. 0 keeps the source's width.": "La largeur maximum du flux, en pixels. 0 garde celle de la source.",
       "Trigger Switches": "Interrupteurs de déclenchement",
-      "Two-way Audio Target (experimental)": "Cible de l'audio bidirectionnel (expérimental)",
       "Use TLS": "Utiliser TLS",
       "Video": "Vidéo",
       "Video Codec": "Codec vidéo",
       "Video Filters": "Filtres vidéo",
       "Video Processor": "Processeur vidéo",
-      "Video Stream": "Flux vidéo"
+      "Video Stream": "Flux vidéo",
+      "Motion and doorbell": "Mouvement et sonnette",
+      "Details": "Détails",
+      "What the Home app shows in the camera's accessory details. An empty field shows its default in grey.": "Ce que l'app Maison affiche dans les détails de l'accessoire. Un champ vide affiche sa valeur par défaut en gris.",
+      "Switches in HomeKit that set off the motion sensor and the doorbell.": "Des interrupteurs dans HomeKit qui déclenchent le capteur de mouvement et la sonnette.",
+      "Stays On For": "Reste actif pendant",
+      "How long motion stays detected after a trigger, and the doorbell switch on. 0 keeps motion on until it is reset.": "Combien de temps le mouvement reste détecté après un déclenchement, et l'interrupteur de la sonnette allumé. 0 le garde jusqu'à sa réinitialisation.",
+      "Shown in the Home app's accessory details.": "Affiché dans les détails de l'accessoire de l'app Maison.",
+      "Bridge version": "Version du pont",
+      "Stream": "Flux",
+      "Speaker (Two-way Audio)": "Haut-parleur (audio bidirectionnel)",
+      "FFmpeg's output options for what the Home app and the web UI's microphone send to the camera's speaker, such as -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://address:port. Empty: no talking.": "Les options de sortie de FFmpeg pour ce que l'app Maison et le micro de l'interface web envoient au haut-parleur de la caméra, comme -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://adresse:port. Vide : pas de parole.",
+      "Camera FFmpeg": "Camera FFmpeg"
     },
     "es": {
       "A motion trigger also rings the doorbell.": "Una activación del movimiento también hace sonar el timbre.",
       "Add a doorbell, rung over MQTT, HTTP or its switch.": "Añadir un timbre, que suena por MQTT, HTTP o su interruptor.",
       "Add a motion sensor, triggered over MQTT, HTTP or its switch.": "Añadir un sensor de movimiento, activado por MQTT, HTTP o su interruptor.",
-      "Add switches in HomeKit that trigger the motion sensor and the doorbell.": "Añadir en HomeKit interruptores que activan el sensor de movimiento y el timbre.",
       "Always send the maximums above, even when HomeKit asks for less.": "Enviar siempre los máximos de arriba, aunque HomeKit pida menos.",
       "Audio": "Audio",
       "Audio Stream": "Pista de audio",
@@ -445,14 +518,12 @@ extension IPCamerasPlugin {
       "Extra options for the video encoder. Empty uses -preset ultrafast -tune zerolatency with libx264.": "Opciones adicionales para el codificador de vídeo. Vacío, se usa -preset ultrafast -tune zerolatency con libx264.",
       "FFmpeg's input options for snapshots, written as Source. Empty uses Source.": "Las opciones de entrada de FFmpeg para las instantáneas, escritas como Fuente. Vacío, se usa Fuente.",
       "FFmpeg's input options, such as -i rtsp://user:password@address:554/stream. Options may come before -i (-rtsp_transport tcp -i …).": "Las opciones de entrada de FFmpeg, como -i rtsp://user:password@address:554/stream. Puede haber opciones antes de -i (-rtsp_transport tcp -i …).",
-      "FFmpeg's output options for the audio HomeKit sends back to the camera, such as -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://address:port. Turns two-way audio on.": "Las opciones de salida de FFmpeg para el audio que HomeKit devuelve a la cámara, como -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://address:port. Activa el audio bidireccional.",
       "Firmware Revision": "Versión del firmware",
       "Force Maximums": "Forzar los máximos",
       "HTTP Port": "Puerto HTTP",
       "HomeKit Secure Video": "HomeKit Secure Video",
       "Host name or IP address of the MQTT broker. Empty turns MQTT off.": "Nombre de host o dirección IP del broker MQTT. Vacío, MQTT se desactiva.",
       "How FFmpeg reads the camera and what it sends to HomeKit.": "Cómo lee FFmpeg la cámara y qué envía a HomeKit.",
-      "How long motion stays detected after a trigger, and the doorbell switch stays on. 0 keeps motion on until it is reset. Empty uses 1.": "Cuánto tiempo sigue detectado el movimiento tras una activación, y encendido el interruptor del timbre. 0 mantiene el movimiento hasta su fin. Vacío, se usa 1.",
       "How many live streams may run at once. Empty uses 2.": "Cuántas transmisiones en directo pueden ir a la vez. Vacío, se usa 2.",
       "Keep the last seconds of video ready, so recordings start before the event. Only with HomeKit Secure Video; FFmpeg then reads the camera all the time.": "Guardar los últimos segundos de vídeo, para que las grabaciones empiecen antes del evento. Solo con HomeKit Secure Video; FFmpeg lee entonces la cámara todo el tiempo.",
       "Let a home hub record this camera's events in iCloud.": "Permitir que un concentrador doméstico grabe los eventos de esta cámara en iCloud.",
@@ -475,7 +546,6 @@ extension IPCamerasPlugin {
       "Motion Reset Topic": "Tema del fin del movimiento",
       "Motion Rings the Doorbell": "El movimiento hace sonar el timbre",
       "Motion Sensor": "Sensor de movimiento",
-      "Motion Timeout (seconds)": "Duración del movimiento (segundos)",
       "Motion Topic": "Tema del movimiento",
       "Name": "Nombre",
       "Packet Size": "Tamaño de los paquetes",
@@ -484,10 +554,6 @@ extension IPCamerasPlugin {
       "Prebuffer": "Búfer previo",
       "Send the camera's audio to HomeKit. Needs an FFmpeg with libfdk_aac.": "Enviar el audio de la cámara a HomeKit. Necesita un FFmpeg con libfdk_aac.",
       "Serial Number": "Número de serie",
-      "Shown in the accessory's information. Empty uses Camera FFmpeg.": "Se muestra en la información del accesorio. Vacío, se usa Camera FFmpeg.",
-      "Shown in the accessory's information. Empty uses Homebridge.": "Se muestra en la información del accesorio. Vacío, se usa Homebridge.",
-      "Shown in the accessory's information. Empty uses SerialNumber.": "Se muestra en la información del accesorio. Vacío, se usa SerialNumber.",
-      "Shown in the accessory's information. Empty uses the bridge's version.": "Se muestra en la información del accesorio. Vacío, se usa la versión del puente.",
       "Source": "Fuente",
       "Still Image Source": "Fuente de las instantáneas",
       "The FFmpeg executable for every camera: a path, or a name found in PATH. Empty uses ffmpeg.": "El ejecutable de FFmpeg de todas las cámaras: una ruta, o un nombre que esté en PATH. Vacío, se usa ffmpeg.",
@@ -512,19 +578,29 @@ extension IPCamerasPlugin {
       "The video packets' size in bytes, a multiple of 188. Empty uses 1316.": "El tamaño de los paquetes de vídeo en bytes, un múltiplo de 188. Vacío, se usa 1316.",
       "The widest stream sent, in pixels. 0 keeps the source's width.": "La anchura máxima de la transmisión, en píxeles. 0 mantiene la de la fuente.",
       "Trigger Switches": "Interruptores de activación",
-      "Two-way Audio Target (experimental)": "Destino del audio bidireccional (experimental)",
       "Use TLS": "Usar TLS",
       "Video": "Vídeo",
       "Video Codec": "Códec de vídeo",
       "Video Filters": "Filtros de vídeo",
       "Video Processor": "Procesador de vídeo",
-      "Video Stream": "Pista de vídeo"
+      "Video Stream": "Pista de vídeo",
+      "Motion and doorbell": "Movimiento y timbre",
+      "Details": "Detalles",
+      "What the Home app shows in the camera's accessory details. An empty field shows its default in grey.": "Lo que la app Casa muestra en los detalles del accesorio. Un campo vacío muestra su valor por defecto en gris.",
+      "Switches in HomeKit that set off the motion sensor and the doorbell.": "Interruptores en HomeKit que activan el sensor de movimiento y el timbre.",
+      "Stays On For": "Permanece activo durante",
+      "How long motion stays detected after a trigger, and the doorbell switch on. 0 keeps motion on until it is reset.": "Cuánto tiempo sigue detectado el movimiento tras una activación, y encendido el interruptor del timbre. 0 lo mantiene hasta que se restablece.",
+      "Shown in the Home app's accessory details.": "Se muestra en los detalles del accesorio de la app Casa.",
+      "Bridge version": "Versión del puente",
+      "Stream": "Transmisión",
+      "Speaker (Two-way Audio)": "Altavoz (audio bidireccional)",
+      "FFmpeg's output options for what the Home app and the web UI's microphone send to the camera's speaker, such as -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://address:port. Empty: no talking.": "Las opciones de salida de FFmpeg para lo que la app Casa y el micrófono de la interfaz web envían al altavoz de la cámara, como -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://dirección:puerto. Vacío: no se puede hablar.",
+      "Camera FFmpeg": "Camera FFmpeg"
     },
     "pt": {
       "A motion trigger also rings the doorbell.": "Uma ativação do movimento também faz tocar a campainha.",
       "Add a doorbell, rung over MQTT, HTTP or its switch.": "Adicionar uma campainha, tocada por MQTT, HTTP ou o seu interruptor.",
       "Add a motion sensor, triggered over MQTT, HTTP or its switch.": "Adicionar um sensor de movimento, ativado por MQTT, HTTP ou o seu interruptor.",
-      "Add switches in HomeKit that trigger the motion sensor and the doorbell.": "Adicionar no HomeKit interruptores que ativam o sensor de movimento e a campainha.",
       "Always send the maximums above, even when HomeKit asks for less.": "Enviar sempre os máximos acima, mesmo quando o HomeKit pede menos.",
       "Audio": "Áudio",
       "Audio Stream": "Faixa de áudio",
@@ -541,14 +617,12 @@ extension IPCamerasPlugin {
       "Extra options for the video encoder. Empty uses -preset ultrafast -tune zerolatency with libx264.": "Opções adicionais para o codificador de vídeo. Vazio, é usado -preset ultrafast -tune zerolatency com o libx264.",
       "FFmpeg's input options for snapshots, written as Source. Empty uses Source.": "As opções de entrada do FFmpeg para as capturas, escritas como Origem. Vazio, é usada a Origem.",
       "FFmpeg's input options, such as -i rtsp://user:password@address:554/stream. Options may come before -i (-rtsp_transport tcp -i …).": "As opções de entrada do FFmpeg, como -i rtsp://user:password@address:554/stream. Pode haver opções antes de -i (-rtsp_transport tcp -i …).",
-      "FFmpeg's output options for the audio HomeKit sends back to the camera, such as -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://address:port. Turns two-way audio on.": "As opções de saída do FFmpeg para o áudio que o HomeKit devolve à câmara, como -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://address:port. Ativa o áudio bidirecional.",
       "Firmware Revision": "Versão do firmware",
       "Force Maximums": "Forçar os máximos",
       "HTTP Port": "Porta HTTP",
       "HomeKit Secure Video": "HomeKit Secure Video",
       "Host name or IP address of the MQTT broker. Empty turns MQTT off.": "Nome de anfitrião ou endereço IP do broker MQTT. Vazio, o MQTT é desativado.",
       "How FFmpeg reads the camera and what it sends to HomeKit.": "Como o FFmpeg lê a câmara e o que envia para o HomeKit.",
-      "How long motion stays detected after a trigger, and the doorbell switch stays on. 0 keeps motion on until it is reset. Empty uses 1.": "Quanto tempo o movimento fica detetado após uma ativação, e o interruptor da campainha ligado. 0 mantém o movimento até ao seu fim. Vazio, é usado 1.",
       "How many live streams may run at once. Empty uses 2.": "Quantas transmissões em direto podem decorrer em simultâneo. Vazio, é usado 2.",
       "Keep the last seconds of video ready, so recordings start before the event. Only with HomeKit Secure Video; FFmpeg then reads the camera all the time.": "Guardar os últimos segundos de vídeo, para que as gravações comecem antes do evento. Apenas com HomeKit Secure Video; o FFmpeg lê então a câmara permanentemente.",
       "Let a home hub record this camera's events in iCloud.": "Permitir que um concentrador doméstico grave os eventos desta câmara no iCloud.",
@@ -571,7 +645,6 @@ extension IPCamerasPlugin {
       "Motion Reset Topic": "Tópico do fim do movimento",
       "Motion Rings the Doorbell": "O movimento faz tocar a campainha",
       "Motion Sensor": "Sensor de movimento",
-      "Motion Timeout (seconds)": "Duração do movimento (segundos)",
       "Motion Topic": "Tópico do movimento",
       "Name": "Nome",
       "Packet Size": "Tamanho dos pacotes",
@@ -580,10 +653,6 @@ extension IPCamerasPlugin {
       "Prebuffer": "Pré-gravação",
       "Send the camera's audio to HomeKit. Needs an FFmpeg with libfdk_aac.": "Enviar o áudio da câmara para o HomeKit. Precisa de um FFmpeg com libfdk_aac.",
       "Serial Number": "Número de série",
-      "Shown in the accessory's information. Empty uses Camera FFmpeg.": "Mostrado nas informações do acessório. Vazio, é usado Camera FFmpeg.",
-      "Shown in the accessory's information. Empty uses Homebridge.": "Mostrado nas informações do acessório. Vazio, é usado Homebridge.",
-      "Shown in the accessory's information. Empty uses SerialNumber.": "Mostrado nas informações do acessório. Vazio, é usado SerialNumber.",
-      "Shown in the accessory's information. Empty uses the bridge's version.": "Mostrado nas informações do acessório. Vazio, é usada a versão da ponte.",
       "Source": "Origem",
       "Still Image Source": "Origem das capturas",
       "The FFmpeg executable for every camera: a path, or a name found in PATH. Empty uses ffmpeg.": "O executável do FFmpeg de todas as câmaras: um caminho, ou um nome que esteja no PATH. Vazio, é usado o ffmpeg.",
@@ -608,13 +677,24 @@ extension IPCamerasPlugin {
       "The video packets' size in bytes, a multiple of 188. Empty uses 1316.": "O tamanho dos pacotes de vídeo em bytes, um múltiplo de 188. Vazio, é usado 1316.",
       "The widest stream sent, in pixels. 0 keeps the source's width.": "A largura máxima da transmissão, em píxeis. 0 mantém a da origem.",
       "Trigger Switches": "Interruptores de ativação",
-      "Two-way Audio Target (experimental)": "Destino do áudio bidirecional (experimental)",
       "Use TLS": "Usar TLS",
       "Video": "Vídeo",
       "Video Codec": "Codec de vídeo",
       "Video Filters": "Filtros de vídeo",
       "Video Processor": "Processador de vídeo",
-      "Video Stream": "Faixa de vídeo"
+      "Video Stream": "Faixa de vídeo",
+      "Motion and doorbell": "Movimento e campainha",
+      "Details": "Detalhes",
+      "What the Home app shows in the camera's accessory details. An empty field shows its default in grey.": "O que a app Casa mostra nos detalhes do acessório. Um campo vazio mostra o seu valor por omissão a cinzento.",
+      "Switches in HomeKit that set off the motion sensor and the doorbell.": "Interruptores no HomeKit que ativam o sensor de movimento e a campainha.",
+      "Stays On For": "Fica ativo durante",
+      "How long motion stays detected after a trigger, and the doorbell switch on. 0 keeps motion on until it is reset.": "Quanto tempo o movimento fica detetado após uma ativação, e o interruptor da campainha ligado. 0 mantém-no até ser reposto.",
+      "Shown in the Home app's accessory details.": "Mostrado nos detalhes do acessório da app Casa.",
+      "Bridge version": "Versão da ponte",
+      "Stream": "Transmissão",
+      "Speaker (Two-way Audio)": "Altifalante (áudio bidirecional)",
+      "FFmpeg's output options for what the Home app and the web UI's microphone send to the camera's speaker, such as -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://address:port. Empty: no talking.": "As opções de saída do FFmpeg para o que a app Casa e o microfone da interface web enviam ao altifalante da câmara, como -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://endereço:porta. Vazio: não é possível falar.",
+      "Camera FFmpeg": "Camera FFmpeg"
     }
   }
 }

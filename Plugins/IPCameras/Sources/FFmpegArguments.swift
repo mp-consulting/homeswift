@@ -175,14 +175,15 @@ enum FFmpegArguments {
         split((video.returnAudioTarget ?? "") + " -loglevel level" + (video.debugReturn ? "+verbose" : ""))
     }
 
-    /// The SDP FFmpeg reads the return audio with: HomeKit sends it to `port`, the audio return port.
-    static func returnAudioSDP(address: String, isIPv6: Bool, port: Int, srtp: Data) -> String {
-        let version = isIPv6 ? "IP6" : "IP4"
+    /// The SDP FFmpeg reads the return audio with: the demuxer forwards HomeKit's packets to `port` on the loopback, the
+    /// connection address, which FFmpeg 8 binds its socket to (the controller's address fails to bind).
+    static func returnAudioSDP(isIPv6: Bool, port: Int, srtp: Data) -> String {
+        let (version, loopback) = isIPv6 ? ("IP6", "::1") : ("IP4", "127.0.0.1")
         return [
             "v=0",
-            "o=- 0 0 IN \(version) \(address)",
+            "o=- 0 0 IN \(version) \(loopback)",
             "s=Talk",
-            "c=IN \(version) \(address)",
+            "c=IN \(version) \(loopback)",
             "t=0 0",
             "m=audio \(port) RTP/AVP 110",
             "b=AS:24",

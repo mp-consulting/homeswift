@@ -137,12 +137,12 @@ struct ArgumentTests {
         let video = try videoConfig(["source": source, "returnAudioTarget": "-acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://camera:5000"])
         #expect(FFmpegArguments.returnAudio(video) == FFmpegArguments.split(
             "-hide_banner -protocol_whitelist pipe,udp,rtp,file,crypto -f sdp -c:a libfdk_aac -i pipe: -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://camera:5000 -loglevel level"))
-        let sdp = FFmpegArguments.returnAudioSDP(address: "192.168.1.20", isIPv6: false, port: 52000, srtp: audioKey)
-        #expect(sdp == "v=0\r\no=- 0 0 IN IP4 192.168.1.20\r\ns=Talk\r\nc=IN IP4 192.168.1.20\r\nt=0 0\r\nm=audio 52000 RTP/AVP 110\r\nb=AS:24\r\n"
+        let sdp = FFmpegArguments.returnAudioSDP(isIPv6: false, port: 52000, srtp: audioKey)
+        #expect(sdp == "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=Talk\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio 52000 RTP/AVP 110\r\nb=AS:24\r\n"
             + "a=rtpmap:110 MPEG4-GENERIC/16000/1\r\na=rtcp-mux\r\n"
             + "a=fmtp:110 profile-level-id=1;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3; config=F8F0212C00BC00\r\n"
             + "a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:\(audioKey.base64EncodedString())\r\n")
-        #expect(FFmpegArguments.returnAudioSDP(address: "fe80::1", isIPv6: true, port: 1, srtp: audioKey).contains("c=IN IP6 fe80::1"))
+        #expect(FFmpegArguments.returnAudioSDP(isIPv6: true, port: 1, srtp: audioKey).contains("c=IN IP6 ::1"))
         // The web UI's microphone goes to the same target, its PCM on standard input.
         #expect(FFmpegArguments.webTalk(video, sampleRate: 16000) == FFmpegArguments.split(
             "-hide_banner -f s16le -ar 16000 -ac 1 -i pipe: -acodec libfdk_aac -ar 16000 -b:a 24k -ac 1 -f adts udp://camera:5000 -loglevel level"))

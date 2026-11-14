@@ -1446,7 +1446,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .server .actions { display: flex; align-items: center; gap: var(--space-10); flex-wrap: wrap; }
 .server.editor { grid-column: 1 / -1; gap: var(--space-18); }
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: var(--space-4) var(--space-18); align-items: start; }
-.fields > fieldset, .fields > .group-box { grid-column: 1 / -1; }
+.fields > fieldset, .fields > .group-box, .fields > .wide { grid-column: 1 / -1; }
 .field { margin: var(--space-10) 0 var(--space-4); }
 .field-title { display: block; font-weight: var(--weight-medium); margin-bottom: var(--space-6); }
 .field > input, .field > select { margin-top: 0; }
@@ -2807,6 +2807,8 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   transition: opacity var(--normal) var(--ease-out);
 }
 .camera-button {
+  /* Round whatever the row holds beside them: a long status wraps, the buttons never narrow. */
+  flex: none;
   display: inline-grid; place-items: center; width: 34px; height: 34px; min-height: 34px; padding: 0; border-radius: 50%; color: #fff;
   background: rgba(30, 32, 40, 0.42); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: none;
@@ -2867,9 +2869,21 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 .ptz-chip:active { scale: 0.97; }
 @media (hover: hover) and (pointer: fine) { .ptz-chip:hover { background: rgba(30, 32, 40, 0.62); } }
 .ptz-status {
-  margin-right: auto; padding: 3px var(--space-10); border-radius: var(--radius-pill); font-size: var(--text-xs); font-weight: var(--weight-medium);
+  margin-right: auto; min-width: 0; padding: var(--space-4) var(--space-10); border-radius: var(--radius-md); font-size: var(--text-xs); font-weight: var(--weight-medium);
+  line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
   background: rgba(20, 22, 28, 0.55); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
 }
+/* The microphone widens into a pill while someone talks, its waveform beside the icon as in the Home app. Round
+   otherwise: the icon sits where the circle centres it, so it does not move as the pill grows. */
+.camera-button.talk-toggle {
+  display: inline-flex; align-items: center; justify-content: flex-start; gap: var(--space-6); padding: 0 0 0 7px;
+  border-radius: var(--radius-pill); overflow: hidden;
+  transition: width 320ms cubic-bezier(0.2, 0.9, 0.3, 1), background-color var(--normal) var(--ease-out);
+}
+.camera-button.talk-toggle svg { flex: none; }
+.camera-button.talk-toggle.talking { width: 140px; padding-right: var(--space-12); }
+.talk-wave { flex: 1 1 auto; min-width: 0; height: 20px; }
+@media (pointer: coarse) { .camera-button.talk-toggle { padding-left: var(--space-10); } .camera-button.talk-toggle.talking { width: 156px; } .talk-wave { height: 22px; } }
 .ptz-status.failed { background: rgba(255, 69, 58, 0.88); }
 /* The panel stays while it is open, whatever the pointer does; the status shows over hidden controls too. */
 .camera-view:has(.ptz-panel:not(.hidden)) > .camera-controls, .camera-view:has(.ptz-status:not(.hidden)) > .camera-controls { opacity: 1; }
@@ -2897,7 +2911,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 }
 @media (pointer: coarse) { .camera-button { width: 40px; height: 40px; min-height: 40px; } }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .camera-view { margin: -6px -8px 0; } }
-@media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh, .camera-button.talking, .camera-button.starting svg { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh, .camera-button.talking, .camera-button.starting svg { animation: none; } .camera-view > video, .camera-controls, .camera-button.talk-toggle { transition: none; } }
 @media (prefers-reduced-transparency: reduce) {
   .camera-badge, .camera-button { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(20, 22, 28, 0.85); }
   .camera-button.talking { background: #ff453a; }
@@ -5927,6 +5941,9 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .remote-controls { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
 .remote-controls li { display: flex; gap: var(--space-8); min-width: 0; }
 .remote-controls li > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What the Home app does on a press: its icon first; one turned off there, faded. */
+.remote-hub-icon { vertical-align: -2px; margin-inline-end: var(--space-4); }
+.remote-controls li.remote-hub.off > span:last-child { color: var(--muted); text-decoration: line-through; }
 .remote-gesture { flex: none; min-width: 7.5em; color: var(--muted); }
 .remote-part > .muted, .remote-part .body > .muted { font-size: var(--text-sm); }
 .remote-part .chevron { flex: none; color: var(--muted); display: grid; transition: color 160ms ease; }
@@ -6849,6 +6866,30 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .entry-body[data-page] .object-box.entry-page { border: 0; border-radius: 0; background: none; box-shadow: none; margin: 0; padding: 0; }
 .entry-body[data-page] .object-box.entry-page > summary { display: none; }
 .entry-body[data-page] .object-box.entry-page > .help { margin: 0 0 var(--space-12); }
+/* Switches, and what sits under them (x-parent), as one list: a row each, its words first and its switch at the end, as
+   Settings on an iPhone; a setting under a switch is indented under it. */
+.toggle-list {
+  grid-column: 1 / -1; margin: var(--space-10) 0 var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--material-thin); overflow: hidden;
+}
+.toggle-list:not(:has(> :not(.hidden))) { display: none; }
+.toggle-list > :not(.hidden) ~ :not(.hidden) { border-top: 1px solid var(--line); }
+.toggle-list > .toggle { flex-direction: row-reverse; justify-content: space-between; align-items: center; margin: 0; padding: var(--space-10) var(--space-14); }
+.toggle-list > .toggle > .switch { flex: none; }
+.toggle-list > .toggle .field-title { margin: 0; }
+.toggle-list > .toggle .help { margin-top: 2px; }
+.toggle-list > .field {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: var(--space-12);
+  margin: 0; padding: var(--space-8) var(--space-14);
+}
+.toggle-list > .field > .field-title { margin: 0; }
+.toggle-list > .field > .help { grid-column: 1 / -1; margin-top: 2px; }
+.toggle-list > .field > input, .toggle-list > .field > select, .toggle-list > .field > .unit-input { width: 132px; }
+.toggle-list > .nested { padding-left: calc(var(--space-14) + var(--space-24)); background: var(--material-thin); }
+/* A number and its unit, the unit inside the field's end. */
+.unit-input { position: relative; display: block; }
+.unit-input > input { width: 100%; padding-right: 2.2em; }
+.unit-input > .unit { position: absolute; right: var(--space-12); top: 50%; translate: 0 -50%; color: var(--muted); pointer-events: none; font-size: var(--text-sm); }
 .entry-tabs { flex: none; scrollbar-width: none; }
 .entry-tabs::-webkit-scrollbar { display: none; }
 .entry-tabs button { flex: 0 0 auto; }

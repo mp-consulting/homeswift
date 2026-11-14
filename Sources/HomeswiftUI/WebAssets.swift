@@ -1502,6 +1502,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     targetController: t("Remote"), wifiRouter: t("Wi-Fi router"), audioReceiver: t("Audio receiver"), tvSetTopBox: t("Set-top box"),
     tvStreamingStick: t("Streaming stick") };
   const categoryName = (key = "") => categoryNames[key] ?? key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (first) => first.toUpperCase());
+  /// Whether `accessory` is of the device type `category` in a filter: a doorbell is a Camera too, its camera being one.
+  const hasCategory = (accessory, category) => accessory.category === category || ((category === "ipCamera" || category === "camera") && accessory.camera === true);
   /// The icon that stands for a device's category: its widget tile's, else a generic one.
   const deviceIcon = (category) => HomeswiftWidgets.categoryIcon(category) ?? "generic";
   /// An accessory's icon: the one its tile shows (its main service's widget, else its category's), else a generic one.
@@ -1792,7 +1794,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       keeps(leaf) {
         if (from && leaf.mirroredFrom !== from) return false;
         if (bridges.size && !bridges.has(leaf.bridge)) return false;
-        if (categories.size && !categories.has(leaf.category)) return false;
+        if (categories.size && ![...categories].some((category) => hasCategory(leaf, category))) return false;
         // As the wall's Online and No Response: a paused plugin's accessories do not answer either.
         if ((unavailable || online) && HomeswiftWidgets.answers(leaf) !== online) return false;
         if (!words.length) return true;
@@ -2436,7 +2438,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("tbody", {}, rows)));
   }
 
-  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, consumptionCards, confirmAction, categoryName, deviceIcon };
+  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, consumptionCards, confirmAction, categoryName, hasCategory, deviceIcon };
 })();
 
 """#),
@@ -5873,17 +5875,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       api("/api/zones").then((answer) => answer.zones).catch(() => []), isAdmin() ? loadMatterOwn() : null]);
     const all = withSlugs(list, "accessory");
     const params = new URLSearchParams(location.search);
-    // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
-    const showHidden = params.get("hidden") === "1";
-    const noResponse = params.get("unavailable") === "1";
-    // Online (?online=1): the accessories that answer, the other side of No Response; the two never at once.
-    const online = !noResponse && params.get("online") === "1";
+    // The filters, read from the address again when one is chosen (`readFilters`): the wall is drawn again in place.
+    let showHidden, noResponse, online, from, chosen, accessories, servers, ordered;
     const { answers } = HomeswiftWidgets;
     // Full screen (?full=1): the widgets alone, a room or plugin a page when grouped; an address a wall tablet can open.
     const fullScreen = params.get("full") === "1";
     // The controllers some accessories mirror (Apple Home, through Wingman): each gets a filter.
     const sources = [...new Set(all.map((accessory) => accessory.mirroredFrom).filter(Boolean))];
-    const from = sources.includes(params.get("from")) ? params.get("from") : null;
     // The bridges and device types chosen (?bridge=…&type=…, each as often as chosen), as on the graph.
     // A server that is one accessory of its own (a camera, a television) is that accessory, filtered by its type, not a bridge.
     const ownServer = (name) => {
@@ -5894,27 +5892,38 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const categories = [...new Set(all.map((accessory) => accessory.category).filter(Boolean))]
       .sort((a, b) => HomeswiftAdmin.categoryName(a).localeCompare(HomeswiftAdmin.categoryName(b), HomeswiftI18n.locale));
     const zoneNames = zoneList.map((zone) => zone.name);
-    const chosen = { bridge: new Set(params.getAll("bridge").filter((name) => bridgeNames.includes(name))),
-      type: new Set(params.getAll("type").filter((category) => categories.includes(category))),
-      zone: new Set(params.getAll("zone").filter((name) => zoneNames.includes(name))) };
     // In a Zone: its room is one of the Zone's.
     const inZone = (accessory, name) => Boolean(accessory.room) && (zoneList.find((zone) => zone.name === name)?.rooms ?? []).includes(accessory.room);
+    // A device type keeps its kind; Camera keeps every camera, a doorbell's too.
     const keepsChosen = (accessory, except = null) => (except === "bridge" || !chosen.bridge.size || chosen.bridge.has(accessory.bridge))
-      && (except === "type" || !chosen.type.size || chosen.type.has(accessory.category))
+      && (except === "type" || !chosen.type.size || [...chosen.type].some((category) => HomeswiftAdmin.hasCategory(accessory, category)))
       && (except === "zone" || !chosen.zone.size || [...chosen.zone].some((name) => inZone(accessory, name)));
     const keepsShown = (accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || !answers(accessory)) && (!online || answers(accessory));
-    const accessories = all.filter((accessory) => keepsShown(accessory) && keepsChosen(accessory));
     const hiddenCount = all.filter((accessory) => accessory.hidden).length;
     const rooms = home.rooms.map((room) => room.name);
-    const servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
     const layout = { order: [], sizes: {}, defaults: {}, grouping: "none", ...saved };
-    const kinds = new Map(accessories.map((accessory) => [accessory.id, HomeswiftWidgets.kindOf(accessory)]));
+    const kinds = new Map(all.map((accessory) => [accessory.id, HomeswiftWidgets.kindOf(accessory)]));
     const kindOf = (accessory) => kinds.get(accessory.id).kind;
     const sizeOf = (accessory) => layout.sizes[accessory.id] || (accessory.members ? "large" : layout.defaults[kindOf(accessory)] || kinds.get(accessory.id).size);
-    // The order kept first; accessories it does not list yet after them, by plugin and name.
-    const rank = new Map(layout.order.map((id, index) => [id, index]));
-    const ordered = groupByPlugin(accessories).flatMap(([, group]) => group)
-      .map((accessory, index) => [accessory, rank.get(accessory.id) ?? layout.order.length + index]).sort((a, b) => a[1] - b[1]).map(([accessory]) => accessory);
+    function readFilters() {
+      const params = new URLSearchParams(location.search);
+      // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
+      showHidden = params.get("hidden") === "1";
+      noResponse = params.get("unavailable") === "1";
+      // Online (?online=1): the accessories that answer, the other side of No Response; the two never at once.
+      online = !noResponse && params.get("online") === "1";
+      from = sources.includes(params.get("from")) ? params.get("from") : null;
+      chosen = { bridge: new Set(params.getAll("bridge").filter((name) => bridgeNames.includes(name))),
+        type: new Set(params.getAll("type").filter((category) => categories.includes(category))),
+        zone: new Set(params.getAll("zone").filter((name) => zoneNames.includes(name))) };
+      accessories = all.filter((accessory) => keepsShown(accessory) && keepsChosen(accessory));
+      servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
+      // The order kept first; accessories it does not list yet after them, by plugin and name.
+      const rank = new Map(layout.order.map((id, index) => [id, index]));
+      ordered = groupByPlugin(accessories).flatMap(([, group]) => group)
+        .map((accessory, index) => [accessory, rank.get(accessory.id) ?? layout.order.length + index]).sort((a, b) => a[1] - b[1]).map(([accessory]) => accessory);
+    }
+    readFilters();
     const plugin = (accessory) => accessory.platformName ?? "";
     // What a widget may move beside when the wall is split: its plugin, or its room.
     const section = (accessory) => layout.grouping === "room" ? accessory.room ?? "" : plugin(accessory);
@@ -6140,11 +6149,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     /// row}, which goes first): each keeps its cell, moved down past a widget already there and left when the screen
     /// has fewer columns, and the others fill the first free cells in their order. Gaps stay. A wall with no cell of its
     /// own flows as the grid packs it. Answers each widget's cell.
+    /// Narrowed by a search or a filter outside Edit, the widgets left are packed together in the order their cells read,
+    /// leaving no gap where the others were; Edit keeps the cells, which a drag there saves.
     function arrange(wall, pin = null) {
-      const places = placesOf();
+      const order = placesOf();
       const widgets = [...wall.children].filter((child) => (child.dataset.id || child === pin?.node) && !child.classList.contains("lifted"));
+      const packed = !editing && !pin && narrowed() && widgets.some((child) => order[child.dataset.id]);
+      const places = packed ? {} : order;
       const result = new Map();
-      if (!pin && !widgets.some((child) => places[child.dataset.id])) {
+      if (!packed && !pin && !widgets.some((child) => places[child.dataset.id])) {
         for (const child of widgets) { child.style.gridColumn = ""; child.style.gridRow = ""; cells.delete(child); }
         return result;
       }
@@ -6168,7 +6181,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const rest = widgets.filter((child) => child !== pin?.node && !child.classList.contains("hidden"));
       const at = (child) => places[child.dataset.id];
       for (const child of rest.filter(at).sort((a, b) => at(a)[1] - at(b)[1] || at(a)[0] - at(b)[0])) put(child, ...at(child));
-      for (const child of rest.filter((one) => !at(one))) {
+      // Packed: those with a cell first, as their cells read, then the others in their order.
+      const reading = (child) => order[child.dataset.id] ? order[child.dataset.id][1] * 1000 + order[child.dataset.id][0] : Number.MAX_SAFE_INTEGER;
+      const unplaced = rest.filter((one) => !at(one));
+      if (packed) unplaced.sort((a, b) => reading(a) - reading(b));
+      for (const child of unplaced) {
         const [spanColumns, height] = spanOf(child), width = Math.min(spanColumns, columns);
         let row = 1, column = 1;
         while (!fits(column, row, width, height)) { column++; if (column > columns - width + 1) { column = 1; row++; } }
@@ -6560,6 +6577,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         shown += inSection;
       }
       none.classList.toggle("hidden", shown > 0);
+      // Widgets with cells of their own close up around those the search leaves out.
+      arrangeSoon();
     }
     search.value = params.get("q") ?? "";
     search.addEventListener("input", () => { filter(); replaceQuery("q", search.value.trim()); });
@@ -6575,48 +6594,70 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const canSuggest = isAdmin() && window.HomeswiftChat?.available() && all.length;
 
+    /// The filters in the address `next`, the page left as it is: the wall drawn again in place, the menu left open.
+    /// An empty wall or one filled again is a view of its own: drawn again from the start.
+    const setFilters = (next) => {
+      const wasEmpty = !accessories.length;
+      history.replaceState(history.state, "", `/accessories${next.size ? `?${next}` : ""}`);
+      readFilters();
+      if (wasEmpty || !accessories.length) { route(); return; }
+      render();
+      subtitle.textContent = headline();
+      paintFilters();
+      // Scrolled down a long wall: the top of a shorter one, its count in the head.
+      if (content.getBoundingClientRect().top < 0) window.scrollTo({ top: 0, behavior: "instant" });
+    };
     /// One filter on or off; `clears` are the filters it cannot go with (Online and No Response).
     const changeFilter = (key, value, enabled, clears = []) => {
       const next = new URLSearchParams(location.search);
       for (const other of clears) next.delete(other);
       if (enabled) next.set(key, value); else next.delete(key);
-      navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+      setFilters(next);
     };
     const searchCount = (predicate) => all.filter((accessory) => predicate(accessory) && HomeswiftWidgets.searchText(accessory).includes(search.value.trim().toLowerCase())).length;
-    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + Number(online) + chosen.bridge.size + chosen.type.size + chosen.zone.size;
+    /// Whether a search or a filter leaves out some of the wall: `arrange` packs what is left.
+    const narrowed = () => Boolean(search.value.trim()) || activeFilters() > 0;
+    const activeFilters = () => Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + Number(online) + chosen.bridge.size + chosen.type.size + chosen.zone.size;
     // A bridge, device type or Zone: a toggle in the address, counting what it would add with the other filters as they are.
-    const matchesChoice = (accessory, key, value) => key === "zone" ? inZone(accessory, value) : (key === "bridge" ? accessory.bridge : accessory.category) === value;
-    const choice = (key, value, label, icon) => ({ label, icon, checked: chosen[key].has(value), checkbox: true, toggle: true,
-      count: searchCount((accessory) => keepsShown(accessory) && keepsChosen(accessory, key) && matchesChoice(accessory, key, value)),
+    const matchesChoice = (accessory, key, value) => key === "zone" ? inZone(accessory, value) : key === "bridge" ? accessory.bridge === value : HomeswiftAdmin.hasCategory(accessory, value);
+    // A toggle keeps the menu open: its ticks and counts follow the filters chosen.
+    const choice = (key, value, label, icon) => ({ label, icon, checked: () => chosen[key].has(value), checkbox: true, toggle: true, keepOpen: true,
+      count: () => searchCount((accessory) => keepsShown(accessory) && keepsChosen(accessory, key) && matchesChoice(accessory, key, value)),
       onSelect: () => {
         const next = new URLSearchParams(location.search);
         const values = new Set(chosen[key]);
         if (!values.delete(value)) values.add(value);
         next.delete(key);
         for (const one of values) next.append(key, one);
-        navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+        setFilters(next);
       } });
-    const filters = el("button", { type: "button", class: `accessories-filters${activeFilters ? " on" : ""}`, "aria-haspopup": "menu" },
-      HomeswiftCommon.icon("filter"), el("span", { class: "toolbar-label", text: t("Filters") }), activeFilters ? el("span", { class: "toolbar-count", text: activeFilters }) : null);
+    const filters = el("button", { type: "button", class: "accessories-filters", "aria-haspopup": "menu" });
+    function paintFilters() {
+      const active = activeFilters();
+      filters.classList.toggle("on", active > 0);
+      filters.replaceChildren(...[HomeswiftCommon.icon("filter"), el("span", { class: "toolbar-label", text: t("Filters") }), active ? el("span", { class: "toolbar-count", text: active }) : null].filter(Boolean));
+    }
+    paintFilters();
     filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [
-      ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), count: searchCount((accessory) => accessory.mirroredFrom === source), checked: from === source, checkbox: true, toggle: true,
+      ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), count: () => searchCount((accessory) => accessory.mirroredFrom === source), checked: () => from === source,
+        checkbox: true, toggle: true, keepOpen: true,
         icon: source === "Apple Home" ? el("img", { src: "/apple-home.png", width: 20, height: 20, alt: "" }) : null,
         onSelect: () => changeFilter("from", source, from !== source) })),
-      { label: t("Online"), icon: "check", tone: "ok", count: searchCount(answers), checked: online, checkbox: true, toggle: true, onSelect: () => changeFilter("online", "1", !online, ["unavailable"]) },
-      { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => !answers(accessory)), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse, ["online"]) },
-      ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
+      { label: t("Online"), icon: "check", tone: "ok", count: () => searchCount(answers), checked: () => online, checkbox: true, toggle: true, keepOpen: true, onSelect: () => changeFilter("online", "1", !online, ["unavailable"]) },
+      { label: t("No Response"), icon: "warning", tone: "error", count: () => searchCount((accessory) => !answers(accessory)), checked: () => noResponse, checkbox: true, toggle: true, keepOpen: true, onSelect: () => changeFilter("unavailable", "1", !noResponse, ["online"]) },
+      ...(hiddenCount ? [{ label: t("Show hidden"), count: () => searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: () => showHidden, checkbox: true, toggle: true, keepOpen: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
       ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, "bridge"))] : []),
       ...(categories.length ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
       ...(zoneNames.length ? [{ separator: true }, ...zoneNames.map((name) => choice("zone", name, name, "grid"))] : []),
       { separator: true },
-      { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && activeFilters === 0, onSelect: () => {
+      { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: () => !search.value && activeFilters() === 0, onSelect: () => {
         search.value = "";
         replaceQuery("q", "");
-        if (activeFilters) {
+        if (activeFilters()) {
           const next = new URLSearchParams(location.search);
           // Every filter but the search, cleared above, and the graph's arrangement, which is no filter.
           for (const key of accessoryFilterKeys.filter((key) => key !== "q" && key !== "by")) next.delete(key);
-          navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+          setFilters(next);
         } else filter();
       } },
     ]));
@@ -6750,10 +6791,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       addEventListener("resize", onResize);
     }
     render();
+    const headline = () => !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
+      : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
+      : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers });
+    const head = pageHead(t("Accessories"), headline());
+    const subtitle = head.querySelector(".who p") ?? el("p");
     show(main,
-      pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
-        : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
-        : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers })),
+      head,
       accessoriesBar(el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more),
         accessoryTabs("", accessories.length ? fullScreenButton : null, addButton)),
       note,
@@ -9634,6 +9678,73 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // take over.
   // A failure's reason stays FAILURE_HOLD milliseconds beside the buttons: long enough to read why the button went off.
   const SOCKET_CHUNK = 40, REQUEST_CHUNK = 100, TALK_BACKLOG = 1000, SOCKET_WAIT = 3000, FAILURE_HOLD = 8000;
+  // The waveform while someone talks: WAVE_BARS bars, one more every WAVE_STEP milliseconds, the newest on the right.
+  const WAVE_BARS = 28, WAVE_STEP = 50;
+
+  /// The microphone's level as the Home app shows it while someone talks: bars that rise with each syllable, fall in
+  /// the pauses and scroll left. The scale follows the voice: its floor the room's quiet (down at once, up slowly), its
+  /// top the voice's recent peaks (up at once, down slowly), so a soft voice moves the bars as much as a loud one and a
+  /// steady noise stays low. `start(analyser)` follows an AnalyserNode on the microphone; `stop()` clears it.
+  function waveform() {
+    const canvas = el("canvas", { class: "talk-wave hidden", "aria-hidden": "true" });
+    let frame = 0, levels = [], last = 0, samples = null, floor = -60, peak = -30;
+    function draw() {
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.round(canvas.clientWidth * ratio), height = Math.round(canvas.clientHeight * ratio);
+      if (!width || !height) return;
+      if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+      const context = canvas.getContext("2d");
+      context.clearRect(0, 0, width, height);
+      const pitch = width / WAVE_BARS, bar = Math.max(1, pitch * 0.5), floor = 2 * ratio;
+      levels.forEach((level, index) => {
+        const h = Math.max(floor, level * (height - 4 * ratio));
+        const x = width - (levels.length - index) * pitch + (pitch - bar) / 2;
+        context.globalAlpha = 0.5 + 0.5 * level;
+        context.fillStyle = "#fff";
+        context.beginPath();
+        context.roundRect(x, (height - h) / 2, bar, h, bar / 2);
+        context.fill();
+      });
+    }
+    return {
+      canvas,
+      start(analyser) {
+        samples = new Float32Array(analyser.fftSize);
+        levels = Array(WAVE_BARS).fill(0);
+        floor = -60;
+        peak = -30;
+        canvas.classList.remove("hidden");
+        const tick = (now) => {
+          if (now - last >= WAVE_STEP) {
+            last = now;
+            analyser.getFloatTimeDomainData(samples);
+            let sum = 0;
+            for (const sample of samples) sum += sample * sample;
+            const decibels = Math.max(-90, 20 * Math.log10(Math.sqrt(sum / samples.length) || 1e-6));
+            // Digital silence (a microphone starting, muted) is no sound at all: it would drag the floor far below the
+            // room's quiet, every pause then reading as speech until it climbed back.
+            if (decibels > -80) {
+              // The room's quiet: down at once, up 0.3 dB a step (3 s to rise 18 dB), never above a speaking voice.
+              floor = Math.min(decibels, floor + 0.3, -25);
+              // The voice's peaks: up at once, down 0.25 dB a step; at least 20 dB above the floor.
+              peak = Math.max(decibels, peak - 0.25, floor + 20);
+            }
+            // Above the floor's margin, over the range to the peak; squared, so a syllable stands out from its tail.
+            const level = Math.min(1, Math.max(0, (decibels - floor - 4) / (peak - floor - 4)));
+            levels.push(level * level);
+            levels.shift();
+            draw();
+          }
+          frame = requestAnimationFrame(tick);
+        };
+        frame = requestAnimationFrame(tick);
+      },
+      stop() {
+        cancelAnimationFrame(frame);
+        canvas.classList.add("hidden");
+      },
+    };
+  }
 
   /// The microphone of a camera with a speaker (`talk` in /api/cameras/<id>/controls): a button that starts and stops
   /// a Talk. The microphone is resampled to the camera's rate by talk-worklet.js and sent over a WebSocket
@@ -9646,6 +9757,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let format = null, session = null;
     const toggle = button("mic", t("Talk"), () => (session ? stop() : start()));
     toggle.classList.add("hidden", "talk-toggle");
+    // The waveform is the button's: it widens into a pill around it while someone talks.
+    const wave = waveform();
+    toggle.append(wave.canvas);
     toggle.setAttribute("aria-pressed", "false");
 
     // "off", "starting" (asked, not yet talking) or "on".
@@ -9698,10 +9812,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const silent = current.context.createGain();
         silent.gain.value = 0;
         source.connect(current.node).connect(silent).connect(current.context.destination);
+        // The waveform follows the same microphone.
+        const analyser = current.context.createAnalyser();
+        // 2048 samples: 43 ms at 48 kHz, the length of a bar's step, so every bar sees all of its sound.
+        analyser.fftSize = 2048;
+        source.connect(analyser);
         current.talking = true;
         mark("on");
         hooks.started();
-        setStatus(t("Talking on {name}", { name: camera.name }));
+        // The waveform says it is on; the name is the button's, for a screen reader.
+        setStatus("");
+        toggle.setAttribute("aria-label", t("Stop talking on {name}", { name: camera.name }));
+        wave.start(analyser);
       } catch (error) {
         if (current.ended) return;
         const blocked = error?.name === "NotAllowedError" || error?.name === "SecurityError";
@@ -9781,6 +9903,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     function release(current) {
       current.ended = true;
+      if (session === current) wave.stop();
       current.node?.port.close();
       current.stream?.getTracks().forEach((track) => track.stop());
       current.context?.close().catch(() => {});
@@ -9886,6 +10009,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // A failure shows for `hold` milliseconds.
     const setStatus = (text, failed = false, hold = 4000) => {
       ptzStatus.textContent = text;
+      // Two lines at most beside the buttons: the whole of a longer one on hover.
+      ptzStatus.title = text;
       ptzStatus.classList.toggle("hidden", !text);
       ptzStatus.classList.toggle("failed", failed);
       clearTimeout(ptzStatus.timer);
@@ -12098,7 +12223,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const role = choice ? (item.checkbox ? "menuitemcheckbox" : "menuitemradio") : "menuitem";
       const tick = item.toggle ? el("span", { class: "menu-toggle", "aria-hidden": "true" }, el("span"))
         : choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: mark(checkedNow()) }) : null;
-      const count = item.count === undefined ? null : el("span", { class: "menu-item-count", text: String(item.count) });
+      // `count` may be a function too, asked again with `checked` (a filter's count follows the others chosen).
+      const countNow = () => typeof item.count === "function" ? item.count() : item.count;
+      const count = item.count === undefined ? null : el("span", { class: "menu-item-count", text: String(countNow()) });
       const node = item.href
         ? el("a", { role, href: item.href, class: item.danger ? "danger" : item.accent ? "accent" : "", tabIndex: -1 }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick)
         : el("button", { type: "button", role, class: item.danger ? "danger" : item.accent ? "accent" : "", tabIndex: -1, "aria-checked": choice ? String(checkedNow()) : null }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick);
@@ -12106,11 +12233,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // A Group's member, under its row.
       if (item.nested) node.classList.add("menu-nested");
       if (typeof item.checked === "function") refreshChecked.push(() => paint(checkedNow()));
-      const isDisabled = () => (typeof item.disabled === "function" ? item.disabled() : Boolean(item.disabled)) || (item.count === 0 && item.checked === false);
+      if (typeof item.count === "function") refreshChecked.push(() => { count.textContent = String(countNow()); });
+      const isDisabled = () => (typeof item.disabled === "function" ? item.disabled() : Boolean(item.disabled)) || (countNow() === 0 && checkedNow() === false);
       const updateDisabled = () => {
         if (isDisabled()) node.setAttribute("aria-disabled", "true"); else node.removeAttribute("aria-disabled");
         if (node.tagName === "BUTTON") node.disabled = isDisabled();
-        node.title = isDisabled() && item.count === 0 ? (item.disabledReason || t("No accessories match the current search.")) : "";
+        node.title = isDisabled() && countNow() === 0 ? (item.disabledReason || t("No accessories match the current search.")) : "";
       };
       updateDisabled();
       refreshDisabled.push(updateDisabled);
@@ -12173,6 +12301,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const checked = await item.onSelect?.();
           if (typeof checked === "boolean") paint(checked);
           refreshChecked.forEach((update) => update());
+          refreshDisabled.forEach((update) => update());
         } finally { pending = false; node.removeAttribute("aria-busy"); }
       });
       // A room heading's name is searched too ("kitchen" finds its lights), and an item's `search` words (a Group's
@@ -17540,6 +17669,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // Shown, not changed (`readOnly`: a Helper's kind, set when it was added).
       if (property.readOnly) for (const control of made.element.querySelectorAll("input, select, textarea, button")) control.disabled = true;
       watch(made.element, property.condition ?? property["x-schema-form"]?.condition, index);
+      // Where a list's entry places it (buildObject's arrangeEntry): another tab (`x-section`), under its switch (`x-parent`).
+      if (property["x-section"]) made.element.dataset.section = property["x-section"];
+      if (property["x-parent"]) made.element.dataset.parent = property["x-parent"];
+      made.element.dataset.key = key;
+      // `x-schema-form.wide`: a whole row for a long value (a stream's address), not a column of two.
+      if (property["x-schema-form"]?.wide) made.element.classList.add("wide");
       // Required only while a condition holds (`x-schema-form.requiredWhen`, read as `condition`s are): a block whose
       // settings depend on another (an account or keys, by the route chosen) marks the ones it needs now.
       if (!required) watch(made.element, property["x-schema-form"]?.requiredWhen, index, true);
@@ -17666,7 +17801,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       if (type === "integer" || type === "number") {
         const input = el("input", { type: "number", value: current ?? "", placeholder: inherits ? defaultText(fallback ?? property.default) : tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", min: property.minimum, max: property.maximum, step: property.step ?? (type === "integer" ? 1 : "any"), required });
-        return { element: wrap(input), get: () => (input.value === "" ? undefined : Number(input.value)) };
+        // `x-schema-form.unit`: the unit after the number (s, %, W), rather than in the title.
+        const unit = property["x-schema-form"]?.unit;
+        return { element: wrap(unit ? el("span", { class: "unit-input" }, input, el("span", { class: "unit", "aria-hidden": "true", text: tr(unit) })) : input),
+          get: () => (input.value === "" ? undefined : Number(input.value)) };
       }
       if (type === "object" && !property.properties) {
         // A map (`additionalProperties`, such as a light's parts by id): a row per entry, its key and its value as the
@@ -17706,7 +17844,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // In a list's entry (a Dummy accessory's schedule, its auto-reset), a closed section that says what it holds:
         // an entry of a dozen of them open would run for pages.
         const count = el("span", { class: "group-count" });
-        const element = el("details", { class: "group-box object-box", "data-icon": property["x-icon"] ?? sectionIcon(key) },
+        const element = el("details", { class: "group-box object-box", "data-icon": property["x-icon"] ?? sectionIcon(key), "data-key": key },
           el("summary", {}, el("span", { text: title }), count), help, nested.element);
         // The settings its conditions show (a timeout's time, not a cron's expression), and how many have a value of
         // their own; the panel's tab reads `data-set`. Recounted while its entry's panel is open (openEntry).
@@ -17772,7 +17910,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           if (items.type === "object" && items.properties) {
             // An entry (a light, a TV) is a row with its name and address; it opens to edit in a side panel, a new one
             // at once. Its fields are whole there (no More options): the panel has the room, and its sections are tabs.
-            const nested = buildObject(items, itemValue || {}, () => rows.indexOf(entry), { split: false });
+            const nested = buildObject(items, itemValue || {}, () => rows.indexOf(entry), { split: false, entry: true });
             const name = el("span", { class: "entry-name" });
             const detail = el("span", { class: "entry-detail" });
             const describe = () => {
@@ -17946,7 +18084,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const sections = [...body.querySelectorAll(":scope > .fields > .object-box")];
       const id = `entry-panel-${++panels}`;
       const tabs = el("div", { class: "plugins-tabs entry-tabs", role: "tablist", "aria-label": t("Sections") });
-      const pages = [{ label: t("General"), icon: "gear", section: null }, ...sections.map((section) => ({
+      // The first tab: General, or what the entry's `x-general` calls it (a camera's Camera).
+      const general = nested.general ?? {};
+      const pages = [{ label: tr(general.title) || t("General"), icon: general.icon ?? "gear", section: null }, ...sections.map((section) => ({
         label: section.querySelector(":scope > summary > span").textContent, icon: section.dataset.icon || "sliders", section }))];
       let current = 0;
       const show = (index) => {
@@ -18007,7 +18147,78 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       return dialog;
     }
 
-    function buildObject(objectSchema, current, index, { split: splitting = true } = {}) {
+    /// A list's entry laid out for its panel, from its schema's hints, its values' shape untouched:
+    /// - `x-section` on a property (an object's included) moves it to another tab: `general` to the first, an object
+    ///   key of the entry to that object's tab, a name of the entry's `x-sections` (`{ title, icon, description }`) to a
+    ///   tab of its own, which stands where its first setting was; a setting of an object inside may move up too
+    ///   (a camera's stream to its first tab).
+    /// - `x-parent` puts a setting under the switch it depends on (a motion sensor's timeout), indented.
+    /// - Switches in a row, and what sits under them, make a list: each one a row, its switch at the end.
+    /// A setting keeps its control wherever it moves: what the form reads is the same.
+    function arrangeEntry(objectSchema, element, parts) {
+      const top = element.querySelector(":scope > .fields");
+      if (!top) return;
+      const own = (node) => node.closest(".fields") ;
+      const created = new Map();
+      const sectionFor = (name) => {
+        if (name === "general") return top;
+        const box = top.querySelector(`:scope > .object-box[data-key="${CSS.escape(name)}"]`);
+        if (box) return box.querySelector(":scope > .entry-body > .fields");
+        const declared = objectSchema["x-sections"]?.[name];
+        if (!declared) return null;
+        if (created.has(name)) return created.get(name).fields;
+        const fields = el("div", { class: "fields" });
+        const count = el("span", { class: "group-count" });
+        const box2 = el("details", { class: "group-box object-box", "data-icon": declared.icon ?? sectionIcon(name), "data-key": name },
+          el("summary", {}, el("span", { text: tr(declared.title) || name }), count),
+          declared.description ? el("div", { class: "help", text: tr(declared.description) }) : null, el("div", { class: "entry-body" }, fields));
+        created.set(name, { box: box2, fields, count });
+        return fields;
+      };
+      // In document order, so a tab's settings keep the schema's.
+      for (const node of [...element.querySelectorAll("[data-section]")]) {
+        const target = sectionFor(node.dataset.section);
+        if (!target || own(node) === target) continue;
+        const made = created.get(node.dataset.section);
+        // A tab of its own stands where its first setting was.
+        if (made && !made.box.isConnected) node.before(made.box);
+        target.append(node);
+      }
+      // A tab of its own counts its settings as an object's does, for its tab's dot.
+      for (const [, { box, fields, count }] of created) {
+        box.recount = () => {
+          const shown = [...fields.querySelectorAll("[data-key]")].filter((node) => !node.closest(".hidden") && parts.has(node.dataset.key));
+          const set = shown.filter((node) => ownValue(parts.get(node.dataset.key).get(), objectSchema.properties[node.dataset.key]?.default)).length;
+          count.textContent = settingsLabel(shown.length, set);
+          box.dataset.set = String(set);
+        };
+        box.recount();
+      }
+      // Under its switch: after it and the others already there.
+      for (const node of [...element.querySelectorAll("[data-parent]")]) {
+        const parent = node.parentElement?.querySelector(`:scope > [data-key="${CSS.escape(node.dataset.parent)}"]`);
+        if (!parent) continue;
+        let last = parent;
+        while (last.nextElementSibling?.dataset.parent === node.dataset.parent || last.nextElementSibling?.classList.contains("nested")) {
+          if (last.nextElementSibling === node) break;
+          last = last.nextElementSibling;
+        }
+        node.classList.add("nested");
+        last.after(node);
+      }
+      // Switches and what sits under them, a list each run of them.
+      for (const fields of element.querySelectorAll(".fields")) {
+        let list = null;
+        for (const node of [...fields.children]) {
+          const row = node.matches("label.toggle") || node.classList.contains("nested");
+          if (!row) { list = null; continue; }
+          if (!list) { list = el("div", { class: "toggle-list" }); node.before(list); }
+          list.append(node);
+        }
+      }
+    }
+
+    function buildObject(objectSchema, current, index, { split: splitting = true, entry = false } = {}) {
       const props = objectSchema.properties || {};
       const required = new Set(Array.isArray(objectSchema.required) ? objectSchema.required : []);
       const parts = new Map();
@@ -18022,7 +18233,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const split = splitting ? splitFields(entries) : entries.map((entry) => entry.element);
       const first = split.filter((node) => !node.classList?.contains("more-options"));
       element.append(el("div", { class: "fields" }, first), ...split.filter((node) => node.classList?.contains("more-options")));
-      return { element, parts, getValue: () => {
+      if (entry) arrangeEntry(objectSchema, element, parts);
+      return { element, parts, general: objectSchema["x-general"], getValue: () => {
         const out = {};
         for (const [key, value] of Object.entries(current)) if (!props[key]) out[key] = value;
         for (const [key, f] of parts) { const v = f.get(); if (v !== undefined) out[key] = v; }
@@ -24256,7 +24468,7 @@ HomeswiftI18n.add("es", {
   "This browser cannot use the microphone": "Este navegador no puede usar el micrófono",
   "The microphone needs the web UI over HTTPS": "El micrófono requiere la interfaz web por HTTPS",
   "Starting the microphone…": "Iniciando el micrófono…",
-  "Talking on {name}": "Hablando por {name}",
+  "Stop talking on {name}": "Dejar de hablar por {name}",
   "The microphone is blocked for this page": "El micrófono está bloqueado para esta página",
   "No microphone found": "No se encontró ningún micrófono",
   "The camera could not take the microphone": "La cámara no pudo recibir el micrófono",
@@ -24763,6 +24975,10 @@ HomeswiftI18n.add("es", {
   "A press, a double or a long press also runs Scenes and starts Automations.": "Una pulsación, una pulsación doble o una pulsación larga también ejecuta escenas e inicia automatizaciones.",
   "Appliances": "Aparatos",
   "Starts {automation}": "Inicia {automation}",
+  "In the Home app: {targets}": "En la app Casa: {targets}",
+  "In the Home app: {automation}": "En la app Casa: {automation}",
+  "Off in the Home app": "Desactivada en la app Casa",
+  "Change it in the Home app": "Se cambia en la app Casa",
   "Appliances only turn on and off: a hold or a wheel dims lights and moves shutters.": "Los aparatos solo se encienden y se apagan: mantener o una rueda regula las luces y mueve las persianas.",
   "A long press and a hold are the same press: these automations also start on each hold.": "Una pulsación larga y mantener son la misma pulsación: estas automatizaciones también se inician cada vez que se mantiene.",
   "A long press and a hold are the same press: while it holds to dim, it starts no automation.": "Una pulsación larga y mantener son la misma pulsación: mientras regula al mantener, no inicia ninguna automatización.",
@@ -28043,7 +28259,7 @@ HomeswiftI18n.add("fr", {
   "This browser cannot use the microphone": "Ce navigateur ne peut pas utiliser le micro",
   "The microphone needs the web UI over HTTPS": "Le micro demande l’interface web en HTTPS",
   "Starting the microphone…": "Démarrage du micro…",
-  "Talking on {name}": "Vous parlez sur {name}",
+  "Stop talking on {name}": "Arrêter de parler sur {name}",
   "The microphone is blocked for this page": "Le micro est bloqué pour cette page",
   "No microphone found": "Aucun micro trouvé",
   "The camera could not take the microphone": "La caméra n’a pas pu prendre le micro",
@@ -28550,6 +28766,10 @@ HomeswiftI18n.add("fr", {
   "A press, a double or a long press also runs Scenes and starts Automations.": "Un appui, un double appui ou un appui long lance aussi des scènes et démarre des automatisations.",
   "Appliances": "Appareils",
   "Starts {automation}": "Lance {automation}",
+  "In the Home app: {targets}": "Dans l'app Maison : {targets}",
+  "In the Home app: {automation}": "Dans l'app Maison : {automation}",
+  "Off in the Home app": "Désactivée dans l'app Maison",
+  "Change it in the Home app": "À modifier dans l'app Maison",
   "Appliances only turn on and off: a hold or a wheel dims lights and moves shutters.": "Les appareils s'allument et s'éteignent seulement : un maintien ou une molette règle les lumières et déplace les volets.",
   "A long press and a hold are the same press: these automations also start on each hold.": "Un appui long et un maintien sont le même appui : ces automatisations se lancent aussi à chaque maintien.",
   "A long press and a hold are the same press: while it holds to dim, it starts no automation.": "Un appui long et un maintien sont le même appui : tant qu'il règle en maintien, il ne lance aucune automatisation.",
@@ -31830,7 +32050,7 @@ HomeswiftI18n.add("pt", {
   "This browser cannot use the microphone": "Este navegador não pode usar o microfone",
   "The microphone needs the web UI over HTTPS": "O microfone requer a interface web por HTTPS",
   "Starting the microphone…": "A iniciar o microfone…",
-  "Talking on {name}": "A falar por {name}",
+  "Stop talking on {name}": "Parar de falar por {name}",
   "The microphone is blocked for this page": "O microfone está bloqueado para esta página",
   "No microphone found": "Nenhum microfone encontrado",
   "The camera could not take the microphone": "A câmara não conseguiu receber o microfone",
@@ -32337,6 +32557,10 @@ HomeswiftI18n.add("pt", {
   "A press, a double or a long press also runs Scenes and starts Automations.": "Uma pressão, uma pressão dupla ou uma pressão longa também executa cenas e inicia automações.",
   "Appliances": "Aparelhos",
   "Starts {automation}": "Inicia {automation}",
+  "In the Home app: {targets}": "Na app Casa: {targets}",
+  "In the Home app: {automation}": "Na app Casa: {automation}",
+  "Off in the Home app": "Desativada na app Casa",
+  "Change it in the Home app": "Altera-se na app Casa",
   "Appliances only turn on and off: a hold or a wheel dims lights and moves shutters.": "Os aparelhos só ligam e desligam: manter ou uma roda regula as luzes e move os estores.",
   "A long press and a hold are the same press: these automations also start on each hold.": "Uma pressão longa e manter são a mesma pressão: estas automações também se iniciam sempre que se mantém.",
   "A long press and a hold are the same press: while it holds to dim, it starts no automation.": "Uma pressão longa e manter são a mesma pressão: enquanto regula ao manter, não inicia nenhuma automação.",
@@ -34489,7 +34713,8 @@ HomeswiftI18n.add("pt", {
       groups);
   }
 
-  /// A Button or Wheel: its name, the Home app's numbers for it, what each gesture does, the Automations it starts.
+  /// A Button or Wheel: its name, the Home app's numbers for it, what each gesture does, the Automations it starts, and
+  /// what the Home app does on its presses (set there, run by Apple Home, shown here, changed there).
   function partRow(remote, part, admin) {
     const { lists } = shown;
     const controls = remote.controls.filter((control) => control.part === part.id);
@@ -34498,9 +34723,13 @@ HomeswiftI18n.add("pt", {
     const entries = [
       ...controls.map((control) => ({ gesture: control.gesture, text: describe(control, lists) })),
       ...part.automations.map((automation) => ({ gesture: automation.gesture, text: t("Starts {automation}", { automation: automation.name }) })),
+      ...(part.hubAutomations ?? []).map((automation) => ({ gesture: automation.gesture, hub: automation,
+        text: automation.does.length ? t("In the Home app: {targets}", { targets: automation.does.join(", ") }) : t("In the Home app: {automation}", { automation: automation.name }) })),
     ].sort((a, b) => order.indexOf(a.gesture) - order.indexOf(b.gesture));
-    const lines = entries.map((entry) => el("li", {},
-      el("span", { class: "remote-gesture", text: gestureNames[entry.gesture]() }), el("span", { text: entry.text })));
+    const lines = entries.map((entry) => el("li", entry.hub ? { class: `remote-hub${entry.hub.enabled ? "" : " off"}`,
+      title: [entry.hub.name, entry.hub.enabled ? null : t("Off in the Home app"), t("Change it in the Home app")].filter(Boolean).join(" · ") } : {},
+      el("span", { class: "remote-gesture", text: gestureNames[entry.gesture]() }),
+      el("span", {}, entry.hub ? el("img", { class: "remote-hub-icon", src: "/apple-home.png", width: 14, height: 14, alt: "" }) : null, entry.text)));
     const homeKit = part.homeKit.length ? t("Home app: {buttons}", { buttons: part.homeKit.map((number) => t("Button {number}", { number })).join(", ") }) : null;
     const body = el("span", { class: "body" },
       el("span", { class: "remote-part-name" }, el("strong", { text: partName(part, remote) }), homeKit ? el("span", { class: "muted", text: homeKit }) : null),
@@ -38034,7 +38263,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .server .actions { display: flex; align-items: center; gap: var(--space-10); flex-wrap: wrap; }
 .server.editor { grid-column: 1 / -1; gap: var(--space-18); }
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: var(--space-4) var(--space-18); align-items: start; }
-.fields > fieldset, .fields > .group-box { grid-column: 1 / -1; }
+.fields > fieldset, .fields > .group-box, .fields > .wide { grid-column: 1 / -1; }
 .field { margin: var(--space-10) 0 var(--space-4); }
 .field-title { display: block; font-weight: var(--weight-medium); margin-bottom: var(--space-6); }
 .field > input, .field > select { margin-top: 0; }
@@ -39395,6 +39624,8 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   transition: opacity var(--normal) var(--ease-out);
 }
 .camera-button {
+  /* Round whatever the row holds beside them: a long status wraps, the buttons never narrow. */
+  flex: none;
   display: inline-grid; place-items: center; width: 34px; height: 34px; min-height: 34px; padding: 0; border-radius: 50%; color: #fff;
   background: rgba(30, 32, 40, 0.42); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: none;
@@ -39455,9 +39686,21 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 .ptz-chip:active { scale: 0.97; }
 @media (hover: hover) and (pointer: fine) { .ptz-chip:hover { background: rgba(30, 32, 40, 0.62); } }
 .ptz-status {
-  margin-right: auto; padding: 3px var(--space-10); border-radius: var(--radius-pill); font-size: var(--text-xs); font-weight: var(--weight-medium);
+  margin-right: auto; min-width: 0; padding: var(--space-4) var(--space-10); border-radius: var(--radius-md); font-size: var(--text-xs); font-weight: var(--weight-medium);
+  line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
   background: rgba(20, 22, 28, 0.55); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
 }
+/* The microphone widens into a pill while someone talks, its waveform beside the icon as in the Home app. Round
+   otherwise: the icon sits where the circle centres it, so it does not move as the pill grows. */
+.camera-button.talk-toggle {
+  display: inline-flex; align-items: center; justify-content: flex-start; gap: var(--space-6); padding: 0 0 0 7px;
+  border-radius: var(--radius-pill); overflow: hidden;
+  transition: width 320ms cubic-bezier(0.2, 0.9, 0.3, 1), background-color var(--normal) var(--ease-out);
+}
+.camera-button.talk-toggle svg { flex: none; }
+.camera-button.talk-toggle.talking { width: 140px; padding-right: var(--space-12); }
+.talk-wave { flex: 1 1 auto; min-width: 0; height: 20px; }
+@media (pointer: coarse) { .camera-button.talk-toggle { padding-left: var(--space-10); } .camera-button.talk-toggle.talking { width: 156px; } .talk-wave { height: 22px; } }
 .ptz-status.failed { background: rgba(255, 69, 58, 0.88); }
 /* The panel stays while it is open, whatever the pointer does; the status shows over hidden controls too. */
 .camera-view:has(.ptz-panel:not(.hidden)) > .camera-controls, .camera-view:has(.ptz-status:not(.hidden)) > .camera-controls { opacity: 1; }
@@ -39485,7 +39728,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 }
 @media (pointer: coarse) { .camera-button { width: 40px; height: 40px; min-height: 40px; } }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .camera-view { margin: -6px -8px 0; } }
-@media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh, .camera-button.talking, .camera-button.starting svg { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh, .camera-button.talking, .camera-button.starting svg { animation: none; } .camera-view > video, .camera-controls, .camera-button.talk-toggle { transition: none; } }
 @media (prefers-reduced-transparency: reduce) {
   .camera-badge, .camera-button { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(20, 22, 28, 0.85); }
   .camera-button.talking { background: #ff453a; }
@@ -42515,6 +42758,9 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 .remote-controls { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
 .remote-controls li { display: flex; gap: var(--space-8); min-width: 0; }
 .remote-controls li > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What the Home app does on a press: its icon first; one turned off there, faded. */
+.remote-hub-icon { vertical-align: -2px; margin-inline-end: var(--space-4); }
+.remote-controls li.remote-hub.off > span:last-child { color: var(--muted); text-decoration: line-through; }
 .remote-gesture { flex: none; min-width: 7.5em; color: var(--muted); }
 .remote-part > .muted, .remote-part .body > .muted { font-size: var(--text-sm); }
 .remote-part .chevron { flex: none; color: var(--muted); display: grid; transition: color 160ms ease; }
@@ -43437,6 +43683,30 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .entry-body[data-page] .object-box.entry-page { border: 0; border-radius: 0; background: none; box-shadow: none; margin: 0; padding: 0; }
 .entry-body[data-page] .object-box.entry-page > summary { display: none; }
 .entry-body[data-page] .object-box.entry-page > .help { margin: 0 0 var(--space-12); }
+/* Switches, and what sits under them (x-parent), as one list: a row each, its words first and its switch at the end, as
+   Settings on an iPhone; a setting under a switch is indented under it. */
+.toggle-list {
+  grid-column: 1 / -1; margin: var(--space-10) 0 var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--material-thin); overflow: hidden;
+}
+.toggle-list:not(:has(> :not(.hidden))) { display: none; }
+.toggle-list > :not(.hidden) ~ :not(.hidden) { border-top: 1px solid var(--line); }
+.toggle-list > .toggle { flex-direction: row-reverse; justify-content: space-between; align-items: center; margin: 0; padding: var(--space-10) var(--space-14); }
+.toggle-list > .toggle > .switch { flex: none; }
+.toggle-list > .toggle .field-title { margin: 0; }
+.toggle-list > .toggle .help { margin-top: 2px; }
+.toggle-list > .field {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: var(--space-12);
+  margin: 0; padding: var(--space-8) var(--space-14);
+}
+.toggle-list > .field > .field-title { margin: 0; }
+.toggle-list > .field > .help { grid-column: 1 / -1; margin-top: 2px; }
+.toggle-list > .field > input, .toggle-list > .field > select, .toggle-list > .field > .unit-input { width: 132px; }
+.toggle-list > .nested { padding-left: calc(var(--space-14) + var(--space-24)); background: var(--material-thin); }
+/* A number and its unit, the unit inside the field's end. */
+.unit-input { position: relative; display: block; }
+.unit-input > input { width: 100%; padding-right: 2.2em; }
+.unit-input > .unit { position: absolute; right: var(--space-12); top: 50%; translate: 0 -50%; color: var(--muted); pointer-events: none; font-size: var(--text-sm); }
 .entry-tabs { flex: none; scrollbar-width: none; }
 .entry-tabs::-webkit-scrollbar { display: none; }
 .entry-tabs button { flex: 0 0 auto; }

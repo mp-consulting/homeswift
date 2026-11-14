@@ -56,7 +56,9 @@ final class ProtectTalkback {
             "o=- 0 0 IN " + sdpIpVersion + " 127.0.0.1",
             // A name is one line: a line break in it would add lines to the SDP.
             "s=" + accessoryName.filter { !$0.isNewline } + " Audio Talkback",
-            "c=IN " + sdpIpVersion + " " + session.address,
+            // Where the demuxer forwards HomeKit's packets: FFmpeg 8 binds its socket to this address, and fails on the
+            // controller's.
+            "c=IN " + sdpIpVersion + " " + (sdpIpVersion == "IP6" ? "::1" : "127.0.0.1"),
             "t=0 0",
             "m=audio " + String(session.audioIncomingRtpPort) + " RTP/AVP " + String(request.audio.pt),
             "b=AS:24",

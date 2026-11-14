@@ -82,7 +82,12 @@ actor DevicesPlugin: HomeswiftPlugin {
         try context.add(Accessory(id: "Devices:lock", name: "Front Door", category: .doorLock, services: [lock, trigger]))
 
         if configuration.remote == true {
-            let buttons = ["top", "bottom"].map { (button: String) in Service(.statelessProgrammableSwitch, name: button.capitalized, subtype: button, optional: [.serviceLabelIndex]) }
+            // Buttons 1 and 2 in the Home app (their Service Label Index).
+            let buttons = ["top", "bottom"].enumerated().map { (index: Int, button: String) in
+                let service = Service(.statelessProgrammableSwitch, name: button.capitalized, subtype: button, optional: [.serviceLabelIndex])
+                service.characteristic(.serviceLabelIndex).value = .int(index + 1)
+                return service
+            }
             try context.add(Accessory(id: "Devices:remote", name: "Hall Remote", category: .programmableSwitch, services: buttons))
         }
         if configuration.relay == true {

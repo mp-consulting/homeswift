@@ -60,6 +60,14 @@ struct Structure: Sendable {
     var mirrored: Set<String>
     var scenes: [WingmanAPI.Scene] = []
     var automations: [WingmanAPI.Automation] = []
+    /// The Buttons of the homes' remotes, by the HomeKit id of their Programmable Switch Event: an automation's trigger
+    /// names that characteristic, and the Remotes page the Button.
+    var buttons: [String: Button] = [:]
+
+    /// A remote's Button: its number in the Home app (its Service Label Index), nil when the remote gives none.
+    struct Button: Sendable, Equatable {
+        var number: Int?
+    }
 
     /// `bridges` are the Serial Numbers of Homeswift's bridges (`PluginContext.homeswiftBridgeSerialNumbers`), `own` the
     /// accessories Homeswift publishes on their own servers (`PluginContext.ownAccessories`).
@@ -94,11 +102,17 @@ struct Structure: Sendable {
             missingOwn.contains { Self.mayBeSame(accessory.manufacturer, $0.manufacturer) || Self.mayBeSame(accessory.model, $0.model) }
         }
         var devices: [String: Device] = [:]
+        var buttons: [String: Button] = [:]
         var unresolved: [String] = []
         for home in homes {
             guard let homeID = home.id else { continue }
             for accessory in home.accessories {
                 var writable: [HAPUUID: String] = [:]
+                for service in accessory.services where HAPUUID(service.type) == ServiceType.statelessProgrammableSwitch.uuid {
+                    let event = service.characteristics.first { HAPUUID($0.type) == CharacteristicType.programmableSwitchEvent.uuid }
+                    let number = service.characteristics.first { HAPUUID($0.type) == CharacteristicType.serviceLabelIndex.uuid }?.value?.intValue
+                    if let id = event?.id { buttons[id] = Button(number: number) }
+                }
                 for service in accessory.services {
                     for item in service.characteristics where item.properties.contains("write") {
                         if let id = item.id, writable[HAPUUID(item.type)] == nil { writable[HAPUUID(item.type)] = id }
@@ -144,6 +158,7 @@ struct Structure: Sendable {
             }
         }
         self.devices = devices
+        self.buttons = buttons
         incompleteIdentityReason = Self.waitingReason(unresolved)
     }
 
@@ -365,15 +380,25 @@ struct Structure: Sendable {
 
     // MARK: Automations
 
-    func pluginAutomation(_ automation: WingmanAPI.Automation, place: String?) -> PluginAutomation {
+    /// `context`: for a Button's press, the remote by Homeswift's id when it is one of Homeswift's (the Remotes page lists
+    /// the press by it); without, or for any other accessory, Wingman's.
+    func pluginAutomation(_ automation: WingmanAPI.Automation, place: String?, context: PluginContext? = nil) -> PluginAutomation {
+        let index = context?.publishedIndex()
+        let remoteID = { (accessory: String) in
+            context.flatMap { homeswiftID(of: accessory, in: $0, index: index ?? [:]) } ?? Self.homeswiftID(accessory)
+        }
         let triggers: [PluginAutomationTrigger] = switch automation.trigger.kind {
         case "time": automation.trigger.time.map { [.time(Self.time($0))] } ?? [.other("time")]
-        default: (automation.trigger.events ?? []).map(Self.trigger)
+        default: (automation.trigger.events ?? []).map { press($0, remoteID: remoteID) ?? Self.trigger($0) }
         }
         var mentioned = (automation.trigger.events ?? []).compactMap(\.accessory) + (automation.endEvents ?? []).compactMap(\.accessory)
         mentioned += (automation.conditions ?? []).compactMap(\.accessory) + (automation.actions ?? []).map(\.accessory)
         var names: [String: String] = [:]
-        for id in mentioned { if let device = devices[id] { names[Self.homeswiftID(id)] = device.name } }
+        for id in mentioned {
+            guard let device = devices[id] else { continue }
+            names[Self.homeswiftID(id)] = device.name
+            names[remoteID(id)] = device.name
+        }
         var capabilities: Set<PluginAutomation.Capability> = []
         if editable(home: automation.home) {
             capabilities = [.enable, .rename, .scenes, .delete]
@@ -397,6 +422,13 @@ struct Structure: Sendable {
         WingmanAPI.Time(
             hour: time.solarEvent == nil ? time.hour : nil, minute: time.solarEvent == nil ? time.minute : nil, significant: time.solarEvent?.rawValue,
             offsetMinutes: time.solarEvent == nil ? nil : time.offsetMinutes, weekdays: time.weekdays.isEmpty ? nil : time.weekdays)
+    }
+
+    /// A Button's press: its Programmable Switch Event reaching single (0), double (1) or long (2).
+    func press(_ event: WingmanAPI.TriggerEvent, remoteID: (String) -> String) -> PluginAutomationTrigger? {
+        guard event.kind == "characteristic", let accessory = event.accessory, let characteristic = event.characteristic,
+              let button = buttons[characteristic], let press = event.value?.intValue, (0...2).contains(press) else { return nil }
+        return .press(accessoryID: remoteID(accessory), button: button.number, press: press)
     }
 
     static func trigger(_ event: WingmanAPI.TriggerEvent) -> PluginAutomationTrigger {
@@ -637,7 +669,7 @@ extension WingmanPlugin {
         for (link, structure) in await structures() {
             for automation in structure.automations where seen.insert(automation.id).inserted {
                 guard let home = structure.home(automation.home), includesHome(home.name) else { continue }
-                automations.append(structure.pluginAutomation(automation, place: await place(home, link: link)))
+                automations.append(structure.pluginAutomation(automation, place: await place(home, link: link), context: context))
             }
         }
         return automations
@@ -648,7 +680,7 @@ extension WingmanPlugin {
               let automation = structure.automations.first(where: { $0.id == id }) else {
             throw PluginAutomationError("Apple Home has no automation \(id)")
         }
-        return (link, structure, structure.pluginAutomation(automation, place: nil))
+        return (link, structure, structure.pluginAutomation(automation, place: nil, context: context))
     }
 
     /// Each part of the change through its own endpoint, in turn; the first refusal stops the rest.

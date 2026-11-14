@@ -434,6 +434,42 @@ struct StructureTests {
         await host.stop()
     }
 
+    /// A trigger on a Button's Programmable Switch Event is a press of that Button, by its number in the Home app, on the
+    /// remote by Homeswift's id when it is one of Homeswift's (Wingman's id otherwise); another characteristic stays one.
+    @Test func aButtonsPressNamesTheRemoteAndTheButton() async throws {
+        let (host, plugin) = try await start()
+        try host.mainBridge.server.add(Accessory(
+            id: "Hue:remote", name: "Remote", serialNumber: "REMOTE-SERIAL", category: .programmableSwitch,
+            services: [Service(.statelessProgrammableSwitch, subtype: "1"), Service(.statelessProgrammableSwitch, subtype: "2")]))
+        let bridge = TestEnvironment.bridgeID
+        func button(_ id: String, _ number: Int) -> [String: Any] {
+            ["type": "00000089-0000-1000-8000-0026BB765291", "characteristics": [
+                ["id": id, "type": "00000073-0000-1000-8000-0026BB765291", "properties": ["read", "events"]],
+                ["id": "\(id)-index", "type": "000000CB-0000-1000-8000-0026BB765291", "properties": ["read"], "value": number],
+            ]]
+        }
+        var remote = homeAccessory("remote-hk", serialNumber: "REMOTE-SERIAL", bridge: ["id": "main-bridge", "name": "Homeswift"])
+        remote["services"] = (remote["services"] as? [[String: Any]] ?? []) + [button("press-1", 1), button("press-2", 2)]
+        let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": [homeAccessory("main-bridge", serialNumber: bridge), remote]]
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
+        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge])
+        func automation(_ characteristic: String, value: Int) throws -> WingmanAPI.Automation {
+            let json: [String: Any] = ["id": "auto", "home": "home-1", "name": "Remote Button 2 Double Press", "enabled": true, "trigger": [
+                "kind": "event", "events": [["kind": "characteristic", "accessory": "remote-hk", "characteristic": characteristic,
+                                             "type": "00000073-0000-1000-8000-0026BB765291", "value": value]]]]
+            return try JSONDecoder().decode(WingmanAPI.Automation.self, from: JSONSerialization.data(withJSONObject: json))
+        }
+        let context = await plugin.context
+        let double = try automation("press-2", value: 1)
+        #expect(structure.pluginAutomation(double, place: nil, context: context).triggers == [.press(accessoryID: "Hue:remote", button: 2, press: 1)])
+        #expect(structure.pluginAutomation(double, place: nil).triggers == [.press(accessoryID: "Wingman:remote-hk", button: 2, press: 1)])
+        // Its Service Label Index is not a press.
+        let other = try automation("press-2-index", value: 1)
+        #expect(structure.pluginAutomation(other, place: nil, context: context).triggers
+            == [.accessory(accessoryID: "Wingman:remote-hk", characteristic: "Programmable Switch Event", value: 1, minimum: nil, maximum: nil)])
+        await host.stop()
+    }
+
     @Test func anAutomationIsChangedPartByPart() async throws {
         let (host, plugin) = try await start()
         let time = PluginAutomationTime(hour: 7, minute: 30, weekdays: [1, 7])

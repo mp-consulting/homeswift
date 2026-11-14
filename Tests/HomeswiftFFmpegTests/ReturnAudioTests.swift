@@ -52,13 +52,14 @@ import Testing
 
 @Suite struct ReturnAudioArgumentTests {
     @Test func sdpMatchesTheVector() {
-        let sdp = ReturnAudioArguments.sdp(address: "192.168.1.20", isIPv6: false, port: 50002, payloadType: 110, srtp: Data(0..<30))
+        let sdp = ReturnAudioArguments.sdp(isIPv6: false, port: 50002, payloadType: 110, srtp: Data(0..<30))
         #expect(sdp.contains("a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwd\r\n"))
         #expect(sdp.contains("\r\nm=audio 50002 RTP/AVP 110\r\n"))
-        #expect(sdp.hasPrefix("v=0\r\no=- 0 0 IN IP4 192.168.1.20\r\ns=Talk\r\nc=IN IP4 192.168.1.20\r\nt=0 0\r\n"))
+        // The loopback, where the demuxer forwards the packets: FFmpeg 8 binds to the connection address.
+        #expect(sdp.hasPrefix("v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=Talk\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\n"))
         #expect(sdp.contains("a=fmtp:110 profile-level-id=1;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3; config=F8F0212C00BC00\r\n"))
-        let other = ReturnAudioArguments.sdp(address: "fe80::1", isIPv6: true, port: 50004, payloadType: 111, srtp: Data(0..<30))
-        #expect(other.contains("a=rtpmap:111 MPEG4-GENERIC/16000/1") && other.contains("c=IN IP6 fe80::1"))
+        let other = ReturnAudioArguments.sdp(isIPv6: true, port: 50004, payloadType: 111, srtp: Data(0..<30))
+        #expect(other.contains("a=rtpmap:111 MPEG4-GENERIC/16000/1") && other.contains("c=IN IP6 ::1"))
     }
 
     @Test func decodeCommandLine() {

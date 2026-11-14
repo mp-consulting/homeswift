@@ -6,6 +6,41 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **A list entry's settings read as a settings app's**: in a plugin's list (cameras, lights, devices), switches sit in a
+  list, a row each with the switch at the end, and the settings that depend on one sit indented under it, shown only
+  while it is on; a number writes its unit at the end of its field; a long value takes a whole row. Schemas place
+  settings in tabs with `x-section`, `x-sections` and `x-general`, and under their switch with `x-parent`
+  (docs/plugins.md). IP Cameras uses them: Camera (name, stream, audio, HomeKit Secure Video, speaker), Motion and
+  doorbell (with its MQTT topics only while one is on), Video, and Details (manufacturer, model, serial, firmware, their
+  defaults in the empty fields).
+
+- **The Remotes page shows what the Home app does on a press**: each Button lists Apple Home's automations on its
+  presses (single, double, long), read through Wingman with what they change ("In the Home app: Portillon"), beside
+  Homeswift's Controls. Apple Home keeps them: they are changed in the Home app. `list_hub_automations` names such a
+  trigger as a press of a remote's Button, by Homeswift's id of the remote and the Button's number in the Home app.
+
+### Fixed
+
+- **The Accessories page's Filters menu filters in place**: choosing a bridge, a device type, a Zone, Online, No
+  Response or Show hidden redraws the wall without loading the page again, keeps the menu open with its ticks and
+  counts following, and brings a long wall back to its top. Before, the page reloaded, the menu closed and a wall
+  scrolled down showed only the end of what was left.
+- **Talking from the Home app reaches the camera again**: with FFmpeg 8, the return audio of UniFi Protect cameras,
+  IP cameras with a `returnAudioTarget` and the other plugins on the shared return audio never started, FFmpeg failing
+  to bind the iPhone's address (`bind failed: Address not available`) that the SDP gave as its connection address. It
+  now gives the loopback, where the demuxer forwards HomeKit's packets.
+- **A camera's buttons keep their size beside a message**: a long one ("The microphone is blocked for this page")
+  wraps onto two lines instead of narrowing the buttons.
+- **The camera's Talk button becomes a waveform**: while someone talks, the microphone button widens into a red pill
+  with the voice's level scrolling beside its icon, as in the Home app, in place of the "Talking on" text; its scale
+  follows the voice and the room, so syllables rise and pauses fall flat.
+- **The Camera filter keeps doorbells**: a doorbell's camera is a Camera too, on the wall and on the Graph.
+- **A search or a filter closes up the wall**: on a wall whose widgets were dragged to cells of their own, those left
+  by a search or a filter are packed together in the order their cells read, rather than keeping the gaps of the ones
+  left out. Edit still shows the cells, and the cells themselves never change.
+
 ## [0.32.0] - 2026-11-14
 
 ### Added
