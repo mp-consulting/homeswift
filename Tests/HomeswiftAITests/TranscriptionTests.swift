@@ -24,6 +24,23 @@ import Testing
             == TranscriptionConfiguration(baseURL: "http://10.0.0.5:8000/v1", apiKey: "own", model: "large-v3"))
     }
 
+    /// `engine: apple` is Apple's speech recognition, on a Mac with macOS 26 only; an engine it does not know is refused.
+    @Test func theAppleEngineRunsOnlyWhereItCan() throws {
+        let apple = try #require(try AIConfiguration(block: try JSONValue(string: #"{ "provider": "anthropic", "apiKey": "x", "transcription": { "engine": "apple" } }"#)).transcription)
+        #expect(apple.engine == .apple)
+        #expect(apple.apiKey == nil)
+        #expect(apple.isAvailable == AppleTranscriber.isAvailable)
+        #expect((apple.makeTranscriber(transport: FakeTransport()) != nil) == AppleTranscriber.isAvailable)
+        #if os(Linux)
+        #expect(!AppleTranscriber.isAvailable)
+        #endif
+        #expect(throws: AIConfigurationError.self) {
+            try AIConfiguration(block: try JSONValue(string: #"{ "provider": "anthropic", "apiKey": "x", "transcription": { "engine": "siri" } }"#))
+        }
+        // The server engine is the default.
+        #expect(try AIConfiguration(block: try JSONValue(string: #"{ "provider": "anthropic", "apiKey": "x", "transcription": {} }"#)).transcription?.engine == .server)
+    }
+
     /// One multipart request: the model, the language's first part, and the recording as a WAV file.
     @Test func sendsTheRecordingAsAWAV() async throws {
         let transport = FakeTransport(json: #"{"text":"Bonjour."}"#)

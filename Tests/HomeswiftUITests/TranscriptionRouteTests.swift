@@ -43,7 +43,7 @@ struct TranscriptionRouteTests {
         #expect(body.contains("RIFF"))
 
         #expect(try await browser.post("/api/assistant/transcribe", ["audio": "not base64!"]).status == 400)
-        let tooLong = Data(repeating: 0, count: 16000 * 2 * (Transcriber.maxSeconds + 1)).base64EncodedString()
+        let tooLong = Data(repeating: 0, count: 16000 * 2 * (TranscriptionConfiguration.maxSeconds + 1)).base64EncodedString()
         #expect(try await browser.post("/api/assistant/transcribe", ["audio": .string(tooLong), "sampleRate": 16000]).status == 413)
     }
 

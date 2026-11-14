@@ -136,7 +136,9 @@ extension UIServer {
             }
             let sampleRate = body["sampleRate"]?.intValue ?? 16000
             guard (8000...48000).contains(sampleRate) else { return .error(400, "sampleRate must be between 8000 and 48000") }
-            guard pcm.count <= sampleRate * 2 * Transcriber.maxSeconds else { return .error(413, "the recording is longer than \(Transcriber.maxSeconds) seconds") }
+            guard pcm.count <= sampleRate * 2 * TranscriptionConfiguration.maxSeconds else {
+                return .error(413, "the recording is longer than \(TranscriptionConfiguration.maxSeconds) seconds")
+            }
             let language = body["language"]?.stringValue.flatMap { $0.isEmpty ? nil : String($0.prefix(35)) }
             do {
                 return .json(["text": .string(try await transcriber.transcribe(pcm: pcm, sampleRate: sampleRate, language: language))])
