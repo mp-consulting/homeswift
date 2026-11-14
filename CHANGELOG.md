@@ -23,6 +23,18 @@ All notable changes to this project are documented here. The format follows
   composer's first row and the second is a waveform of your voice across it, between × (discard what you said), ■ (stop,
   the words stay in the field) and send. On an iPhone or iPad, where dictation holds the microphone, the bars follow
   whether a voice is heard. The waveform is now shared with a camera's Talk (`HomeswiftCommon.waveform`).
+- **Settings read better on a wide window**: a settings form's own fields (the Assistant's key, address and model) sit in
+  columns like its sections' rather than each running the page's width; a section that is one object (Voice
+  transcription, Budget) shows its description, then its fields across the section; a few choices can be a segmented
+  control (`x-schema-form.type: "segmented"`), the chosen one described under it; a page's own tabs (Settings, Energy,
+  Scenes) span the page's width. On a phone a page ends clear of the tab bar, the floating Assistant and the save bar.
+
+### Fixed
+
+- **FFmpeg asked to be quiet stays out of the log**: a command line with `-loglevel error` (a Tapo camera's live view and
+  snapshots, a talk's audio) no longer has its command and every line FFmpeg writes logged at info, such as a Tapo camera's
+  `Could not find ref with POC` on each live view; FFmpeg's output still shows when it ends unexpectedly, and with a raised
+  level (`level+verbose`, debug).
 
 ## [0.33.0] - 2026-11-14
 
