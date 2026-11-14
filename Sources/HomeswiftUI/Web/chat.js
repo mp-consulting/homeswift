@@ -683,7 +683,8 @@
     const writing = Boolean(dictation?.writing);
     sheet.classList.toggle("transcribing", writing);
     panel.keep.disabled = writing;
-    panel.input.readOnly = writing;
+    // The field shows what is said while the mic listens: typing there would be written over.
+    panel.input.readOnly = listening();
     log.setAttribute("aria-busy", String(running));
     send.classList.toggle("stop", running);
     send.setAttribute("aria-label", running ? t("Stop") : t("Send"));
@@ -892,28 +893,26 @@
   function waveBeside(session, speaking) {
     const { wave } = panel;
     const heard = () => speaking() ? -28 - Math.random() * 14 : -62 + Math.random() * 3;
-    let stream = null, context = null, stopped = false;
-    const stop = () => {
-      stopped = true;
-      wave.stop();
-      stream?.getTracks().forEach((track) => track.stop());
-      context?.close().catch(() => {});
-      stream = context = null;
-    };
+    const current = () => dictation === session;
     if (ios || !navigator.mediaDevices?.getUserMedia) {
       wave.start(heard);
-      return stop;
+      return () => {};
     }
-    HomeswiftCommon.openMicrophone().then((opened) => {
+    // Made during the tap, before any wait: Safari starts an audio context only from one.
+    const context = new AudioContext();
+    let stream = null;
+    // Its own microphone only: the waveform is the session's to stop (endDictation), and may be a newer one's by now.
+    const release = () => {
+      stream?.getTracks().forEach((track) => track.stop());
+      context.close().catch(() => {});
+    };
+    HomeswiftCommon.openMicrophone().then(async (opened) => {
       stream = opened;
-      if (stopped || dictation !== session) return stop();
-      context = new AudioContext();
-      const analyser = context.createAnalyser();
-      analyser.fftSize = 2048;
-      context.createMediaStreamSource(stream).connect(analyser);
-      wave.start(analyser);
-    }).catch(() => { if (!stopped) wave.start(heard); });
-    return stop;
+      if (!current()) return release();
+      const { analyser } = await HomeswiftCommon.levelOf(context, stream);
+      if (current()) wave.start(analyser);
+    }).catch(() => { if (current()) wave.start(heard); });
+    return release;
   }
 
   /// The page's own recording for the bridge: its level draws the waveform, its 16-bit samples wait here until stop,
@@ -949,9 +948,9 @@
       if (session.how) return finish(session);
       panel.wave.start(analyser);
     } catch (error) {
-      session.failed = error?.name === "NotAllowedError" || error?.name === "SecurityError"
-        ? t("The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.")
-        : error?.name === "NotFoundError" ? t("No microphone was found.") : t("Voice did not start: {error}", { error: error?.message || String(error) });
+      const refusal = HomeswiftCommon.microphoneRefusal(error);
+      session.failed = refusal === "blocked" ? t("The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.")
+        : refusal === "missing" ? t("No microphone was found.") : t("Voice did not start: {error}", { error: error?.message || String(error) });
       finish(session);
     }
   }
@@ -964,7 +963,6 @@
     session.context?.close().catch(() => {});
     const short = session.bytes < VOICE_RATE * 2 * 0.3;
     if (session.failed || session.how === "discard" || short) {
-      panel.wave.stop();
       endDictation(session, session.failed || (session.how !== "discard" ? t("Nothing was heard. Tap the mic and speak.") : ""));
       return;
     }
@@ -986,7 +984,6 @@
     } catch (error) {
       note = t("Voice transcription failed: {error}", { error: error.message });
     }
-    panel.wave.stop();
     // Discarded while it was written down: the words go.
     if (!endDictation(session, note) || !words) return;
     deliver(session.original, words, session.how);

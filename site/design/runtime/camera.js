@@ -248,8 +248,8 @@
         wave.start(analyser);
       } catch (error) {
         if (current.ended) return;
-        const blocked = error?.name === "NotAllowedError" || error?.name === "SecurityError";
-        fail(current, blocked ? t("The microphone is blocked for this page") : error?.name === "NotFoundError" ? t("No microphone found") : error.message || t("The camera could not take the microphone"));
+        const refusal = HomeswiftCommon.microphoneRefusal(error);
+        fail(current, refusal === "blocked" ? t("The microphone is blocked for this page") : refusal === "missing" ? t("No microphone found") : error.message || t("The camera could not take the microphone"));
       }
     }
 

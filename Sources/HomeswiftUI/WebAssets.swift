@@ -9743,8 +9743,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         wave.start(analyser);
       } catch (error) {
         if (current.ended) return;
-        const blocked = error?.name === "NotAllowedError" || error?.name === "SecurityError";
-        fail(current, blocked ? t("The microphone is blocked for this page") : error?.name === "NotFoundError" ? t("No microphone found") : error.message || t("The camera could not take the microphone"));
+        const refusal = HomeswiftCommon.microphoneRefusal(error);
+        fail(current, refusal === "blocked" ? t("The microphone is blocked for this page") : refusal === "missing" ? t("No microphone found") : error.message || t("The camera could not take the microphone"));
       }
     }
 
@@ -11438,7 +11438,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const writing = Boolean(dictation?.writing);
     sheet.classList.toggle("transcribing", writing);
     panel.keep.disabled = writing;
-    panel.input.readOnly = writing;
+    // The field shows what is said while the mic listens: typing there would be written over.
+    panel.input.readOnly = listening();
     log.setAttribute("aria-busy", String(running));
     send.classList.toggle("stop", running);
     send.setAttribute("aria-label", running ? t("Stop") : t("Send"));
@@ -11647,28 +11648,26 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function waveBeside(session, speaking) {
     const { wave } = panel;
     const heard = () => speaking() ? -28 - Math.random() * 14 : -62 + Math.random() * 3;
-    let stream = null, context = null, stopped = false;
-    const stop = () => {
-      stopped = true;
-      wave.stop();
-      stream?.getTracks().forEach((track) => track.stop());
-      context?.close().catch(() => {});
-      stream = context = null;
-    };
+    const current = () => dictation === session;
     if (ios || !navigator.mediaDevices?.getUserMedia) {
       wave.start(heard);
-      return stop;
+      return () => {};
     }
-    HomeswiftCommon.openMicrophone().then((opened) => {
+    // Made during the tap, before any wait: Safari starts an audio context only from one.
+    const context = new AudioContext();
+    let stream = null;
+    // Its own microphone only: the waveform is the session's to stop (endDictation), and may be a newer one's by now.
+    const release = () => {
+      stream?.getTracks().forEach((track) => track.stop());
+      context.close().catch(() => {});
+    };
+    HomeswiftCommon.openMicrophone().then(async (opened) => {
       stream = opened;
-      if (stopped || dictation !== session) return stop();
-      context = new AudioContext();
-      const analyser = context.createAnalyser();
-      analyser.fftSize = 2048;
-      context.createMediaStreamSource(stream).connect(analyser);
-      wave.start(analyser);
-    }).catch(() => { if (!stopped) wave.start(heard); });
-    return stop;
+      if (!current()) return release();
+      const { analyser } = await HomeswiftCommon.levelOf(context, stream);
+      if (current()) wave.start(analyser);
+    }).catch(() => { if (current()) wave.start(heard); });
+    return release;
   }
 
   /// The page's own recording for the bridge: its level draws the waveform, its 16-bit samples wait here until stop,
@@ -11704,9 +11703,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (session.how) return finish(session);
       panel.wave.start(analyser);
     } catch (error) {
-      session.failed = error?.name === "NotAllowedError" || error?.name === "SecurityError"
-        ? t("The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.")
-        : error?.name === "NotFoundError" ? t("No microphone was found.") : t("Voice did not start: {error}", { error: error?.message || String(error) });
+      const refusal = HomeswiftCommon.microphoneRefusal(error);
+      session.failed = refusal === "blocked" ? t("The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.")
+        : refusal === "missing" ? t("No microphone was found.") : t("Voice did not start: {error}", { error: error?.message || String(error) });
       finish(session);
     }
   }
@@ -11719,7 +11718,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     session.context?.close().catch(() => {});
     const short = session.bytes < VOICE_RATE * 2 * 0.3;
     if (session.failed || session.how === "discard" || short) {
-      panel.wave.stop();
       endDictation(session, session.failed || (session.how !== "discard" ? t("Nothing was heard. Tap the mic and speak.") : ""));
       return;
     }
@@ -11741,7 +11739,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     } catch (error) {
       note = t("Voice transcription failed: {error}", { error: error.message });
     }
-    panel.wave.stop();
     // Discarded while it was written down: the words go.
     if (!endDictation(session, note) || !words) return;
     deliver(session.original, words, session.how);
@@ -14007,8 +14004,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function waveform(look = "talk") {
     const style = WAVE_STYLES[look];
     const canvas = el("canvas", { class: "talk-wave hidden", "aria-hidden": "true" });
-    // As many levels as the widest canvas shows.
-    const kept = style.bars || Math.ceil(screen.width / style.pitch);
+    let kept = style.bars || 0;
     let frame = 0, levels = [], last = 0, samples = null, floor = -60, peak = -30, color = "#fff";
     function draw() {
       const ratio = window.devicePixelRatio || 1;
@@ -14045,6 +14041,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const analyser = typeof source === "function" ? null : source;
         samples = analyser ? new Float32Array(analyser.fftSize) : null;
         color = getComputedStyle(canvas).color;
+        // As many levels as the widest canvas shows: the screen, or the window zoomed out past it.
+        if (style.pitch) kept = Math.ceil(Math.max(screen.width, innerWidth) / style.pitch);
         levels = Array(kept).fill(0);
         floor = -60;
         peak = -30;
@@ -14118,24 +14116,34 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// level for the waveform.
   async function listenTo(context, stream, { rate, chunk, onChunk }) {
     await talkWorklet(context);
-    await context.resume();
-    const source = context.createMediaStreamSource(stream);
+    const { source, analyser } = await levelOf(context, stream);
     const node = new AudioWorkletNode(context, "homeswift-talk", { processorOptions: { rate, chunk } });
     node.port.onmessage = (event) => onChunk(event.data);
     // The worklet runs only while it leads to the speakers: through a silent gain, so nothing is heard here.
     const silent = context.createGain();
     silent.gain.value = 0;
     source.connect(node).connect(silent).connect(context.destination);
+    return { node, analyser };
+  }
+
+  /// The microphone's level in `context`, for the waveform: started, since a context made after an await starts paused.
+  async function levelOf(context, stream) {
+    await context.resume();
+    const source = context.createMediaStreamSource(stream);
     const analyser = context.createAnalyser();
     // 2048 samples: 43 ms at 48 kHz, the length of a bar's step, so every bar sees all of its sound.
     analyser.fftSize = 2048;
     source.connect(analyser);
-    return { node, analyser };
+    return { source, analyser };
   }
+
+  /// Why the microphone did not open: `blocked` (refused for this page), `missing` (none), or null for anything else.
+  const microphoneRefusal = (error) => error?.name === "NotAllowedError" || error?.name === "SecurityError" ? "blocked"
+    : error?.name === "NotFoundError" ? "missing" : null;
 
   window.HomeswiftCommon = {
     foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
-    openSheet, confirmAction, waveform, base64, openMicrophone, talkWorklet, listenTo,
+    openSheet, confirmAction, waveform, base64, openMicrophone, talkWorklet, listenTo, levelOf, microphoneRefusal,
     phone, viewSignal, nextView, filtersToggle, followControls, assistantButton, menuOpen: () => Boolean(openMenu),
     $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,

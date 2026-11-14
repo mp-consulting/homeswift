@@ -2164,8 +2164,7 @@
   function waveform(look = "talk") {
     const style = WAVE_STYLES[look];
     const canvas = el("canvas", { class: "talk-wave hidden", "aria-hidden": "true" });
-    // As many levels as the widest canvas shows.
-    const kept = style.bars || Math.ceil(screen.width / style.pitch);
+    let kept = style.bars || 0;
     let frame = 0, levels = [], last = 0, samples = null, floor = -60, peak = -30, color = "#fff";
     function draw() {
       const ratio = window.devicePixelRatio || 1;
@@ -2202,6 +2201,8 @@
         const analyser = typeof source === "function" ? null : source;
         samples = analyser ? new Float32Array(analyser.fftSize) : null;
         color = getComputedStyle(canvas).color;
+        // As many levels as the widest canvas shows: the screen, or the window zoomed out past it.
+        if (style.pitch) kept = Math.ceil(Math.max(screen.width, innerWidth) / style.pitch);
         levels = Array(kept).fill(0);
         floor = -60;
         peak = -30;
@@ -2275,24 +2276,34 @@
   /// level for the waveform.
   async function listenTo(context, stream, { rate, chunk, onChunk }) {
     await talkWorklet(context);
-    await context.resume();
-    const source = context.createMediaStreamSource(stream);
+    const { source, analyser } = await levelOf(context, stream);
     const node = new AudioWorkletNode(context, "homeswift-talk", { processorOptions: { rate, chunk } });
     node.port.onmessage = (event) => onChunk(event.data);
     // The worklet runs only while it leads to the speakers: through a silent gain, so nothing is heard here.
     const silent = context.createGain();
     silent.gain.value = 0;
     source.connect(node).connect(silent).connect(context.destination);
+    return { node, analyser };
+  }
+
+  /// The microphone's level in `context`, for the waveform: started, since a context made after an await starts paused.
+  async function levelOf(context, stream) {
+    await context.resume();
+    const source = context.createMediaStreamSource(stream);
     const analyser = context.createAnalyser();
     // 2048 samples: 43 ms at 48 kHz, the length of a bar's step, so every bar sees all of its sound.
     analyser.fftSize = 2048;
     source.connect(analyser);
-    return { node, analyser };
+    return { source, analyser };
   }
+
+  /// Why the microphone did not open: `blocked` (refused for this page), `missing` (none), or null for anything else.
+  const microphoneRefusal = (error) => error?.name === "NotAllowedError" || error?.name === "SecurityError" ? "blocked"
+    : error?.name === "NotFoundError" ? "missing" : null;
 
   window.HomeswiftCommon = {
     foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
-    openSheet, confirmAction, waveform, base64, openMicrophone, talkWorklet, listenTo,
+    openSheet, confirmAction, waveform, base64, openMicrophone, talkWorklet, listenTo, levelOf, microphoneRefusal,
     phone, viewSignal, nextView, filtersToggle, followControls, assistantButton, menuOpen: () => Boolean(openMenu),
     $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
