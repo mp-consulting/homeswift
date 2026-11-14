@@ -29824,7 +29824,7 @@ HomeswiftI18n.add("pt", {
   "Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach.": "Os acessórios de todos os plugins saem do HomeKit e os plugins recomeçam com caches vazias, adicionando os dispositivos que alcançam.",
   "Every subscribed browser has unsubscribed": "Todos os navegadores subscritos cancelaram a subscrição",
   "Everything an administrator does, except users and tokens.": "Tudo o que um administrador faz, exceto utilizadores e tokens.",
-  "Everything kept": "Tudo o que está guardado",
+  "Everything kept": "Todo o histórico",
   "Excellent": "Excelente",
   "Expand": "Expandir",
   "Expected a key in double quotes": "Era esperada uma chave entre aspas duplas",
@@ -40161,9 +40161,11 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .log-level-row > .group { grid-row: 2; grid-column: 1 / -1; }
   .log-level-row > .group, .log-time > .group { display: flex; flex-direction: column; align-items: stretch; width: 100%; border-radius: var(--radius-lg); }
   .log-level-row > .group button, .log-time > .group button { display: flex; justify-content: space-between; text-align: start; border-radius: var(--radius-md); }
-  /* The time ranges two a row, so the column stays short enough to show every filter. */
+  /* The time ranges two a row, so the column stays short enough to show every filter. The Logbook's four, each with its
+     icon, one a row: two a row, "Everything kept" wraps, which is taller than the list. */
   .log-time > .group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .log-time > .group button { justify-content: flex-start; padding-inline: var(--space-10); }
+  .logbook-card .log-time > .group { grid-template-columns: minmax(0, 1fr); }
   .log-scope-row { grid-template-columns: minmax(0, 1fr); }
 }
 .log-card .log-action-bar { border-top: 1px solid var(--line); padding: var(--space-12) var(--space-20); gap: var(--space-14); }
