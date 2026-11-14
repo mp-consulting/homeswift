@@ -849,6 +849,17 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .group button { border: 0; background: none; box-shadow: none; padding: 5px 13px; white-space: nowrap; transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out); }
 @media (hover: hover) and (pointer: fine) { .group button:hover:not(:disabled):not(.on) { background: var(--material-thin); } }
 .group button.on { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
+/* A form's segmented field (forms.js, `x-schema-form.type: "segmented"`): the same pill, its choices radios, across
+   the field's width with an equal share each, as its text fields are; a whole row (`wide`) no wider than two of its
+   columns, so the choices stay together. */
+.segmented-field { display: flex; width: 100%; max-width: 36rem; }
+.fields > .wide:has(> .segmented-field) > .help { max-width: 36rem; }
+.segmented-field .segment { flex: 1 1 0; min-width: max-content; position: relative; margin: 0; display: grid; place-items: center; padding: 5px 13px; border-radius: var(--radius-pill); cursor: pointer; white-space: nowrap; transition: background-color var(--fast) var(--ease-out); }
+.segmented-field .segment input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.segmented-field .segment:has(input:checked) { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
+.segmented-field .segment:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (hover: hover) and (pointer: fine) { .segmented-field .segment:hover:not(:has(input:checked)) { background: var(--material-thin); } }
+@media (pointer: coarse) { .segmented-field .segment { min-height: 40px; } }
 /* A segmented control whose choices carry a glyph before their name (a phone shows the glyph alone). */
 
 /* The mini remote (remote.js): a round pad with OK in the middle, round keys and a volume rocker. Keys give
@@ -1447,6 +1458,9 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .server.editor { grid-column: 1 / -1; gap: var(--space-18); }
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: var(--space-4) var(--space-18); align-items: start; }
 .fields > fieldset, .fields > .group-box, .fields > .wide { grid-column: 1 / -1; }
+/* A section that is one object of its name (Voice transcription, Budget) shows the object's description, then its
+   fields across the whole section, not two narrow columns side by side. */
+.fields > .entry-body, .fields > .help { grid-column: 1 / -1; }
 .field { margin: var(--space-10) 0 var(--space-4); }
 .field-title { display: block; font-weight: var(--weight-medium); margin-bottom: var(--space-6); }
 .field > input, .field > select { margin-top: 0; }
@@ -2399,7 +2413,7 @@ dd { margin: 0; }
 /* A phone: the tools a little tighter, so the model's name keeps room beside them. */
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) { .chat-tools .chat-icon { width: 36px; height: 36px; min-height: 0; } }
 .chat-icon { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 50%; font-size: var(--text-2xl); line-height: 1; }
-.chat-icon svg, .chat-mic svg, .chat-send svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chat-icon svg, .chat-mic svg, .chat-send svg, .chat-voice-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .chat-grabber { display: none; }
 
 .chat-log {
@@ -2480,14 +2494,30 @@ dd { margin: 0; }
   font: inherit; white-space: pre-wrap; line-height: 1.4;
 }
 .chat-composer textarea:focus { box-shadow: none; }
-.chat-mic, .chat-send { flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
+.chat-mic, .chat-send, .chat-voice-button { flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
 .chat-mic { border-color: transparent; background: none; box-shadow: none; color: var(--muted); }
 @media (hover: hover) and (pointer: fine) { .chat-mic:hover { color: var(--text); background: var(--material-thin); } }
 .chat-mic.unavailable { opacity: 0.45; }
-.chat.listening .chat-mic {
-  color: #fff; background: conic-gradient(from var(--ai-angle), var(--ai-colors)); animation: ai-turn 2s linear infinite;
-  box-shadow: 0 0 0 4px rgba(191, 90, 242, 0.2);
+/* While it listens, the field takes the whole first row and the voice's the second: discard, the waveform across the
+   composer, stop (the words stay in the field), then send, as the Claude app does. */
+.chat-voice { display: none; }
+.chat.listening .chat-composer { flex-wrap: wrap; row-gap: var(--space-4); }
+.chat.listening .chat-composer textarea { flex: 1 0 100%; }
+.chat.listening .chat-mic { display: none; }
+.chat.listening .chat-voice {
+  display: flex; flex: 1 1 120px; min-width: 0; align-items: center; gap: var(--space-10); margin-left: calc(-1 * var(--space-8));
+  transition: opacity var(--normal) var(--ease-out), transform var(--normal) var(--ease-out);
 }
+/* The row eases in under the field rather than snapping in. */
+@starting-style { .chat.listening .chat-voice { opacity: 0; transform: translateY(4px); } }
+/* Being written down: the voice is in, still and quieter, breathing while the bridge works; stop has nothing to do. */
+.chat-voice .talk-wave.frozen { opacity: 0.35; animation: chat-writing 1.4s ease-in-out infinite alternate; }
+@keyframes chat-writing { from { opacity: 0.25; } to { opacity: 0.5; } }
+.chat.transcribing .chat-voice-button.keep { opacity: 0.35; }
+.chat-voice-button { border-color: transparent; background: color-mix(in srgb, var(--text) 8%, transparent); box-shadow: none; color: var(--text); }
+@media (hover: hover) and (pointer: fine) { .chat-voice-button:hover { background: color-mix(in srgb, var(--text) 14%, transparent); } }
+.chat-voice-button svg.filled { fill: currentColor; stroke: none; width: 15px; height: 15px; }
+.chat-voice .talk-wave { flex: 1 1 auto; min-width: 0; height: 26px; color: var(--text); }
 .chat-send { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); }
 .chat-send .stop-icon, .chat-send.stop .send-icon { display: none; }
 .chat-send.stop .stop-icon { display: block; fill: currentColor; stroke: none; }
@@ -2512,7 +2542,9 @@ dd { margin: 0; }
   .chat-head { padding-top: var(--space-20); touch-action: none; cursor: grab; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .chat-glow, .chat.listening .chat-mic, .chat-step-mark, .chat-thinking, .chat-log > * { animation: none !important; }
+  .chat-glow, .chat-step-mark, .chat-thinking, .chat-log > *, .chat-voice .talk-wave.frozen { animation: none !important; }
+  .chat.listening .chat-voice { transition: opacity var(--normal) ease; }
+  @starting-style { .chat.listening .chat-voice { transform: none; } }
   .chat-thinking { color: var(--muted); background: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -2882,7 +2914,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 }
 .camera-button.talk-toggle svg { flex: none; }
 .camera-button.talk-toggle.talking { width: 140px; padding-right: var(--space-12); }
-.talk-wave { flex: 1 1 auto; min-width: 0; height: 20px; }
+.talk-wave { flex: 1 1 auto; min-width: 0; height: 20px; color: #fff; }
 @media (pointer: coarse) { .camera-button.talk-toggle { padding-left: var(--space-10); } .camera-button.talk-toggle.talking { width: 156px; } .talk-wave { height: 22px; } }
 .ptz-status.failed { background: rgba(255, 69, 58, 0.88); }
 /* The panel stays while it is open, whatever the pointer does; the status shows over hidden controls too. */
@@ -3111,14 +3143,18 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 .group a.on { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
 .group a.on svg, .group button.on svg { color: var(--accent-ink); }
 .subnav a { display: inline-flex; align-items: center; gap: var(--space-6); }
+/* A page's own tabs (Settings', Energy's, Scenes') span its width like the cards under them: each an equal share, at
+   least its name's, the row scrolling only when the names do not fit. */
+main > .subnav { display: flex; width: 100%; }
+main > .subnav > a { flex: 1 1 0; min-width: max-content; justify-content: center; }
 .subnav svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .subnav svg.sparkle { stroke: none; }
 /* A phone: each page its glyph over its whole name, as a tab bar. Tabs keep their width (eight would each get a
    sliver and lose their names to "Child …"): the row fills the width when they fit and scrolls when they do not,
    snapping to a tab, its edges fading where tabs are out of sight. */
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
-  .subnav { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(max-content, 1fr); width: 100%; border-radius: var(--radius); scroll-snap-type: x proximity; overscroll-behavior-x: contain; }
-  .subnav a { display: grid; justify-items: center; min-width: 64px; gap: var(--space-4); padding: var(--space-8) var(--space-10) 7px; border-radius: var(--radius-lg); font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: -0.01em; scroll-snap-align: center; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+  .subnav, main > .subnav { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(max-content, 1fr); width: 100%; border-radius: var(--radius); scroll-snap-type: x proximity; overscroll-behavior-x: contain; }
+  .subnav a, main > .subnav > a { display: grid; justify-items: center; min-width: 64px; gap: var(--space-4); padding: var(--space-8) var(--space-10) 7px; border-radius: var(--radius-lg); font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: -0.01em; scroll-snap-align: center; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
   .subnav a span { white-space: nowrap; }
   .subnav svg { width: 22px; height: 22px; }
 }
@@ -4135,7 +4171,8 @@ fieldset > .help { margin-bottom: var(--space-10); }
   /* The save bar sits over the tab bar, beside the floating Assistant. */
   .settings-bar { bottom: calc(var(--tab-bar-top) + var(--space-10)); }
   #app:has(> .chat-open:not([hidden])) .settings-bar { margin-right: calc(var(--float-button) + var(--space-10)); }
-  #app > main:has(.settings-bar) { padding-bottom: calc(var(--tab-bar-top) + var(--space-24)); }
+  /* Room for the save bar over the tab bar, and for the last setting to clear it. */
+  #app > main:has(.settings-bar) { padding-bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--settings-bar-height, 60px) + var(--space-24)); }
 }
 /* A phone's navigation (tabBar): More's panel, within thumb reach. */
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
@@ -6699,7 +6736,8 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   /* Open, More's panel covers the page's bar rather than slipping under it; it lists the sections that are not tabs. */
   .tabbar:has(> .mobile-nav-panel:not([hidden])) { z-index: var(--layer-panel); }
   .tabbar .mobile-nav-panel a.is-tab { display: none; }
-  #app > main { padding-bottom: calc(var(--tab-bar-top) + var(--space-24)); }
+  /* The page ends well clear of the tab bar and the floating Assistant: its last card can be read whole. */
+  #app > main { padding-bottom: calc(var(--tab-bar-top) + var(--float-action) + var(--space-24)); }
 
   /* A page's bar: one glass capsule over the tab bar, its search across it (16px, or iOS zooms the page in on focus),
      its buttons tinted circles (the one that adds or asks in the accent, one switched on tinted with it), a badge on

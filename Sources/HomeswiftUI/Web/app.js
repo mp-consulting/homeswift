@@ -4593,7 +4593,7 @@
   /// A block's state pill: its label and tone.
   /// A block as the pages name it: a built-in block still under its platform's name reads as words ("HomeswiftMatter" is
   /// Homeswift Matter); any other, its own name.
-  const builtInTitles = { HomeswiftUI: "Homeswift UI", HomeswiftMatter: "Homeswift Matter", HomeswiftAiKit: "Homeswift Ai Kit" };
+  const builtInTitles = { HomeswiftUI: "Homeswift UI", HomeswiftMatter: "Homeswift Matter", HomeswiftAiKit: "Homeswift AI Kit" };
   const blockTitle = (block) => (block.name === block.platform && builtInTitles[block.platform]) || block.name;
   /// Running is green only when its devices can work: an account that Needs Authorization says what it needs ("Needs
   /// sign-in"), and a plugin none of whose accessories responds says so.
@@ -5646,10 +5646,7 @@
     bitmap.close?.();
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
     if (!blob) throw new Error(t("The image could not be read."));
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = "";
-    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    return btoa(binary);
+    return HomeswiftCommon.base64(new Uint8Array(await blob.arrayBuffer()));
   }
 
   // ---- Config --------------------------------------------------------------

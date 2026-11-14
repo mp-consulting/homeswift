@@ -614,7 +614,9 @@ Plugin Settings under `schema`, as Homebridge's, and its Plugin Accessory Settin
   sensor's timeout, with a `condition` on the same switch). Switches in a row, and what sits under them, make one list,
   a row each with its switch at the end. `x-schema-form.unit` writes a number's unit at the end of its field (`"s"`);
   `x-schema-form.wide` gives a long value (a stream's address) a whole row; a `placeholder` says what an empty
-  field uses, so its description need not.
+  field uses, so its description need not. `x-schema-form.type: "segmented"` shows a few choices (a `oneOf`) side by side,
+  one always chosen, with the chosen one's own `description` under them (the Assistant's voice engine). A field with a
+  `condition`, inside an object too, shows in the main part while its condition holds, never under More options.
   An array whose `items` are choices (an `enum`, or a `oneOf` of them) is a set of checkboxes, written in
   the choices' order; `uniqueItems: false` keeps a menu per entry instead, for a list that may hold a choice twice.
 - `x-default` (optional): the Plugin Setting that is the field's plugin-wide default; an accessory's own value overrules

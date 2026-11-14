@@ -1122,7 +1122,12 @@ check a light's address, recall a Hue scene; [plugins.md](plugins.md)).
   on: the choice is the user's own (`assistantModel` in `ui-preferences.json`), the budgets and usage stay the bridge's,
   and choosing the default again clears it. A model the provider no longer offers falls back to the block's.
 - **Voice.** The mic dictates a message (tap, or hold while speaking with a mouse), and the answer to a spoken message is read out,
-  in the language chosen under the field (the browser's unless you pick one; each browser keeps its choice). Browsers
+  in the language chosen under the field (the browser's unless you pick one; each browser keeps its choice). While it
+  listens, the field takes the composer's first row and the second shows your voice as a waveform, between × (discard
+  what you said), ■ (stop, the words stay in the field) and ↑ (send), as in the Claude app; on an iPhone or iPad, where
+  dictation holds the microphone, the bars follow whether a voice is heard. With a `transcription` in the HomeswiftAiKit
+  block the bridge writes down what you said instead of the browser ([docs/ai.md](ai.md#voice-transcription)): the page
+  records the microphone, ■ and ↑ send the recording, and the words appear once it is written down. Browsers
   allow the microphone only on `localhost` or over HTTPS: turn on `https` to use it from a phone or another computer.
   Safari sends the audio to Apple and Chrome to Google for recognition. On an iPhone or iPad, dictation needs
   Settings › General › Keyboard › Enable Dictation; when it is off, the note under the field says so.

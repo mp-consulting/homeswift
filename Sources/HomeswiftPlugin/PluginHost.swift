@@ -222,6 +222,12 @@ public final class PluginHost: @unchecked Sendable {
     public var aiConfiguration: AIConfiguration? { aiConfigurationBox.withLockedValue { $0 } }
     /// How the Assistant reaches its provider: `Options.aiTransport`, else URLSession. A connection test uses it too.
     public var aiTransport: any HTTPTransport { options.aiTransport ?? URLSessionTransport() }
+    /// Speech to text for the chat's mic, when the Assistant works and its block has a `transcription` that is on and
+    /// runs here (Apple's needs macOS 26).
+    public var transcriber: (any SpeechToText)? {
+        guard assistant != nil, let configuration = aiConfiguration?.transcription else { return nil }
+        return configuration.makeTranscriber(transport: aiTransport)
+    }
     private let aiConfigurationBox: NIOLockedValueBox<AIConfiguration?>
 
     var instances: [Instance] { instanceList.withLockedValue { $0 } }
@@ -827,6 +833,9 @@ public final class PluginHost: @unchecked Sendable {
             let store = FileUsageStore(url: storageDirectory.appendingPathComponent(UsageTracker.fileName), write: OwnerOnlyFile.write)
             let service = try AssistantService(configuration: ai, transport: transport ?? URLSessionTransport(), usageStore: store, logger: logger)
             logger.info("Assistant ready", metadata: ["provider": "\(service.providerName)", "model": "\(service.model)"])
+            if let transcription = ai.transcription, !transcription.isAvailable {
+                logger.warning("Voice transcription on this Mac needs macOS 26: the chat keeps the browser's dictation")
+            }
             return service
         } catch {
             logger.error("Assistant unavailable: \(error)")

@@ -2146,9 +2146,164 @@
     });
   }
 
+  // The waveform while someone talks: one more bar every WAVE_STEP milliseconds, the newest on the right.
+  const WAVE_STEP = 50;
+  /// Its two looks. `talk`, a camera's Talk as in the Home app: 28 bars across the pill, brighter as they rise.
+  /// `dictation`, the chat's mic as in the Claude app: a bar each 6 CSS pixels, as many as fit, solid, the quiet as dots.
+  const WAVE_STYLES = {
+    talk: { bars: 28, width: 0.5, solid: false, dots: false },
+    dictation: { pitch: 6, width: 0.55, solid: true, dots: true },
+  };
+
+  /// The microphone's level as the Home app shows it while someone talks: bars that rise with each syllable, fall in
+  /// the pauses and scroll left. The scale follows the voice: its floor the room's quiet (down at once, up slowly), its
+  /// top the voice's recent peaks (up at once, down slowly), so a soft voice moves the bars as much as a loud one and a
+  /// steady noise stays low. `start(source)` follows an AnalyserNode on the microphone, or a function giving the level
+  /// in decibels when the page cannot open the microphone itself (dictation holds it); `stop()` clears it. The bars
+  /// take the canvas's CSS colour; `look` is one of WAVE_STYLES.
+  function waveform(look = "talk") {
+    const style = WAVE_STYLES[look];
+    const canvas = el("canvas", { class: "talk-wave hidden", "aria-hidden": "true" });
+    let kept = style.bars || 0;
+    let frame = 0, levels = [], last = 0, samples = null, floor = -60, peak = -30, color = "#fff";
+    function draw() {
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.round(canvas.clientWidth * ratio), height = Math.round(canvas.clientHeight * ratio);
+      if (!width || !height) return;
+      if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+      const context = canvas.getContext("2d");
+      context.clearRect(0, 0, width, height);
+      const pitch = style.pitch ? style.pitch * ratio : width / style.bars;
+      const bar = Math.max(1, pitch * style.width), lowest = style.dots ? bar : 2 * ratio;
+      const shown = Math.min(levels.length, Math.floor(width / pitch));
+      context.fillStyle = color;
+      // Solid bars are one path; translucent ones each their own, for their brightness.
+      if (style.solid) context.beginPath();
+      for (let index = 0; index < shown; index++) {
+        const level = levels[levels.length - shown + index];
+        const h = Math.max(lowest, level * (height - 4 * ratio));
+        const x = width - (shown - index) * pitch + (pitch - bar) / 2;
+        if (!style.solid) {
+          context.globalAlpha = 0.5 + 0.5 * level;
+          context.beginPath();
+        }
+        context.roundRect(x, (height - h) / 2, bar, h, bar / 2);
+        if (!style.solid) context.fill();
+      }
+      if (style.solid) context.fill();
+    }
+    return {
+      canvas,
+      /// Follows `source`, from a flat line: a new start (the microphone once it opens) takes over from the last.
+      start(source) {
+        cancelAnimationFrame(frame);
+        canvas.classList.remove("frozen");
+        const analyser = typeof source === "function" ? null : source;
+        samples = analyser ? new Float32Array(analyser.fftSize) : null;
+        color = getComputedStyle(canvas).color;
+        // As many levels as the widest canvas shows: the screen, or the window zoomed out past it.
+        if (style.pitch) kept = Math.ceil(Math.max(screen.width, innerWidth) / style.pitch);
+        levels = Array(kept).fill(0);
+        floor = -60;
+        peak = -30;
+        canvas.classList.remove("hidden");
+        const tick = (now) => {
+          if (now - last >= WAVE_STEP) {
+            last = now;
+            let decibels;
+            if (analyser) {
+              analyser.getFloatTimeDomainData(samples);
+              let sum = 0;
+              for (const sample of samples) sum += sample * sample;
+              decibels = Math.max(-90, 20 * Math.log10(Math.sqrt(sum / samples.length) || 1e-6));
+            } else {
+              decibels = source();
+            }
+            // Digital silence (a microphone starting, muted) is no sound at all: it would drag the floor far below the
+            // room's quiet, every pause then reading as speech until it climbed back.
+            if (decibels > -80) {
+              // The room's quiet: down at once, up 0.3 dB a step (3 s to rise 18 dB), never above a speaking voice.
+              floor = Math.min(decibels, floor + 0.3, -25);
+              // The voice's peaks: up at once, down 0.25 dB a step; at least 20 dB above the floor.
+              peak = Math.max(decibels, peak - 0.25, floor + 20);
+            }
+            // Above the floor's margin, over the range to the peak; squared, so a syllable stands out from its tail.
+            const level = Math.min(1, Math.max(0, (decibels - floor - 4) / (peak - floor - 4)));
+            levels.push(level * level);
+            levels.shift();
+            draw();
+          }
+          frame = requestAnimationFrame(tick);
+        };
+        frame = requestAnimationFrame(tick);
+      },
+      stop() {
+        cancelAnimationFrame(frame);
+        canvas.classList.add("hidden");
+        canvas.classList.remove("frozen");
+      },
+      /// Holds what was said on screen, still: the voice is in, the words are being written down.
+      freeze() {
+        cancelAnimationFrame(frame);
+        canvas.classList.add("frozen");
+      },
+    };
+  }
+
+  /// Bytes as base64, in slices: a spread of a whole recording would overflow the call stack.
+  function base64(bytes) {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(binary);
+  }
+
+  /// The microphone for a camera's Talk and the chat's mic: its stream, voice-processed and mono.
+  const openMicrophone = () => navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+
+  // talk-worklet.js, loaded once per audio context: a caller may start it early, while the microphone opens.
+  const talkWorklets = new WeakMap();
+  function talkWorklet(context) {
+    if (!talkWorklets.has(context)) {
+      const loading = context.audioWorklet.addModule("/talk-worklet.js");
+      loading.catch(() => {});
+      talkWorklets.set(context, loading);
+    }
+    return talkWorklets.get(context);
+  }
+
+  /// The microphone's `stream` through talk-worklet.js in `context` (made during the tap: Safari starts one only then):
+  /// `onChunk` gets its signed 16-bit little-endian mono at `rate`, every `chunk` milliseconds, and `analyser` follows its
+  /// level for the waveform.
+  async function listenTo(context, stream, { rate, chunk, onChunk }) {
+    await talkWorklet(context);
+    const { source, analyser } = await levelOf(context, stream);
+    const node = new AudioWorkletNode(context, "homeswift-talk", { processorOptions: { rate, chunk } });
+    node.port.onmessage = (event) => onChunk(event.data);
+    // The worklet runs only while it leads to the speakers: through a silent gain, so nothing is heard here.
+    const silent = context.createGain();
+    silent.gain.value = 0;
+    source.connect(node).connect(silent).connect(context.destination);
+    return { node, analyser };
+  }
+
+  /// The microphone's level in `context`, for the waveform: started, since a context made after an await starts paused.
+  async function levelOf(context, stream) {
+    await context.resume();
+    const source = context.createMediaStreamSource(stream);
+    const analyser = context.createAnalyser();
+    // 2048 samples: 43 ms at 48 kHz, the length of a bar's step, so every bar sees all of its sound.
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+    return { source, analyser };
+  }
+
+  /// Why the microphone did not open: `blocked` (refused for this page), `missing` (none), or null for anything else.
+  const microphoneRefusal = (error) => error?.name === "NotAllowedError" || error?.name === "SecurityError" ? "blocked"
+    : error?.name === "NotFoundError" ? "missing" : null;
+
   window.HomeswiftCommon = {
     foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
-    openSheet, confirmAction,
+    openSheet, confirmAction, waveform, base64, openMicrophone, talkWorklet, listenTo, levelOf, microphoneRefusal,
     phone, viewSignal, nextView, filtersToggle, followControls, assistantButton, menuOpen: () => Boolean(openMenu),
     $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,

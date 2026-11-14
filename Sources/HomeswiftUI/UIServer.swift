@@ -780,8 +780,9 @@ public final class UIServer: Sendable {
                 // Whether pages may offer "Explain": the HomeswiftAiKit block's Assistant, when one works.
                 guard let assistant = catalog.host.assistant else { return .json(["enabled": false]) }
                 // The chat's model: the user's choice, else the block's (`defaultModel`).
+                // `transcription`: the chat's mic records for the bridge to write down, rather than the browser's dictation.
                 return .json(["enabled": true, "provider": .string(assistant.providerName), "model": .string(chatAssistant(assistant, for: username).model),
-                              "defaultModel": .string(assistant.model)])
+                              "defaultModel": .string(assistant.model), "transcription": .bool(catalog.host.transcriber != nil)])
             case ["assistant", "chat"]:
                 guard catalog.host.assistant != nil else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
                 // The conversation so far, then the run going on, if any, as it goes.

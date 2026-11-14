@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Voice transcription on the bridge**: a `transcription` in the HomeswiftAiKit block (an OpenAI-compatible
+  `/audio/transcriptions`: OpenAI's, or a local Whisper server) has the chat's mic record the microphone and the bridge
+  write down what was said (`POST /api/assistant/transcribe`), as the Claude app sends its voice to a speech service:
+  the same in every browser, Firefox and iPhones without Siri dictation included. Claude reads no audio; without a
+  transcription the browser's dictation stays.
+- **Voice transcription on this Mac**: `"engine": "apple"` in the `transcription` (Settings: Browser, This Mac or Server) has macOS 26's on-device speech
+  recognition write the words down: free, private, no key, a language's model downloaded once; on Linux or an earlier
+  macOS the bridge logs it and the browser's dictation stays.
+
+### Changed
+
+- **Dictating to the Assistant shows your voice**, as in the Claude app: while the mic listens, the field takes the
+  composer's first row and the second is a waveform of your voice across it, between × (discard what you said), ■ (stop,
+  the words stay in the field) and send. On an iPhone or iPad, where dictation holds the microphone, the bars follow
+  whether a voice is heard. The waveform is now shared with a camera's Talk (`HomeswiftCommon.waveform`).
+- **Settings read better on a wide window**: a settings form's own fields (the Assistant's key, address and model) sit in
+  columns like its sections' rather than each running the page's width; a section that is one object (Voice
+  transcription, Budget) shows its description, then its fields across the section; a few choices can be a segmented
+  control (`x-schema-form.type: "segmented"`), the chosen one described under it; a page's own tabs (Settings, Energy,
+  Scenes) span the page's width. On a phone a page ends clear of the tab bar, the floating Assistant and the save bar.
+
 ### Fixed
 
 - **FFmpeg asked to be quiet stays out of the log**: a command line with `-loglevel error` (a Tapo camera's live view and

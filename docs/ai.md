@@ -173,6 +173,43 @@ carry the page's language as `Accept-Language`; for French, Spanish or Portugues
 answer in it (`Prompts.answerLanguage`, `AssistantService.speaking`), and the day's digest is kept per language.
 The command line and the MCP server leave the language to the model.
 
+### Voice transcription
+
+Claude reads text and images, not audio, so what you say to the chat's mic becomes text first. Without a
+`transcription` in the block, the browser's own dictation does it (Safari sends your voice to Apple, Chrome to Google;
+iOS needs Siri dictation on). With one, the bridge does it, as the Claude app sends its voice to a speech service: the
+page records the microphone itself (`talk-worklet.js`, 16 kHz mono), `POST /api/assistant/transcribe` hands the
+recording to the engine (`SpeechToText`), and its words land in the field. The engines:
+
+- **On this Mac** (`"engine": "apple"`, `AppleTranscriber`): macOS 26's on-device speech recognition (`SpeechAnalyzer`,
+  `SpeechTranscriber`). Free, private (nothing leaves the Mac), no key; a language's model is downloaded by macOS the
+  first time it is asked for, once. The bridge needs no permission prompt for it. Not on Linux or an earlier macOS:
+  the bridge logs it and the chat keeps the browser's dictation.
+- **A speech server** (`"engine": "server"`, `Transcriber`): the recording as a WAV to an OpenAI-compatible
+  `/audio/transcriptions`.
+- **The browser** (`"engine": "browser"`, the default): the bridge writes nothing down.
+
+```json
+{ "platform": "HomeswiftAiKit", "provider": "anthropic", "apiKey": "sk-ant-…",
+  "transcription": { "engine": "apple" } }
+```
+
+```json
+{ "platform": "HomeswiftAiKit", "provider": "anthropic", "apiKey": "sk-ant-…",
+  "transcription": { "engine": "server", "apiKey": "sk-…", "model": "whisper-1" } }
+```
+
+| Key | Default | |
+|---|---|---|
+| `engine` | `browser` | `apple` for this Mac's speech recognition, `server` for a speech server (the keys below). |
+| `baseUrl` | `https://api.openai.com/v1` | Any server that speaks OpenAI's transcription API, a local Whisper server among them. |
+| `apiKey` | the block's key when the Assistant is OpenAI, else `OPENAI_API_KEY` | On OpenAI's address only: a key is never sent to a server it was not given for. |
+| `model` | `whisper-1` | The speech model, as the server names it. |
+
+The same in every browser, Firefox included, and on an iPhone without Siri dictation; the waveform follows the
+microphone everywhere. A recording is at most 90 seconds (the page stops at 80); the server's minutes are not counted
+in the Assistant's usage or budget. The page still needs HTTPS (or localhost) for the microphone.
+
 ## What goes to the provider
 
 - **Secrets never.** Configuration values under keys such as `password`, `token`, `apiKey`, `pin` are
@@ -193,6 +230,9 @@ The command line and the MCP server leave the language to the model.
   handle in a later tool's arguments becomes the secret again, so the model can put it in config.json
   without seeing it.
 - **Nothing is stored** on the provider's side where that is a choice: OpenAI requests use `store: false`.
+- **Your voice goes to the transcription engine only**, when the block has one: with `apple` it stays on the Mac; with a
+  server, the recording, the model's name and the language go to it. The text then goes to the provider as a typed
+  message would.
 
 ## Library
 

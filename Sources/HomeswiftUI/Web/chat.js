@@ -9,13 +9,19 @@
 // and closes when a flick would carry it past half its height. Reduced motion cross-fades instead.
 (() => {
   "use strict";
-  const { $, el, icon, markdown, sparkle, api, jsonView, copyText, menu } = HomeswiftCommon;
+  const { $, el, icon, markdown, sparkle, api, jsonView, copyText, menu, waveform } = HomeswiftCommon;
   const { t, tn } = HomeswiftI18n;
 
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const phone = HomeswiftCommon.phone;
   const touch = matchMedia("(pointer: coarse)");
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  // The bridge writes down what was said when its HomeswiftAiKit block has a transcription: the page records the
+  // microphone itself (talk-worklet.js, 16 kHz) and sends it, as the Claude app sends its voice to a speech service.
+  const transcribes = () => Boolean(info?.transcription && window.AudioWorkletNode && navigator.mediaDevices?.getUserMedia);
+  const canSpeak = () => Boolean(Recognition) || transcribes();
+  // The recording's rate, and its longest stretch in seconds (the bridge takes 90).
+  const VOICE_RATE = 16000, VOICE_SECONDS = 80;
 
   // ---- A spring, after Apple's damping ratio and response (no mass, stiffness, damping to tune) ----------
 
@@ -79,15 +85,27 @@
   const providerNames = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Gemini", apple: "Apple" };
 
   function build() {
+    const speakable = canSpeak();
     const log = el("div", { class: "chat-log", "aria-live": "polite", "aria-relevant": "additions" });
     const input = el("textarea", { rows: 1, placeholder: t("Ask, or tell it what to set up…"), "aria-label": t("Message to the Assistant"), maxLength: 4000 });
     const mic = el("button", { type: "button", class: "chat-mic", "aria-label": t("Dictate"), title: t("Dictate: tap, or hold while you speak") });
     mic.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>';
+    // While it listens, the field's row gives way to the voice's: discard, the waveform across the field, stop (the words stay
+    // in the field) and send, as the Claude app does.
+    const wave = waveform("dictation");
+    const discard = el("button", { type: "button", class: "chat-voice-button", "aria-label": t("Discard what you said"), title: t("Discard what you said"),
+      onclick: () => stopListening("discard") });
+    discard.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    const keep = el("button", { type: "button", class: "chat-voice-button keep", "aria-label": t("Stop and keep the words"), title: t("Stop and keep the words"),
+      onclick: () => stopListening("keep") });
+    keep.innerHTML = '<svg class="filled" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2.5"/></svg>';
+    const voice = el("div", { class: "chat-voice" }, discard, wave.canvas, keep);
     const send = el("button", { type: "submit", class: "chat-send", "aria-label": t("Send") });
     send.innerHTML = '<svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>'
       + '<svg class="stop-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>';
     // Over the field, one line: who answers, and that changes ask first.
-    const note = el("span", { class: "chat-note" });
+    // Who answers, or what the mic is doing: read out when it changes.
+    const note = el("span", { class: "chat-note", role: "status" });
     const foot = el("div", { class: "chat-foot" }, note);
     // The language spoken to the mic and in which answers are read out; this browser remembers it.
     const languages = [["", t("Browser's language")], ["en-US", "English (US)"], ["en-GB", "English (UK)"], ["fr-FR", "Français"], ["de-DE", "Deutsch"],
@@ -100,8 +118,8 @@
       voiceChoice = value;
       try { localStorage.setItem("homeswift.voiceLanguage", value); } catch {}
     } })));
-    const form = el("form", { class: "chat-composer", onsubmit: (event) => { event.preventDefault(); running ? stop() : submit(); } },
-      input, Recognition ? mic : null, send);
+    const form = el("form", { class: "chat-composer", onsubmit: (event) => { event.preventDefault(); listening() ? stopListening("send") : running ? stop() : submit(); } },
+      input, speakable ? mic : null, speakable ? voice : null, send);
     const close = el("button", { type: "button", class: "chat-icon", "aria-label": t("Close"), title: t("Close (Esc)"), text: "×", onclick: () => toggle(false) });
     const fresh = el("button", { type: "button", class: "chat-icon", "aria-label": t("New chat"), title: t("New chat"), onclick: reset });
     fresh.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
@@ -111,10 +129,10 @@
     // and the voice's language where the browser can listen.
     const canSettle = !document.querySelector('header nav a[href="/settings"]')?.classList.contains("hidden");
     const voiceName = () => languages.find(([value]) => value === voiceChoice)?.[1] ?? languages[0][1];
-    const settings = canSettle || Recognition ? el("button", { type: "button", class: "chat-icon", "aria-label": t("Settings"), title: t("Settings"), "aria-haspopup": "menu",
+    const settings = canSettle || speakable ? el("button", { type: "button", class: "chat-icon", "aria-label": t("Settings"), title: t("Settings"), "aria-haspopup": "menu",
       onclick: (event) => menu(event.currentTarget, [
         canSettle ? { label: t("Assistant settings"), icon: "gear", onSelect: () => { toggle(false); HomeswiftApp.navigate("/settings/assistant"); } } : null,
-        Recognition ? { label: t("Voice language"), icon: "globe", count: voiceName(), onSelect: () => setTimeout(() => chooseVoice(settings)) } : null,
+        speakable ? { label: t("Voice language"), icon: "globe", count: voiceName(), onSelect: () => setTimeout(() => chooseVoice(settings)) } : null,
       ], { keyboard: event.detail === 0 }) }, icon("gear")) : null;
     // Under the title, the model that answers: a menu of the provider's others, the choice kept for this user.
     const modelLabel = el("span", { class: "chat-model-label", text: info.model || "" });
@@ -132,7 +150,7 @@
       el("div", { class: "chat-surface" }, head, log, foot, form));
     const scrim = el("div", { class: "chat-scrim", hidden: true, onclick: () => toggle(false) });
     document.body.append(scrim, sheet);
-    panel = { sheet, scrim, log, input, mic, send, foot, note, head, earlier, copy, modelButton, modelLabel };
+    panel = { sheet, scrim, log, input, mic, wave, voice, keep, send, foot, note, head, earlier, copy, modelButton, modelLabel };
     showModel();
     loadModels();
     showCopied(false);
@@ -142,9 +160,9 @@
       if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
     });
     sheet.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") { event.preventDefault(); listening ? stopListening(true) : toggle(false); }
+      if (event.key === "Escape") { event.preventDefault(); listening() ? stopListening("keep") : toggle(false); }
     });
-    if (Recognition) setUpMic();
+    if (speakable) setUpMic();
     setUpDrag();
     setUpKeyboard();
     renderControls();
@@ -205,8 +223,8 @@
       load();
       // A touch screen keeps its keyboard down until the field is tapped: up at once, it would cover the sheet.
       if (!touch.matches) setTimeout(() => panel.input.focus({ preventScroll: true }), 50);
-    } else if (listening) {
-      stopListening(true);
+    } else if (listening()) {
+      stopListening("keep");
     }
     spring(openness, openness.target, {
       damping: velocity ? 0.8 : 1, response: phone.matches ? 0.32 : 0.3, velocity, onFrame: draw,
@@ -660,6 +678,13 @@
     if (!panel) return;
     const { sheet, send, note, log } = panel;
     sheet.classList.toggle("working", running);
+    sheet.classList.toggle("listening", listening());
+    // Written down by the bridge: the voice is in, so stop has nothing left to do and the field waits for the words.
+    const writing = Boolean(dictation?.writing);
+    sheet.classList.toggle("transcribing", writing);
+    panel.keep.disabled = writing;
+    // The field shows what is said while the mic listens: typing there would be written over.
+    panel.input.readOnly = listening();
     log.setAttribute("aria-busy", String(running));
     send.classList.toggle("stop", running);
     send.setAttribute("aria-label", running ? t("Stop") : t("Send"));
@@ -672,7 +697,7 @@
     const provider = providerNames[info.provider] || info.provider || t("Assistant");
     const cost = usage && usage.cost != null && usage.cost > 0
       ? new Intl.NumberFormat(HomeswiftI18n.numberLocale, { style: "currency", currency: "USD", minimumFractionDigits: usage.cost < 0.01 ? 4 : 2, maximumFractionDigits: usage.cost < 0.01 ? 4 : 2 }).format(usage.cost) : null;
-    note.textContent = listening ? t("Listening… tap the mic again when you are done.") : voiceNote
+    note.textContent = dictation?.writing ? t("Writing down what you said…") : listening() ? t("Listening…") : voiceNote
       || (cost ? t("{provider} · {cost} so far. Changes always ask first.", { provider, cost }) : t("{provider}. Changes always ask first.", { provider }));
   }
 
@@ -719,9 +744,14 @@
 
   // ---- Voice ------------------------------------------------------------------------------------------------
 
-  let recognition = null;
-  let listening = false;
+  // One dictation at a time: the browser's recognition, or the page's own recording for the bridge to write down. Each
+  // has `original` (the field before it) and `stop(how)`: `send` sends what was said, `keep` leaves it in the field,
+  // `discard` puts the field back as it was.
+  let dictation = null;
   let voiceNote = "";
+  const listening = () => Boolean(dictation);
+  // iOS gives the microphone to one listener at a time: while recognition holds it, the waveform follows the speech.
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
   function setUpMic() {
     const { mic } = panel;
@@ -729,26 +759,30 @@
       mic.classList.add("unavailable");
       mic.title = t("Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.");
     }
-    let pressedAt = 0;
+    // The mic gives way to the voice's row while it listens, so it only ever starts one.
     // A mouse starts on the press, so holding it down is push to talk. A finger starts on the tap (its click): Safari
     // lets a page listen only from a tap that ended, and a touch's press is not one, so it refused to start.
     mic.addEventListener("pointerdown", (event) => {
       if (event.pointerType !== "mouse" || event.button !== 0) return;
-      pressedAt = event.timeStamp;
-      if (!listening) startListening();
-      else stopListening(false);
-    });
-    // Held down and let go: push to talk. A tap keeps listening until the next tap or a pause.
-    mic.addEventListener("pointerup", (event) => {
-      if (event.pointerType === "mouse" && listening && event.timeStamp - pressedAt > 400) stopListening(false);
+      const pressedAt = event.timeStamp;
+      startListening();
+      // Held down and let go: push to talk. The mic is hidden by then, so the release is the window's. A click keeps
+      // listening until stop, send or a pause.
+      const release = (up) => {
+        removeEventListener("pointerup", release);
+        removeEventListener("pointercancel", release);
+        if (up.type === "pointerup" && up.timeStamp - pressedAt > 400) stopListening("send");
+      };
+      addEventListener("pointerup", release);
+      addEventListener("pointercancel", release);
     });
     mic.addEventListener("click", (event) => {
       // A mouse was handled on its press; a keyboard's Enter or Space below.
       if (event.pointerType === "mouse" || event.detail === 0) return;
-      listening ? stopListening(false) : startListening();
+      startListening();
     });
     mic.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); listening ? stopListening(false) : startListening(); }
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); startListening(); }
     });
   }
 
@@ -759,65 +793,200 @@
       return;
     }
     // A press while an answer runs still listens: the words wait in the field until the answer is done.
-    if (recognition) return;   // the last one is still finishing
+    if (dictation) return;   // the last one is still finishing
     voiceNote = "";
     window.speechSynthesis?.cancel();
-    const current = new Recognition();
-    recognition = current;
-    current.lang = voiceLanguage();
-    current.interimResults = true;
-    current.continuous = false;
-    const before = panel.input.value ? `${panel.input.value} ` : "";
+    transcribes() ? record() : recognize();
+  }
+
+  function stopListening(how) {
+    dictation?.stop(how);
+  }
+
+  /// The voice's row takes the composer, a flat line at once until the microphone opens; a keyboard that started it
+  /// lands on stop.
+  function beginDictation(session) {
+    dictation = session;
+    panel.wave.start(() => -90);
+    if (document.activeElement === panel.mic) panel.keep.focus();
+    renderControls();
+  }
+
+  /// The voice's row goes, its focus back to the field. False when `session` ended already.
+  function endDictation(session, note = "") {
+    if (dictation !== session) return false;
+    dictation = null;
+    panel.wave.stop();
+    voiceNote = note;
+    if (panel.voice.contains(document.activeElement)) panel.input.focus();
+    renderControls();
+    return true;
+  }
+
+  const joined = (original, words) => words ? (original ? `${original} ${words}` : words) : original;
+
+  /// What was said, into the field (or the field as it was), sent on when asked.
+  function deliver(original, words, how) {
+    panel.input.value = how === "discard" ? original : joined(original, words);
+    grow();
+    const send = how === "send" && Boolean(words);
+    if (send && running) voiceNote = t("Your words are in the field: send them once the answer is done.");
+    renderControls();
+    const message = panel.input.value.trim();
+    if (send && !running && message) submit(message, true);
+  }
+
+  /// The browser's recognition, its words in the field as they come.
+  function recognize() {
+    const recognition = new Recognition();
+    const session = { original: panel.input.value, how: "send", note: "", stop(how) {
+      session.how = how;
+      how === "discard" ? recognition.abort() : recognition.stop();
+    } };
+    recognition.lang = voiceLanguage();
+    recognition.interimResults = true;
+    recognition.continuous = false;
     // What was heard: Safari on iOS often ends without marking a result final, so the last words count either way.
-    let heardText = "";
-    let failed = false;
-    current.onresult = (event) => {
-      heardText = [...event.results].map((result) => result[0].transcript).join("");
-      panel.input.value = before + heardText;
+    let heard = "", failed = false, speaking = false;
+    recognition.onresult = (event) => {
+      if (session.how === "discard") return;
+      heard = [...event.results].map((result) => result[0].transcript).join("");
+      panel.input.value = joined(session.original, heard);
       grow();
     };
-    current.onerror = (event) => {
+    recognition.onerror = (event) => {
       // Our own stop or cancel: nothing to say.
       if (event.error === "aborted") return;
       failed = true;
-      voiceNote = event.error === "not-allowed" ? t("The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.")
+      session.note = event.error === "not-allowed" ? t("The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.")
         // Safari says so when Siri & Dictation is off, or when dictation is not offered where the page runs.
         : event.error === "service-not-allowed" ? t("Dictation is not available here. On an iPhone or iPad, turn on Enable Dictation in Settings › General › Keyboard; if this page was added to the Home Screen, try it in Safari.")
         : event.error === "audio-capture" ? t("No microphone was found.")
         : event.error === "network" ? t("Dictation could not reach its speech service. Check the connection and try again.")
-        : event.error === "language-not-supported" ? t("Dictation does not support {language}: choose another Voice language from the Settings menu.", { language: current.lang })
+        : event.error === "language-not-supported" ? t("Dictation does not support {language}: choose another Voice language from the Settings menu.", { language: recognition.lang })
         : event.error === "no-speech" ? t("Nothing was heard. Tap the mic and speak.") : t("Voice stopped: {error}.", { error: event.error });
     };
-    current.onend = () => {
-      if (recognition !== current) return;
-      const send = current.sendWhenDone !== false;
-      listening = false;
-      recognition = null;
-      panel.sheet.classList.remove("listening");
-      const heard = send && !failed && heardText.trim();
-      if (heard && running) voiceNote = t("Your words are in the field: send them once the answer is done.");
-      renderControls();
-      const text = panel.input.value.trim();
-      if (heard && text && !running) submit(text, true);
+    // Whether a voice is heard, for the waveform where the page cannot open the microphone beside dictation.
+    recognition.onspeechstart = () => { speaking = true; };
+    recognition.onspeechend = () => { speaking = false; };
+    let stopWave = () => {};
+    recognition.onend = () => {
+      stopWave();
+      if (!endDictation(session, session.note)) return;
+      // A failure keeps what was heard in the field, unsent.
+      deliver(session.original, heard.trim(), failed && session.how === "send" ? "keep" : session.how);
     };
     try {
-      current.start();
+      recognition.start();
     } catch (e) {
-      recognition = null;
       voiceNote = t("Voice did not start: {error}", { error: e.message });
       renderControls();
       return;
     }
-    listening = true;
-    panel.sheet.classList.add("listening");
-    renderControls();
+    beginDictation(session);
+    stopWave = waveBeside(session, () => speaking);
   }
 
-  /// `cancel` keeps the words in the field without sending them.
-  function stopListening(cancel) {
-    if (!recognition) return;
-    recognition.sendWhenDone = !cancel;
-    recognition.stop();
+  /// The waveform while the browser's recognition runs: the microphone's level, opened beside it. iOS gives the
+  /// microphone to one of them at a time, so there, and wherever the page cannot open it, the bars follow whether a
+  /// voice is heard. Returns what stops it.
+  function waveBeside(session, speaking) {
+    const { wave } = panel;
+    const heard = () => speaking() ? -28 - Math.random() * 14 : -62 + Math.random() * 3;
+    const current = () => dictation === session;
+    if (ios || !navigator.mediaDevices?.getUserMedia) {
+      wave.start(heard);
+      return () => {};
+    }
+    // Made during the tap, before any wait: Safari starts an audio context only from one.
+    const context = new AudioContext();
+    let stream = null;
+    // Its own microphone only: the waveform is the session's to stop (endDictation), and may be a newer one's by now.
+    const release = () => {
+      stream?.getTracks().forEach((track) => track.stop());
+      context.close().catch(() => {});
+    };
+    HomeswiftCommon.openMicrophone().then(async (opened) => {
+      stream = opened;
+      if (!current()) return release();
+      const { analyser } = await HomeswiftCommon.levelOf(context, stream);
+      if (current()) wave.start(analyser);
+    }).catch(() => { if (current()) wave.start(heard); });
+    return release;
+  }
+
+  /// The page's own recording for the bridge: its level draws the waveform, its 16-bit samples wait here until stop,
+  /// then go to the bridge to be written down.
+  async function record() {
+    const session = { original: panel.input.value, how: null, chunks: [], bytes: 0, writing: false, stop(how) {
+      // Being written down: × lets the words go, ↑ sends them once they come.
+      if (session.writing) {
+        if (how === "discard") endDictation(session);
+        else session.how = how;
+        return;
+      }
+      if (session.how) return;
+      session.how = how;
+      // Still opening the microphone: it finishes once it is open.
+      if (session.node || session.failed) finish(session);
+    } };
+    beginDictation(session);
+    // Made during the tap, before any wait: Safari starts an audio context only from one.
+    session.context = new AudioContext();
+    HomeswiftCommon.talkWorklet(session.context);
+    try {
+      session.stream = await HomeswiftCommon.openMicrophone();
+      if (session.how) return finish(session);
+      const { node, analyser } = await HomeswiftCommon.listenTo(session.context, session.stream, { rate: VOICE_RATE, chunk: 100, onChunk: (data) => {
+        if (session.how) return;
+        session.chunks.push(new Uint8Array(data));
+        session.bytes += data.byteLength;
+        // The longest the bridge takes: what was said so far goes to the field.
+        if (session.bytes >= VOICE_RATE * 2 * VOICE_SECONDS) session.stop("keep");
+      } });
+      session.node = node;
+      if (session.how) return finish(session);
+      panel.wave.start(analyser);
+    } catch (error) {
+      const refusal = HomeswiftCommon.microphoneRefusal(error);
+      session.failed = refusal === "blocked" ? t("The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.")
+        : refusal === "missing" ? t("No microphone was found.") : t("Voice did not start: {error}", { error: error?.message || String(error) });
+      finish(session);
+    }
+  }
+
+  /// Lets the microphone go, then has the bridge write down what was said: the row stays, its waveform still, until the
+  /// words come.
+  async function finish(session) {
+    session.node?.port.close();
+    session.stream?.getTracks().forEach((track) => track.stop());
+    session.context?.close().catch(() => {});
+    const short = session.bytes < VOICE_RATE * 2 * 0.3;
+    if (session.failed || session.how === "discard" || short) {
+      endDictation(session, session.failed || (session.how !== "discard" ? t("Nothing was heard. Tap the mic and speak.") : ""));
+      return;
+    }
+    // One buffer for the request; the chunks go.
+    const audio = new Uint8Array(session.bytes);
+    let offset = 0;
+    for (const chunk of session.chunks) { audio.set(chunk, offset); offset += chunk.length; }
+    session.chunks = null;
+    session.writing = true;
+    panel.wave.freeze();
+    // Stop, pressed from the keyboard, goes quiet: send is next.
+    if (document.activeElement === panel.keep) panel.send.focus();
+    renderControls();
+    let words = "", note = "";
+    try {
+      ({ text: words } = await api("/api/assistant/transcribe", { method: "POST", body: { audio: HomeswiftCommon.base64(audio), sampleRate: VOICE_RATE, language: voiceLanguage() } }));
+      words = (words || "").trim();
+      if (!words) note = t("Nothing was heard. Tap the mic and speak.");
+    } catch (error) {
+      note = t("Voice transcription failed: {error}", { error: error.message });
+    }
+    // Discarded while it was written down: the words go.
+    if (!endDictation(session, note) || !words) return;
+    deliver(session.original, words, session.how);
   }
 
   /// An answer to a spoken message, read out: plain text, without Markdown's marks.
@@ -883,7 +1052,7 @@
   function signedOut() {
     session++;
     if (!panel) return;
-    if (listening) stopListening(true);
+    if (listening()) stopListening("keep");
     window.speechSynthesis?.cancel();
     cancelAnimationFrame(openness.frame);
     openness.value = 0;

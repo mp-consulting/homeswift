@@ -65,7 +65,7 @@ final class AssistantRuns: Sendable {
 extension UIServer {
     static let assistantOff = "the Assistant is off: add a HomeswiftAiKit block"
 
-    /// `/api/assistant/…` besides the chat: `usage`, `test`, `models`, `digest`, `explain`, `ask`, `diagnose` and `cancel`.
+    /// `/api/assistant/…` besides the chat: `usage`, `test`, `models`, `digest`, `explain`, `ask`, `diagnose`, `transcribe` and `cancel`.
     /// nil for a route it does not know.
     func assistantRoute(_ route: [String], _ request: Request, body: JSONValue, username: String) async throws -> Reply? {
         switch (request.method, route) {
@@ -125,6 +125,30 @@ extension UIServer {
                 var answer = Self.replyJSON(try await assistant.diagnose(logs: logs.joined(separator: "\n"), focus: focus, onChunk: onChunk)).objectValue ?? [:]
                 answer["lines"] = .number(Double(logs.count))
                 return .object(answer)
+            }
+        case (.POST, ["transcribe"]):
+            // The chat's mic, recorded by the page: `audio` (base64 of signed 16-bit little-endian mono), `sampleRate`
+            // and `language` (BCP 47, optional). Answers `{text}`.
+            guard let transcriber = catalog.host.transcriber else { return .error(404, "voice transcription is off: add a transcription to the HomeswiftAiKit block") }
+            if let refused = limitAssistant(for: username) { return refused }
+            guard let encoded = body["audio"]?.stringValue, let pcm = Data(base64Encoded: encoded), !pcm.isEmpty, pcm.count % 2 == 0 else {
+                return .error(400, "audio is required: base64 of 16-bit mono PCM")
+            }
+            let sampleRate = body["sampleRate"]?.intValue ?? 16000
+            guard (8000...48000).contains(sampleRate) else { return .error(400, "sampleRate must be between 8000 and 48000") }
+            guard pcm.count <= sampleRate * 2 * TranscriptionConfiguration.maxSeconds else {
+                return .error(413, "the recording is longer than \(TranscriptionConfiguration.maxSeconds) seconds")
+            }
+            let language = body["language"]?.stringValue.flatMap { $0.isEmpty ? nil : String($0.prefix(35)) }
+            do {
+                return .json(["text": .string(try await transcriber.transcribe(pcm: pcm, sampleRate: sampleRate, language: language))])
+            } catch let error as ProviderError {
+                // The reply is redacted on its way out; the log line here.
+                logger.warning("Voice transcription failed", metadata: ["error": "\(Redaction.redactText(error.message))"])
+                return .error(502, "voice transcription failed: \(error.message)")
+            } catch {
+                let (status, message) = Self.assistantFailure(error)
+                return .error(status, message)
             }
         case (.POST, ["cancel"]):
             guard let id = body["requestId"]?.stringValue else { return .error(400, "requestId is required") }
