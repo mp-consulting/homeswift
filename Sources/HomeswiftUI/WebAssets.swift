@@ -11517,7 +11517,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // The mic gives way to the voice's row while it listens, so it only ever starts one.
     // A mouse starts on the press, so holding it down is push to talk. A finger starts on the tap (its click): Safari
     // lets a page listen only from a tap that ended, and a touch's press is not one, so it refused to start.
+    // What pressed it: iOS Safari reports the click after a finger's tap as a mouse's, so the click goes by the press.
+    let pressedWith = "";
     mic.addEventListener("pointerdown", (event) => {
+      pressedWith = event.pointerType;
       if (event.pointerType !== "mouse" || event.button !== 0) return;
       const pressedAt = event.timeStamp;
       startListening();
@@ -11533,7 +11536,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     });
     mic.addEventListener("click", (event) => {
       // A mouse was handled on its press; a keyboard's Enter or Space below.
-      if (event.pointerType === "mouse" || event.detail === 0) return;
+      const mouse = pressedWith === "mouse";
+      pressedWith = "";
+      if (mouse || event.detail === 0) return;
       startListening();
     });
     mic.addEventListener("keydown", (event) => {
