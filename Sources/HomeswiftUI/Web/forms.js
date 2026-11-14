@@ -861,7 +861,24 @@
       }
       return null;
     };
-    if (Array.isArray(root.layout)) for (const item of root.layout) { const node = layoutItem(item); if (node) container.append(...[node].flat()); }
+    if (Array.isArray(root.layout)) {
+      // A layout's own fields, between its sections, share the form's columns as the rest and a section's do, rather
+      // than each running the page's width with its description in one long line.
+      let run = null;
+      for (const item of root.layout) {
+        const node = layoutItem(item);
+        if (!node) continue;
+        for (const one of [node].flat()) {
+          if (one.classList?.contains("field")) {
+            if (!run) container.append(run = el("div", { class: "fields" }));
+            run.append(one);
+          } else {
+            run = null;
+            container.append(one);
+          }
+        }
+      }
+    }
     const restKeys = Object.keys(properties).filter((key) => !fields.has(key));
     const rest = restKeys.map((key) => ({ key, element: render(key) })).filter((entry) => entry.element)
       // A field with a condition is shown in the main part while its condition holds, not under More options.

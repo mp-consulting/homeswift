@@ -63,7 +63,7 @@ public struct AIConfiguration: Sendable, Equatable {
           "schema": {
             "type": "object",
             "properties": {
-              "provider": { "title": "Provider", "type": "string", "default": "anthropic", "required": true, "oneOf": [
+              "provider": { "title": "Provider", "type": "string", "default": "anthropic", "required": true, "x-schema-form": { "wide": true }, "oneOf": [
                 { "title": "Anthropic (Claude)", "enum": ["anthropic"] },
                 { "title": "OpenAI", "enum": ["openai"] },
                 { "title": "Google Gemini", "enum": ["gemini"] },

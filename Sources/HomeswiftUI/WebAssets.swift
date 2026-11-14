@@ -7038,7 +7038,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A block's state pill: its label and tone.
   /// A block as the pages name it: a built-in block still under its platform's name reads as words ("HomeswiftMatter" is
   /// Homeswift Matter); any other, its own name.
-  const builtInTitles = { HomeswiftUI: "Homeswift UI", HomeswiftMatter: "Homeswift Matter", HomeswiftAiKit: "Homeswift Ai Kit" };
+  const builtInTitles = { HomeswiftUI: "Homeswift UI", HomeswiftMatter: "Homeswift Matter", HomeswiftAiKit: "Homeswift AI Kit" };
   const blockTitle = (block) => (block.name === block.platform && builtInTitles[block.platform]) || block.name;
   /// Running is green only when its devices can work: an account that Needs Authorization says what it needs ("Needs
   /// sign-in"), and a plugin none of whose accessories responds says so.
@@ -18564,7 +18564,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       return null;
     };
-    if (Array.isArray(root.layout)) for (const item of root.layout) { const node = layoutItem(item); if (node) container.append(...[node].flat()); }
+    if (Array.isArray(root.layout)) {
+      // A layout's own fields, between its sections, share the form's columns as the rest and a section's do, rather
+      // than each running the page's width with its description in one long line.
+      let run = null;
+      for (const item of root.layout) {
+        const node = layoutItem(item);
+        if (!node) continue;
+        for (const one of [node].flat()) {
+          if (one.classList?.contains("field")) {
+            if (!run) container.append(run = el("div", { class: "fields" }));
+            run.append(one);
+          } else {
+            run = null;
+            container.append(one);
+          }
+        }
+      }
+    }
     const restKeys = Object.keys(properties).filter((key) => !fields.has(key));
     const rest = restKeys.map((key) => ({ key, element: render(key) })).filter((entry) => entry.element)
       // A field with a condition is shown in the main part while its condition holds, not under More options.
