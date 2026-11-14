@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Assistant's mic answers a tap on an iPhone**: iOS Safari reports the click after a finger's tap as a mouse's,
+  which the mic took for a press it had already handled, so a tap started nothing; the click now goes by what pressed
+  it.
+
 ## [0.34.0] - 2026-11-14
 
 ### Added
