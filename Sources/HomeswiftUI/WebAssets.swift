@@ -40678,8 +40678,10 @@ fieldset > .help { margin-bottom: var(--space-10); }
 
 .restart-confirm-icon { display: grid; place-items: center; width: 60px; height: 60px; margin: 0 auto var(--space-18); border-radius: var(--radius-lg); background: var(--accent-soft, rgba(234,115,14,.12)); color: var(--accent); }
 .restart-confirm-icon svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.restart-confirm-actions { display: flex; gap: var(--space-12); margin-top: 26px; }
-.restart-confirm-actions button { flex: 1; min-height: 42px; }
+/* Each button on one line, at its own width, sharing what is left: two halves wrapped a longer label ("Update and
+   restart") onto two lines. When a translation leaves no room for both, they stack, the main action on top. */
+.restart-confirm-actions { display: flex; flex-wrap: wrap-reverse; gap: var(--space-12); margin-top: 26px; }
+.restart-confirm-actions button { flex: 1 1 auto; min-height: 42px; white-space: nowrap; justify-content: center; }
 
 .restart-overlay.restart-leaving { animation: restart-dialog-out var(--fast) var(--ease-out) forwards; }
 .restart-overlay.restart-leaving::backdrop { animation: restart-backdrop-out var(--fast) var(--ease-out) forwards; }
