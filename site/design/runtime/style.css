@@ -6211,8 +6211,9 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 @media (min-width: 1100px) {
   main.dash-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--space-14); align-items: start; }
   main.dash-grid > *, main.dash-grid::before, main.dash-grid::after { grid-column: 1 / -1; }
+  /* A half's card is as tall as its content: Safari 17 resolved a height: 100% here against the row and cut the card's
+     end (the Energy log's Show less), clipped by its backdrop filter. */
   main.dash-grid > .dash-widget.half { grid-column: auto; }
-  main.dash-grid > .dash-widget.half > .energy-part > .chart-card { height: 100%; }
 }
 /* The units that start with a card keep the space a section's title would give them. */
 .energy-part:not([data-part="energy-flow"]):not([data-part="energy-summary"]) { padding-top: var(--space-14); }
@@ -6252,7 +6253,6 @@ button.remote-part:focus-visible { outline: 2px solid var(--accent); outline-off
 /* Activity's charts, a section each: the space its grid gave them. */
 .activity-part:not([data-part="activity"]) { padding-top: var(--space-14); }
 .activity-part[data-part="activity"] > .chart-table { margin-top: var(--space-10); }
-@media (min-width: 1100px) { main.dash-grid > .dash-widget.half > .activity-part > .chart-card { height: 100%; } }
 /* The log's kinds on one line, scrolled sideways when a half card is narrow. */
 .energy-log-kinds { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 .energy-log-kinds::-webkit-scrollbar { display: none; }

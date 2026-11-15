@@ -16,6 +16,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **The Status page's Energy log keeps its Show less in Safari 17**: on a wide window, a half-width card was given the
+  height of its row, which Safari 17 measured short, and the end of the expanded log (its Show less) was cut off.
 - **The chat's dictation no longer sends half a sentence**: the browser's dictation ends at the first breath, and the
   chat sent it there ("And I don't want" without the rest). It listens on through pauses and sends after two seconds of
   silence, or on send; stop still keeps the words unsent.
