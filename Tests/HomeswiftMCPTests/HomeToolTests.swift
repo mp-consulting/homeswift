@@ -611,7 +611,7 @@ struct NotificationTests {
         #expect(plain.last == 2)
         let payload = try JSONValue(data: plain.dropLast())
         #expect(payload["title"] == "Test Bridge: Test notification")
-        #expect(payload["path"] == "/notifications")
+        #expect(payload["path"] == "/settings/notifications")
 
         // A push service that forgot the subscription: it goes.
         sender.status = 410

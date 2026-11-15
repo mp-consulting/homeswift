@@ -562,10 +562,10 @@
     document.documentElement.classList.remove("wall-full", "wall-paged", "wall-awake", "graph-full");
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     let [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
-    // config.json's editor moved into Settings: an old link or bookmark lands there.
-    if (name === "config") {
-      history.replaceState(null, "", `/settings/config${location.search}${location.hash}`);
-      [name, args] = ["settings", ["config"]];
+    // config.json's editor and Notifications moved into Settings: an old link or bookmark lands there.
+    if (name === "config" || name === "notifications") {
+      history.replaceState(null, "", `/settings/${name}${location.search}${location.hash}`);
+      [name, args] = ["settings", [name]];
     }
     if (adminSections.has(name) && !isAdmin()) {
       // An administrator's view, from a link or a bookmark: Status instead.
@@ -809,8 +809,8 @@
 
   // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
   // as on the Logs page.
-  /// The Assistant beside a page's Edit (Status, Energy) on a phone, a round button of the same kind, once there is one;
-  /// the header's then stands aside (style.css).
+  /// The Assistant beside a page's Edit (Status, Energy) at every width, a round button of the same kind, once there is
+  /// one; the header's then stands aside (style.css).
   const assistantBesideEdit = () => {
     const button = el("button", { type: "button", class: "link footer-assistant", hidden: true, "aria-label": t("Assistant"), title: t("Ask the Assistant"),
       onclick: () => window.HomeswiftChat?.open() }, HomeswiftCommon.sparkle(), el("span", { text: t("Assistant") }));
@@ -1104,7 +1104,7 @@
         isAdmin() ? el("div", { class: "actions dashboard-quick-actions" },
           el("button", { class: "link", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })),
           el("a", { class: "link", href: "/settings" }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Settings, pairings and backups") })),
-          el("a", { class: "link", href: "/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
+          el("a", { class: "link", href: "/settings/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
     };
     const sections = new Map();
     let glanceIds = [];
@@ -5681,6 +5681,7 @@
       save.disabled = !dirty || !valid;
       revert.disabled = !dirty;
       format.disabled = !valid;
+      if (typeof goToButton !== "undefined") goToButton.disabled = !valid;
     };
     const doSave = async (anyway = false) => {
       if (save.disabled) return;
@@ -5732,6 +5733,27 @@
       secretsNote.textContent = detail.secrets ? tn("{n} secret shown, the rest folded", "{n} secrets shown, the rest folded", detail.secrets) : t("No secrets in this file");
       secretsBanner.hidden = !detail.secretsOnly;
     });
+    // Go to: the bridge, each platform's block and each accessory's, by name; the one chosen alone open, the others
+    // folded (a fold opens from its chevron, or Show all with Secrets only). Offered while the text parses (`update`).
+    const blocks = () => {
+      let config;
+      try { config = JSON.parse(textarea.value); } catch { return []; }
+      const list = (key, group, icon) => (Array.isArray(config[key]) ? config[key] : []).map((block, index) => {
+        const kind = block?.platform ?? block?.accessory ?? "";
+        const name = typeof block?.name === "string" && block.name.trim() && block.name !== kind ? block.name : null;
+        return { label: name ? t("{name} · {platform}", { name, platform: kind }) : String(kind || index + 1), group, icon, path: [key, index], search: kind };
+      });
+      return [...(config.bridge ? [{ label: t("Bridge"), group: t("Bridge"), icon: "bridge", path: ["bridge"] }] : []),
+        ...list("platforms", t("Platforms"), "plugin"), ...list("accessories", t("Accessories"), "accessory")];
+    };
+    const goTo = (path) => {
+      const offset = editor.showOnly(path);
+      if (offset !== null) editor.reveal(offset);
+    };
+    const goToItems = () => blocks().map((block) => ({ label: block.label, group: block.group, icon: block.icon, search: block.search, onSelect: () => goTo(block.path) }));
+    const goToButton = el("button", { type: "button", class: "settings-action config-go-to", "aria-haspopup": "menu", title: t("Jump to a block of config.json, the others folded") },
+      HomeswiftCommon.icon("search"), el("span", { text: t("Go to") }));
+    goToButton.addEventListener("click", () => HomeswiftCommon.menu(goToButton, goToItems(), { search: t("Search") }));
     // Offered only while the text parses (`update`).
     format.addEventListener("click", () => { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); });
     update();
@@ -5741,6 +5763,7 @@
     force.classList.add("config-force");
     save.classList.add("bar-button");
     const actions = menuButton(t("More"), () => [
+      { label: t("Go to"), icon: "search", disabled: () => goToButton.disabled, onSelect: () => setTimeout(() => HomeswiftCommon.menu(actions, goToItems(), { search: t("Search") })) },
       secretRule ? { label: t("Secrets only"), icon: "lock", toggle: true, checkbox: true, checked: secretsOnly.getAttribute("aria-pressed") === "true", onSelect: () => secretsOnly.click() } : null,
       { label: t("Format"), icon: "code", disabled: () => format.disabled, onSelect: () => format.click() },
       { label: t("Revert"), icon: "restore", disabled: () => revert.disabled, onSelect: () => revert.click() },
@@ -5748,7 +5771,7 @@
     ]);
     actions.classList.add("bar-button", "bar-only");
     const bar = el("div", { class: "editor-bar config-bar phone-bar" }, actions, el("span", { class: "mono muted file-name", text: "config.json" }),
-      el("span", { class: "config-state" }, check), el("span", { class: "spacer" }), secretsOnly, format, revert, force, save, HomeswiftCommon.assistantButton());
+      el("span", { class: "config-state" }, check), el("span", { class: "spacer" }), goToButton, secretsOnly, format, revert, force, save, HomeswiftCommon.assistantButton());
     const card = el("div", { class: "card editor-card" }, bar, secretsBanner, editor, message);
     // The card's glass would hold a fixed bar inside it: on a phone the bar goes after the card.
     const placeBar = () => { if (phone.matches) card.after(bar); else card.prepend(bar); };

@@ -125,6 +125,8 @@ filter="$(IFS='|'; echo "${failed[*]}")"
 echo
 echo "=== ${#failed[@]} tests failed: running them again, alone: ${failed[*]}"
 RETRY_LOG="$(mktemp -t swift-test-retry.XXXXXX)"
+# Each test's own line, a passing bundle's too: the check below looks for each one's pass.
+export TEST_SHOW_PASSED=1
 run_tests "$RETRY_LOG" ${before[@]+"${before[@]}"} --skip-build -- ${after[@]+"${after[@]}"} --filter "$filter"
 retry_status=$?
 if "$watchdog_fired"; then exit 1; fi

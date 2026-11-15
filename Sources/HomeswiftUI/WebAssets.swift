@@ -20,7 +20,7 @@ enum WebAssets {
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
 
-  const pages = [["bridge", t("Bridge"), "bridge"], ["config", t("Config"), "code"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["vault", t("Vault"), "vault"], ["updates", t("Updates"), "download"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
+  const pages = [["bridge", t("Bridge"), "bridge"], ["config", t("Config"), "code"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["vault", t("Vault"), "vault"], ["notifications", t("Notifications"), "bell"], ["updates", t("Updates"), "download"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
 
   const dateTime = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
   const fullDate = HomeswiftI18n.dateTimeFormat({ year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -42,7 +42,7 @@ enum WebAssets {
   async function view(main, [page = ""] = []) {
     // Settings opens on its first page, Bridge.
     if (!page) { history.replaceState(null, "", "/settings/bridge"); page = "bridge"; }
-    const draw = { bridge: bridgePage, config: (main) => app().configPage(main, subnav("config")), "child-bridges": childBridgesPage, backups: backupsPage, vault: vaultPage, updates: updatesPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
+    const draw = { bridge: bridgePage, config: (main) => app().configPage(main, subnav("config")), "child-bridges": childBridgesPage, backups: backupsPage, vault: vaultPage, notifications: (main) => window.HomeswiftHome.notificationsView(main, subnav("notifications")), updates: updatesPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
     if (!draw) { app().show(main, app().pageHead(t("Settings"), t("No such page.")), subnav(null)); return; }
     await draw(main);
   }
@@ -2438,7 +2438,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("tbody", {}, rows)));
   }
 
-  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, consumptionCards, confirmAction, categoryName, hasCategory, deviceIcon };
+  window.HomeswiftAdmin = { view, subnav, graph: graphPage, history: showHistory, consumptionCards, confirmAction, categoryName, hasCategory, deviceIcon };
 })();
 
 """#),
@@ -3007,10 +3007,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     document.documentElement.classList.remove("wall-full", "wall-paged", "wall-awake", "graph-full");
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     let [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
-    // config.json's editor moved into Settings: an old link or bookmark lands there.
-    if (name === "config") {
-      history.replaceState(null, "", `/settings/config${location.search}${location.hash}`);
-      [name, args] = ["settings", ["config"]];
+    // config.json's editor and Notifications moved into Settings: an old link or bookmark lands there.
+    if (name === "config" || name === "notifications") {
+      history.replaceState(null, "", `/settings/${name}${location.search}${location.hash}`);
+      [name, args] = ["settings", [name]];
     }
     if (adminSections.has(name) && !isAdmin()) {
       // An administrator's view, from a link or a bookmark: Status instead.
@@ -3254,8 +3254,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
   // as on the Logs page.
-  /// The Assistant beside a page's Edit (Status, Energy) on a phone, a round button of the same kind, once there is one;
-  /// the header's then stands aside (style.css).
+  /// The Assistant beside a page's Edit (Status, Energy) at every width, a round button of the same kind, once there is
+  /// one; the header's then stands aside (style.css).
   const assistantBesideEdit = () => {
     const button = el("button", { type: "button", class: "link footer-assistant", hidden: true, "aria-label": t("Assistant"), title: t("Ask the Assistant"),
       onclick: () => window.HomeswiftChat?.open() }, HomeswiftCommon.sparkle(), el("span", { text: t("Assistant") }));
@@ -3549,7 +3549,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         isAdmin() ? el("div", { class: "actions dashboard-quick-actions" },
           el("button", { class: "link", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })),
           el("a", { class: "link", href: "/settings" }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Settings, pairings and backups") })),
-          el("a", { class: "link", href: "/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
+          el("a", { class: "link", href: "/settings/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
     };
     const sections = new Map();
     let glanceIds = [];
@@ -8126,6 +8126,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       save.disabled = !dirty || !valid;
       revert.disabled = !dirty;
       format.disabled = !valid;
+      if (typeof goToButton !== "undefined") goToButton.disabled = !valid;
     };
     const doSave = async (anyway = false) => {
       if (save.disabled) return;
@@ -8177,6 +8178,27 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       secretsNote.textContent = detail.secrets ? tn("{n} secret shown, the rest folded", "{n} secrets shown, the rest folded", detail.secrets) : t("No secrets in this file");
       secretsBanner.hidden = !detail.secretsOnly;
     });
+    // Go to: the bridge, each platform's block and each accessory's, by name; the one chosen alone open, the others
+    // folded (a fold opens from its chevron, or Show all with Secrets only). Offered while the text parses (`update`).
+    const blocks = () => {
+      let config;
+      try { config = JSON.parse(textarea.value); } catch { return []; }
+      const list = (key, group, icon) => (Array.isArray(config[key]) ? config[key] : []).map((block, index) => {
+        const kind = block?.platform ?? block?.accessory ?? "";
+        const name = typeof block?.name === "string" && block.name.trim() && block.name !== kind ? block.name : null;
+        return { label: name ? t("{name} · {platform}", { name, platform: kind }) : String(kind || index + 1), group, icon, path: [key, index], search: kind };
+      });
+      return [...(config.bridge ? [{ label: t("Bridge"), group: t("Bridge"), icon: "bridge", path: ["bridge"] }] : []),
+        ...list("platforms", t("Platforms"), "plugin"), ...list("accessories", t("Accessories"), "accessory")];
+    };
+    const goTo = (path) => {
+      const offset = editor.showOnly(path);
+      if (offset !== null) editor.reveal(offset);
+    };
+    const goToItems = () => blocks().map((block) => ({ label: block.label, group: block.group, icon: block.icon, search: block.search, onSelect: () => goTo(block.path) }));
+    const goToButton = el("button", { type: "button", class: "settings-action config-go-to", "aria-haspopup": "menu", title: t("Jump to a block of config.json, the others folded") },
+      HomeswiftCommon.icon("search"), el("span", { text: t("Go to") }));
+    goToButton.addEventListener("click", () => HomeswiftCommon.menu(goToButton, goToItems(), { search: t("Search") }));
     // Offered only while the text parses (`update`).
     format.addEventListener("click", () => { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); });
     update();
@@ -8186,6 +8208,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     force.classList.add("config-force");
     save.classList.add("bar-button");
     const actions = menuButton(t("More"), () => [
+      { label: t("Go to"), icon: "search", disabled: () => goToButton.disabled, onSelect: () => setTimeout(() => HomeswiftCommon.menu(actions, goToItems(), { search: t("Search") })) },
       secretRule ? { label: t("Secrets only"), icon: "lock", toggle: true, checkbox: true, checked: secretsOnly.getAttribute("aria-pressed") === "true", onSelect: () => secretsOnly.click() } : null,
       { label: t("Format"), icon: "code", disabled: () => format.disabled, onSelect: () => format.click() },
       { label: t("Revert"), icon: "restore", disabled: () => revert.disabled, onSelect: () => revert.click() },
@@ -8193,7 +8216,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     ]);
     actions.classList.add("bar-button", "bar-only");
     const bar = el("div", { class: "editor-bar config-bar phone-bar" }, actions, el("span", { class: "mono muted file-name", text: "config.json" }),
-      el("span", { class: "config-state" }, check), el("span", { class: "spacer" }), secretsOnly, format, revert, force, save, HomeswiftCommon.assistantButton());
+      el("span", { class: "config-state" }, check), el("span", { class: "spacer" }), goToButton, secretsOnly, format, revert, force, save, HomeswiftCommon.assistantButton());
     const card = el("div", { class: "card editor-card" }, bar, secretsBanner, editor, message);
     // The card's glass would hold a fixed bar inside it: on a phone the bar goes after the card.
     const placeBar = () => { if (phone.matches) card.after(bar); else card.prepend(bar); };
@@ -9165,7 +9188,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   async function editor(main, id) {
     const isNew = id === "new";
-    const [data, accessories] = await Promise.all([api("/api/automations"), api("/api/accessories")]);
+    const [data, accessories, layout] = await Promise.all([api("/api/automations"), api("/api/accessories"), api("/api/layout").catch(() => null)]);
+    // A Set a value Step may also name a Group: the value goes to every member.
+    const groups = home().groupChoices(layout?.groups, accessories);
     const scenes = { scenes: data.scenes ?? [] };
     const fromDraft = isNew ? pending : null;
     pending = null;
@@ -9206,7 +9231,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     parallel.addEventListener("change", syncSteps);
     const redraw = () => { stepList.replaceChildren(...steps); syncSteps(); };
     const addStep = (value = { type: "set" }, { drawn = true } = {}) => {
-      const row = stepRow(value, { accessories, scenes: scenes.scenes ?? [], tools: data.tools ?? [], changed: syncSteps });
+      const row = stepRow(value, { accessories, groups, scenes: scenes.scenes ?? [], tools: data.tools ?? [], changed: syncSteps });
       const move = (by) => {
         const at = steps.indexOf(row), to = at + by;
         if (to < 0 || to >= steps.length) return;
@@ -9283,7 +9308,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       ["overlap", t("Overlapping"), t("Overlapping: a new trigger starts another run alongside it")], ["queued", t("Queued"), t("Queued: a new trigger runs it again once it finishes")]];
   }
 
-  function stepRow(step, { accessories, scenes, tools, changed }) {
+  function stepRow(step, { accessories, groups = [], scenes, tools, changed }) {
     const { characteristicPicker, readable, writable, operators, field } = home();
     const type = el("select", { "aria-label": t("Step") }, stepKinds.map(([value, text]) => el("option", { value, text })));
     type.value = step.type;
@@ -9301,8 +9326,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         }
         case "set": {
           const pick = {};
-          const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, service: shown.service, characteristic: shown.characteristic, value: shown.value, list: writable });
-          body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Value"), holder));
+          const [accessory, kind, holder] = characteristicPicker([...accessories, ...groups], pick, { id: shown.id, service: shown.service, characteristic: shown.characteristic, value: shown.value, list: writable, tree: true });
+          body.replaceChildren(field(groups.length ? t("Accessory or group") : t("Accessory"), accessory), field(t("Control"), kind), field(t("Value"), holder));
           row.readBody = () => ({ ...pick.read(), value: pick.value.read() });
           break;
         }
@@ -11770,23 +11795,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // The pages' own Assistant buttons (beside Status's Edit) appear now.
     document.dispatchEvent(new Event("homeswift-assistant"));
     const header = $("header");
-    if (!header || header.querySelector(".chat-open")) return;
+    if (!header || document.querySelector(".chat-open")) return;
     const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl+K";
     trigger = el("button", {
       type: "button", class: "chat-open", "aria-expanded": "false", "aria-haspopup": "dialog", "aria-label": t("Assistant"), title: t("Ask the Assistant ({shortcut})", { shortcut }),
       "aria-keyshortcuts": "Meta+K Control+K", onclick: () => toggle(),
     }, sparkle());
-    header.insertBefore(trigger, header.querySelector("#user"));
-    // A phone's header has no room for it: on a page with a bar of its own the bar carries the page's Assistant button
-    // (HomeswiftCommon.assistantButton, Status's beside Edit), and on the others this one floats over the tab bar's right
-    // end (style.css). Fixed things inside the header's glass are placed in it, so the button moves out, into #app.
-    const app = $("#app");
-    const place = () => {
-      const home = phone.matches && app ? app : header;
-      if (trigger.parentNode !== home) home === header ? header.insertBefore(trigger, header.querySelector("#user")) : app.append(trigger);
-    };
-    place();
-    phone.addEventListener("change", place);
+    // It floats at the window's bottom right at every width, never in the header: the header is a bar of glass (a side
+    // menu on a wide window, hidden in full screen), and fixed things inside it are placed in it, so the button lives in
+    // #app (style.css floats it there). A page with its own (Status's and Energy's beside Edit, a phone's bar) hides it.
+    ($("#app") ?? header).append(trigger);
     // Cmd+K (Ctrl+K elsewhere) opens the chat from anywhere, and closes it, as Glass UI's palette.
     document.addEventListener("keydown", (event) => {
       // Not from the sign-in screen: the button is in the hidden app then.
@@ -13186,14 +13204,35 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const indent = indentOf(text, line);
       close([...blocks.values()].filter((one) => indentOf(text, one.line) === indent));
     };
+    /// What a folded object is, beside its "…": its `name`, with its `platform` or `accessory` when that differs
+    /// (config.json's blocks), else that alone; nothing for a list, a run of lines or an object without them.
+    const foldHint = (text, fold) => {
+      if (text[fold.at - 1] !== "{") return null;
+      let value;
+      try { value = JSON.parse(`{${fold.hidden}}`); } catch { return null; }
+      const field = (key) => typeof value[key] === "string" && value[key].trim() ? value[key].trim() : null;
+      const kind = field("platform") ?? field("accessory"), name = field("name");
+      return name && kind && name !== kind ? `${name} · ${kind}` : name ?? kind;
+    };
     const paint = () => {
       scheduled = false;
       const text = shown();
       const content = document.createDocumentFragment();
-      let last = 0;
+      // Each fold's "…", and its hint at the end of its line: past the line's last character, so the text before it
+      // keeps its place under the textarea's (lines never wrap).
+      const cuts = folds.map((fold) => ({ at: fold.at, fold }));
       for (const fold of folds) {
-        content.append(jsonHighlight(text.slice(last, fold.at), { secretKey }), el("span", { class: "code-fold", text: "…" }));
-        last = fold.at + 1;
+        const hint = foldHint(text, fold);
+        if (!hint) continue;
+        const end = text.indexOf("\n", fold.at);
+        cuts.push({ at: end < 0 ? text.length : end, hint });
+      }
+      cuts.sort((a, b) => a.at - b.at || (a.fold ? -1 : 1));
+      let last = 0;
+      for (const cut of cuts) {
+        content.append(jsonHighlight(text.slice(last, cut.at), { secretKey }));
+        if (cut.fold) { content.append(el("span", { class: "code-fold", text: "…" })); last = cut.at + 1; }
+        else { content.append(el("span", { class: "code-fold-hint", text: `  ${cut.hint}` })); last = cut.at; }
       }
       // A final newline needs a character after it to take its line.
       content.append(jsonHighlight(text.slice(last), { secretKey }), "\n");
@@ -13305,15 +13344,42 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       schedule();
       return found;
     };
-    // The caret on the line, the line a third of the way down; the folds around it open.
+    /// Shows only the block at `path` (Settings › Config's Go to): every other block folded, the blocks around it kept
+    /// open to reach it. Answers its offset in the whole text, for `reveal`; null when the text does not parse or has
+    /// no such path.
+    wrapper.showOnly = (path) => {
+      open([...folds]);
+      leaveSecretsOnly();
+      const text = shown();
+      let places;
+      try { ({ places } = jsonLocate(text)); } catch { return null; }
+      const target = places.get(JSON.stringify(path));
+      if (target === undefined) return null;
+      const blocks = [...findBlocks(text).values()];
+      // Its own block opens on its line (an object's "{" after its key, an item's at its start).
+      const own = blocks.find((block) => block.start >= target && block.line === lineOf(text, target));
+      const kept = (block) => (block.start < target && block.end > target) || (own && block.start >= own.start && block.end <= own.end);
+      const others = blocks.filter((block) => !kept(block));
+      close(others.filter((block) => !others.some((outer) => outer !== block && outer.start < block.start && outer.end > block.end)));
+      return target;
+    };
+    // The caret on the line, the line a third of the way down; the folds around it open. The textarea scrolls when it
+    // has a height of its own, else the page does.
     wrapper.reveal = (offset) => {
       for (let place = onScreen(offset); place.fold; place = onScreen(offset)) open([place.fold]);
       const at = onScreen(offset).at;
       textarea.focus({ preventScroll: true });
       textarea.setSelectionRange(at, at);
-      const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 20;
-      textarea.scrollTop = Math.max(0, (lineOf(shown(), at) - 1) * lineHeight - textarea.clientHeight / 3);
-      wrapper.scrollIntoView({ block: "nearest" });
+      const style = getComputedStyle(textarea);
+      const lineHeight = parseFloat(style.lineHeight) || 20;
+      const lineTop = (lineOf(shown(), at) - 1) * lineHeight;
+      if (textarea.scrollHeight > textarea.clientHeight + 1) {
+        textarea.scrollTop = Math.max(0, lineTop - textarea.clientHeight / 3);
+        wrapper.scrollIntoView({ block: "nearest" });
+      } else {
+        const y = textarea.getBoundingClientRect().top + (parseFloat(style.paddingTop) || 0) + lineTop;
+        window.scrollBy({ top: y - window.innerHeight / 3 });
+      }
     };
     // A copy or a cut takes the whole text of the folds it covers.
     const copyWhole = (event) => {
@@ -20618,10 +20684,55 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return node;
   }
 
-  /// An accessory and one of its characteristics, with a value input after them when `withValue`.
-  function characteristicPicker(accessories, pick, { id, service, characteristic, value, withValue = true, list = writable }) {
+  /// The kind an accessory is filtered by in a tree's pills, as the wall's groups name them.
+  const treeKinds = [["Lightbulb", "Lights"], ["Switch", "Switches"], ["Outlet", "Outlets"], ["Fan", "Fans"], ["Fanv2", "Fans"], ["WindowCovering", "Blinds"]];
+  const treeKind = (a) => t(treeKinds.find(([type]) => a.services?.some((s) => s.type === type))?.[1] ?? "Other");
+
+  /// A choice of one accessory or Group as a tree, in a menu like a select's: the rooms as headings, each Group a row
+  /// with its members under it (each one a choice too), searchable and filtered by kind. `options` are accessories and
+  /// Groups (`isGroup`, with `members`, from `groupChoices`). Behaves as a select for the picker: `value`, `change`.
+  function accessoryTree(options, current, label) {
+    const byID = new Map(options.map((a) => [a.id, a]));
+    const groups = options.filter((a) => a.isGroup);
+    const inGroup = new Set(groups.flatMap((g) => g.members.filter((id) => byID.has(id))));
+    const roomOf = (a) => a.isGroup ? byID.get(a.members.find((id) => byID.has(id)))?.room ?? null : a.room ?? null;
+    const byName = (a, b) => displayName(a).localeCompare(displayName(b), undefined, { numeric: true });
+    const rooms = [...new Set(options.map(roomOf))].sort((a, b) => (a == null) - (b == null) || String(a).localeCompare(String(b)));
+    // In tree order: each room's accessories and Groups by name, a Group's members right after it.
+    const rows = rooms.flatMap((room) => options.filter((a) => roomOf(a) === room && !inGroup.has(a.id)).sort(byName).flatMap((a) => a.isGroup
+      ? [{ a, room }, ...a.members.map((id) => byID.get(id)).filter(Boolean).sort(byName).map((member) => ({ a: member, room, of: a }))]
+      : [{ a, room }]));
+    let value = current ?? rows[0]?.a.id ?? "";
+    const button = el("button", { type: "button", class: "select-button", "aria-haspopup": "menu", "aria-label": label });
+    const draw = () => {
+      const chosen = byID.get(value);
+      button.textContent = chosen ? displayName(chosen) : value ? t("{name} (gone)", { name: value }) : "";
+    };
+    const icon = (a) => a.isGroup ? "group" : window.HomeswiftWidgets?.accessoryIcon?.(a) ?? "accessory";
+    button.addEventListener("click", () => HomeswiftCommon.menu(button, rows.map(({ a, room, of }) => ({
+      label: displayName(a), group: room ?? t("No room"), filter: treeKind(a.isGroup ? byID.get(a.members.find((id) => byID.has(id))) ?? a : a),
+      icon: icon(a), nested: Boolean(of), checked: a.id === value,
+      // A Group is found by its members' names, a member by its Group's.
+      search: a.isGroup ? a.members.map((id) => byID.get(id)).filter(Boolean).map(displayName).join(" ") : of ? displayName(of) : undefined,
+      onSelect: () => { value = a.id; draw(); button.dispatchEvent(new Event("change")); },
+    })), { search: t("Search") }));
+    Object.defineProperty(button, "value", { get: () => value, set: (id) => { value = id; draw(); } });
+    draw();
+    return button;
+  }
+
+  /// An accessory and one of its characteristics, with a value input after them when `withValue`. Groups among
+  /// `accessories` (`isGroup`, from `groupChoices`) are offered too: with `tree`, every choice is in a tree of rooms
+  /// (`accessoryTree`), else the Groups are listed apart, after the accessories.
+  function characteristicPicker(accessories, pick, { id, service, characteristic, value, withValue = true, list = writable, tree = false }) {
     const options = accessories.filter((a) => list(a).length);
-    const accessory = el("select", { "aria-label": t("Accessory") }, options.map((a) => el("option", { value: a.id, text: displayName(a) })));
+    const option = (a) => el("option", { value: a.id, text: displayName(a) });
+    const singles = options.filter((a) => !a.isGroup), groups = options.filter((a) => a.isGroup);
+    const label = groups.length ? t("Accessory or group") : t("Accessory");
+    const accessory = tree ? accessoryTree([...singles, ...groups.map((g) => ({ ...g, members: g.members.filter((m) => singles.some((a) => a.id === m)) }))], id, label)
+      : el("select", { "aria-label": label }, groups.length
+        ? [el("optgroup", { label: t("Accessories") }, singles.map(option)), el("optgroup", { label: t("Groups") }, groups.map(option))]
+        : singles.map(option));
     const kind = el("select", { "aria-label": t("Characteristic") });
     const holder = el("span", { class: "value-slot" });
     let current = null;
@@ -20637,7 +20748,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (withValue) { holder.replaceChildren(pick.value = valueInput(current, keepValue ?? current?.value)); }
     };
     if (id && options.some((a) => a.id === id)) accessory.value = id;
-    else if (id) accessory.prepend(el("option", { value: id, text: t("{name} (gone)", { name: id }), selected: true }));
+    else if (id && !tree) accessory.prepend(el("option", { value: id, text: t("{name} (gone)", { name: id }), selected: true }));
     fill(characteristic, value);
     accessory.addEventListener("change", () => fill());
     kind.addEventListener("change", () => {
@@ -20653,6 +20764,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     pick.current = () => current;
     return [accessory, kind, holder];
+  }
+
+  /// The Groups as a picker offers them beside the accessories: each one with the controls its members share, those
+  /// the bridge marks `group` (`HomeswiftCatalog.groupTargets`); a Group whose members share none is left out.
+  function groupChoices(groups = [], accessories = []) {
+    const byID = new Map(accessories.map((a) => [a.id, a]));
+    const controls = (a) => (a.services || []).flatMap((s) => (s.characteristics || []).filter((c) => c.group));
+    return groups.map((group) => {
+      const members = group.members.map((id) => byID.get(id)).filter(Boolean);
+      const shared = members.length ? controls(members[0]).filter((c) => members.every((m) => controls(m).some((x) => x.type === c.type))) : [];
+      return { id: group.id, name: group.name, isGroup: true, members: group.members, services: [{ type: "Group", name: group.name, characteristics: shared }] };
+    }).filter((group) => group.services[0].characteristics.length);
   }
 
   const rowShell = (...children) => el("div", { class: "editor-row" }, ...children);
@@ -21135,6 +21258,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     browser: [t("This browser and others"), t("Web Push to the browsers that turned it on below. It needs HTTPS (or localhost)."), []],
   };
 
+  /// Each channel's glyph and colour, so the cards tell apart at a glance.
+  const channelLook = { webhook: ["link", "grey"], ntfy: ["cloud", "green"], pushover: ["bell", "blue"], telegram: ["send", "teal"], browser: ["browser", "violet"] };
+  /// The events in groups, in this order, each under its heading; one the page does not know goes last.
+  const eventGroups = [["Homeswift", ["bridgeStarted", "bridgeStopped", "pluginError"]], [t("Accessories"), ["accessoryOffline", "energyInsight"]],
+    [t("Automations"), ["sceneFailed", "automationMessage"]], [t("Backups"), ["backupFailed", "backupSucceeded"]], [t("Assistant"), ["dailyDigest"]]];
+
   /// A short name for this browser: "Safari on macOS".
   function browserLabel() {
     const ua = navigator.userAgent;
@@ -21151,7 +21280,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return registration ? registration.pushManager.getSubscription() : null;
   }
 
-  async function notificationsView(main) {
+  /// Settings › Notifications (`/settings/notifications`; `/notifications` leads there), under Settings' row of pages.
+  async function notificationsView(main, subnav = null) {
     const settings = await app.api("/api/notifications");
     const line = statusLine();
     const inputs = {};
@@ -21178,7 +21308,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const authText = el("span", { text: authOptions.find(([value]) => value === auth.value)?.[1] || t("No authentication") });
         const authButton = el("button", { type: "button", class: "webhook-auth-picker", "aria-label": t("Authentication"), "aria-haspopup": "menu", "aria-expanded": "false",
           onclick: (event) => HomeswiftCommon.menu(authButton, authOptions.map(([value, label]) => ({ label, checked: auth.value === value,
-            onSelect: () => { auth.value = value; authText.textContent = label; showAuth(); }
+            onSelect: () => { auth.value = value; authText.textContent = label; showAuth(); changed(); }
           })), { keyboard: event.detail === 0 }) }, authText, HomeswiftCommon.icon("down"));
         inputs[channel].auth = auth;
         const credential = (key, label) => {
@@ -21216,65 +21346,95 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             el("button", { actionIcon: "plus", type: "button", class: "link", text: t("Add header"), onclick: () => addHeader() }),
             el("p", { class: "help", text: t("Saved credentials and header values are masked. Leave the mask unchanged to keep them.") })));
       }
-      const state = el("span", { class: `notification-state${values.enabled ? " active" : ""}`, text: values.enabled ? t("On [setting]") : t("Off [setting]") });
-      enabled.addEventListener("change", () => {
-        state.textContent = enabled.checked ? t("On [setting]") : t("Off [setting]");
-        state.classList.toggle("active", enabled.checked);
-      });
       enabled.setAttribute("role", "switch");
-      return el("div", { class: `card server notification-channel${channel === "browser" ? " notification-browser" : ""}` },
-        el("div", { class: "server-head" }, tile(channel === "browser" ? "accessory" : "bell", channel === "browser" ? "blue" : "orange"),
+      // Its switch says whether it is on; turned on, its settings open to be filled in.
+      const setup = rows.length ? el("details", { class: "notification-setup", open: values.enabled },
+        el("summary", { text: t("Settings") }), el("div", { class: "notification-fields" }, rows)) : null;
+      const card = el("div", { class: `card server notification-channel${channel === "browser" ? " notification-browser" : ""}${values.enabled ? " on" : ""}` });
+      enabled.addEventListener("change", () => { card.classList.toggle("on", enabled.checked); if (enabled.checked && setup) setup.open = true; });
+      const [glyph, tone] = channelLook[channel] ?? ["bell", "orange"];
+      card.append(
+        el("div", { class: "server-head" }, tile(glyph, tone),
           el("div", { class: "who" }, el("strong", { text: title })),
           el("label", { class: "switch" }, enabled, el("span"))),
         el("p", { class: "muted note", text: help }),
-        rows.length ? el("details", { class: "notification-setup", open: values.enabled },
-          el("summary", { text: t("Settings") }), el("div", { class: "notification-fields" }, rows)) : browserPanel(settings),
-        el("div", { class: "card-foot" }, state,
+        setup ?? browserPanel(settings),
+        el("div", { class: "card-foot" },
           menuButton(t("Actions for {name}", { name: title }), () => [{ label: t("Send a test"), icon: "bell", onSelect: () => test(channel) }])));
+      return card;
     });
-    const events = settings.events.map((event) => {
+    const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time"), title: HomeswiftCommon.homeTimeTitle() });
+    const eventRow = (event) => {
       const label = HomeswiftI18n.message(event.label);
       const box = el("input", { type: "checkbox", role: "switch", checked: event.enabled, "aria-label": label });
       box.dataset.event = event.name;
-      return el("label", { class: "notification-event" },
+      const row = el("label", { class: "notification-event" },
         el("span", { class: "who" }, el("span", { text: label }),
           event.name === "dailyDigest" && !settings.assistant ? el("span", { class: "help", text: t("Needs the Assistant (a HomeswiftAiKit block).") }) : null),
         el("span", { class: "switch" }, box, el("span")));
-
-    });
-    const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time"), title: HomeswiftCommon.homeTimeTitle() });
+      if (event.name !== "dailyDigest") return [row];
+      // Its time right under it, in Home Time, offered while it is on.
+      const when = el("div", { class: "notification-event-detail" }, el("span", { class: "muted", text: t("Daily digest at") }), digestTime,
+        HomeswiftCommon.homeTimeNoteText() ? el("span", { class: "help", text: HomeswiftCommon.homeTimeNoteText() }) : null);
+      const sync = () => { digestTime.disabled = !box.checked; when.classList.toggle("off", !box.checked); };
+      box.addEventListener("change", sync);
+      sync();
+      return [row, when];
+    };
+    const known = new Set(eventGroups.flatMap(([, names]) => names));
+    const groups = [...eventGroups, [t("Other"), settings.events.map((event) => event.name).filter((name) => !known.has(name))]]
+      .map(([title, names]) => [title, names.map((name) => settings.events.find((event) => event.name === name)).filter(Boolean)])
+      .filter(([, list]) => list.length)
+      .map(([title, list]) => el("div", { class: "notification-group", role: "group", "aria-label": title },
+        el("h3", { class: "notification-group-title", text: title }), list.flatMap(eventRow)));
     // Where a notification's tap and buttons lead, when the web UI's own address is not the one a phone reaches.
     const address = el("input", { type: "url", value: settings.address || "", placeholder: settings.defaultAddress || "https://home.example.com", "aria-label": t("Address in notifications") });
-    const save = el("button", { actionIcon: "check", class: "primary", text: t("Save") });
-    save.addEventListener("click", async () => {
+    const save = el("button", { actionIcon: "check", class: "primary", text: t("Save"), disabled: true });
+    /// What Save sends; it throws for a webhook header without a name, or one named twice.
+    const collect = () => {
       const channels = {};
-      try {
-        for (const [channel, fields] of Object.entries(inputs)) {
-          channels[channel] = {};
-          for (const [key, input] of Object.entries(fields)) channels[channel][key] = input.type === "checkbox" ? input.checked : input.value;
-        }
-      } catch (error) { say(line, error.message, "error"); return; }
-      const body = { channels, events: Object.fromEntries([...main.querySelectorAll("[data-event]")].map((box) => [box.dataset.event, box.checked])), dailyDigestTime: digestTime.value, address: address.value.trim() };
+      for (const [channel, fields] of Object.entries(inputs)) {
+        channels[channel] = {};
+        for (const [key, input] of Object.entries(fields)) channels[channel][key] = input.type === "checkbox" ? input.checked : input.value;
+      }
+      return { channels, events: Object.fromEntries([...main.querySelectorAll("[data-event]")].map((box) => [box.dataset.event, box.checked])), dailyDigestTime: digestTime.value, address: address.value.trim() };
+    };
+    const snapshot = () => { try { return JSON.stringify(collect()); } catch { return null; } };
+    let saved = null;
+    // Save is offered once something changed, which the bar says; leaving then asks first.
+    const changed = () => {
+      const dirty = snapshot() !== saved;
+      save.disabled = !dirty;
+      if (dirty) say(line, t("Unsaved changes"), "dirty");
+      else if (line.classList.contains("dirty")) say(line, "");
+    };
+    save.addEventListener("click", async () => {
+      let body;
+      try { body = collect(); } catch (error) { say(line, error.message, "error"); return; }
       save.disabled = true;
-      try { await app.api("/api/notifications", { method: "PUT", body }); say(line, t("Saved."), "ok"); } catch (e) { say(line, e.message, "error"); }
-      save.disabled = false;
+      try { await app.api("/api/notifications", { method: "PUT", body }); saved = JSON.stringify(body); say(line, t("Saved."), "ok"); }
+      catch (e) { say(line, e.message, "error"); save.disabled = false; }
     });
     app.show(main,
-      app.pageHead(t("Notifications"), t("Choose where alerts arrive and which events matter to you.")),
+      app.pageHead(subnav ? t("Settings") : t("Notifications"), t("Choose where alerts arrive and which events matter to you.")), subnav,
       el("div", { class: "notification-layout" },
         el("section", { class: "notification-delivery", "aria-label": t("Delivery channels") },
           el("div", { class: "section-head" }, el("h2", { text: t("Delivery channels") })),
           el("div", { class: "notification-channels" }, cards)),
-        el("section", { class: "card notification-events", "aria-label": t("Events") },
-          el("h2", { text: t("Events") }),
-          el("p", { class: "muted", text: t("Choose what you want to hear about.") }),
-          el("div", { class: "notification-event-list" }, events),
-          el("div", { class: "notification-digest" }, field(t("Daily digest at"), digestTime, HomeswiftCommon.homeTimeNoteText())),
+        el("section", { class: "notification-events-column", "aria-label": t("Events") },
+          el("div", { class: "section-head" }, el("h2", { text: t("Events") }), el("span", { class: "muted", text: t("Choose what you want to hear about.") })),
+          el("div", { class: "card notification-events" },
+          el("div", { class: "notification-event-list" }, groups),
           el("div", { class: "notification-digest" }, field(t("Address in notifications"), address,
             t("What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.", { address: settings.defaultAddress || t("this machine's address") }))),
-          el("p", { class: "muted notification-limit", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") }))),
+          el("p", { class: "muted notification-limit", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") })))),
       el("div", { class: "save-bar notification-save" }, line,
-        el("button", { actionIcon: "send", text: t("Send a test to every channel that is on"), onclick: () => test() }), save));
+        el("button", { actionIcon: "send", class: "notification-test-all", title: t("Send a test to every channel that is on"), text: t("Send a test to every channel that is on"), onclick: () => test() }), save));
+    saved = snapshot();
+    main.addEventListener("input", changed);
+    main.addEventListener("change", changed);
+    main.addEventListener("click", (event) => { if (event.target.closest(".webhook-header-row button, .webhook-headers > button")) queueMicrotask(changed); });
+    app.setLeaveGuard?.(async () => snapshot() === saved || HomeswiftCommon.confirmDialog(t("Leave without saving the notification settings?")));
   }
 
   /// This browser's subscription and the others'.
@@ -21334,10 +21494,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // ---- Installing ------------------------------------------------------------------------------------
 
   window.HomeswiftHome = {
+    notificationsView,
     install(context) {
       app = context;
       app.views.scenes = (main, [id]) => id ? sceneEditor(main, id) : scenesView(main);
-      app.views.notifications = notificationsView;
       app.views.quick = async (main) => {
         // Its values were frozen while the tab was hidden.
         app.onReturn(() => app.route());
@@ -21346,7 +21506,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     },
     layoutActions, moveGroupToRoom, groupByRoom, roomOf, suggestRooms, quickSection, displayName,
     /// For the Automations page (automations.js): its triggers, conditions and the pickers they are made of.
-    scenesTabs, editor: { triggerRow, conditionRow, characteristicPicker, readable, writable, operators, field, describeTrigger, triggerIcons, statusLine, say, lastRun: sceneLastRun },
+    scenesTabs, editor: { triggerRow, conditionRow, characteristicPicker, groupChoices, readable, writable, operators, field, describeTrigger, triggerIcons, statusLine, say, lastRun: sceneLastRun },
   };
 })();
 
@@ -25446,6 +25606,12 @@ HomeswiftI18n.add("es", {
   "Choose the rooms to include when you run this scene.": "Elige las habitaciones que se incluirán al ejecutar esta escena.",
   "Select all": "Seleccionar todo",
   "Deselect all": "Deseleccionar todo",
+  "Accessory or group": "Accesorio o grupo",
+  "Groups": "Grupos",
+  "Go to": "Ir a",
+  "Jump to a block of config.json, the others folded": "Ir a un bloque de config.json, los demás plegados",
+  "{name} · {platform}": "{name} · {platform}",
+  "Leave without saving the notification settings?": "¿Salir sin guardar los ajustes de notificaciones?",
 });
 
 """#),
@@ -29241,6 +29407,12 @@ HomeswiftI18n.add("fr", {
   "Choose the rooms to include when you run this scene.": "Choisissez les pièces à inclure au lancement de cette scène.",
   "Select all": "Tout sélectionner",
   "Deselect all": "Tout désélectionner",
+  "Accessory or group": "Accessoire ou groupe",
+  "Groups": "Groupes",
+  "Go to": "Aller à",
+  "Jump to a block of config.json, the others folded": "Aller à un bloc de config.json, les autres repliés",
+  "{name} · {platform}": "{name} · {platform}",
+  "Leave without saving the notification settings?": "Quitter sans enregistrer les réglages des notifications ?",
 });
 
 """#),
@@ -33036,6 +33208,12 @@ HomeswiftI18n.add("pt", {
   "Choose the rooms to include when you run this scene.": "Escolha as divisões a incluir ao executar esta cena.",
   "Select all": "Selecionar tudo",
   "Deselect all": "Desselecionar tudo",
+  "Accessory or group": "Acessório ou grupo",
+  "Groups": "Grupos",
+  "Go to": "Ir para",
+  "Jump to a block of config.json, the others folded": "Ir para um bloco do config.json, os outros recolhidos",
+  "{name} · {platform}": "{name} · {platform}",
+  "Leave without saving the notification settings?": "Sair sem guardar as definições de notificações?",
 });
 
 """#),
@@ -37352,16 +37530,18 @@ header nav a svg { display: none; }
   header nav.side-you .side-action:active { transform: scale(0.98); }
   header nav.side-you .side-action svg { display: block; width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   /* The Assistant floats at the window's bottom right, in reach on every page, and its chat opens above it; a save bar
-     stops short of it. */
-  header .chat-open {
+     stops short of it. chat.js keeps the button in #app, out of the header, at every width. */
+  #app > .chat-open {
     /* In the frame's bottom right corner: the frame's margin (half what the window has beyond its 1360 px), then 24. */
     --corner: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24));
     position: fixed; right: var(--corner); bottom: calc(var(--space-24) + var(--space-24)); z-index: var(--layer-tabbar); width: var(--float-button); height: var(--float-button); min-height: var(--float-button);
     background: var(--control); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
   }
-  header .chat-open .sparkle { width: 36px; height: 36px; }
+  #app > .chat-open .sparkle { width: 36px; height: 36px; }
   html .chat { top: auto; bottom: 120px; right: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24)); height: min(740px, calc(100dvh - 160px)); transform-origin: bottom right; }
   #app:has(.chat-open) .settings-bar { margin-right: calc(var(--float-button) + var(--space-20)); }
+  /* Notifications' Save bar, in the page: clear of the Assistant's button by 10 px at least. */
+  #app:has(.chat-open) .notification-save { margin-right: calc(var(--float-button) + var(--space-20) + var(--space-10)); }
 }
 .spacer { flex: 1; }
 /* The account button at the header's right end: the user's initial on the accent and their name, opening its menu. */
@@ -39609,8 +39789,10 @@ dd { margin: 0; }
 }
 .chat-composer textarea:focus { box-shadow: none; }
 .chat-mic, .chat-send, .chat-voice-button { flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
-.chat-mic { border-color: transparent; background: none; box-shadow: none; color: var(--muted); }
-@media (hover: hover) and (pointer: fine) { .chat-mic:hover { color: var(--text); background: var(--material-thin); } }
+/* Dictation, beside Send: the accent's tint and its ink, a quieter companion of Send's fill that still reads as a button. */
+.chat-mic { border-color: color-mix(in srgb, var(--accent) 22%, transparent); background: color-mix(in srgb, var(--accent) 14%, transparent); box-shadow: none; color: var(--accent-ink); }
+.chat-mic svg { width: 19px; height: 19px; }
+@media (hover: hover) and (pointer: fine) { .chat-mic:hover { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 24%, transparent); } }
 .chat-mic.unavailable { opacity: 0.45; }
 /* While it listens, the field takes the whole first row and the voice's the second: discard, the waveform across the
    composer, stop (the words stay in the field), then send, as the Claude app does. */
@@ -39733,6 +39915,8 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 }
 /* The character itself stays transparent (the textarea's caret counts it); a centred ⋯ on a short pill stands in. */
 .code-fold { position: relative; color: transparent; }
+/* A folded block's name at the end of its line (common.js jsonEditor's foldHint), quiet, as a comment would be. */
+.code-fold-hint { color: var(--muted); font-style: italic; opacity: 0.8; }
 .code-fold::before { content: ""; position: absolute; inset: 0.22em -2px; border-radius: 4px; background: rgba(255, 143, 61, 0.2); }
 .code-fold::after { content: "⋯"; position: absolute; inset: 0; text-align: center; color: var(--accent-ink); font-weight: var(--weight-bold); }
 
@@ -40468,23 +40652,32 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .notification-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(310px, 1fr); gap: var(--space-24); align-items: start; }
 .notification-delivery { min-width: 0; }
 .notification-delivery > .section-head { margin: 0 0 var(--space-14); }
-.notification-channels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-16); align-items: start; }
+.notification-channels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-16); align-items: stretch; }
 .notification-browser { grid-column: 1 / -1; }
-.notification-channel { min-width: 0; padding: var(--space-20); }
-.notification-channel .server-head .tile { width: 40px; height: 40px; border-radius: var(--radius-md); }
+/* Two cards side by side are as tall as each other, their ⋯ on one line at the bottom. */
+.notification-channel { min-width: 0; padding: var(--space-20); display: flex; flex-direction: column; }
+.notification-channel .server-head .tile { width: 40px; height: 40px; border-radius: var(--radius-md); transition: filter 200ms ease, opacity 200ms ease; }
+/* A channel that is off keeps its colour, quieter: the ones that deliver stand out. */
+.notification-channel:not(.on) .server-head .tile { filter: saturate(0.6); opacity: 0.8; }
 .notification-channel .note { font-size: var(--text-sm); line-height: 1.6; margin: var(--space-14) 0 var(--space-18); }
-.notification-channel .card-foot { margin-top: var(--space-16); }
-.notification-state { display: inline-flex; align-items: center; gap: var(--space-6); color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
-.notification-state::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .5; }
-.notification-state.active { color: var(--ok); }
-.notification-state.active::before { opacity: 1; }
+.notification-channel .card-foot { margin-top: auto; padding-top: var(--space-10); justify-content: flex-end; }
+.notification-channel .notification-setup, .notification-channel > .push { margin-bottom: var(--space-16); }
 .notification-setup { border-top: 1px solid var(--line); padding-top: var(--space-12); }
 .notification-setup summary { cursor: pointer; font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text); padding: var(--space-4) 0; }
 .notification-fields { padding-top: var(--space-12); }
 .notification-fields input { min-width: 0; width: 100%; }
-.notification-events { padding: var(--space-24); }
-.notification-events > h2 { margin: 0 0 var(--space-6); }
-.notification-events > p { margin: 0 0 var(--space-20); font-size: var(--text-sm); line-height: 1.6; }
+/* Events: a heading over the card as Delivery channels has, so both columns start on one line; the events in groups. */
+.notification-events-column { min-width: 0; }
+.notification-events-column > .section-head { margin: 0 0 var(--space-14); }
+.notification-events { padding: var(--space-8) var(--space-24) var(--space-24); }
+.notification-group-title { margin: var(--space-18) 0 0; font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: 0.02em; color: var(--muted); }
+.notification-group:first-child .notification-group-title { margin-top: var(--space-10); }
+.notification-group > .notification-event:last-child, .notification-group > .notification-event-detail:last-child { border-bottom: 0; }
+/* The daily digest's time, right under its switch, quieter while it is off. */
+.notification-event-detail { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-12); padding: 0 0 15px; font-size: var(--text-sm); transition: opacity 200ms ease; }
+.notification-event-detail input { width: auto; }
+.notification-event-detail .help { flex-basis: 100%; margin: 0; font-size: var(--text-xs); }
+.notification-event-detail.off { opacity: 0.5; }
 .notification-event { display: flex; align-items: center; gap: var(--space-18); padding: 15px 0; margin: 0; border-bottom: 1px solid var(--line); cursor: pointer; font-size: var(--text-sm); line-height: 1.5; }
 .notification-event .who { flex: 1; min-width: 0; }
 .notification-event .help { display: block; margin-top: var(--space-4); font-size: var(--text-xs); }
@@ -40496,8 +40689,25 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .notification-events > .notification-limit { font-size: var(--text-xs); margin: var(--space-18) 0 0; }
 .notification-save { position: sticky; bottom: 16px; z-index: 5; margin-top: var(--space-24); padding: var(--space-12) var(--space-16); background: var(--material-thick); border: 1px solid var(--edge); border-radius: var(--radius-lg); box-shadow: var(--shadow); backdrop-filter: blur(20px); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-12); }
 .notification-save > :first-child { flex: 1; margin: 0; }
+/* Beside a phone: the bar is the floating Assistant's height, as far from the window's bottom, so the two line up. */
+@media (min-width: 641px) and (min-height: 501px), (min-width: 641px) and (pointer: fine) {
+  .notification-save { box-sizing: border-box; height: var(--float-button); bottom: calc(var(--space-24) + var(--space-24)); padding: var(--space-6) var(--space-6) var(--space-6) var(--space-16); flex-wrap: nowrap; }
+  .notification-save > :first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .notification-save > button { flex: none; }
+}
 @media (max-width: 960px) { .notification-layout { grid-template-columns: 1fr; } }
-@media (max-width: 540px) { .notification-channels { grid-template-columns: 1fr; } .notification-events { padding: var(--space-20); } .notification-save { bottom: 84px; } .notification-save > button { flex: 1 1 auto; } }
+@media (max-width: 540px) { .notification-channels { grid-template-columns: 1fr; } .notification-events { padding: var(--space-8) var(--space-20) var(--space-20); } }
+/* A phone: one row the floating Assistant's height, on its line over the tab bar: Send a test round (its words its
+   name), Save across the rest, the state before them while there is one. */
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  .notification-save { box-sizing: border-box; height: var(--float-button); bottom: calc(var(--tab-bar-top) + var(--space-10)); padding: var(--space-6); flex-wrap: nowrap; gap: var(--space-8); }
+  .notification-save > :first-child { min-width: 0; padding-left: var(--space-8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .notification-save > :first-child:empty { display: none; }
+  .notification-save > .notification-test-all { flex: none; justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; gap: 0; border-radius: 50%; font-size: 0; }
+  .notification-save > .notification-test-all::before { margin: 0; }
+  .notification-save > .primary { flex: 1 1 auto; justify-content: center; }
+  .notification-save > :first-child:not(:empty) ~ .primary { flex: none; }
+}
 .notification-channel { gap: 0; }
 .notification-channel .push > p:empty { display: none; }
 .notification-channel .server-head strong { white-space: normal; }
@@ -41169,7 +41379,8 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 /* A phone: the page's bar (`.phone-bar`): the options at its start, the search across the middle, then Filters with its
    count and Edit, and at its end the Assistant (when there is one) in the accent, asked what is typed. The wall's Graph,
    Full screen and Add accessories are in the options' menu; on the graph, the wall's button takes you back. */
-.accessories-ask { display: none; }
+/* A phone's only: outside it, the header has the Assistant. Above `.icon-button`'s display, below the phone bar's. */
+.accessories-bar .icon-button.accessories-ask { display: none; }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .accessories-bar > .accessories-toolbar, .accessories-bar > .accessories-views { display: contents; }
   .accessories-bar .subnav { order: 1; flex: none; width: auto; margin: 0; padding: 0; display: flex; background: none; border: 0; box-shadow: none; overflow: visible; mask-image: none; -webkit-mask-image: none; }
@@ -41280,11 +41491,11 @@ fieldset > .help { margin-bottom: var(--space-10); }
     -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
   }
   #app > .chat-open .sparkle { width: 24px; height: 24px; }
-  #app:has(.phone-bar, .status-footer) > .chat-open { display: none; }
+  #app:has(.phone-bar) > .chat-open { display: none; }
   #app .phone-bar .bar-button[hidden] { display: none; }
   /* The save bar sits over the tab bar, beside the floating Assistant. */
   .settings-bar { bottom: calc(var(--tab-bar-top) + var(--space-10)); }
-  #app:has(> .chat-open:not([hidden])) .settings-bar { margin-right: calc(var(--float-button) + var(--space-10)); }
+  #app:has(> .chat-open:not([hidden])) :is(.settings-bar, .notification-save) { margin-right: calc(var(--float-button) + var(--space-10)); }
   /* Room for the save bar over the tab bar, and for the last setting to clear it. */
   #app > main:has(.settings-bar) { padding-bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--settings-bar-height, 60px) + var(--space-24)); }
 }
@@ -41331,9 +41542,11 @@ fieldset > .help { margin-bottom: var(--space-10); }
 
 
 /* The Status page's Edit button: floating at the window's bottom right while the page scrolls; on a phone,
-   at the page's end, clear of the menu button. */
+   at the page's end, clear of the menu button. The Assistant's button is beside it at every width (Status and Energy),
+   the header's then standing aside. */
+#app:has(.status-footer) .chat-open { display: none; }
 .status-footer {
-  position: sticky; bottom: var(--space-16); z-index: 2; display: flex; justify-content: flex-end;
+  position: sticky; bottom: var(--space-16); z-index: 2; display: flex; justify-content: flex-end; gap: var(--space-10);
   margin: var(--space-16) 0 0; padding: 0; border: 0; background: none; pointer-events: none;
 }
 .status-footer > .link {
@@ -41349,16 +41562,14 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .status-footer > .link { justify-content: center; width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); padding: 0; border-radius: 50%; }
 .status-footer > .link span { display: none; }
 .status-footer > .link svg { width: 22px; height: 22px; }
-/* The Assistant beside Edit: a phone's only (wider, the Assistant's own button floats there already). */
-.status-footer > .footer-assistant { display: none; }
+/* The Assistant beside Edit, once there is one. */
+.status-footer > .footer-assistant[hidden] { display: none; }
 .status-footer > .footer-assistant .sparkle { width: 24px; height: 24px; }
 /* On a phone, a round button stacked above the menu button (and above the Assistant's, when it is there), the same
    size, within thumb reach; its words stay its accessible name. */
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .status-footer { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--float-button) + var(--space-10)); margin: 0; }
   .status-footer > .link { color: var(--text); box-shadow: var(--shadow-thick); }
-  .status-footer { gap: var(--space-10); }
-  .status-footer > .footer-assistant:not([hidden]) { display: inline-flex; }
   /* Room at the page's end, so its last card scrolls clear of the button. */
   #app > main:has(> .status-footer)::after { content: ""; display: block; height: calc(var(--float-button) + var(--space-10)); }
 }
@@ -41430,11 +41641,27 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .mobile-nav-panel .side-about .side-about-action { justify-content: flex-start; min-height: 44px; padding: 0 var(--space-8); gap: var(--space-12); color: var(--text); font-size: var(--text-md); font-weight: var(--weight-medium); letter-spacing: normal; }
 .mobile-nav-panel .side-about .side-about-action.accent { color: var(--accent-ink); }
 .mobile-nav-panel .side-about .side-about-action svg { width: 21px; height: 21px; }
+/* Between a phone and a wide window: the Assistant's button floats at the window's bottom right as on a wide one (chat.js
+   moves it out of the header's glass into #app), its chat opening above it; Status's Edit and Assistant float in the
+   same corner. */
+@media (min-width: 641px) and (max-width: 1179px) and (min-height: 501px), (min-width: 641px) and (max-width: 1179px) and (pointer: fine) {
+  #app > .chat-open {
+    position: fixed; z-index: var(--layer-tabbar); right: calc(var(--space-24) + var(--space-24)); bottom: calc(var(--space-24) + var(--space-24));
+    width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button);
+    background: var(--control); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
+  }
+  #app > .chat-open .sparkle { width: 36px; height: 36px; }
+  html .chat { top: auto; bottom: 120px; right: calc(var(--space-24) + var(--space-24)); height: min(740px, calc(100dvh - 160px)); transform-origin: bottom right; }
+  #app:has(> .chat-open:not([hidden])) .settings-bar { margin-right: calc(var(--float-button) + var(--space-20)); }
+  /* Notifications' Save bar ends at the page's 12 px gutter; the Assistant's button is 48 px from the window's edge. */
+  #app:has(> .chat-open:not([hidden])) .notification-save { margin-right: calc(var(--float-button) + var(--space-24) + var(--space-24) - var(--space-12) + var(--space-10)); }
+  .status-footer { position: fixed; right: calc(var(--space-24) + var(--space-24)); bottom: calc(var(--space-24) + var(--space-24)); margin: 0; }
+  #app > main:has(> .status-footer)::after { content: ""; display: block; grid-column: 1 / -1; height: calc(var(--float-button) + var(--space-16)); }
+}
 @media (min-width: 1180px) {
-  /* Edit floats in the window's bottom right corner as the Assistant's button does, from the same corner, stacked above
-     that button when it is there (as on a phone); the page keeps room for it at its end. */
+  /* Edit and the Assistant float in the window's bottom right corner, where the Assistant's button floats on the other
+     pages; the page keeps room for them at its end. */
   .status-footer { position: fixed; right: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24)); bottom: calc(var(--space-24) + var(--space-24)); margin: 0; }
-  #app:has(.chat-open) .status-footer { bottom: calc(var(--space-24) + var(--space-24) + var(--float-button) + var(--space-10)); }
   #app > main:has(> .status-footer)::after { content: ""; display: block; grid-column: 1 / -1; height: calc(var(--float-button) + var(--space-16)); }
 
   header .side-about { display: block; position: relative; margin-top: var(--space-16); }
@@ -42595,6 +42822,17 @@ html.wall-full {
   html.wall-full { --wall-edge: max(14px, env(safe-area-inset-right)); --wall-base: max(14px, env(safe-area-inset-bottom)); }
 }
 .wall-full-options { right: var(--wall-edge); bottom: var(--wall-stack); }
+/* The Assistant at the foot of the column, the wall's buttons' size, faded with them; the column (Graph options, Leave
+   full screen, the graph's zoom) starts one place higher. Shown in full screen on a phone too, where the page's bar is
+   hidden. */
+html.wall-full:has(#app > .chat-open:not([hidden])) { --wall-stack: calc(var(--wall-base) + var(--float-button) + var(--space-10)); }
+html.wall-full #app > .chat-open:not([hidden]) {
+  display: grid; right: var(--wall-edge); bottom: var(--wall-base);
+  width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button);
+  background: var(--material-thick); box-shadow: var(--shadow-control); transition: opacity 400ms ease, transform 160ms var(--ease-out);
+}
+html.wall-full #app > .chat-open .sparkle { width: 26px; height: 26px; }
+html.wall-full:not(.wall-awake) #app > .chat-open:not([aria-expanded="true"]) { opacity: 0.32; }
 .wall-full-exit { right: var(--wall-edge); bottom: calc(var(--wall-stack) + var(--float-button) + var(--space-10)); }
 .wall-full-button svg, .wall-step svg { width: 22px; height: 22px; }
 .wall-full-button:active, .wall-step:active { transform: scale(0.94); }

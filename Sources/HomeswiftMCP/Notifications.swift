@@ -591,7 +591,7 @@ extension HomeswiftCatalog {
             return true
         }
         guard allowed else { throw CatalogError("Too many test notifications: try again in a minute") }
-        let message = NotificationMessage(event: .test, title: NotificationText("Test notification"), message: NotificationText("Notifications from Homeswift are working."), path: "/notifications")
+        let message = NotificationMessage(event: .test, title: NotificationText("Test notification"), message: NotificationText("Notifications from Homeswift are working."), path: "/settings/notifications")
         if channel == .browser, let endpoint {
             do {
                 _ = try await sendPush(message, endpoint: endpoint)

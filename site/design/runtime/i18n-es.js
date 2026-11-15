@@ -3789,4 +3789,10 @@ HomeswiftI18n.add("es", {
   "Choose the rooms to include when you run this scene.": "Elige las habitaciones que se incluirán al ejecutar esta escena.",
   "Select all": "Seleccionar todo",
   "Deselect all": "Deseleccionar todo",
+  "Accessory or group": "Accesorio o grupo",
+  "Groups": "Grupos",
+  "Go to": "Ir a",
+  "Jump to a block of config.json, the others folded": "Ir a un bloque de config.json, los demás plegados",
+  "{name} · {platform}": "{name} · {platform}",
+  "Leave without saving the notification settings?": "¿Salir sin guardar los ajustes de notificaciones?",
 });

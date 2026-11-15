@@ -14,7 +14,7 @@ import NIOConcurrencyHelpers
 // `AutomationRules.triggerKinds` is where a kind is added. A Person arriving or leaving, or Anyone Home changing, is a
 // `presence` trigger, fired by the host's `PresenceBoard` (the Presence plugin publishes on it).
 //
-// Steps: apply a Scene, set a value, wait, wait until a value, notify, call a plugin's action (one its plugin does not
+// Steps: apply a Scene, set a value (on an accessory, or on every member of a Group), wait, wait until a value, notify, call a plugin's action (one its plugin does not
 // mark as needing confirmation). Locks, garage doors and alarms are never set: a Step on one, or the part of a Scene
 // that changes one, is skipped and the last run says so, as a scene run by a trigger did.
 //
@@ -370,10 +370,14 @@ extension HomeswiftCatalog {
         object["security"] = .bool(touchesSecurity(automation))
         object["running"] = .bool(running?.contains(automation.id) ?? home.automationRuns.withLockedValue { $0[automation.id] != nil })
         let scenes = home.scenes.value.scenes
+        // A Set a value Step may name a Group: its name, as an accessory's.
+        let groups = automation.steps.contains { $0.id?.hasPrefix("group:") == true } ? wallGroups : []
         object["steps"] = .array(automation.steps.map { step in
             var entry = (try? JSONValue(encoding: step))?.objectValue ?? [:]
             if let id = step.scene { entry["name"] = scenes.first { $0.id == id }.map { .string($0.name) } ?? .null }
-            if let id = step.id { entry["accessory"] = find(id: id).map { .string($0.layout?.name ?? $0.accessory.name) } ?? .null }
+            if let id = step.id {
+                entry["accessory"] = find(id: id).map { .string($0.layout?.name ?? $0.accessory.name) } ?? groups.first { $0.id == id }.map { .string($0.name) } ?? .null
+            }
             return .object(entry)
         })
         return .object(object)
@@ -663,6 +667,7 @@ extension HomeswiftCatalog {
             let held = answer["note"] != nil
             return (held ? "\(scene.name): its locks, doors and alarms were left out: automations do not change them" : nil, held)
         case "set":
+            if let id = step.id, id.hasPrefix("group:") { return (try await setGroup(id, characteristic: step.characteristic ?? "", value: step.value ?? .null), false) }
             guard let found = find(id: step.id ?? "") else { throw CatalogError("the accessory is gone") }
             let target = try characteristic(in: found, service: step.service, characteristic: step.characteristic ?? "")
             if target.isSecurityControl { return ("\(found.accessory.name) \(target.type.name): a lock, door or alarm: automations do not change them", true) }
@@ -689,6 +694,38 @@ extension HomeswiftCatalog {
         default:
             throw CatalogError("unknown step \(step.type)")
         }
+    }
+
+    /// A Set a value Step on a Group (GLOSSARY.md, "Group"): the value on every member's control of that name, the one
+    /// the Group drives (`groupTargets`, never a lock, a door or an alarm), all at once. A member that is gone or fails
+    /// does not hold back the others; the Step fails naming it.
+    func setGroup(_ id: String, characteristic name: String, value: JSONValue) async throws -> String? {
+        guard let group = wallGroups.first(where: { $0.id == id }) else { throw CatalogError("the group is gone") }
+        guard let hap = Self.hapValue(value) else { throw CatalogError("value must be a boolean, a number or a string") }
+        let wanted = Self.normalized(name)
+        let failures = await withTaskGroup(of: String?.self) { tasks in
+            for member in group.members {
+                guard let found = find(id: member) else { tasks.addTask { "\(member) is gone" }; continue }
+                let shown = found.layout?.name ?? found.accessory.name
+                guard let target = Self.groupTargets(found.accessory).first(where: { Self.name($0.type.name, normalizesTo: wanted) }) else {
+                    tasks.addTask { "\(shown) has no \(name)" }
+                    continue
+                }
+                tasks.addTask {
+                    do {
+                        try await target.write(hap)
+                        return nil
+                    } catch let error as HAPStatusError {
+                        return "\(Self.failure(error, of: found))"
+                    } catch {
+                        return "\(shown): \(error)"
+                    }
+                }
+            }
+            return await tasks.reduce(into: [String]()) { if let failure = $1 { $0.append(failure) } }
+        }
+        if !failures.isEmpty { throw CatalogError("\(group.name): \(failures.sorted().joined(separator: "; "))") }
+        return nil
     }
 
     /// Calls a plugin's action as its MCP tool does, for an Automation.
@@ -920,7 +957,7 @@ extension HomeswiftCatalog {
             "conditions": ["type": "array", "maxItems": 10, "items": ["type": "object"], "description": .string(
                 "All must hold when a trigger fires. {type: time, after, before: HH:mm|sunrise|sunset}; {type: characteristic, id, characteristic, operator, value}")],
             "steps": ["type": "array", "minItems": 1, "maxItems": 30, "items": ["type": "object"], "description": .string(
-                "Run in order; a step with withPrevious: true starts together with the one before it (not a wait, nor right after one), and parallel does so for every step between two waits. {type: scene, scene: <id>}; {type: set, id, characteristic, value}; {type: wait, seconds}; {type: waitUntil, id, characteristic, operator, value, seconds}; "
+                "Run in order; a step with withPrevious: true starts together with the one before it (not a wait, nor right after one), and parallel does so for every step between two waits. {type: scene, scene: <id>}; {type: set, id, characteristic, value} (id an accessory's, or a Group's, group:…, from get_wall_layout: the value on every member, a control they share); {type: wait, seconds}; {type: waitUntil, id, characteristic, operator, value, seconds}; "
                 + "{type: notify, title, message, buttons: [up to 3 {label, type: scene|set|open, scene | id, characteristic, value | path}]}; {type: tool, tool: <a plugin action's tool name>, arguments}. Locks, garage doors and alarms are never set: such a step is skipped.")],
         ],
     ]

@@ -1341,14 +1341,35 @@
       const indent = indentOf(text, line);
       close([...blocks.values()].filter((one) => indentOf(text, one.line) === indent));
     };
+    /// What a folded object is, beside its "…": its `name`, with its `platform` or `accessory` when that differs
+    /// (config.json's blocks), else that alone; nothing for a list, a run of lines or an object without them.
+    const foldHint = (text, fold) => {
+      if (text[fold.at - 1] !== "{") return null;
+      let value;
+      try { value = JSON.parse(`{${fold.hidden}}`); } catch { return null; }
+      const field = (key) => typeof value[key] === "string" && value[key].trim() ? value[key].trim() : null;
+      const kind = field("platform") ?? field("accessory"), name = field("name");
+      return name && kind && name !== kind ? `${name} · ${kind}` : name ?? kind;
+    };
     const paint = () => {
       scheduled = false;
       const text = shown();
       const content = document.createDocumentFragment();
-      let last = 0;
+      // Each fold's "…", and its hint at the end of its line: past the line's last character, so the text before it
+      // keeps its place under the textarea's (lines never wrap).
+      const cuts = folds.map((fold) => ({ at: fold.at, fold }));
       for (const fold of folds) {
-        content.append(jsonHighlight(text.slice(last, fold.at), { secretKey }), el("span", { class: "code-fold", text: "…" }));
-        last = fold.at + 1;
+        const hint = foldHint(text, fold);
+        if (!hint) continue;
+        const end = text.indexOf("\n", fold.at);
+        cuts.push({ at: end < 0 ? text.length : end, hint });
+      }
+      cuts.sort((a, b) => a.at - b.at || (a.fold ? -1 : 1));
+      let last = 0;
+      for (const cut of cuts) {
+        content.append(jsonHighlight(text.slice(last, cut.at), { secretKey }));
+        if (cut.fold) { content.append(el("span", { class: "code-fold", text: "…" })); last = cut.at + 1; }
+        else { content.append(el("span", { class: "code-fold-hint", text: `  ${cut.hint}` })); last = cut.at; }
       }
       // A final newline needs a character after it to take its line.
       content.append(jsonHighlight(text.slice(last), { secretKey }), "\n");
@@ -1460,15 +1481,42 @@
       schedule();
       return found;
     };
-    // The caret on the line, the line a third of the way down; the folds around it open.
+    /// Shows only the block at `path` (Settings › Config's Go to): every other block folded, the blocks around it kept
+    /// open to reach it. Answers its offset in the whole text, for `reveal`; null when the text does not parse or has
+    /// no such path.
+    wrapper.showOnly = (path) => {
+      open([...folds]);
+      leaveSecretsOnly();
+      const text = shown();
+      let places;
+      try { ({ places } = jsonLocate(text)); } catch { return null; }
+      const target = places.get(JSON.stringify(path));
+      if (target === undefined) return null;
+      const blocks = [...findBlocks(text).values()];
+      // Its own block opens on its line (an object's "{" after its key, an item's at its start).
+      const own = blocks.find((block) => block.start >= target && block.line === lineOf(text, target));
+      const kept = (block) => (block.start < target && block.end > target) || (own && block.start >= own.start && block.end <= own.end);
+      const others = blocks.filter((block) => !kept(block));
+      close(others.filter((block) => !others.some((outer) => outer !== block && outer.start < block.start && outer.end > block.end)));
+      return target;
+    };
+    // The caret on the line, the line a third of the way down; the folds around it open. The textarea scrolls when it
+    // has a height of its own, else the page does.
     wrapper.reveal = (offset) => {
       for (let place = onScreen(offset); place.fold; place = onScreen(offset)) open([place.fold]);
       const at = onScreen(offset).at;
       textarea.focus({ preventScroll: true });
       textarea.setSelectionRange(at, at);
-      const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 20;
-      textarea.scrollTop = Math.max(0, (lineOf(shown(), at) - 1) * lineHeight - textarea.clientHeight / 3);
-      wrapper.scrollIntoView({ block: "nearest" });
+      const style = getComputedStyle(textarea);
+      const lineHeight = parseFloat(style.lineHeight) || 20;
+      const lineTop = (lineOf(shown(), at) - 1) * lineHeight;
+      if (textarea.scrollHeight > textarea.clientHeight + 1) {
+        textarea.scrollTop = Math.max(0, lineTop - textarea.clientHeight / 3);
+        wrapper.scrollIntoView({ block: "nearest" });
+      } else {
+        const y = textarea.getBoundingClientRect().top + (parseFloat(style.paddingTop) || 0) + lineTop;
+        window.scrollBy({ top: y - window.innerHeight / 3 });
+      }
     };
     // A copy or a cut takes the whole text of the folds it covers.
     const copyWhole = (event) => {

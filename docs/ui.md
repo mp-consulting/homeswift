@@ -38,15 +38,14 @@ added on the **Users** page ([Users, roles and API tokens](#users-roles-and-api-
 
 ## The pages
 
-The header has the sections (Status, Accessories, Scenes, Logbook, Plugins, Logs, Settings), the Assistant's sparkle
-when it is on, and the account menu behind your initial: **Account**, **Appearance**, **Users** (administrators),
+The header has the sections (Status, Accessories, Scenes, Logbook, Plugins, Logs, Settings) and the account menu behind your initial: **Account**, **Appearance**, **Users** (administrators),
 **Language**, then apart and in orange **Restart homeswift…** (administrators), and **Sign out**. In a window 1180 px
 wide or more the app sits in one frame of glass and the header becomes the menu down its
 left: the sections under **Home**; under **You** the account menu's entries (**Account**, **Appearance**, **Users** for
 administrators, **Language**, **Sign out**), each with its icon, in place of the account button; and at its foot
 **Homeswift** and its version, folded, which opens upward over the menu (a click outside closes it) into its health, the machine, the update button, **Send feedback**
 and **Restart homeswift…** (administrators). Narrower, the account menu has them; on a phone, the ☰ panel, under
-Account. The Status page keeps only **Edit**, floating at the window's bottom right. Every view is an address ([Addresses](#addresses)), so Back and Forward work and a view can be kept or
+Account. The Status page keeps only **Edit**, floating at the window's bottom right, the Assistant's sparkle beside it. Every view is an address ([Addresses](#addresses)), so Back and Forward work and a view can be kept or
 shared.
 
 ### Status
@@ -551,7 +550,8 @@ Deleting a scene opens a confirmation in the UI’s design system. Cancel is foc
 - **Conditions**: a time window (`sunset` to `23:00`, across midnight too) or an accessory's value. **Run now** ignores
   them. Sunrise and sunset are for the Location, a Bridge Setting under [Settings](#settings); without one, the
   Triggers' help links to it.
-- **Steps**: apply a Scene, set a value, wait, wait until a value (with the longest it waits, then it goes on), notify
+- **Steps**: apply a Scene, set a value (on an accessory, or on a Group: the value goes to every member, for a control
+  they share), wait, wait until a value (with the longest it waits, then it goes on), notify
   (through the channels of [Notifications](#notifications), as "A message from an automation"), or call a plugin's
   action: one its plugin offers to MCP clients and the Assistant without asking a person to confirm, its fields drawn
   from the action's input schema.
@@ -628,8 +628,12 @@ unlocked or armed Away, and the words say Opens and Closes for a garage door or 
 
 ![Notification channels and event switches](images/notifications.png)
 
-`/notifications`, from the Status page (Glass UI's notifications). Each channel is a card with its settings, its event
-switches and a **Send a test**, under a Save bar.
+A tab of [Settings](#settings) (`/settings/notifications`; `/notifications` leads there), also linked from the Status
+page's bridge card (Glass UI's notifications). Each channel is a card with its own glyph and colour, quieter while it
+is off, its switch, its settings (which open when it is turned on) and **Send a test** in its ⋯. The events are in
+groups (Homeswift, Accessories, Automations, Backups, the Assistant), the daily digest's time under its switch. The Save
+bar floats in line with the Assistant's button; Save is offered once something changed, and leaving with changes asks
+first.
 
 - **Channels**: a webhook (a JSON POST with the event, title, message, instance and time), ntfy (ntfy.sh or your own
   server, with an access token), Pushover, Telegram, and Web Push to the browsers that turn it on. A webhook takes a
@@ -987,6 +991,9 @@ marked as you type.
 - **Folding**: a block that spans lines folds from the chevron beside its first line (Option-click folds or opens every
   block at that indentation; ⌘⌥[ and ⌘⌥] at the caret), and a click on its ⋯ opens it. What is saved, copied or
   formatted is always the whole text. A plugin's JSON view folds the same way.
+- **Go to** (in the bar; in ⋯ on a phone): a searchable menu of the bridge, each platform's block (by its name and
+  platform) and each accessory's. The one chosen is left open with the caret on its first line, every other block
+  folded.
 - **Secrets**: a key that holds one (the bridge's redaction rule: passwords, tokens, keys, the setup code, `auth`) is
   gold with a lock before it, in both editors, and its value shows as `__REDACTED__`. A save that keeps the placeholder
   keeps the stored value, so the page never needs to show a secret to edit the rest. **Secrets only** (the lock in the
@@ -1027,9 +1034,9 @@ browser they sign in to; a browser remembers the last ones it saw, so a page ope
 ### Addresses
 
 Every view is a path: `/status`, `/accessories` (and `/accessories/graph`), `/quick`, `/scenes` (and `/scenes/<id>`,
-`/scenes/new`), `/notifications`, `/plugins`, `/plugins/<slug>` and its `/settings` (`/expert`, its address before, leads there), `/plugins/add/<platform>`,
+`/scenes/new`), `/plugins`, `/plugins/<slug>` and its `/settings` (`/expert`, its address before, leads there), `/plugins/add/<platform>`,
 `/account`, `/appearance`, `/users`, and `/settings` with `/bridge`, `/config` (`/config` alone leads there),
-`/child-bridges`, `/backups`, `/vault`, `/updates`, `/audit` and `/assistant`. A view's choices go into its address: the web UI block's page with `?section=proxy` or
+`/child-bridges`, `/backups`, `/vault`, `/notifications` (`/notifications` alone leads there), `/updates`, `/audit` and `/assistant`. A view's choices go into its address: the web UI block's page with `?section=proxy` or
 `?section=schedules` (`/plugins/web-ui?section=proxy`) opens and scrolls to that part of its settings, and the Logs view is
 `/logs/<accessory>?bridge=<bridge or all>&plugin=<plugin>&since=24h&level=warning&q=text`: the accessory by its name's
 slug or its id, the plugin by its slug (and `/logs/<platform>` from a plugin's page), `bridge` and `plugin` not both
@@ -1101,8 +1108,9 @@ do and when it last came, and **⋯ › Disconnect** ends one at once.
 ## The Assistant's chat
 
 With a `HomeswiftAiKit` block that names a provider, a sparkle button opens a chat on every page, plugin pages included:
-in the header, floating at the bottom right of a window 1180 px wide or more, where the chat opens above it, and on a
-phone floating just above the sections' button, within the thumb's reach. Its head
+never in the header: floating at the window's bottom right, where the chat opens above it (beside **Edit** on the Status
+and Energy pages), and on a phone just above the sections' button, within the thumb's reach, or at the end of a page's
+bar. Its head
 has Copy, Earlier chats, New chat and a cog whose menu opens Settings › Assistant (the provider, for an administrator)
 and sets the voice's language (A to Z, the browser's first); the field is at the very bottom, under the provider's
 note. With a mouse, drag the head to move the panel anywhere in the window (the browser remembers where; a double click
