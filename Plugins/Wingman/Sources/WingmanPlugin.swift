@@ -273,6 +273,8 @@ actor Link {
     private let dependencies: WingmanPlugin.Dependencies
     private let refreshInterval: Duration
     private var client: WingmanClient
+    /// The writes, in order per characteristic, the latest winning.
+    nonisolated let writes = WriteOrder()
     private var snapshot: Snapshot?
     private var since = 0
     private var phase = Phase.connecting
@@ -358,14 +360,18 @@ actor Link {
         let bridgeHome = Structure.bridgeHome(of: homes, bridges: bridges)
         plugin.bridgeHomes.withLockedValue { $0[device.id] = bridgeHome.flatMap { id in homes.first { $0.id == id }?.name } }
         let write: @Sendable (String, String, JSONValue) async throws -> Void = { [weak self] accessoryID, characteristicID, value in
-            guard let client = await self?.client else { throw WingmanError.unreachable("stopped") }
-            do {
-                try await client.write(accessory: accessoryID, characteristic: characteristicID, value: value)
-                // HomeKit took it: the accessory answers, whatever its reachability said.
-                await self?.answered(accessoryID)
-            } catch {
-                self?.logger.warning("Wingman write failed: \(error)", metadata: ["accessory": "\(accessoryID)", "characteristic": "\(characteristicID)"])
-                throw error
+            guard let order = self?.writes else { throw WingmanError.unreachable("stopped") }
+            // In order per characteristic, the latest winning: a slow lamp's on must not land after the off that followed.
+            try await order.write("\(accessoryID)/\(characteristicID)") { [weak self] in
+                guard let client = await self?.client else { throw WingmanError.unreachable("stopped") }
+                do {
+                    try await client.write(accessory: accessoryID, characteristic: characteristicID, value: value)
+                    // HomeKit took it: the accessory answers, whatever its reachability said.
+                    await self?.answered(accessoryID)
+                } catch {
+                    self?.logger.warning("Wingman write failed: \(error)", metadata: ["accessory": "\(accessoryID)", "characteristic": "\(characteristicID)"])
+                    throw error
+                }
             }
         }
         var mirrors: [String: Mirror] = [:]

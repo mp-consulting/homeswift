@@ -177,7 +177,8 @@ The command line and the MCP server leave the language to the model.
 
 Claude reads text and images, not audio, so what you say to the chat's mic becomes text first. Without a
 `transcription` in the block, the browser's own dictation does it (Safari sends your voice to Apple, Chrome to Google;
-iOS needs Siri dictation on). With one, the bridge does it, as the Claude app sends its voice to a speech service: the
+iOS needs Siri dictation on). It listens through pauses and sends what you said after two seconds of silence, or
+when you tap send; stop keeps the words in the field. With one, the bridge does it, as the Claude app sends its voice to a speech service: the
 page records the microphone itself (`talk-worklet.js`, 16 kHz mono), `POST /api/assistant/transcribe` hands the
 recording to the engine (`SpeechToText`), and its words land in the field. The engines:
 

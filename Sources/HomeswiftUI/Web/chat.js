@@ -118,7 +118,7 @@
       voiceChoice = value;
       try { localStorage.setItem("homeswift.voiceLanguage", value); } catch {}
     } })));
-    const form = el("form", { class: "chat-composer", onsubmit: (event) => { event.preventDefault(); listening() ? stopListening("send") : running ? stop() : submit(); } },
+    const form = el("form", { class: "chat-composer", onsubmit: (event) => { event.preventDefault(); listening() ? stopListening("send") : running ? stopUnlessJustDictated() : submit(); } },
       input, speakable ? mic : null, speakable ? voice : null, send);
     const close = el("button", { type: "button", class: "chat-icon", "aria-label": t("Close"), title: t("Close (Esc)"), text: "×", onclick: () => toggle(false) });
     const fresh = el("button", { type: "button", class: "chat-icon", "aria-label": t("New chat"), title: t("New chat"), onclick: reset });
@@ -366,6 +366,13 @@
 
   async function stop() {
     try { await api("/api/assistant/chat/stop", { method: "POST", body: {} }); } catch (e) { showError(e.message); }
+  }
+
+  /// The answer's stop, from its button. A pause ends dictation and sends the words, and the voice's stop gives way to
+  /// the answer's in the same corner: a tap meant for the first that lands on the second a moment later is not a stop.
+  function stopUnlessJustDictated() {
+    if (performance.now() - dictationEndedAt < 1000) return;
+    stop();
   }
 
   async function reset() {
@@ -748,6 +755,7 @@
   // has `original` (the field before it) and `stop(how)`: `send` sends what was said, `keep` leaves it in the field,
   // `discard` puts the field back as it was.
   let dictation = null;
+  let dictationEndedAt = -Infinity;
   let voiceNote = "";
   const listening = () => Boolean(dictation);
   // iOS gives the microphone to one listener at a time: while recognition holds it, the waveform follows the speech.
@@ -821,6 +829,7 @@
   function endDictation(session, note = "") {
     if (dictation !== session) return false;
     dictation = null;
+    dictationEndedAt = performance.now();
     panel.wave.stop();
     voiceNote = note;
     if (panel.voice.contains(document.activeElement)) panel.input.focus();
@@ -841,48 +850,83 @@
     if (send && !running && message) submit(message, true);
   }
 
-  /// The browser's recognition, its words in the field as they come.
+  /// How long a silence sends what was said: the browser's own end comes at the first breath.
+  const silenceSends = 2000;
+
+  /// The browser's recognition, its words in the field as they come. It listens through pauses: the browser ends a
+  /// recognition at a short one, and the next starts at once, so a sentence is sent after two seconds of silence, or
+  /// by the user's send or stop.
   function recognize() {
-    const recognition = new Recognition();
-    const session = { original: panel.input.value, how: "send", note: "", stop(how) {
+    let recognition = null;
+    const session = { original: panel.input.value, how: "send", note: "", stopped: false, stop(how) {
       session.how = how;
+      session.stopped = true;
+      clearTimeout(quiet);
       how === "discard" ? recognition.abort() : recognition.stop();
     } };
-    recognition.lang = voiceLanguage();
-    recognition.interimResults = true;
-    recognition.continuous = false;
-    // What was heard: Safari on iOS often ends without marking a result final, so the last words count either way.
-    let heard = "", failed = false, speaking = false;
-    recognition.onresult = (event) => {
-      if (session.how === "discard") return;
-      heard = [...event.results].map((result) => result[0].transcript).join("");
-      panel.input.value = joined(session.original, heard);
-      grow();
-    };
-    recognition.onerror = (event) => {
-      // Our own stop or cancel: nothing to say.
-      if (event.error === "aborted") return;
-      failed = true;
-      session.note = event.error === "not-allowed" ? t("The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.")
-        // Safari says so when Siri & Dictation is off, or when dictation is not offered where the page runs.
-        : event.error === "service-not-allowed" ? t("Dictation is not available here. On an iPhone or iPad, turn on Enable Dictation in Settings › General › Keyboard; if this page was added to the Home Screen, try it in Safari.")
-        : event.error === "audio-capture" ? t("No microphone was found.")
-        : event.error === "network" ? t("Dictation could not reach its speech service. Check the connection and try again.")
-        : event.error === "language-not-supported" ? t("Dictation does not support {language}: choose another Voice language from the Settings menu.", { language: recognition.lang })
-        : event.error === "no-speech" ? t("Nothing was heard. Tap the mic and speak.") : t("Voice stopped: {error}.", { error: event.error });
-    };
-    // Whether a voice is heard, for the waveform where the page cannot open the microphone beside dictation.
-    recognition.onspeechstart = () => { speaking = true; };
-    recognition.onspeechend = () => { speaking = false; };
+    // What was heard: by the recognitions that ended (at a pause), and by the one listening. Safari on iOS often ends
+    // without marking a result final, so the last words count either way.
+    let before = "", heard = "", failed = false, speaking = false, restarted = false, quiet = null;
+    const said = () => joined(before, heard.trim());
     let stopWave = () => {};
-    recognition.onend = () => {
-      stopWave();
-      if (!endDictation(session, session.note)) return;
-      // A failure keeps what was heard in the field, unsent.
-      deliver(session.original, heard.trim(), failed && session.how === "send" ? "keep" : session.how);
+    const listen = () => {
+      recognition = new Recognition();
+      recognition.lang = voiceLanguage();
+      recognition.interimResults = true;
+      recognition.continuous = true;
+      recognition.onresult = (event) => {
+        if (session.how === "discard") return;
+        let text = "";
+        for (const result of event.results) {
+          const transcript = result[0].transcript;
+          // iOS repeats the earlier results inside the latest one in a continuous recognition.
+          text = ios && text && transcript.trim().startsWith(text.trim()) ? transcript : text + transcript;
+        }
+        heard = text;
+        panel.input.value = joined(session.original, said());
+        grow();
+        // Words, then two seconds without new ones: the sentence is done.
+        clearTimeout(quiet);
+        if (said()) quiet = setTimeout(() => { if (dictation === session && !session.stopped) session.stop("send"); }, silenceSends);
+      };
+      recognition.onerror = (event) => {
+        // Our own stop or cancel: nothing to say.
+        if (event.error === "aborted") return;
+        // Silence after words, or a browser that will not listen again without a tap: what was said is sent.
+        if (said() && (event.error === "no-speech" || (restarted && /not-allowed/.test(event.error)))) { session.stopped = true; return; }
+        failed = true;
+        session.note = event.error === "not-allowed" ? t("The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.")
+          // Safari says so when Siri & Dictation is off, or when dictation is not offered where the page runs.
+          : event.error === "service-not-allowed" ? t("Dictation is not available here. On an iPhone or iPad, turn on Enable Dictation in Settings › General › Keyboard; if this page was added to the Home Screen, try it in Safari.")
+          : event.error === "audio-capture" ? t("No microphone was found.")
+          : event.error === "network" ? t("Dictation could not reach its speech service. Check the connection and try again.")
+          : event.error === "language-not-supported" ? t("Dictation does not support {language}: choose another Voice language from the Settings menu.", { language: recognition.lang })
+          : event.error === "no-speech" ? t("Nothing was heard. Tap the mic and speak.") : t("Voice stopped: {error}.", { error: event.error });
+      };
+      // Whether a voice is heard, for the waveform where the page cannot open the microphone beside dictation.
+      recognition.onspeechstart = () => { speaking = true; };
+      recognition.onspeechend = () => { speaking = false; };
+      recognition.onend = () => {
+        if (dictation !== session) return;
+        before = said();
+        heard = "";
+        speaking = false;
+        // Ended by the browser at a pause after words: the next one listens on (the silence still sends them). Ended
+        // before any, it is over, as the browser decided.
+        if (!session.stopped && !failed && before) {
+          restarted = true;
+          try { listen(); return; } catch {}
+        }
+        clearTimeout(quiet);
+        stopWave();
+        if (!endDictation(session, session.note)) return;
+        // A failure keeps what was heard in the field, unsent.
+        deliver(session.original, before.trim(), failed && session.how === "send" ? "keep" : session.how);
+      };
+      recognition.start();
     };
     try {
-      recognition.start();
+      listen();
     } catch (e) {
       voiceNote = t("Voice did not start: {error}", { error: e.message });
       renderControls();

@@ -434,3 +434,28 @@ private let fakeGoogleKey = "AIza" + "SyA1234567890abcdefghijklmnopqrstuv"
         }
     }
 }
+
+@Suite struct CompleteTests {
+    /// A provider whose stream writes a word and then waits, as a model that is still answering.
+    final class Waiting: Provider, @unchecked Sendable {
+        let name = "waiting"
+        let model = "waiting-1"
+        let capabilities = ProviderCapabilities(streaming: true, contextTokens: 100_000)
+        func chat(_ request: ChatRequest) async throws -> ChatResult { throw CancellationError() }
+        func stream(_ request: ChatRequest) -> AsyncThrowingStream<ChatChunk, any Error> {
+            AsyncThrowingStream { continuation in continuation.yield(.text("Thinking ")) }
+        }
+    }
+
+    /// Stopping a streamed answer is a stop, not a provider that ended its stream without a result.
+    @Test func aStoppedStreamIsCancelledNotFailed() async throws {
+        let wrote = AsyncStream<Void>.makeStream()
+        let task = Task {
+            try await complete(Waiting(), ChatRequest(system: nil, messages: [.user("Hello")])) { _ in wrote.continuation.yield() }
+        }
+        var written = wrote.stream.makeAsyncIterator()
+        _ = await written.next()
+        task.cancel()
+        await #expect(throws: CancellationError.self) { try await task.value }
+    }
+}
