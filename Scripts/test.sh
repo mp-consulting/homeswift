@@ -3,6 +3,8 @@
 # bounded worker pool; elsewhere SwiftPM runs the tests in one executable.
 # Arguments go to `swift build`; those after `--` to the tests:
 # --target GoveeTests builds/runs just that macOS bundle; --skip-build uses existing binaries.
+# A passing macOS bundle prints its summary only; TEST_SHOW_PASSED=1 prints its whole output too (each test's line),
+# as Scripts/ci-test.sh's retry needs to see each test it ran again pass.
 #   Scripts/test.sh --scratch-path ~/Library/Caches/homeswift-build -- --filter Govee
 set -uo pipefail
 
@@ -157,6 +159,7 @@ for index in "${!pids[@]}"; do
     if [ "$code" -eq 0 ]; then
         summary="$(grep -a 'Test run with' "$logs/$name.log" | tail -n 1 | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/^[^T]*//')"
         printf '%-26s %s\n' "$name" "${summary:-no tests}"
+        if [ -n "${TEST_SHOW_PASSED:-}" ]; then cat "$logs/$name.log"; fi
         duration="$(printf '%s\n' "$summary" | sed -nE 's/.* after ([0-9]+([.][0-9]+)?) seconds\..*/\1/p')"
         if [ -n "$duration" ]; then printf '%s\t%s\n' "$duration" "$name" >> "$logs/durations.tsv"; fi
     elif [ "$code" -eq 69 ] && [ ${#tests[@]} -gt 0 ]; then
