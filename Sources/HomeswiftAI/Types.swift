@@ -220,6 +220,8 @@ public func complete(_ provider: any Provider, _ request: ChatRequest, onChunk: 
         case .done(let result): done = result
         }
     }
+    // A cancelled task's stream ends at once, without its result: the request was stopped, not failed.
+    try Task.checkCancellation()
     guard let done else { throw ProviderError(provider: provider.name, message: "the stream ended without a result") }
     return done
 }

@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **The chat's dictation no longer sends half a sentence**: the browser's dictation ends at the first breath, and the
+  chat sent it there ("And I don't want" without the rest). It listens on through pauses and sends after two seconds of
+  silence, or on send; stop still keeps the words unsent.
+- **Wingman's writes land in the order they were made**: a slow lamp mirrored from Apple Home, switched on then off in
+  quick succession, could take the off before the on and stay lit, since Wingman handed each to HomeKit as it came and
+  one given up on (a timeout, an Automation restarted) still went on. A write to a characteristic now waits for the one
+  before it, and one that a later write overtook while it waited is not sent.
+- **A stopped chat answer reads "Stopped."**, not "the stream ended without a result" as if the provider had failed;
+  and a tap on the voice's stop that lands on the answer's stop, as dictation ends and sends, no longer stops the answer
+  it just sent.
+
 ## [0.35.0] - 2026-11-15
 
 ### Added

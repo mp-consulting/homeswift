@@ -268,7 +268,8 @@ final class ChatConversation: Sendable {
             if turn.truncated {
                 append(["kind": "error", "text": "The Assistant stopped after many steps without an answer. Ask again, or more precisely."])
             }
-        } catch is CancellationError {
+        } catch let error where error is CancellationError || Task.isCancelled {
+            // Stopped, a provider may fail in its own words (a dropped request): it was stopped all the same.
             append(["kind": "error", "text": "Stopped."])
         } catch {
             logger.warning("Assistant chat failed: \(error)")
