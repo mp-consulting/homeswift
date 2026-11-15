@@ -1675,6 +1675,12 @@
     browser: [t("This browser and others"), t("Web Push to the browsers that turned it on below. It needs HTTPS (or localhost)."), []],
   };
 
+  /// Each channel's glyph and colour, so the cards tell apart at a glance.
+  const channelLook = { webhook: ["link", "grey"], ntfy: ["cloud", "green"], pushover: ["bell", "blue"], telegram: ["send", "teal"], browser: ["browser", "violet"] };
+  /// The events in groups, in this order, each under its heading; one the page does not know goes last.
+  const eventGroups = [["Homeswift", ["bridgeStarted", "bridgeStopped", "pluginError"]], [t("Accessories"), ["accessoryOffline", "energyInsight"]],
+    [t("Automations"), ["sceneFailed", "automationMessage"]], [t("Backups"), ["backupFailed", "backupSucceeded"]], [t("Assistant"), ["dailyDigest"]]];
+
   /// A short name for this browser: "Safari on macOS".
   function browserLabel() {
     const ua = navigator.userAgent;
@@ -1719,7 +1725,7 @@
         const authText = el("span", { text: authOptions.find(([value]) => value === auth.value)?.[1] || t("No authentication") });
         const authButton = el("button", { type: "button", class: "webhook-auth-picker", "aria-label": t("Authentication"), "aria-haspopup": "menu", "aria-expanded": "false",
           onclick: (event) => HomeswiftCommon.menu(authButton, authOptions.map(([value, label]) => ({ label, checked: auth.value === value,
-            onSelect: () => { auth.value = value; authText.textContent = label; showAuth(); }
+            onSelect: () => { auth.value = value; authText.textContent = label; showAuth(); changed(); }
           })), { keyboard: event.detail === 0 }) }, authText, HomeswiftCommon.icon("down"));
         inputs[channel].auth = auth;
         const credential = (key, label) => {
@@ -1757,48 +1763,74 @@
             el("button", { actionIcon: "plus", type: "button", class: "link", text: t("Add header"), onclick: () => addHeader() }),
             el("p", { class: "help", text: t("Saved credentials and header values are masked. Leave the mask unchanged to keep them.") })));
       }
-      const state = el("span", { class: `notification-state${values.enabled ? " active" : ""}`, text: values.enabled ? t("On [setting]") : t("Off [setting]") });
-      enabled.addEventListener("change", () => {
-        state.textContent = enabled.checked ? t("On [setting]") : t("Off [setting]");
-        state.classList.toggle("active", enabled.checked);
-      });
       enabled.setAttribute("role", "switch");
-      return el("div", { class: `card server notification-channel${channel === "browser" ? " notification-browser" : ""}` },
-        el("div", { class: "server-head" }, tile(channel === "browser" ? "accessory" : "bell", channel === "browser" ? "blue" : "orange"),
+      // Its switch says whether it is on; turned on, its settings open to be filled in.
+      const setup = rows.length ? el("details", { class: "notification-setup", open: values.enabled },
+        el("summary", { text: t("Settings") }), el("div", { class: "notification-fields" }, rows)) : null;
+      const card = el("div", { class: `card server notification-channel${channel === "browser" ? " notification-browser" : ""}${values.enabled ? " on" : ""}` });
+      enabled.addEventListener("change", () => { card.classList.toggle("on", enabled.checked); if (enabled.checked && setup) setup.open = true; });
+      const [glyph, tone] = channelLook[channel] ?? ["bell", "orange"];
+      card.append(
+        el("div", { class: "server-head" }, tile(glyph, tone),
           el("div", { class: "who" }, el("strong", { text: title })),
           el("label", { class: "switch" }, enabled, el("span"))),
         el("p", { class: "muted note", text: help }),
-        rows.length ? el("details", { class: "notification-setup", open: values.enabled },
-          el("summary", { text: t("Settings") }), el("div", { class: "notification-fields" }, rows)) : browserPanel(settings),
-        el("div", { class: "card-foot" }, state,
+        setup ?? browserPanel(settings),
+        el("div", { class: "card-foot" },
           menuButton(t("Actions for {name}", { name: title }), () => [{ label: t("Send a test"), icon: "bell", onSelect: () => test(channel) }])));
+      return card;
     });
-    const events = settings.events.map((event) => {
+    const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time"), title: HomeswiftCommon.homeTimeTitle() });
+    const eventRow = (event) => {
       const label = HomeswiftI18n.message(event.label);
       const box = el("input", { type: "checkbox", role: "switch", checked: event.enabled, "aria-label": label });
       box.dataset.event = event.name;
-      return el("label", { class: "notification-event" },
+      const row = el("label", { class: "notification-event" },
         el("span", { class: "who" }, el("span", { text: label }),
           event.name === "dailyDigest" && !settings.assistant ? el("span", { class: "help", text: t("Needs the Assistant (a HomeswiftAiKit block).") }) : null),
         el("span", { class: "switch" }, box, el("span")));
-
-    });
-    const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time"), title: HomeswiftCommon.homeTimeTitle() });
+      if (event.name !== "dailyDigest") return [row];
+      // Its time right under it, in Home Time, offered while it is on.
+      const when = el("div", { class: "notification-event-detail" }, el("span", { class: "muted", text: t("Daily digest at") }), digestTime,
+        HomeswiftCommon.homeTimeNoteText() ? el("span", { class: "help", text: HomeswiftCommon.homeTimeNoteText() }) : null);
+      const sync = () => { digestTime.disabled = !box.checked; when.classList.toggle("off", !box.checked); };
+      box.addEventListener("change", sync);
+      sync();
+      return [row, when];
+    };
+    const known = new Set(eventGroups.flatMap(([, names]) => names));
+    const groups = [...eventGroups, [t("Other"), settings.events.map((event) => event.name).filter((name) => !known.has(name))]]
+      .map(([title, names]) => [title, names.map((name) => settings.events.find((event) => event.name === name)).filter(Boolean)])
+      .filter(([, list]) => list.length)
+      .map(([title, list]) => el("div", { class: "notification-group", role: "group", "aria-label": title },
+        el("h3", { class: "notification-group-title", text: title }), list.flatMap(eventRow)));
     // Where a notification's tap and buttons lead, when the web UI's own address is not the one a phone reaches.
     const address = el("input", { type: "url", value: settings.address || "", placeholder: settings.defaultAddress || "https://home.example.com", "aria-label": t("Address in notifications") });
-    const save = el("button", { actionIcon: "check", class: "primary", text: t("Save") });
-    save.addEventListener("click", async () => {
+    const save = el("button", { actionIcon: "check", class: "primary", text: t("Save"), disabled: true });
+    /// What Save sends; it throws for a webhook header without a name, or one named twice.
+    const collect = () => {
       const channels = {};
-      try {
-        for (const [channel, fields] of Object.entries(inputs)) {
-          channels[channel] = {};
-          for (const [key, input] of Object.entries(fields)) channels[channel][key] = input.type === "checkbox" ? input.checked : input.value;
-        }
-      } catch (error) { say(line, error.message, "error"); return; }
-      const body = { channels, events: Object.fromEntries([...main.querySelectorAll("[data-event]")].map((box) => [box.dataset.event, box.checked])), dailyDigestTime: digestTime.value, address: address.value.trim() };
+      for (const [channel, fields] of Object.entries(inputs)) {
+        channels[channel] = {};
+        for (const [key, input] of Object.entries(fields)) channels[channel][key] = input.type === "checkbox" ? input.checked : input.value;
+      }
+      return { channels, events: Object.fromEntries([...main.querySelectorAll("[data-event]")].map((box) => [box.dataset.event, box.checked])), dailyDigestTime: digestTime.value, address: address.value.trim() };
+    };
+    const snapshot = () => { try { return JSON.stringify(collect()); } catch { return null; } };
+    let saved = null;
+    // Save is offered once something changed, which the bar says; leaving then asks first.
+    const changed = () => {
+      const dirty = snapshot() !== saved;
+      save.disabled = !dirty;
+      if (dirty) say(line, t("Unsaved changes"), "dirty");
+      else if (line.classList.contains("dirty")) say(line, "");
+    };
+    save.addEventListener("click", async () => {
+      let body;
+      try { body = collect(); } catch (error) { say(line, error.message, "error"); return; }
       save.disabled = true;
-      try { await app.api("/api/notifications", { method: "PUT", body }); say(line, t("Saved."), "ok"); } catch (e) { say(line, e.message, "error"); }
-      save.disabled = false;
+      try { await app.api("/api/notifications", { method: "PUT", body }); saved = JSON.stringify(body); say(line, t("Saved."), "ok"); }
+      catch (e) { say(line, e.message, "error"); save.disabled = false; }
     });
     app.show(main,
       app.pageHead(subnav ? t("Settings") : t("Notifications"), t("Choose where alerts arrive and which events matter to you.")), subnav,
@@ -1806,16 +1838,20 @@
         el("section", { class: "notification-delivery", "aria-label": t("Delivery channels") },
           el("div", { class: "section-head" }, el("h2", { text: t("Delivery channels") })),
           el("div", { class: "notification-channels" }, cards)),
-        el("section", { class: "card notification-events", "aria-label": t("Events") },
-          el("h2", { text: t("Events") }),
-          el("p", { class: "muted", text: t("Choose what you want to hear about.") }),
-          el("div", { class: "notification-event-list" }, events),
-          el("div", { class: "notification-digest" }, field(t("Daily digest at"), digestTime, HomeswiftCommon.homeTimeNoteText())),
+        el("section", { class: "notification-events-column", "aria-label": t("Events") },
+          el("div", { class: "section-head" }, el("h2", { text: t("Events") }), el("span", { class: "muted", text: t("Choose what you want to hear about.") })),
+          el("div", { class: "card notification-events" },
+          el("div", { class: "notification-event-list" }, groups),
           el("div", { class: "notification-digest" }, field(t("Address in notifications"), address,
             t("What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.", { address: settings.defaultAddress || t("this machine's address") }))),
-          el("p", { class: "muted notification-limit", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") }))),
+          el("p", { class: "muted notification-limit", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") })))),
       el("div", { class: "save-bar notification-save" }, line,
-        el("button", { actionIcon: "send", text: t("Send a test to every channel that is on"), onclick: () => test() }), save));
+        el("button", { actionIcon: "send", class: "notification-test-all", title: t("Send a test to every channel that is on"), text: t("Send a test to every channel that is on"), onclick: () => test() }), save));
+    saved = snapshot();
+    main.addEventListener("input", changed);
+    main.addEventListener("change", changed);
+    main.addEventListener("click", (event) => { if (event.target.closest(".webhook-header-row button, .webhook-headers > button")) queueMicrotask(changed); });
+    app.setLeaveGuard?.(async () => snapshot() === saved || HomeswiftCommon.confirmDialog(t("Leave without saving the notification settings?")));
   }
 
   /// This browser's subscription and the others'.

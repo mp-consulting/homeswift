@@ -21258,6 +21258,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     browser: [t("This browser and others"), t("Web Push to the browsers that turned it on below. It needs HTTPS (or localhost)."), []],
   };
 
+  /// Each channel's glyph and colour, so the cards tell apart at a glance.
+  const channelLook = { webhook: ["link", "grey"], ntfy: ["cloud", "green"], pushover: ["bell", "blue"], telegram: ["send", "teal"], browser: ["browser", "violet"] };
+  /// The events in groups, in this order, each under its heading; one the page does not know goes last.
+  const eventGroups = [["Homeswift", ["bridgeStarted", "bridgeStopped", "pluginError"]], [t("Accessories"), ["accessoryOffline", "energyInsight"]],
+    [t("Automations"), ["sceneFailed", "automationMessage"]], [t("Backups"), ["backupFailed", "backupSucceeded"]], [t("Assistant"), ["dailyDigest"]]];
+
   /// A short name for this browser: "Safari on macOS".
   function browserLabel() {
     const ua = navigator.userAgent;
@@ -21302,7 +21308,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const authText = el("span", { text: authOptions.find(([value]) => value === auth.value)?.[1] || t("No authentication") });
         const authButton = el("button", { type: "button", class: "webhook-auth-picker", "aria-label": t("Authentication"), "aria-haspopup": "menu", "aria-expanded": "false",
           onclick: (event) => HomeswiftCommon.menu(authButton, authOptions.map(([value, label]) => ({ label, checked: auth.value === value,
-            onSelect: () => { auth.value = value; authText.textContent = label; showAuth(); }
+            onSelect: () => { auth.value = value; authText.textContent = label; showAuth(); changed(); }
           })), { keyboard: event.detail === 0 }) }, authText, HomeswiftCommon.icon("down"));
         inputs[channel].auth = auth;
         const credential = (key, label) => {
@@ -21340,48 +21346,74 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             el("button", { actionIcon: "plus", type: "button", class: "link", text: t("Add header"), onclick: () => addHeader() }),
             el("p", { class: "help", text: t("Saved credentials and header values are masked. Leave the mask unchanged to keep them.") })));
       }
-      const state = el("span", { class: `notification-state${values.enabled ? " active" : ""}`, text: values.enabled ? t("On [setting]") : t("Off [setting]") });
-      enabled.addEventListener("change", () => {
-        state.textContent = enabled.checked ? t("On [setting]") : t("Off [setting]");
-        state.classList.toggle("active", enabled.checked);
-      });
       enabled.setAttribute("role", "switch");
-      return el("div", { class: `card server notification-channel${channel === "browser" ? " notification-browser" : ""}` },
-        el("div", { class: "server-head" }, tile(channel === "browser" ? "accessory" : "bell", channel === "browser" ? "blue" : "orange"),
+      // Its switch says whether it is on; turned on, its settings open to be filled in.
+      const setup = rows.length ? el("details", { class: "notification-setup", open: values.enabled },
+        el("summary", { text: t("Settings") }), el("div", { class: "notification-fields" }, rows)) : null;
+      const card = el("div", { class: `card server notification-channel${channel === "browser" ? " notification-browser" : ""}${values.enabled ? " on" : ""}` });
+      enabled.addEventListener("change", () => { card.classList.toggle("on", enabled.checked); if (enabled.checked && setup) setup.open = true; });
+      const [glyph, tone] = channelLook[channel] ?? ["bell", "orange"];
+      card.append(
+        el("div", { class: "server-head" }, tile(glyph, tone),
           el("div", { class: "who" }, el("strong", { text: title })),
           el("label", { class: "switch" }, enabled, el("span"))),
         el("p", { class: "muted note", text: help }),
-        rows.length ? el("details", { class: "notification-setup", open: values.enabled },
-          el("summary", { text: t("Settings") }), el("div", { class: "notification-fields" }, rows)) : browserPanel(settings),
-        el("div", { class: "card-foot" }, state,
+        setup ?? browserPanel(settings),
+        el("div", { class: "card-foot" },
           menuButton(t("Actions for {name}", { name: title }), () => [{ label: t("Send a test"), icon: "bell", onSelect: () => test(channel) }])));
+      return card;
     });
-    const events = settings.events.map((event) => {
+    const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time"), title: HomeswiftCommon.homeTimeTitle() });
+    const eventRow = (event) => {
       const label = HomeswiftI18n.message(event.label);
       const box = el("input", { type: "checkbox", role: "switch", checked: event.enabled, "aria-label": label });
       box.dataset.event = event.name;
-      return el("label", { class: "notification-event" },
+      const row = el("label", { class: "notification-event" },
         el("span", { class: "who" }, el("span", { text: label }),
           event.name === "dailyDigest" && !settings.assistant ? el("span", { class: "help", text: t("Needs the Assistant (a HomeswiftAiKit block).") }) : null),
         el("span", { class: "switch" }, box, el("span")));
-
-    });
-    const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time"), title: HomeswiftCommon.homeTimeTitle() });
+      if (event.name !== "dailyDigest") return [row];
+      // Its time right under it, in Home Time, offered while it is on.
+      const when = el("div", { class: "notification-event-detail" }, el("span", { class: "muted", text: t("Daily digest at") }), digestTime,
+        HomeswiftCommon.homeTimeNoteText() ? el("span", { class: "help", text: HomeswiftCommon.homeTimeNoteText() }) : null);
+      const sync = () => { digestTime.disabled = !box.checked; when.classList.toggle("off", !box.checked); };
+      box.addEventListener("change", sync);
+      sync();
+      return [row, when];
+    };
+    const known = new Set(eventGroups.flatMap(([, names]) => names));
+    const groups = [...eventGroups, [t("Other"), settings.events.map((event) => event.name).filter((name) => !known.has(name))]]
+      .map(([title, names]) => [title, names.map((name) => settings.events.find((event) => event.name === name)).filter(Boolean)])
+      .filter(([, list]) => list.length)
+      .map(([title, list]) => el("div", { class: "notification-group", role: "group", "aria-label": title },
+        el("h3", { class: "notification-group-title", text: title }), list.flatMap(eventRow)));
     // Where a notification's tap and buttons lead, when the web UI's own address is not the one a phone reaches.
     const address = el("input", { type: "url", value: settings.address || "", placeholder: settings.defaultAddress || "https://home.example.com", "aria-label": t("Address in notifications") });
-    const save = el("button", { actionIcon: "check", class: "primary", text: t("Save") });
-    save.addEventListener("click", async () => {
+    const save = el("button", { actionIcon: "check", class: "primary", text: t("Save"), disabled: true });
+    /// What Save sends; it throws for a webhook header without a name, or one named twice.
+    const collect = () => {
       const channels = {};
-      try {
-        for (const [channel, fields] of Object.entries(inputs)) {
-          channels[channel] = {};
-          for (const [key, input] of Object.entries(fields)) channels[channel][key] = input.type === "checkbox" ? input.checked : input.value;
-        }
-      } catch (error) { say(line, error.message, "error"); return; }
-      const body = { channels, events: Object.fromEntries([...main.querySelectorAll("[data-event]")].map((box) => [box.dataset.event, box.checked])), dailyDigestTime: digestTime.value, address: address.value.trim() };
+      for (const [channel, fields] of Object.entries(inputs)) {
+        channels[channel] = {};
+        for (const [key, input] of Object.entries(fields)) channels[channel][key] = input.type === "checkbox" ? input.checked : input.value;
+      }
+      return { channels, events: Object.fromEntries([...main.querySelectorAll("[data-event]")].map((box) => [box.dataset.event, box.checked])), dailyDigestTime: digestTime.value, address: address.value.trim() };
+    };
+    const snapshot = () => { try { return JSON.stringify(collect()); } catch { return null; } };
+    let saved = null;
+    // Save is offered once something changed, which the bar says; leaving then asks first.
+    const changed = () => {
+      const dirty = snapshot() !== saved;
+      save.disabled = !dirty;
+      if (dirty) say(line, t("Unsaved changes"), "dirty");
+      else if (line.classList.contains("dirty")) say(line, "");
+    };
+    save.addEventListener("click", async () => {
+      let body;
+      try { body = collect(); } catch (error) { say(line, error.message, "error"); return; }
       save.disabled = true;
-      try { await app.api("/api/notifications", { method: "PUT", body }); say(line, t("Saved."), "ok"); } catch (e) { say(line, e.message, "error"); }
-      save.disabled = false;
+      try { await app.api("/api/notifications", { method: "PUT", body }); saved = JSON.stringify(body); say(line, t("Saved."), "ok"); }
+      catch (e) { say(line, e.message, "error"); save.disabled = false; }
     });
     app.show(main,
       app.pageHead(subnav ? t("Settings") : t("Notifications"), t("Choose where alerts arrive and which events matter to you.")), subnav,
@@ -21389,16 +21421,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("section", { class: "notification-delivery", "aria-label": t("Delivery channels") },
           el("div", { class: "section-head" }, el("h2", { text: t("Delivery channels") })),
           el("div", { class: "notification-channels" }, cards)),
-        el("section", { class: "card notification-events", "aria-label": t("Events") },
-          el("h2", { text: t("Events") }),
-          el("p", { class: "muted", text: t("Choose what you want to hear about.") }),
-          el("div", { class: "notification-event-list" }, events),
-          el("div", { class: "notification-digest" }, field(t("Daily digest at"), digestTime, HomeswiftCommon.homeTimeNoteText())),
+        el("section", { class: "notification-events-column", "aria-label": t("Events") },
+          el("div", { class: "section-head" }, el("h2", { text: t("Events") }), el("span", { class: "muted", text: t("Choose what you want to hear about.") })),
+          el("div", { class: "card notification-events" },
+          el("div", { class: "notification-event-list" }, groups),
           el("div", { class: "notification-digest" }, field(t("Address in notifications"), address,
             t("What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.", { address: settings.defaultAddress || t("this machine's address") }))),
-          el("p", { class: "muted notification-limit", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") }))),
+          el("p", { class: "muted notification-limit", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") })))),
       el("div", { class: "save-bar notification-save" }, line,
-        el("button", { actionIcon: "send", text: t("Send a test to every channel that is on"), onclick: () => test() }), save));
+        el("button", { actionIcon: "send", class: "notification-test-all", title: t("Send a test to every channel that is on"), text: t("Send a test to every channel that is on"), onclick: () => test() }), save));
+    saved = snapshot();
+    main.addEventListener("input", changed);
+    main.addEventListener("change", changed);
+    main.addEventListener("click", (event) => { if (event.target.closest(".webhook-header-row button, .webhook-headers > button")) queueMicrotask(changed); });
+    app.setLeaveGuard?.(async () => snapshot() === saved || HomeswiftCommon.confirmDialog(t("Leave without saving the notification settings?")));
   }
 
   /// This browser's subscription and the others'.
@@ -25575,6 +25611,7 @@ HomeswiftI18n.add("es", {
   "Go to": "Ir a",
   "Jump to a block of config.json, the others folded": "Ir a un bloque de config.json, los demás plegados",
   "{name} · {platform}": "{name} · {platform}",
+  "Leave without saving the notification settings?": "¿Salir sin guardar los ajustes de notificaciones?",
 });
 
 """#),
@@ -29375,6 +29412,7 @@ HomeswiftI18n.add("fr", {
   "Go to": "Aller à",
   "Jump to a block of config.json, the others folded": "Aller à un bloc de config.json, les autres repliés",
   "{name} · {platform}": "{name} · {platform}",
+  "Leave without saving the notification settings?": "Quitter sans enregistrer les réglages des notifications ?",
 });
 
 """#),
@@ -33175,6 +33213,7 @@ HomeswiftI18n.add("pt", {
   "Go to": "Ir para",
   "Jump to a block of config.json, the others folded": "Ir para um bloco do config.json, os outros recolhidos",
   "{name} · {platform}": "{name} · {platform}",
+  "Leave without saving the notification settings?": "Sair sem guardar as definições de notificações?",
 });
 
 """#),
@@ -40613,23 +40652,32 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .notification-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(310px, 1fr); gap: var(--space-24); align-items: start; }
 .notification-delivery { min-width: 0; }
 .notification-delivery > .section-head { margin: 0 0 var(--space-14); }
-.notification-channels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-16); align-items: start; }
+.notification-channels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-16); align-items: stretch; }
 .notification-browser { grid-column: 1 / -1; }
-.notification-channel { min-width: 0; padding: var(--space-20); }
-.notification-channel .server-head .tile { width: 40px; height: 40px; border-radius: var(--radius-md); }
+/* Two cards side by side are as tall as each other, their ⋯ on one line at the bottom. */
+.notification-channel { min-width: 0; padding: var(--space-20); display: flex; flex-direction: column; }
+.notification-channel .server-head .tile { width: 40px; height: 40px; border-radius: var(--radius-md); transition: filter 200ms ease, opacity 200ms ease; }
+/* A channel that is off keeps its colour, quieter: the ones that deliver stand out. */
+.notification-channel:not(.on) .server-head .tile { filter: saturate(0.6); opacity: 0.8; }
 .notification-channel .note { font-size: var(--text-sm); line-height: 1.6; margin: var(--space-14) 0 var(--space-18); }
-.notification-channel .card-foot { margin-top: var(--space-16); }
-.notification-state { display: inline-flex; align-items: center; gap: var(--space-6); color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
-.notification-state::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .5; }
-.notification-state.active { color: var(--ok); }
-.notification-state.active::before { opacity: 1; }
+.notification-channel .card-foot { margin-top: auto; padding-top: var(--space-10); justify-content: flex-end; }
+.notification-channel .notification-setup, .notification-channel > .push { margin-bottom: var(--space-16); }
 .notification-setup { border-top: 1px solid var(--line); padding-top: var(--space-12); }
 .notification-setup summary { cursor: pointer; font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text); padding: var(--space-4) 0; }
 .notification-fields { padding-top: var(--space-12); }
 .notification-fields input { min-width: 0; width: 100%; }
-.notification-events { padding: var(--space-24); }
-.notification-events > h2 { margin: 0 0 var(--space-6); }
-.notification-events > p { margin: 0 0 var(--space-20); font-size: var(--text-sm); line-height: 1.6; }
+/* Events: a heading over the card as Delivery channels has, so both columns start on one line; the events in groups. */
+.notification-events-column { min-width: 0; }
+.notification-events-column > .section-head { margin: 0 0 var(--space-14); }
+.notification-events { padding: var(--space-8) var(--space-24) var(--space-24); }
+.notification-group-title { margin: var(--space-18) 0 0; font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: 0.02em; color: var(--muted); }
+.notification-group:first-child .notification-group-title { margin-top: var(--space-10); }
+.notification-group > .notification-event:last-child, .notification-group > .notification-event-detail:last-child { border-bottom: 0; }
+/* The daily digest's time, right under its switch, quieter while it is off. */
+.notification-event-detail { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-12); padding: 0 0 15px; font-size: var(--text-sm); transition: opacity 200ms ease; }
+.notification-event-detail input { width: auto; }
+.notification-event-detail .help { flex-basis: 100%; margin: 0; font-size: var(--text-xs); }
+.notification-event-detail.off { opacity: 0.5; }
 .notification-event { display: flex; align-items: center; gap: var(--space-18); padding: 15px 0; margin: 0; border-bottom: 1px solid var(--line); cursor: pointer; font-size: var(--text-sm); line-height: 1.5; }
 .notification-event .who { flex: 1; min-width: 0; }
 .notification-event .help { display: block; margin-top: var(--space-4); font-size: var(--text-xs); }
@@ -40641,8 +40689,25 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .notification-events > .notification-limit { font-size: var(--text-xs); margin: var(--space-18) 0 0; }
 .notification-save { position: sticky; bottom: 16px; z-index: 5; margin-top: var(--space-24); padding: var(--space-12) var(--space-16); background: var(--material-thick); border: 1px solid var(--edge); border-radius: var(--radius-lg); box-shadow: var(--shadow); backdrop-filter: blur(20px); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-12); }
 .notification-save > :first-child { flex: 1; margin: 0; }
+/* Beside a phone: the bar is the floating Assistant's height, as far from the window's bottom, so the two line up. */
+@media (min-width: 641px) and (min-height: 501px), (min-width: 641px) and (pointer: fine) {
+  .notification-save { box-sizing: border-box; height: var(--float-button); bottom: calc(var(--space-24) + var(--space-24)); padding: var(--space-6) var(--space-6) var(--space-6) var(--space-16); flex-wrap: nowrap; }
+  .notification-save > :first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .notification-save > button { flex: none; }
+}
 @media (max-width: 960px) { .notification-layout { grid-template-columns: 1fr; } }
-@media (max-width: 540px) { .notification-channels { grid-template-columns: 1fr; } .notification-events { padding: var(--space-20); } .notification-save { bottom: 84px; } .notification-save > button { flex: 1 1 auto; } }
+@media (max-width: 540px) { .notification-channels { grid-template-columns: 1fr; } .notification-events { padding: var(--space-8) var(--space-20) var(--space-20); } }
+/* A phone: one row the floating Assistant's height, on its line over the tab bar: Send a test round (its words its
+   name), Save across the rest, the state before them while there is one. */
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  .notification-save { box-sizing: border-box; height: var(--float-button); bottom: calc(var(--tab-bar-top) + var(--space-10)); padding: var(--space-6); flex-wrap: nowrap; gap: var(--space-8); }
+  .notification-save > :first-child { min-width: 0; padding-left: var(--space-8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .notification-save > :first-child:empty { display: none; }
+  .notification-save > .notification-test-all { flex: none; justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; gap: 0; border-radius: 50%; font-size: 0; }
+  .notification-save > .notification-test-all::before { margin: 0; }
+  .notification-save > .primary { flex: 1 1 auto; justify-content: center; }
+  .notification-save > :first-child:not(:empty) ~ .primary { flex: none; }
+}
 .notification-channel { gap: 0; }
 .notification-channel .push > p:empty { display: none; }
 .notification-channel .server-head strong { white-space: normal; }

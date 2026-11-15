@@ -629,8 +629,11 @@ unlocked or armed Away, and the words say Opens and Closes for a garage door or 
 ![Notification channels and event switches](images/notifications.png)
 
 A tab of [Settings](#settings) (`/settings/notifications`; `/notifications` leads there), also linked from the Status
-page's bridge card (Glass UI's notifications). Each channel is a card with its settings, its event
-switches and a **Send a test**, under a Save bar.
+page's bridge card (Glass UI's notifications). Each channel is a card with its own glyph and colour, quieter while it
+is off, its switch, its settings (which open when it is turned on) and **Send a test** in its ⋯. The events are in
+groups (Homeswift, Accessories, Automations, Backups, the Assistant), the daily digest's time under its switch. The Save
+bar floats in line with the Assistant's button; Save is offered once something changed, and leaving with changes asks
+first.
 
 - **Channels**: a webhook (a JSON POST with the event, title, message, instance and time), ntfy (ntfy.sh or your own
   server, with an access token), Pushover, Telegram, and Web Push to the browsers that turn it on. A webhook takes a

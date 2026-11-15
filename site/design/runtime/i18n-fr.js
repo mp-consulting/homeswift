@@ -3794,4 +3794,5 @@ HomeswiftI18n.add("fr", {
   "Go to": "Aller à",
   "Jump to a block of config.json, the others folded": "Aller à un bloc de config.json, les autres repliés",
   "{name} · {platform}": "{name} · {platform}",
+  "Leave without saving the notification settings?": "Quitter sans enregistrer les réglages des notifications ?",
 });

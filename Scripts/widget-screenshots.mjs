@@ -277,7 +277,8 @@ try {
     const settings = {
       channels: Object.fromEntries(['webhook','ntfy','pushover','telegram','browser'].map(k=>[k,{enabled:false}])),
       subscriptions: [], dailyDigestTime: '08:00', assistant: false,
-      events: [['bridgeStarted','Homeswift started'],['bridgeStopped','Homeswift stopped'],['pluginError','Plugin error'],['accessoryOffline','Accessory not responding'],['automationFailed','Automation failed'],['backupFailed','Backup failed'],['dailyDigest','Daily digest']].map(([name,label])=>({name,label,enabled:name!=='dailyDigest'}))
+      // NotificationEvent's names and labels, as /api/notifications lists them.
+      events: [['bridgeStarted','Homeswift started'],['bridgeStopped','Homeswift stopped'],['pluginError','A plugin reported an error'],['accessoryOffline','An accessory stopped responding'],['energyInsight','Something stands out in the energy use'],['sceneFailed','An automation failed'],['automationMessage','A message from an automation'],['backupFailed','The scheduled backup failed'],['backupSucceeded','The scheduled backup was saved'],['dailyDigest','Daily digest from the Assistant']].map(([name,label])=>({name,label,enabled:!['dailyDigest','backupSucceeded'].includes(name)}))
     };
     const context = {views:{}, api:async()=>settings, show:(main,...nodes)=>main.replaceChildren(...nodes),
       pageHead:(title,subtitle)=>HomeswiftCommon.el('div',{class:'page-head'},HomeswiftCommon.el('h1',{text:title}),HomeswiftCommon.el('p',{text:subtitle}))};
