@@ -6,6 +6,35 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-11-15
+
+### Added
+
+- **An automation step can set a Group**: a Set a value step names a Group (`group:…`) as well as an accessory, and the
+  bridge writes the value to every member's control at once; a member that is gone or refuses fails the step by name
+  without holding back the others. The step's picker is a tree in a searchable menu: the rooms as headings, each Group
+  with its members under it, filtered by kind, offering only the controls every member shares. `list_automations` names
+  the Group, and `save_automation` takes its id.
+- **Settings › Config's Go to**: a searchable menu of the bridge, each platform's block and each accessory's jumps to the
+  one chosen, the others folded; a folded block shows its name (and platform) at the end of its line. On a phone it is
+  in the bar's ⋯.
+
+### Changed
+
+- **The Assistant's button floats at the bottom right on every page**, at every width, never in the header: beside
+  Edit on the Status and Energy pages, and at the foot of the full-screen wall's and graph's column of buttons. On a
+  phone, a page with a bar of its own keeps its button there.
+- **Notifications is a tab of Settings** (`/settings/notifications`; `/notifications` leads there), between Vault and
+  Updates. Each channel has its own glyph and colour, quieter while it is off, and its settings open when it is turned
+  on; the events are in groups (Homeswift, Accessories, Automations, Backups, the Assistant) with the daily digest's time
+  under its switch. Save is offered once something changed and leaving then asks first; the Save bar floats in line with
+  the Assistant's button, one row on a phone.
+- **The chat's microphone stands out**: a tinted circle in the accent beside Send.
+
+### Fixed
+
+- **The Accessories toolbar's Assistant button is a phone's only again**: a desktop window showed it beside the header's.
+
 ## [0.34.1] - 2026-11-14
 
 ### Fixed
