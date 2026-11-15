@@ -562,10 +562,10 @@
     document.documentElement.classList.remove("wall-full", "wall-paged", "wall-awake", "graph-full");
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     let [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
-    // config.json's editor moved into Settings: an old link or bookmark lands there.
-    if (name === "config") {
-      history.replaceState(null, "", `/settings/config${location.search}${location.hash}`);
-      [name, args] = ["settings", ["config"]];
+    // config.json's editor and Notifications moved into Settings: an old link or bookmark lands there.
+    if (name === "config" || name === "notifications") {
+      history.replaceState(null, "", `/settings/${name}${location.search}${location.hash}`);
+      [name, args] = ["settings", [name]];
     }
     if (adminSections.has(name) && !isAdmin()) {
       // An administrator's view, from a link or a bookmark: Status instead.
@@ -1104,7 +1104,7 @@
         isAdmin() ? el("div", { class: "actions dashboard-quick-actions" },
           el("button", { class: "link", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })),
           el("a", { class: "link", href: "/settings" }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Settings, pairings and backups") })),
-          el("a", { class: "link", href: "/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
+          el("a", { class: "link", href: "/settings/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
     };
     const sections = new Map();
     let glanceIds = [];

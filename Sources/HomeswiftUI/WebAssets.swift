@@ -20,7 +20,7 @@ enum WebAssets {
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
 
-  const pages = [["bridge", t("Bridge"), "bridge"], ["config", t("Config"), "code"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["vault", t("Vault"), "vault"], ["updates", t("Updates"), "download"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
+  const pages = [["bridge", t("Bridge"), "bridge"], ["config", t("Config"), "code"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["vault", t("Vault"), "vault"], ["notifications", t("Notifications"), "bell"], ["updates", t("Updates"), "download"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
 
   const dateTime = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
   const fullDate = HomeswiftI18n.dateTimeFormat({ year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -42,7 +42,7 @@ enum WebAssets {
   async function view(main, [page = ""] = []) {
     // Settings opens on its first page, Bridge.
     if (!page) { history.replaceState(null, "", "/settings/bridge"); page = "bridge"; }
-    const draw = { bridge: bridgePage, config: (main) => app().configPage(main, subnav("config")), "child-bridges": childBridgesPage, backups: backupsPage, vault: vaultPage, updates: updatesPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
+    const draw = { bridge: bridgePage, config: (main) => app().configPage(main, subnav("config")), "child-bridges": childBridgesPage, backups: backupsPage, vault: vaultPage, notifications: (main) => window.HomeswiftHome.notificationsView(main, subnav("notifications")), updates: updatesPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
     if (!draw) { app().show(main, app().pageHead(t("Settings"), t("No such page.")), subnav(null)); return; }
     await draw(main);
   }
@@ -2438,7 +2438,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("tbody", {}, rows)));
   }
 
-  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, consumptionCards, confirmAction, categoryName, hasCategory, deviceIcon };
+  window.HomeswiftAdmin = { view, subnav, graph: graphPage, history: showHistory, consumptionCards, confirmAction, categoryName, hasCategory, deviceIcon };
 })();
 
 """#),
@@ -3007,10 +3007,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     document.documentElement.classList.remove("wall-full", "wall-paged", "wall-awake", "graph-full");
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     let [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
-    // config.json's editor moved into Settings: an old link or bookmark lands there.
-    if (name === "config") {
-      history.replaceState(null, "", `/settings/config${location.search}${location.hash}`);
-      [name, args] = ["settings", ["config"]];
+    // config.json's editor and Notifications moved into Settings: an old link or bookmark lands there.
+    if (name === "config" || name === "notifications") {
+      history.replaceState(null, "", `/settings/${name}${location.search}${location.hash}`);
+      [name, args] = ["settings", [name]];
     }
     if (adminSections.has(name) && !isAdmin()) {
       // An administrator's view, from a link or a bookmark: Status instead.
@@ -3549,7 +3549,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         isAdmin() ? el("div", { class: "actions dashboard-quick-actions" },
           el("button", { class: "link", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })),
           el("a", { class: "link", href: "/settings" }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Settings, pairings and backups") })),
-          el("a", { class: "link", href: "/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
+          el("a", { class: "link", href: "/settings/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
     };
     const sections = new Map();
     let glanceIds = [];
@@ -21274,7 +21274,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return registration ? registration.pushManager.getSubscription() : null;
   }
 
-  async function notificationsView(main) {
+  /// Settings › Notifications (`/settings/notifications`; `/notifications` leads there), under Settings' row of pages.
+  async function notificationsView(main, subnav = null) {
     const settings = await app.api("/api/notifications");
     const line = statusLine();
     const inputs = {};
@@ -21383,7 +21384,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       save.disabled = false;
     });
     app.show(main,
-      app.pageHead(t("Notifications"), t("Choose where alerts arrive and which events matter to you.")),
+      app.pageHead(subnav ? t("Settings") : t("Notifications"), t("Choose where alerts arrive and which events matter to you.")), subnav,
       el("div", { class: "notification-layout" },
         el("section", { class: "notification-delivery", "aria-label": t("Delivery channels") },
           el("div", { class: "section-head" }, el("h2", { text: t("Delivery channels") })),
@@ -21457,10 +21458,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // ---- Installing ------------------------------------------------------------------------------------
 
   window.HomeswiftHome = {
+    notificationsView,
     install(context) {
       app = context;
       app.views.scenes = (main, [id]) => id ? sceneEditor(main, id) : scenesView(main);
-      app.views.notifications = notificationsView;
       app.views.quick = async (main) => {
         // Its values were frozen while the tab was hidden.
         app.onReturn(() => app.route());
@@ -37500,6 +37501,8 @@ header nav a svg { display: none; }
   #app > .chat-open .sparkle { width: 36px; height: 36px; }
   html .chat { top: auto; bottom: 120px; right: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24)); height: min(740px, calc(100dvh - 160px)); transform-origin: bottom right; }
   #app:has(.chat-open) .settings-bar { margin-right: calc(var(--float-button) + var(--space-20)); }
+  /* Notifications' Save bar, in the page: clear of the Assistant's button by 10 px at least. */
+  #app:has(.chat-open) .notification-save { margin-right: calc(var(--float-button) + var(--space-20) + var(--space-10)); }
 }
 .spacer { flex: 1; }
 /* The account button at the header's right end: the user's initial on the accent and their name, opening its menu. */
@@ -41427,7 +41430,7 @@ fieldset > .help { margin-bottom: var(--space-10); }
   #app .phone-bar .bar-button[hidden] { display: none; }
   /* The save bar sits over the tab bar, beside the floating Assistant. */
   .settings-bar { bottom: calc(var(--tab-bar-top) + var(--space-10)); }
-  #app:has(> .chat-open:not([hidden])) .settings-bar { margin-right: calc(var(--float-button) + var(--space-10)); }
+  #app:has(> .chat-open:not([hidden])) :is(.settings-bar, .notification-save) { margin-right: calc(var(--float-button) + var(--space-10)); }
   /* Room for the save bar over the tab bar, and for the last setting to clear it. */
   #app > main:has(.settings-bar) { padding-bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--settings-bar-height, 60px) + var(--space-24)); }
 }
@@ -41585,6 +41588,8 @@ fieldset > .help { margin-bottom: var(--space-10); }
   #app > .chat-open .sparkle { width: 36px; height: 36px; }
   html .chat { top: auto; bottom: 120px; right: calc(var(--space-24) + var(--space-24)); height: min(740px, calc(100dvh - 160px)); transform-origin: bottom right; }
   #app:has(> .chat-open:not([hidden])) .settings-bar { margin-right: calc(var(--float-button) + var(--space-20)); }
+  /* Notifications' Save bar ends at the page's 12 px gutter; the Assistant's button is 48 px from the window's edge. */
+  #app:has(> .chat-open:not([hidden])) .notification-save { margin-right: calc(var(--float-button) + var(--space-24) + var(--space-24) - var(--space-12) + var(--space-10)); }
   .status-footer { position: fixed; right: calc(var(--space-24) + var(--space-24)); bottom: calc(var(--space-24) + var(--space-24)); margin: 0; }
   #app > main:has(> .status-footer)::after { content: ""; display: block; grid-column: 1 / -1; height: calc(var(--float-button) + var(--space-16)); }
 }

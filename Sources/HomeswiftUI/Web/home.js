@@ -1691,7 +1691,8 @@
     return registration ? registration.pushManager.getSubscription() : null;
   }
 
-  async function notificationsView(main) {
+  /// Settings › Notifications (`/settings/notifications`; `/notifications` leads there), under Settings' row of pages.
+  async function notificationsView(main, subnav = null) {
     const settings = await app.api("/api/notifications");
     const line = statusLine();
     const inputs = {};
@@ -1800,7 +1801,7 @@
       save.disabled = false;
     });
     app.show(main,
-      app.pageHead(t("Notifications"), t("Choose where alerts arrive and which events matter to you.")),
+      app.pageHead(subnav ? t("Settings") : t("Notifications"), t("Choose where alerts arrive and which events matter to you.")), subnav,
       el("div", { class: "notification-layout" },
         el("section", { class: "notification-delivery", "aria-label": t("Delivery channels") },
           el("div", { class: "section-head" }, el("h2", { text: t("Delivery channels") })),
@@ -1874,10 +1875,10 @@
   // ---- Installing ------------------------------------------------------------------------------------
 
   window.HomeswiftHome = {
+    notificationsView,
     install(context) {
       app = context;
       app.views.scenes = (main, [id]) => id ? sceneEditor(main, id) : scenesView(main);
-      app.views.notifications = notificationsView;
       app.views.quick = async (main) => {
         // Its values were frozen while the tab was hidden.
         app.onReturn(() => app.route());

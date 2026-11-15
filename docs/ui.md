@@ -628,7 +628,8 @@ unlocked or armed Away, and the words say Opens and Closes for a garage door or 
 
 ![Notification channels and event switches](images/notifications.png)
 
-`/notifications`, from the Status page (Glass UI's notifications). Each channel is a card with its settings, its event
+A tab of [Settings](#settings) (`/settings/notifications`; `/notifications` leads there), also linked from the Status
+page's bridge card (Glass UI's notifications). Each channel is a card with its settings, its event
 switches and a **Send a test**, under a Save bar.
 
 - **Channels**: a webhook (a JSON POST with the event, title, message, instance and time), ntfy (ntfy.sh or your own
@@ -1030,9 +1031,9 @@ browser they sign in to; a browser remembers the last ones it saw, so a page ope
 ### Addresses
 
 Every view is a path: `/status`, `/accessories` (and `/accessories/graph`), `/quick`, `/scenes` (and `/scenes/<id>`,
-`/scenes/new`), `/notifications`, `/plugins`, `/plugins/<slug>` and its `/settings` (`/expert`, its address before, leads there), `/plugins/add/<platform>`,
+`/scenes/new`), `/plugins`, `/plugins/<slug>` and its `/settings` (`/expert`, its address before, leads there), `/plugins/add/<platform>`,
 `/account`, `/appearance`, `/users`, and `/settings` with `/bridge`, `/config` (`/config` alone leads there),
-`/child-bridges`, `/backups`, `/vault`, `/updates`, `/audit` and `/assistant`. A view's choices go into its address: the web UI block's page with `?section=proxy` or
+`/child-bridges`, `/backups`, `/vault`, `/notifications` (`/notifications` alone leads there), `/updates`, `/audit` and `/assistant`. A view's choices go into its address: the web UI block's page with `?section=proxy` or
 `?section=schedules` (`/plugins/web-ui?section=proxy`) opens and scrolls to that part of its settings, and the Logs view is
 `/logs/<accessory>?bridge=<bridge or all>&plugin=<plugin>&since=24h&level=warning&q=text`: the accessory by its name's
 slug or its id, the plugin by its slug (and `/logs/<platform>` from a plugin's page), `bridge` and `plugin` not both

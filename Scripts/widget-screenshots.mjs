@@ -19,7 +19,7 @@ const html = `<!doctype html><html lang="en"><meta charset="utf-8">
 .accessory-walls{width:100%}.page-head{margin-bottom:20px}</style>
 <body><div id="app"><main id="view" class="accessory-walls"></main></div>
 <script src="/common.js"></script><script src="/remote.js"></script>
-<script src="/widgets.js"></script><script src="/groups.js"></script><script src="/home.js"></script><script src="/preview.js"></script></body></html>`;
+<script src="/widgets.js"></script><script src="/groups.js"></script><script src="/home.js"></script><script src="/admin.js"></script><script src="/preview.js"></script></body></html>`;
 const writes = [];
 const server = createServer((request, response) => {
   try {
@@ -282,7 +282,8 @@ try {
     const context = {views:{}, api:async()=>settings, show:(main,...nodes)=>main.replaceChildren(...nodes),
       pageHead:(title,subtitle)=>HomeswiftCommon.el('div',{class:'page-head'},HomeswiftCommon.el('h1',{text:title}),HomeswiftCommon.el('p',{text:subtitle}))};
     HomeswiftHome.install(context);
-    await context.views.notifications(document.querySelector('main'));
+    // A tab of Settings, under its row of pages.
+    await HomeswiftHome.notificationsView(document.querySelector('main'), HomeswiftAdmin.subnav('notifications'));
   })()`);
   await shot("notifications");
   await open("wall");

@@ -248,6 +248,8 @@ header nav a svg { display: none; }
   #app > .chat-open .sparkle { width: 36px; height: 36px; }
   html .chat { top: auto; bottom: 120px; right: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24)); height: min(740px, calc(100dvh - 160px)); transform-origin: bottom right; }
   #app:has(.chat-open) .settings-bar { margin-right: calc(var(--float-button) + var(--space-20)); }
+  /* Notifications' Save bar, in the page: clear of the Assistant's button by 10 px at least. */
+  #app:has(.chat-open) .notification-save { margin-right: calc(var(--float-button) + var(--space-20) + var(--space-10)); }
 }
 .spacer { flex: 1; }
 /* The account button at the header's right end: the user's initial on the accent and their name, opening its menu. */
@@ -4175,7 +4177,7 @@ fieldset > .help { margin-bottom: var(--space-10); }
   #app .phone-bar .bar-button[hidden] { display: none; }
   /* The save bar sits over the tab bar, beside the floating Assistant. */
   .settings-bar { bottom: calc(var(--tab-bar-top) + var(--space-10)); }
-  #app:has(> .chat-open:not([hidden])) .settings-bar { margin-right: calc(var(--float-button) + var(--space-10)); }
+  #app:has(> .chat-open:not([hidden])) :is(.settings-bar, .notification-save) { margin-right: calc(var(--float-button) + var(--space-10)); }
   /* Room for the save bar over the tab bar, and for the last setting to clear it. */
   #app > main:has(.settings-bar) { padding-bottom: calc(var(--tab-bar-top) + var(--space-10) + var(--settings-bar-height, 60px) + var(--space-24)); }
 }
@@ -4333,6 +4335,8 @@ fieldset > .help { margin-bottom: var(--space-10); }
   #app > .chat-open .sparkle { width: 36px; height: 36px; }
   html .chat { top: auto; bottom: 120px; right: calc(var(--space-24) + var(--space-24)); height: min(740px, calc(100dvh - 160px)); transform-origin: bottom right; }
   #app:has(> .chat-open:not([hidden])) .settings-bar { margin-right: calc(var(--float-button) + var(--space-20)); }
+  /* Notifications' Save bar ends at the page's 12 px gutter; the Assistant's button is 48 px from the window's edge. */
+  #app:has(> .chat-open:not([hidden])) .notification-save { margin-right: calc(var(--float-button) + var(--space-24) + var(--space-24) - var(--space-12) + var(--space-10)); }
   .status-footer { position: fixed; right: calc(var(--space-24) + var(--space-24)); bottom: calc(var(--space-24) + var(--space-24)); margin: 0; }
   #app > main:has(> .status-footer)::after { content: ""; display: block; grid-column: 1 / -1; height: calc(var(--float-button) + var(--space-16)); }
 }
