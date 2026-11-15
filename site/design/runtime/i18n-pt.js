@@ -3789,4 +3789,9 @@ HomeswiftI18n.add("pt", {
   "Choose the rooms to include when you run this scene.": "Escolha as divisões a incluir ao executar esta cena.",
   "Select all": "Selecionar tudo",
   "Deselect all": "Desselecionar tudo",
+  "Accessory or group": "Acessório ou grupo",
+  "Groups": "Grupos",
+  "Go to": "Ir para",
+  "Jump to a block of config.json, the others folded": "Ir para um bloco do config.json, os outros recolhidos",
+  "{name} · {platform}": "{name} · {platform}",
 });

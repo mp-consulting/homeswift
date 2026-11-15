@@ -1101,10 +1101,55 @@
     return node;
   }
 
-  /// An accessory and one of its characteristics, with a value input after them when `withValue`.
-  function characteristicPicker(accessories, pick, { id, service, characteristic, value, withValue = true, list = writable }) {
+  /// The kind an accessory is filtered by in a tree's pills, as the wall's groups name them.
+  const treeKinds = [["Lightbulb", "Lights"], ["Switch", "Switches"], ["Outlet", "Outlets"], ["Fan", "Fans"], ["Fanv2", "Fans"], ["WindowCovering", "Blinds"]];
+  const treeKind = (a) => t(treeKinds.find(([type]) => a.services?.some((s) => s.type === type))?.[1] ?? "Other");
+
+  /// A choice of one accessory or Group as a tree, in a menu like a select's: the rooms as headings, each Group a row
+  /// with its members under it (each one a choice too), searchable and filtered by kind. `options` are accessories and
+  /// Groups (`isGroup`, with `members`, from `groupChoices`). Behaves as a select for the picker: `value`, `change`.
+  function accessoryTree(options, current, label) {
+    const byID = new Map(options.map((a) => [a.id, a]));
+    const groups = options.filter((a) => a.isGroup);
+    const inGroup = new Set(groups.flatMap((g) => g.members.filter((id) => byID.has(id))));
+    const roomOf = (a) => a.isGroup ? byID.get(a.members.find((id) => byID.has(id)))?.room ?? null : a.room ?? null;
+    const byName = (a, b) => displayName(a).localeCompare(displayName(b), undefined, { numeric: true });
+    const rooms = [...new Set(options.map(roomOf))].sort((a, b) => (a == null) - (b == null) || String(a).localeCompare(String(b)));
+    // In tree order: each room's accessories and Groups by name, a Group's members right after it.
+    const rows = rooms.flatMap((room) => options.filter((a) => roomOf(a) === room && !inGroup.has(a.id)).sort(byName).flatMap((a) => a.isGroup
+      ? [{ a, room }, ...a.members.map((id) => byID.get(id)).filter(Boolean).sort(byName).map((member) => ({ a: member, room, of: a }))]
+      : [{ a, room }]));
+    let value = current ?? rows[0]?.a.id ?? "";
+    const button = el("button", { type: "button", class: "select-button", "aria-haspopup": "menu", "aria-label": label });
+    const draw = () => {
+      const chosen = byID.get(value);
+      button.textContent = chosen ? displayName(chosen) : value ? t("{name} (gone)", { name: value }) : "";
+    };
+    const icon = (a) => a.isGroup ? "group" : window.HomeswiftWidgets?.accessoryIcon?.(a) ?? "accessory";
+    button.addEventListener("click", () => HomeswiftCommon.menu(button, rows.map(({ a, room, of }) => ({
+      label: displayName(a), group: room ?? t("No room"), filter: treeKind(a.isGroup ? byID.get(a.members.find((id) => byID.has(id))) ?? a : a),
+      icon: icon(a), nested: Boolean(of), checked: a.id === value,
+      // A Group is found by its members' names, a member by its Group's.
+      search: a.isGroup ? a.members.map((id) => byID.get(id)).filter(Boolean).map(displayName).join(" ") : of ? displayName(of) : undefined,
+      onSelect: () => { value = a.id; draw(); button.dispatchEvent(new Event("change")); },
+    })), { search: t("Search") }));
+    Object.defineProperty(button, "value", { get: () => value, set: (id) => { value = id; draw(); } });
+    draw();
+    return button;
+  }
+
+  /// An accessory and one of its characteristics, with a value input after them when `withValue`. Groups among
+  /// `accessories` (`isGroup`, from `groupChoices`) are offered too: with `tree`, every choice is in a tree of rooms
+  /// (`accessoryTree`), else the Groups are listed apart, after the accessories.
+  function characteristicPicker(accessories, pick, { id, service, characteristic, value, withValue = true, list = writable, tree = false }) {
     const options = accessories.filter((a) => list(a).length);
-    const accessory = el("select", { "aria-label": t("Accessory") }, options.map((a) => el("option", { value: a.id, text: displayName(a) })));
+    const option = (a) => el("option", { value: a.id, text: displayName(a) });
+    const singles = options.filter((a) => !a.isGroup), groups = options.filter((a) => a.isGroup);
+    const label = groups.length ? t("Accessory or group") : t("Accessory");
+    const accessory = tree ? accessoryTree([...singles, ...groups.map((g) => ({ ...g, members: g.members.filter((m) => singles.some((a) => a.id === m)) }))], id, label)
+      : el("select", { "aria-label": label }, groups.length
+        ? [el("optgroup", { label: t("Accessories") }, singles.map(option)), el("optgroup", { label: t("Groups") }, groups.map(option))]
+        : singles.map(option));
     const kind = el("select", { "aria-label": t("Characteristic") });
     const holder = el("span", { class: "value-slot" });
     let current = null;
@@ -1120,7 +1165,7 @@
       if (withValue) { holder.replaceChildren(pick.value = valueInput(current, keepValue ?? current?.value)); }
     };
     if (id && options.some((a) => a.id === id)) accessory.value = id;
-    else if (id) accessory.prepend(el("option", { value: id, text: t("{name} (gone)", { name: id }), selected: true }));
+    else if (id && !tree) accessory.prepend(el("option", { value: id, text: t("{name} (gone)", { name: id }), selected: true }));
     fill(characteristic, value);
     accessory.addEventListener("change", () => fill());
     kind.addEventListener("change", () => {
@@ -1136,6 +1181,18 @@
     };
     pick.current = () => current;
     return [accessory, kind, holder];
+  }
+
+  /// The Groups as a picker offers them beside the accessories: each one with the controls its members share, those
+  /// the bridge marks `group` (`HomeswiftCatalog.groupTargets`); a Group whose members share none is left out.
+  function groupChoices(groups = [], accessories = []) {
+    const byID = new Map(accessories.map((a) => [a.id, a]));
+    const controls = (a) => (a.services || []).flatMap((s) => (s.characteristics || []).filter((c) => c.group));
+    return groups.map((group) => {
+      const members = group.members.map((id) => byID.get(id)).filter(Boolean);
+      const shared = members.length ? controls(members[0]).filter((c) => members.every((m) => controls(m).some((x) => x.type === c.type))) : [];
+      return { id: group.id, name: group.name, isGroup: true, members: group.members, services: [{ type: "Group", name: group.name, characteristics: shared }] };
+    }).filter((group) => group.services[0].characteristics.length);
   }
 
   const rowShell = (...children) => el("div", { class: "editor-row" }, ...children);
@@ -1829,6 +1886,6 @@
     },
     layoutActions, moveGroupToRoom, groupByRoom, roomOf, suggestRooms, quickSection, displayName,
     /// For the Automations page (automations.js): its triggers, conditions and the pickers they are made of.
-    scenesTabs, editor: { triggerRow, conditionRow, characteristicPicker, readable, writable, operators, field, describeTrigger, triggerIcons, statusLine, say, lastRun: sceneLastRun },
+    scenesTabs, editor: { triggerRow, conditionRow, characteristicPicker, groupChoices, readable, writable, operators, field, describeTrigger, triggerIcons, statusLine, say, lastRun: sceneLastRun },
   };
 })();

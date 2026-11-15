@@ -1015,23 +1015,16 @@
     // The pages' own Assistant buttons (beside Status's Edit) appear now.
     document.dispatchEvent(new Event("homeswift-assistant"));
     const header = $("header");
-    if (!header || header.querySelector(".chat-open")) return;
+    if (!header || document.querySelector(".chat-open")) return;
     const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl+K";
     trigger = el("button", {
       type: "button", class: "chat-open", "aria-expanded": "false", "aria-haspopup": "dialog", "aria-label": t("Assistant"), title: t("Ask the Assistant ({shortcut})", { shortcut }),
       "aria-keyshortcuts": "Meta+K Control+K", onclick: () => toggle(),
     }, sparkle());
-    header.insertBefore(trigger, header.querySelector("#user"));
-    // A phone's header has no room for it: on a page with a bar of its own the bar carries the page's Assistant button
-    // (HomeswiftCommon.assistantButton, Status's beside Edit), and on the others this one floats over the tab bar's right
-    // end (style.css). Fixed things inside the header's glass are placed in it, so the button moves out, into #app.
-    const app = $("#app");
-    const place = () => {
-      const home = phone.matches && app ? app : header;
-      if (trigger.parentNode !== home) home === header ? header.insertBefore(trigger, header.querySelector("#user")) : app.append(trigger);
-    };
-    place();
-    phone.addEventListener("change", place);
+    // It floats at the window's bottom right at every width, never in the header: the header is a bar of glass (a side
+    // menu on a wide window, hidden in full screen), and fixed things inside it are placed in it, so the button lives in
+    // #app (style.css floats it there). A page with its own (Status's and Energy's beside Edit, a phone's bar) hides it.
+    ($("#app") ?? header).append(trigger);
     // Cmd+K (Ctrl+K elsewhere) opens the chat from anywhere, and closes it, as Glass UI's palette.
     document.addEventListener("keydown", (event) => {
       // Not from the sign-in screen: the button is in the hidden app then.

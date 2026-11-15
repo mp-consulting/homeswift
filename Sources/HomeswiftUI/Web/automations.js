@@ -95,7 +95,9 @@
 
   async function editor(main, id) {
     const isNew = id === "new";
-    const [data, accessories] = await Promise.all([api("/api/automations"), api("/api/accessories")]);
+    const [data, accessories, layout] = await Promise.all([api("/api/automations"), api("/api/accessories"), api("/api/layout").catch(() => null)]);
+    // A Set a value Step may also name a Group: the value goes to every member.
+    const groups = home().groupChoices(layout?.groups, accessories);
     const scenes = { scenes: data.scenes ?? [] };
     const fromDraft = isNew ? pending : null;
     pending = null;
@@ -136,7 +138,7 @@
     parallel.addEventListener("change", syncSteps);
     const redraw = () => { stepList.replaceChildren(...steps); syncSteps(); };
     const addStep = (value = { type: "set" }, { drawn = true } = {}) => {
-      const row = stepRow(value, { accessories, scenes: scenes.scenes ?? [], tools: data.tools ?? [], changed: syncSteps });
+      const row = stepRow(value, { accessories, groups, scenes: scenes.scenes ?? [], tools: data.tools ?? [], changed: syncSteps });
       const move = (by) => {
         const at = steps.indexOf(row), to = at + by;
         if (to < 0 || to >= steps.length) return;
@@ -213,7 +215,7 @@
       ["overlap", t("Overlapping"), t("Overlapping: a new trigger starts another run alongside it")], ["queued", t("Queued"), t("Queued: a new trigger runs it again once it finishes")]];
   }
 
-  function stepRow(step, { accessories, scenes, tools, changed }) {
+  function stepRow(step, { accessories, groups = [], scenes, tools, changed }) {
     const { characteristicPicker, readable, writable, operators, field } = home();
     const type = el("select", { "aria-label": t("Step") }, stepKinds.map(([value, text]) => el("option", { value, text })));
     type.value = step.type;
@@ -231,8 +233,8 @@
         }
         case "set": {
           const pick = {};
-          const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, service: shown.service, characteristic: shown.characteristic, value: shown.value, list: writable });
-          body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Value"), holder));
+          const [accessory, kind, holder] = characteristicPicker([...accessories, ...groups], pick, { id: shown.id, service: shown.service, characteristic: shown.characteristic, value: shown.value, list: writable, tree: true });
+          body.replaceChildren(field(groups.length ? t("Accessory or group") : t("Accessory"), accessory), field(t("Control"), kind), field(t("Value"), holder));
           row.readBody = () => ({ ...pick.read(), value: pick.value.read() });
           break;
         }

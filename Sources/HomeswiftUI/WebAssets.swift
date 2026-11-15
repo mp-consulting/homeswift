@@ -3254,8 +3254,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
   // as on the Logs page.
-  /// The Assistant beside a page's Edit (Status, Energy) on a phone, a round button of the same kind, once there is one;
-  /// the header's then stands aside (style.css).
+  /// The Assistant beside a page's Edit (Status, Energy) at every width, a round button of the same kind, once there is
+  /// one; the header's then stands aside (style.css).
   const assistantBesideEdit = () => {
     const button = el("button", { type: "button", class: "link footer-assistant", hidden: true, "aria-label": t("Assistant"), title: t("Ask the Assistant"),
       onclick: () => window.HomeswiftChat?.open() }, HomeswiftCommon.sparkle(), el("span", { text: t("Assistant") }));
@@ -8126,6 +8126,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       save.disabled = !dirty || !valid;
       revert.disabled = !dirty;
       format.disabled = !valid;
+      if (typeof goToButton !== "undefined") goToButton.disabled = !valid;
     };
     const doSave = async (anyway = false) => {
       if (save.disabled) return;
@@ -8177,6 +8178,27 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       secretsNote.textContent = detail.secrets ? tn("{n} secret shown, the rest folded", "{n} secrets shown, the rest folded", detail.secrets) : t("No secrets in this file");
       secretsBanner.hidden = !detail.secretsOnly;
     });
+    // Go to: the bridge, each platform's block and each accessory's, by name; the one chosen alone open, the others
+    // folded (a fold opens from its chevron, or Show all with Secrets only). Offered while the text parses (`update`).
+    const blocks = () => {
+      let config;
+      try { config = JSON.parse(textarea.value); } catch { return []; }
+      const list = (key, group, icon) => (Array.isArray(config[key]) ? config[key] : []).map((block, index) => {
+        const kind = block?.platform ?? block?.accessory ?? "";
+        const name = typeof block?.name === "string" && block.name.trim() && block.name !== kind ? block.name : null;
+        return { label: name ? t("{name} · {platform}", { name, platform: kind }) : String(kind || index + 1), group, icon, path: [key, index], search: kind };
+      });
+      return [...(config.bridge ? [{ label: t("Bridge"), group: t("Bridge"), icon: "bridge", path: ["bridge"] }] : []),
+        ...list("platforms", t("Platforms"), "plugin"), ...list("accessories", t("Accessories"), "accessory")];
+    };
+    const goTo = (path) => {
+      const offset = editor.showOnly(path);
+      if (offset !== null) editor.reveal(offset);
+    };
+    const goToItems = () => blocks().map((block) => ({ label: block.label, group: block.group, icon: block.icon, search: block.search, onSelect: () => goTo(block.path) }));
+    const goToButton = el("button", { type: "button", class: "settings-action config-go-to", "aria-haspopup": "menu", title: t("Jump to a block of config.json, the others folded") },
+      HomeswiftCommon.icon("search"), el("span", { text: t("Go to") }));
+    goToButton.addEventListener("click", () => HomeswiftCommon.menu(goToButton, goToItems(), { search: t("Search") }));
     // Offered only while the text parses (`update`).
     format.addEventListener("click", () => { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); });
     update();
@@ -8186,6 +8208,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     force.classList.add("config-force");
     save.classList.add("bar-button");
     const actions = menuButton(t("More"), () => [
+      { label: t("Go to"), icon: "search", disabled: () => goToButton.disabled, onSelect: () => setTimeout(() => HomeswiftCommon.menu(actions, goToItems(), { search: t("Search") })) },
       secretRule ? { label: t("Secrets only"), icon: "lock", toggle: true, checkbox: true, checked: secretsOnly.getAttribute("aria-pressed") === "true", onSelect: () => secretsOnly.click() } : null,
       { label: t("Format"), icon: "code", disabled: () => format.disabled, onSelect: () => format.click() },
       { label: t("Revert"), icon: "restore", disabled: () => revert.disabled, onSelect: () => revert.click() },
@@ -8193,7 +8216,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     ]);
     actions.classList.add("bar-button", "bar-only");
     const bar = el("div", { class: "editor-bar config-bar phone-bar" }, actions, el("span", { class: "mono muted file-name", text: "config.json" }),
-      el("span", { class: "config-state" }, check), el("span", { class: "spacer" }), secretsOnly, format, revert, force, save, HomeswiftCommon.assistantButton());
+      el("span", { class: "config-state" }, check), el("span", { class: "spacer" }), goToButton, secretsOnly, format, revert, force, save, HomeswiftCommon.assistantButton());
     const card = el("div", { class: "card editor-card" }, bar, secretsBanner, editor, message);
     // The card's glass would hold a fixed bar inside it: on a phone the bar goes after the card.
     const placeBar = () => { if (phone.matches) card.after(bar); else card.prepend(bar); };
@@ -9165,7 +9188,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   async function editor(main, id) {
     const isNew = id === "new";
-    const [data, accessories] = await Promise.all([api("/api/automations"), api("/api/accessories")]);
+    const [data, accessories, layout] = await Promise.all([api("/api/automations"), api("/api/accessories"), api("/api/layout").catch(() => null)]);
+    // A Set a value Step may also name a Group: the value goes to every member.
+    const groups = home().groupChoices(layout?.groups, accessories);
     const scenes = { scenes: data.scenes ?? [] };
     const fromDraft = isNew ? pending : null;
     pending = null;
@@ -9206,7 +9231,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     parallel.addEventListener("change", syncSteps);
     const redraw = () => { stepList.replaceChildren(...steps); syncSteps(); };
     const addStep = (value = { type: "set" }, { drawn = true } = {}) => {
-      const row = stepRow(value, { accessories, scenes: scenes.scenes ?? [], tools: data.tools ?? [], changed: syncSteps });
+      const row = stepRow(value, { accessories, groups, scenes: scenes.scenes ?? [], tools: data.tools ?? [], changed: syncSteps });
       const move = (by) => {
         const at = steps.indexOf(row), to = at + by;
         if (to < 0 || to >= steps.length) return;
@@ -9283,7 +9308,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       ["overlap", t("Overlapping"), t("Overlapping: a new trigger starts another run alongside it")], ["queued", t("Queued"), t("Queued: a new trigger runs it again once it finishes")]];
   }
 
-  function stepRow(step, { accessories, scenes, tools, changed }) {
+  function stepRow(step, { accessories, groups = [], scenes, tools, changed }) {
     const { characteristicPicker, readable, writable, operators, field } = home();
     const type = el("select", { "aria-label": t("Step") }, stepKinds.map(([value, text]) => el("option", { value, text })));
     type.value = step.type;
@@ -9301,8 +9326,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         }
         case "set": {
           const pick = {};
-          const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, service: shown.service, characteristic: shown.characteristic, value: shown.value, list: writable });
-          body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Value"), holder));
+          const [accessory, kind, holder] = characteristicPicker([...accessories, ...groups], pick, { id: shown.id, service: shown.service, characteristic: shown.characteristic, value: shown.value, list: writable, tree: true });
+          body.replaceChildren(field(groups.length ? t("Accessory or group") : t("Accessory"), accessory), field(t("Control"), kind), field(t("Value"), holder));
           row.readBody = () => ({ ...pick.read(), value: pick.value.read() });
           break;
         }
@@ -11770,23 +11795,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // The pages' own Assistant buttons (beside Status's Edit) appear now.
     document.dispatchEvent(new Event("homeswift-assistant"));
     const header = $("header");
-    if (!header || header.querySelector(".chat-open")) return;
+    if (!header || document.querySelector(".chat-open")) return;
     const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl+K";
     trigger = el("button", {
       type: "button", class: "chat-open", "aria-expanded": "false", "aria-haspopup": "dialog", "aria-label": t("Assistant"), title: t("Ask the Assistant ({shortcut})", { shortcut }),
       "aria-keyshortcuts": "Meta+K Control+K", onclick: () => toggle(),
     }, sparkle());
-    header.insertBefore(trigger, header.querySelector("#user"));
-    // A phone's header has no room for it: on a page with a bar of its own the bar carries the page's Assistant button
-    // (HomeswiftCommon.assistantButton, Status's beside Edit), and on the others this one floats over the tab bar's right
-    // end (style.css). Fixed things inside the header's glass are placed in it, so the button moves out, into #app.
-    const app = $("#app");
-    const place = () => {
-      const home = phone.matches && app ? app : header;
-      if (trigger.parentNode !== home) home === header ? header.insertBefore(trigger, header.querySelector("#user")) : app.append(trigger);
-    };
-    place();
-    phone.addEventListener("change", place);
+    // It floats at the window's bottom right at every width, never in the header: the header is a bar of glass (a side
+    // menu on a wide window, hidden in full screen), and fixed things inside it are placed in it, so the button lives in
+    // #app (style.css floats it there). A page with its own (Status's and Energy's beside Edit, a phone's bar) hides it.
+    ($("#app") ?? header).append(trigger);
     // Cmd+K (Ctrl+K elsewhere) opens the chat from anywhere, and closes it, as Glass UI's palette.
     document.addEventListener("keydown", (event) => {
       // Not from the sign-in screen: the button is in the hidden app then.
@@ -13186,14 +13204,35 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const indent = indentOf(text, line);
       close([...blocks.values()].filter((one) => indentOf(text, one.line) === indent));
     };
+    /// What a folded object is, beside its "…": its `name`, with its `platform` or `accessory` when that differs
+    /// (config.json's blocks), else that alone; nothing for a list, a run of lines or an object without them.
+    const foldHint = (text, fold) => {
+      if (text[fold.at - 1] !== "{") return null;
+      let value;
+      try { value = JSON.parse(`{${fold.hidden}}`); } catch { return null; }
+      const field = (key) => typeof value[key] === "string" && value[key].trim() ? value[key].trim() : null;
+      const kind = field("platform") ?? field("accessory"), name = field("name");
+      return name && kind && name !== kind ? `${name} · ${kind}` : name ?? kind;
+    };
     const paint = () => {
       scheduled = false;
       const text = shown();
       const content = document.createDocumentFragment();
-      let last = 0;
+      // Each fold's "…", and its hint at the end of its line: past the line's last character, so the text before it
+      // keeps its place under the textarea's (lines never wrap).
+      const cuts = folds.map((fold) => ({ at: fold.at, fold }));
       for (const fold of folds) {
-        content.append(jsonHighlight(text.slice(last, fold.at), { secretKey }), el("span", { class: "code-fold", text: "…" }));
-        last = fold.at + 1;
+        const hint = foldHint(text, fold);
+        if (!hint) continue;
+        const end = text.indexOf("\n", fold.at);
+        cuts.push({ at: end < 0 ? text.length : end, hint });
+      }
+      cuts.sort((a, b) => a.at - b.at || (a.fold ? -1 : 1));
+      let last = 0;
+      for (const cut of cuts) {
+        content.append(jsonHighlight(text.slice(last, cut.at), { secretKey }));
+        if (cut.fold) { content.append(el("span", { class: "code-fold", text: "…" })); last = cut.at + 1; }
+        else { content.append(el("span", { class: "code-fold-hint", text: `  ${cut.hint}` })); last = cut.at; }
       }
       // A final newline needs a character after it to take its line.
       content.append(jsonHighlight(text.slice(last), { secretKey }), "\n");
@@ -13305,15 +13344,42 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       schedule();
       return found;
     };
-    // The caret on the line, the line a third of the way down; the folds around it open.
+    /// Shows only the block at `path` (Settings › Config's Go to): every other block folded, the blocks around it kept
+    /// open to reach it. Answers its offset in the whole text, for `reveal`; null when the text does not parse or has
+    /// no such path.
+    wrapper.showOnly = (path) => {
+      open([...folds]);
+      leaveSecretsOnly();
+      const text = shown();
+      let places;
+      try { ({ places } = jsonLocate(text)); } catch { return null; }
+      const target = places.get(JSON.stringify(path));
+      if (target === undefined) return null;
+      const blocks = [...findBlocks(text).values()];
+      // Its own block opens on its line (an object's "{" after its key, an item's at its start).
+      const own = blocks.find((block) => block.start >= target && block.line === lineOf(text, target));
+      const kept = (block) => (block.start < target && block.end > target) || (own && block.start >= own.start && block.end <= own.end);
+      const others = blocks.filter((block) => !kept(block));
+      close(others.filter((block) => !others.some((outer) => outer !== block && outer.start < block.start && outer.end > block.end)));
+      return target;
+    };
+    // The caret on the line, the line a third of the way down; the folds around it open. The textarea scrolls when it
+    // has a height of its own, else the page does.
     wrapper.reveal = (offset) => {
       for (let place = onScreen(offset); place.fold; place = onScreen(offset)) open([place.fold]);
       const at = onScreen(offset).at;
       textarea.focus({ preventScroll: true });
       textarea.setSelectionRange(at, at);
-      const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 20;
-      textarea.scrollTop = Math.max(0, (lineOf(shown(), at) - 1) * lineHeight - textarea.clientHeight / 3);
-      wrapper.scrollIntoView({ block: "nearest" });
+      const style = getComputedStyle(textarea);
+      const lineHeight = parseFloat(style.lineHeight) || 20;
+      const lineTop = (lineOf(shown(), at) - 1) * lineHeight;
+      if (textarea.scrollHeight > textarea.clientHeight + 1) {
+        textarea.scrollTop = Math.max(0, lineTop - textarea.clientHeight / 3);
+        wrapper.scrollIntoView({ block: "nearest" });
+      } else {
+        const y = textarea.getBoundingClientRect().top + (parseFloat(style.paddingTop) || 0) + lineTop;
+        window.scrollBy({ top: y - window.innerHeight / 3 });
+      }
     };
     // A copy or a cut takes the whole text of the folds it covers.
     const copyWhole = (event) => {
@@ -20618,10 +20684,55 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return node;
   }
 
-  /// An accessory and one of its characteristics, with a value input after them when `withValue`.
-  function characteristicPicker(accessories, pick, { id, service, characteristic, value, withValue = true, list = writable }) {
+  /// The kind an accessory is filtered by in a tree's pills, as the wall's groups name them.
+  const treeKinds = [["Lightbulb", "Lights"], ["Switch", "Switches"], ["Outlet", "Outlets"], ["Fan", "Fans"], ["Fanv2", "Fans"], ["WindowCovering", "Blinds"]];
+  const treeKind = (a) => t(treeKinds.find(([type]) => a.services?.some((s) => s.type === type))?.[1] ?? "Other");
+
+  /// A choice of one accessory or Group as a tree, in a menu like a select's: the rooms as headings, each Group a row
+  /// with its members under it (each one a choice too), searchable and filtered by kind. `options` are accessories and
+  /// Groups (`isGroup`, with `members`, from `groupChoices`). Behaves as a select for the picker: `value`, `change`.
+  function accessoryTree(options, current, label) {
+    const byID = new Map(options.map((a) => [a.id, a]));
+    const groups = options.filter((a) => a.isGroup);
+    const inGroup = new Set(groups.flatMap((g) => g.members.filter((id) => byID.has(id))));
+    const roomOf = (a) => a.isGroup ? byID.get(a.members.find((id) => byID.has(id)))?.room ?? null : a.room ?? null;
+    const byName = (a, b) => displayName(a).localeCompare(displayName(b), undefined, { numeric: true });
+    const rooms = [...new Set(options.map(roomOf))].sort((a, b) => (a == null) - (b == null) || String(a).localeCompare(String(b)));
+    // In tree order: each room's accessories and Groups by name, a Group's members right after it.
+    const rows = rooms.flatMap((room) => options.filter((a) => roomOf(a) === room && !inGroup.has(a.id)).sort(byName).flatMap((a) => a.isGroup
+      ? [{ a, room }, ...a.members.map((id) => byID.get(id)).filter(Boolean).sort(byName).map((member) => ({ a: member, room, of: a }))]
+      : [{ a, room }]));
+    let value = current ?? rows[0]?.a.id ?? "";
+    const button = el("button", { type: "button", class: "select-button", "aria-haspopup": "menu", "aria-label": label });
+    const draw = () => {
+      const chosen = byID.get(value);
+      button.textContent = chosen ? displayName(chosen) : value ? t("{name} (gone)", { name: value }) : "";
+    };
+    const icon = (a) => a.isGroup ? "group" : window.HomeswiftWidgets?.accessoryIcon?.(a) ?? "accessory";
+    button.addEventListener("click", () => HomeswiftCommon.menu(button, rows.map(({ a, room, of }) => ({
+      label: displayName(a), group: room ?? t("No room"), filter: treeKind(a.isGroup ? byID.get(a.members.find((id) => byID.has(id))) ?? a : a),
+      icon: icon(a), nested: Boolean(of), checked: a.id === value,
+      // A Group is found by its members' names, a member by its Group's.
+      search: a.isGroup ? a.members.map((id) => byID.get(id)).filter(Boolean).map(displayName).join(" ") : of ? displayName(of) : undefined,
+      onSelect: () => { value = a.id; draw(); button.dispatchEvent(new Event("change")); },
+    })), { search: t("Search") }));
+    Object.defineProperty(button, "value", { get: () => value, set: (id) => { value = id; draw(); } });
+    draw();
+    return button;
+  }
+
+  /// An accessory and one of its characteristics, with a value input after them when `withValue`. Groups among
+  /// `accessories` (`isGroup`, from `groupChoices`) are offered too: with `tree`, every choice is in a tree of rooms
+  /// (`accessoryTree`), else the Groups are listed apart, after the accessories.
+  function characteristicPicker(accessories, pick, { id, service, characteristic, value, withValue = true, list = writable, tree = false }) {
     const options = accessories.filter((a) => list(a).length);
-    const accessory = el("select", { "aria-label": t("Accessory") }, options.map((a) => el("option", { value: a.id, text: displayName(a) })));
+    const option = (a) => el("option", { value: a.id, text: displayName(a) });
+    const singles = options.filter((a) => !a.isGroup), groups = options.filter((a) => a.isGroup);
+    const label = groups.length ? t("Accessory or group") : t("Accessory");
+    const accessory = tree ? accessoryTree([...singles, ...groups.map((g) => ({ ...g, members: g.members.filter((m) => singles.some((a) => a.id === m)) }))], id, label)
+      : el("select", { "aria-label": label }, groups.length
+        ? [el("optgroup", { label: t("Accessories") }, singles.map(option)), el("optgroup", { label: t("Groups") }, groups.map(option))]
+        : singles.map(option));
     const kind = el("select", { "aria-label": t("Characteristic") });
     const holder = el("span", { class: "value-slot" });
     let current = null;
@@ -20637,7 +20748,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (withValue) { holder.replaceChildren(pick.value = valueInput(current, keepValue ?? current?.value)); }
     };
     if (id && options.some((a) => a.id === id)) accessory.value = id;
-    else if (id) accessory.prepend(el("option", { value: id, text: t("{name} (gone)", { name: id }), selected: true }));
+    else if (id && !tree) accessory.prepend(el("option", { value: id, text: t("{name} (gone)", { name: id }), selected: true }));
     fill(characteristic, value);
     accessory.addEventListener("change", () => fill());
     kind.addEventListener("change", () => {
@@ -20653,6 +20764,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     pick.current = () => current;
     return [accessory, kind, holder];
+  }
+
+  /// The Groups as a picker offers them beside the accessories: each one with the controls its members share, those
+  /// the bridge marks `group` (`HomeswiftCatalog.groupTargets`); a Group whose members share none is left out.
+  function groupChoices(groups = [], accessories = []) {
+    const byID = new Map(accessories.map((a) => [a.id, a]));
+    const controls = (a) => (a.services || []).flatMap((s) => (s.characteristics || []).filter((c) => c.group));
+    return groups.map((group) => {
+      const members = group.members.map((id) => byID.get(id)).filter(Boolean);
+      const shared = members.length ? controls(members[0]).filter((c) => members.every((m) => controls(m).some((x) => x.type === c.type))) : [];
+      return { id: group.id, name: group.name, isGroup: true, members: group.members, services: [{ type: "Group", name: group.name, characteristics: shared }] };
+    }).filter((group) => group.services[0].characteristics.length);
   }
 
   const rowShell = (...children) => el("div", { class: "editor-row" }, ...children);
@@ -21346,7 +21469,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     },
     layoutActions, moveGroupToRoom, groupByRoom, roomOf, suggestRooms, quickSection, displayName,
     /// For the Automations page (automations.js): its triggers, conditions and the pickers they are made of.
-    scenesTabs, editor: { triggerRow, conditionRow, characteristicPicker, readable, writable, operators, field, describeTrigger, triggerIcons, statusLine, say, lastRun: sceneLastRun },
+    scenesTabs, editor: { triggerRow, conditionRow, characteristicPicker, groupChoices, readable, writable, operators, field, describeTrigger, triggerIcons, statusLine, say, lastRun: sceneLastRun },
   };
 })();
 
@@ -25446,6 +25569,11 @@ HomeswiftI18n.add("es", {
   "Choose the rooms to include when you run this scene.": "Elige las habitaciones que se incluirán al ejecutar esta escena.",
   "Select all": "Seleccionar todo",
   "Deselect all": "Deseleccionar todo",
+  "Accessory or group": "Accesorio o grupo",
+  "Groups": "Grupos",
+  "Go to": "Ir a",
+  "Jump to a block of config.json, the others folded": "Ir a un bloque de config.json, los demás plegados",
+  "{name} · {platform}": "{name} · {platform}",
 });
 
 """#),
@@ -29241,6 +29369,11 @@ HomeswiftI18n.add("fr", {
   "Choose the rooms to include when you run this scene.": "Choisissez les pièces à inclure au lancement de cette scène.",
   "Select all": "Tout sélectionner",
   "Deselect all": "Tout désélectionner",
+  "Accessory or group": "Accessoire ou groupe",
+  "Groups": "Groupes",
+  "Go to": "Aller à",
+  "Jump to a block of config.json, the others folded": "Aller à un bloc de config.json, les autres repliés",
+  "{name} · {platform}": "{name} · {platform}",
 });
 
 """#),
@@ -33036,6 +33169,11 @@ HomeswiftI18n.add("pt", {
   "Choose the rooms to include when you run this scene.": "Escolha as divisões a incluir ao executar esta cena.",
   "Select all": "Selecionar tudo",
   "Deselect all": "Desselecionar tudo",
+  "Accessory or group": "Acessório ou grupo",
+  "Groups": "Grupos",
+  "Go to": "Ir para",
+  "Jump to a block of config.json, the others folded": "Ir para um bloco do config.json, os outros recolhidos",
+  "{name} · {platform}": "{name} · {platform}",
 });
 
 """#),
@@ -37352,14 +37490,14 @@ header nav a svg { display: none; }
   header nav.side-you .side-action:active { transform: scale(0.98); }
   header nav.side-you .side-action svg { display: block; width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   /* The Assistant floats at the window's bottom right, in reach on every page, and its chat opens above it; a save bar
-     stops short of it. */
-  header .chat-open {
+     stops short of it. chat.js keeps the button in #app, out of the header, at every width. */
+  #app > .chat-open {
     /* In the frame's bottom right corner: the frame's margin (half what the window has beyond its 1360 px), then 24. */
     --corner: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24));
     position: fixed; right: var(--corner); bottom: calc(var(--space-24) + var(--space-24)); z-index: var(--layer-tabbar); width: var(--float-button); height: var(--float-button); min-height: var(--float-button);
     background: var(--control); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
   }
-  header .chat-open .sparkle { width: 36px; height: 36px; }
+  #app > .chat-open .sparkle { width: 36px; height: 36px; }
   html .chat { top: auto; bottom: 120px; right: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24)); height: min(740px, calc(100dvh - 160px)); transform-origin: bottom right; }
   #app:has(.chat-open) .settings-bar { margin-right: calc(var(--float-button) + var(--space-20)); }
 }
@@ -39609,8 +39747,10 @@ dd { margin: 0; }
 }
 .chat-composer textarea:focus { box-shadow: none; }
 .chat-mic, .chat-send, .chat-voice-button { flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
-.chat-mic { border-color: transparent; background: none; box-shadow: none; color: var(--muted); }
-@media (hover: hover) and (pointer: fine) { .chat-mic:hover { color: var(--text); background: var(--material-thin); } }
+/* Dictation, beside Send: the accent's tint and its ink, a quieter companion of Send's fill that still reads as a button. */
+.chat-mic { border-color: color-mix(in srgb, var(--accent) 22%, transparent); background: color-mix(in srgb, var(--accent) 14%, transparent); box-shadow: none; color: var(--accent-ink); }
+.chat-mic svg { width: 19px; height: 19px; }
+@media (hover: hover) and (pointer: fine) { .chat-mic:hover { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 24%, transparent); } }
 .chat-mic.unavailable { opacity: 0.45; }
 /* While it listens, the field takes the whole first row and the voice's the second: discard, the waveform across the
    composer, stop (the words stay in the field), then send, as the Claude app does. */
@@ -39733,6 +39873,8 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 }
 /* The character itself stays transparent (the textarea's caret counts it); a centred ⋯ on a short pill stands in. */
 .code-fold { position: relative; color: transparent; }
+/* A folded block's name at the end of its line (common.js jsonEditor's foldHint), quiet, as a comment would be. */
+.code-fold-hint { color: var(--muted); font-style: italic; opacity: 0.8; }
 .code-fold::before { content: ""; position: absolute; inset: 0.22em -2px; border-radius: 4px; background: rgba(255, 143, 61, 0.2); }
 .code-fold::after { content: "⋯"; position: absolute; inset: 0; text-align: center; color: var(--accent-ink); font-weight: var(--weight-bold); }
 
@@ -41169,7 +41311,8 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 /* A phone: the page's bar (`.phone-bar`): the options at its start, the search across the middle, then Filters with its
    count and Edit, and at its end the Assistant (when there is one) in the accent, asked what is typed. The wall's Graph,
    Full screen and Add accessories are in the options' menu; on the graph, the wall's button takes you back. */
-.accessories-ask { display: none; }
+/* A phone's only: outside it, the header has the Assistant. Above `.icon-button`'s display, below the phone bar's. */
+.accessories-bar .icon-button.accessories-ask { display: none; }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .accessories-bar > .accessories-toolbar, .accessories-bar > .accessories-views { display: contents; }
   .accessories-bar .subnav { order: 1; flex: none; width: auto; margin: 0; padding: 0; display: flex; background: none; border: 0; box-shadow: none; overflow: visible; mask-image: none; -webkit-mask-image: none; }
@@ -41280,7 +41423,7 @@ fieldset > .help { margin-bottom: var(--space-10); }
     -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
   }
   #app > .chat-open .sparkle { width: 24px; height: 24px; }
-  #app:has(.phone-bar, .status-footer) > .chat-open { display: none; }
+  #app:has(.phone-bar) > .chat-open { display: none; }
   #app .phone-bar .bar-button[hidden] { display: none; }
   /* The save bar sits over the tab bar, beside the floating Assistant. */
   .settings-bar { bottom: calc(var(--tab-bar-top) + var(--space-10)); }
@@ -41331,9 +41474,11 @@ fieldset > .help { margin-bottom: var(--space-10); }
 
 
 /* The Status page's Edit button: floating at the window's bottom right while the page scrolls; on a phone,
-   at the page's end, clear of the menu button. */
+   at the page's end, clear of the menu button. The Assistant's button is beside it at every width (Status and Energy),
+   the header's then standing aside. */
+#app:has(.status-footer) .chat-open { display: none; }
 .status-footer {
-  position: sticky; bottom: var(--space-16); z-index: 2; display: flex; justify-content: flex-end;
+  position: sticky; bottom: var(--space-16); z-index: 2; display: flex; justify-content: flex-end; gap: var(--space-10);
   margin: var(--space-16) 0 0; padding: 0; border: 0; background: none; pointer-events: none;
 }
 .status-footer > .link {
@@ -41349,16 +41494,14 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .status-footer > .link { justify-content: center; width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); padding: 0; border-radius: 50%; }
 .status-footer > .link span { display: none; }
 .status-footer > .link svg { width: 22px; height: 22px; }
-/* The Assistant beside Edit: a phone's only (wider, the Assistant's own button floats there already). */
-.status-footer > .footer-assistant { display: none; }
+/* The Assistant beside Edit, once there is one. */
+.status-footer > .footer-assistant[hidden] { display: none; }
 .status-footer > .footer-assistant .sparkle { width: 24px; height: 24px; }
 /* On a phone, a round button stacked above the menu button (and above the Assistant's, when it is there), the same
    size, within thumb reach; its words stay its accessible name. */
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .status-footer { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--float-button) + var(--space-10)); margin: 0; }
   .status-footer > .link { color: var(--text); box-shadow: var(--shadow-thick); }
-  .status-footer { gap: var(--space-10); }
-  .status-footer > .footer-assistant:not([hidden]) { display: inline-flex; }
   /* Room at the page's end, so its last card scrolls clear of the button. */
   #app > main:has(> .status-footer)::after { content: ""; display: block; height: calc(var(--float-button) + var(--space-10)); }
 }
@@ -41430,11 +41573,25 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .mobile-nav-panel .side-about .side-about-action { justify-content: flex-start; min-height: 44px; padding: 0 var(--space-8); gap: var(--space-12); color: var(--text); font-size: var(--text-md); font-weight: var(--weight-medium); letter-spacing: normal; }
 .mobile-nav-panel .side-about .side-about-action.accent { color: var(--accent-ink); }
 .mobile-nav-panel .side-about .side-about-action svg { width: 21px; height: 21px; }
+/* Between a phone and a wide window: the Assistant's button floats at the window's bottom right as on a wide one (chat.js
+   moves it out of the header's glass into #app), its chat opening above it; Status's Edit and Assistant float in the
+   same corner. */
+@media (min-width: 641px) and (max-width: 1179px) and (min-height: 501px), (min-width: 641px) and (max-width: 1179px) and (pointer: fine) {
+  #app > .chat-open {
+    position: fixed; z-index: var(--layer-tabbar); right: calc(var(--space-24) + var(--space-24)); bottom: calc(var(--space-24) + var(--space-24));
+    width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button);
+    background: var(--control); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
+  }
+  #app > .chat-open .sparkle { width: 36px; height: 36px; }
+  html .chat { top: auto; bottom: 120px; right: calc(var(--space-24) + var(--space-24)); height: min(740px, calc(100dvh - 160px)); transform-origin: bottom right; }
+  #app:has(> .chat-open:not([hidden])) .settings-bar { margin-right: calc(var(--float-button) + var(--space-20)); }
+  .status-footer { position: fixed; right: calc(var(--space-24) + var(--space-24)); bottom: calc(var(--space-24) + var(--space-24)); margin: 0; }
+  #app > main:has(> .status-footer)::after { content: ""; display: block; grid-column: 1 / -1; height: calc(var(--float-button) + var(--space-16)); }
+}
 @media (min-width: 1180px) {
-  /* Edit floats in the window's bottom right corner as the Assistant's button does, from the same corner, stacked above
-     that button when it is there (as on a phone); the page keeps room for it at its end. */
+  /* Edit and the Assistant float in the window's bottom right corner, where the Assistant's button floats on the other
+     pages; the page keeps room for them at its end. */
   .status-footer { position: fixed; right: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24)); bottom: calc(var(--space-24) + var(--space-24)); margin: 0; }
-  #app:has(.chat-open) .status-footer { bottom: calc(var(--space-24) + var(--space-24) + var(--float-button) + var(--space-10)); }
   #app > main:has(> .status-footer)::after { content: ""; display: block; grid-column: 1 / -1; height: calc(var(--float-button) + var(--space-16)); }
 
   header .side-about { display: block; position: relative; margin-top: var(--space-16); }
@@ -42595,6 +42752,17 @@ html.wall-full {
   html.wall-full { --wall-edge: max(14px, env(safe-area-inset-right)); --wall-base: max(14px, env(safe-area-inset-bottom)); }
 }
 .wall-full-options { right: var(--wall-edge); bottom: var(--wall-stack); }
+/* The Assistant at the foot of the column, the wall's buttons' size, faded with them; the column (Graph options, Leave
+   full screen, the graph's zoom) starts one place higher. Shown in full screen on a phone too, where the page's bar is
+   hidden. */
+html.wall-full:has(#app > .chat-open:not([hidden])) { --wall-stack: calc(var(--wall-base) + var(--float-button) + var(--space-10)); }
+html.wall-full #app > .chat-open:not([hidden]) {
+  display: grid; right: var(--wall-edge); bottom: var(--wall-base);
+  width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button);
+  background: var(--material-thick); box-shadow: var(--shadow-control); transition: opacity 400ms ease, transform 160ms var(--ease-out);
+}
+html.wall-full #app > .chat-open .sparkle { width: 26px; height: 26px; }
+html.wall-full:not(.wall-awake) #app > .chat-open:not([aria-expanded="true"]) { opacity: 0.32; }
 .wall-full-exit { right: var(--wall-edge); bottom: calc(var(--wall-stack) + var(--float-button) + var(--space-10)); }
 .wall-full-button svg, .wall-step svg { width: 22px; height: 22px; }
 .wall-full-button:active, .wall-step:active { transform: scale(0.94); }

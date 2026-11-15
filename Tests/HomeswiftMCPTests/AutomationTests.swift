@@ -38,6 +38,39 @@ struct AutomationTests {
         #expect(catalog.home.automations.value.automations.first?.lastRun?.steps?.count == 3)
     }
 
+    /// A Set a value Step on a Group sets every member at once; a member that fails fails the Step, not the others.
+    @Test func aStepOnAGroupSetsEveryMember() async throws {
+        let config = """
+            {
+              "bridge": { "name": "Test Bridge", "username": "0E:11:22:33:44:55", "pin": "031-45-154", "port": 0 },
+              "platforms": [ { "platform": "Devices", "name": "Devices", "colourBulbs": 3, "failingBulb": true } ]
+            }
+            """
+        let environment = try MCPTestEnvironment(config: config)
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        _ = try catalog.home.wall.save(["groups": [["id": "group:pair", "name": "Pair", "members": ["Devices:bulb1", "Devices:bulb2"]]]])
+        _ = try catalog.saveAutomation(["name": "Pair on", "triggers": [["type": "time", "at": "07:00"]],
+            "steps": [["type": "set", "id": "group:pair", "characteristic": "On", "value": true], ["type": "set", "id": "group:pair", "characteristic": "Brightness", "value": 70]]])
+        let answer = try await catalog.runAutomation("Pair on")
+        #expect(answer["lastRun"]?["ok"] == true, "\(answer)")
+        #expect(Set(environment.written.filter { $0.0.hasSuffix(".on") }.map(\.0)) == ["bulb1.on", "bulb2.on"])
+        #expect(Set(environment.written.filter { $0.0.hasSuffix(".brightness") }.map(\.0)) == ["bulb1.brightness", "bulb2.brightness"])
+        // The list names the Group as it names an accessory.
+        #expect(catalog.automationsJSON()["automations"]?[0]?["steps"]?[0]?["accessory"] == "Pair")
+
+        // Bulb 3 refuses every write: Bulb 1 is still set.
+        _ = try catalog.updateWallLayout { _ in ["groups": [["id": "group:third", "name": "Third", "members": ["Devices:bulb1", "Devices:bulb3"]]]] }
+        _ = try catalog.saveAutomation(["name": "Third off", "triggers": [["type": "time", "at": "07:00"]],
+            "steps": [["type": "set", "id": "group:third", "characteristic": "On", "value": false], ["type": "set", "id": "group:gone", "characteristic": "On", "value": false]]])
+        let failed = try await catalog.runAutomation("Third off")
+        #expect(environment.written.contains { $0.0 == "bulb1.on" && $0.1 == .bool(false) })
+        #expect(failed["lastRun"]?["ok"] == false)
+        #expect(failed["lastRun"]?["steps"]?[0]?["note"]?.stringValue?.contains("Bulb 3") == true, "\(failed)")
+        #expect(failed["lastRun"]?["steps"]?[1]?["note"] == "the group is gone")
+    }
+
     @Test func conditionsHoldATriggersRunBackButNotOneByHand() async throws {
         let environment = try await environment()
         let saved = try environment.catalog.saveAutomation(["name": "Only when on", "triggers": [["type": "time", "at": "07:00"]],

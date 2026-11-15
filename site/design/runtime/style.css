@@ -238,14 +238,14 @@ header nav a svg { display: none; }
   header nav.side-you .side-action:active { transform: scale(0.98); }
   header nav.side-you .side-action svg { display: block; width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   /* The Assistant floats at the window's bottom right, in reach on every page, and its chat opens above it; a save bar
-     stops short of it. */
-  header .chat-open {
+     stops short of it. chat.js keeps the button in #app, out of the header, at every width. */
+  #app > .chat-open {
     /* In the frame's bottom right corner: the frame's margin (half what the window has beyond its 1360 px), then 24. */
     --corner: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24));
     position: fixed; right: var(--corner); bottom: calc(var(--space-24) + var(--space-24)); z-index: var(--layer-tabbar); width: var(--float-button); height: var(--float-button); min-height: var(--float-button);
     background: var(--control); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
   }
-  header .chat-open .sparkle { width: 36px; height: 36px; }
+  #app > .chat-open .sparkle { width: 36px; height: 36px; }
   html .chat { top: auto; bottom: 120px; right: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24)); height: min(740px, calc(100dvh - 160px)); transform-origin: bottom right; }
   #app:has(.chat-open) .settings-bar { margin-right: calc(var(--float-button) + var(--space-20)); }
 }
@@ -2495,8 +2495,10 @@ dd { margin: 0; }
 }
 .chat-composer textarea:focus { box-shadow: none; }
 .chat-mic, .chat-send, .chat-voice-button { flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
-.chat-mic { border-color: transparent; background: none; box-shadow: none; color: var(--muted); }
-@media (hover: hover) and (pointer: fine) { .chat-mic:hover { color: var(--text); background: var(--material-thin); } }
+/* Dictation, beside Send: the accent's tint and its ink, a quieter companion of Send's fill that still reads as a button. */
+.chat-mic { border-color: color-mix(in srgb, var(--accent) 22%, transparent); background: color-mix(in srgb, var(--accent) 14%, transparent); box-shadow: none; color: var(--accent-ink); }
+.chat-mic svg { width: 19px; height: 19px; }
+@media (hover: hover) and (pointer: fine) { .chat-mic:hover { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 24%, transparent); } }
 .chat-mic.unavailable { opacity: 0.45; }
 /* While it listens, the field takes the whole first row and the voice's the second: discard, the waveform across the
    composer, stop (the words stay in the field), then send, as the Claude app does. */
@@ -2619,6 +2621,8 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 }
 /* The character itself stays transparent (the textarea's caret counts it); a centred ⋯ on a short pill stands in. */
 .code-fold { position: relative; color: transparent; }
+/* A folded block's name at the end of its line (common.js jsonEditor's foldHint), quiet, as a comment would be. */
+.code-fold-hint { color: var(--muted); font-style: italic; opacity: 0.8; }
 .code-fold::before { content: ""; position: absolute; inset: 0.22em -2px; border-radius: 4px; background: rgba(255, 143, 61, 0.2); }
 .code-fold::after { content: "⋯"; position: absolute; inset: 0; text-align: center; color: var(--accent-ink); font-weight: var(--weight-bold); }
 
@@ -4055,7 +4059,8 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 /* A phone: the page's bar (`.phone-bar`): the options at its start, the search across the middle, then Filters with its
    count and Edit, and at its end the Assistant (when there is one) in the accent, asked what is typed. The wall's Graph,
    Full screen and Add accessories are in the options' menu; on the graph, the wall's button takes you back. */
-.accessories-ask { display: none; }
+/* A phone's only: outside it, the header has the Assistant. Above `.icon-button`'s display, below the phone bar's. */
+.accessories-bar .icon-button.accessories-ask { display: none; }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .accessories-bar > .accessories-toolbar, .accessories-bar > .accessories-views { display: contents; }
   .accessories-bar .subnav { order: 1; flex: none; width: auto; margin: 0; padding: 0; display: flex; background: none; border: 0; box-shadow: none; overflow: visible; mask-image: none; -webkit-mask-image: none; }
@@ -4166,7 +4171,7 @@ fieldset > .help { margin-bottom: var(--space-10); }
     -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
   }
   #app > .chat-open .sparkle { width: 24px; height: 24px; }
-  #app:has(.phone-bar, .status-footer) > .chat-open { display: none; }
+  #app:has(.phone-bar) > .chat-open { display: none; }
   #app .phone-bar .bar-button[hidden] { display: none; }
   /* The save bar sits over the tab bar, beside the floating Assistant. */
   .settings-bar { bottom: calc(var(--tab-bar-top) + var(--space-10)); }
@@ -4217,9 +4222,11 @@ fieldset > .help { margin-bottom: var(--space-10); }
 
 
 /* The Status page's Edit button: floating at the window's bottom right while the page scrolls; on a phone,
-   at the page's end, clear of the menu button. */
+   at the page's end, clear of the menu button. The Assistant's button is beside it at every width (Status and Energy),
+   the header's then standing aside. */
+#app:has(.status-footer) .chat-open { display: none; }
 .status-footer {
-  position: sticky; bottom: var(--space-16); z-index: 2; display: flex; justify-content: flex-end;
+  position: sticky; bottom: var(--space-16); z-index: 2; display: flex; justify-content: flex-end; gap: var(--space-10);
   margin: var(--space-16) 0 0; padding: 0; border: 0; background: none; pointer-events: none;
 }
 .status-footer > .link {
@@ -4235,16 +4242,14 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .status-footer > .link { justify-content: center; width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); padding: 0; border-radius: 50%; }
 .status-footer > .link span { display: none; }
 .status-footer > .link svg { width: 22px; height: 22px; }
-/* The Assistant beside Edit: a phone's only (wider, the Assistant's own button floats there already). */
-.status-footer > .footer-assistant { display: none; }
+/* The Assistant beside Edit, once there is one. */
+.status-footer > .footer-assistant[hidden] { display: none; }
 .status-footer > .footer-assistant .sparkle { width: 24px; height: 24px; }
 /* On a phone, a round button stacked above the menu button (and above the Assistant's, when it is there), the same
    size, within thumb reach; its words stay its accessible name. */
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .status-footer { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--float-button) + var(--space-10)); margin: 0; }
   .status-footer > .link { color: var(--text); box-shadow: var(--shadow-thick); }
-  .status-footer { gap: var(--space-10); }
-  .status-footer > .footer-assistant:not([hidden]) { display: inline-flex; }
   /* Room at the page's end, so its last card scrolls clear of the button. */
   #app > main:has(> .status-footer)::after { content: ""; display: block; height: calc(var(--float-button) + var(--space-10)); }
 }
@@ -4316,11 +4321,25 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .mobile-nav-panel .side-about .side-about-action { justify-content: flex-start; min-height: 44px; padding: 0 var(--space-8); gap: var(--space-12); color: var(--text); font-size: var(--text-md); font-weight: var(--weight-medium); letter-spacing: normal; }
 .mobile-nav-panel .side-about .side-about-action.accent { color: var(--accent-ink); }
 .mobile-nav-panel .side-about .side-about-action svg { width: 21px; height: 21px; }
+/* Between a phone and a wide window: the Assistant's button floats at the window's bottom right as on a wide one (chat.js
+   moves it out of the header's glass into #app), its chat opening above it; Status's Edit and Assistant float in the
+   same corner. */
+@media (min-width: 641px) and (max-width: 1179px) and (min-height: 501px), (min-width: 641px) and (max-width: 1179px) and (pointer: fine) {
+  #app > .chat-open {
+    position: fixed; z-index: var(--layer-tabbar); right: calc(var(--space-24) + var(--space-24)); bottom: calc(var(--space-24) + var(--space-24));
+    width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button);
+    background: var(--control); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
+  }
+  #app > .chat-open .sparkle { width: 36px; height: 36px; }
+  html .chat { top: auto; bottom: 120px; right: calc(var(--space-24) + var(--space-24)); height: min(740px, calc(100dvh - 160px)); transform-origin: bottom right; }
+  #app:has(> .chat-open:not([hidden])) .settings-bar { margin-right: calc(var(--float-button) + var(--space-20)); }
+  .status-footer { position: fixed; right: calc(var(--space-24) + var(--space-24)); bottom: calc(var(--space-24) + var(--space-24)); margin: 0; }
+  #app > main:has(> .status-footer)::after { content: ""; display: block; grid-column: 1 / -1; height: calc(var(--float-button) + var(--space-16)); }
+}
 @media (min-width: 1180px) {
-  /* Edit floats in the window's bottom right corner as the Assistant's button does, from the same corner, stacked above
-     that button when it is there (as on a phone); the page keeps room for it at its end. */
+  /* Edit and the Assistant float in the window's bottom right corner, where the Assistant's button floats on the other
+     pages; the page keeps room for them at its end. */
   .status-footer { position: fixed; right: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24)); bottom: calc(var(--space-24) + var(--space-24)); margin: 0; }
-  #app:has(.chat-open) .status-footer { bottom: calc(var(--space-24) + var(--space-24) + var(--float-button) + var(--space-10)); }
   #app > main:has(> .status-footer)::after { content: ""; display: block; grid-column: 1 / -1; height: calc(var(--float-button) + var(--space-16)); }
 
   header .side-about { display: block; position: relative; margin-top: var(--space-16); }
@@ -5481,6 +5500,17 @@ html.wall-full {
   html.wall-full { --wall-edge: max(14px, env(safe-area-inset-right)); --wall-base: max(14px, env(safe-area-inset-bottom)); }
 }
 .wall-full-options { right: var(--wall-edge); bottom: var(--wall-stack); }
+/* The Assistant at the foot of the column, the wall's buttons' size, faded with them; the column (Graph options, Leave
+   full screen, the graph's zoom) starts one place higher. Shown in full screen on a phone too, where the page's bar is
+   hidden. */
+html.wall-full:has(#app > .chat-open:not([hidden])) { --wall-stack: calc(var(--wall-base) + var(--float-button) + var(--space-10)); }
+html.wall-full #app > .chat-open:not([hidden]) {
+  display: grid; right: var(--wall-edge); bottom: var(--wall-base);
+  width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button);
+  background: var(--material-thick); box-shadow: var(--shadow-control); transition: opacity 400ms ease, transform 160ms var(--ease-out);
+}
+html.wall-full #app > .chat-open .sparkle { width: 26px; height: 26px; }
+html.wall-full:not(.wall-awake) #app > .chat-open:not([aria-expanded="true"]) { opacity: 0.32; }
 .wall-full-exit { right: var(--wall-edge); bottom: calc(var(--wall-stack) + var(--float-button) + var(--space-10)); }
 .wall-full-button svg, .wall-step svg { width: 22px; height: 22px; }
 .wall-full-button:active, .wall-step:active { transform: scale(0.94); }
