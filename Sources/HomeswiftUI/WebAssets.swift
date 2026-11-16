@@ -19853,9 +19853,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const head = el("div", { class: "log-action-bar logbook-head" }, countRow, histogram.element);
     const icons = new Map(accessories.map((one) => [one.id, HomeswiftWidgets.accessoryIcon(one) ?? "accessory"]));
     const byID = new Map(accessories.map((one) => [one.id, one]));
+    // The time range's caption and Clear filters; on a phone, where captions are hidden, the count beside Clear filters.
+    const timeHead = el("div", { class: "log-time-head" }, el("span", { text: t("Time range") }), clear);
     const panel = el("div", { class: "log-filter-panel logbook-toolbar" },
       el("div", { class: "log-scope-row" },
-        el("div", { class: "log-time" }, el("div", { class: "log-time-head" }, el("span", { text: t("Time range") }), clear), range.control, histogram.chip),
+        el("div", { class: "log-time" }, timeHead, range.control, histogram.chip),
         ...[[t("Room"), room], [t("Accessory"), accessory], [t("Change Source"), source]].map(([label, control]) =>
           el("label", {}, el("span", { text: label }), control))));
     // A phone (as the Logs page and the Audit log): one bar above the tab bar, a search through the entries shown, Filters
@@ -19896,10 +19898,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     followBox.addEventListener("change", () => setFollowing(followBox.checked));
     const bar = el("div", { class: "logbook-bar phone-bar" }, search, filters.button, followUI.button, HomeswiftCommon.assistantButton());
     const card = el("div", { class: "card log-card logbook-card" }, panel, head, list);
-    // On a phone the count heads the Filters sheet, and the histogram the log; wider, Filters is in the count's row (shown
-    // between a phone and 900px, where the filters are a side sheet).
+    // On a phone the count heads the Filters sheet, on Clear filters' line, and the histogram the log; wider, Filters is
+    // in the count's row (shown between a phone and 900px, where the filters are a side sheet).
     const placeCount = () => {
-      if (HomeswiftCommon.phone.matches) { panel.prepend(count); search.after(filters.button); }
+      if (HomeswiftCommon.phone.matches) { timeHead.prepend(count); search.after(filters.button); }
       else { countRow.prepend(count); countRow.insertBefore(filters.button, followToggle); }
     };
     placeCount();
@@ -41568,9 +41570,9 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 .log-level-row .log-level-count { margin-inline-start: var(--space-6); font-size: var(--text-sm); font-variant-numeric: tabular-nums; opacity: .6; }
 .log-level-row .group button.on .log-level-count { opacity: .85; }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
-  /* On a phone the filters are the bar's sheet (the text filter is in the bar): the levels (the count under each name),
-     what the lines are about with Clear filters as an icon beside it (only while there is something to clear), then the
-     time range; the menus named by their aria-label rather than a caption. */
+  /* On a phone the filters are the bar's sheet (the text filter is in the bar): the time range first, as on the Logbook,
+     then the levels (the count under each name) and what the lines are about with Clear filters as an icon beside it
+     (only while there is something to clear); the menus named by their aria-label rather than a caption. */
   .log-filter-panel { padding: var(--space-12); gap: var(--space-10); }
   .log-level-row { gap: var(--space-8); }
   .log-level-row > .group { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex: 1 1 100%; border-radius: calc(var(--radius-md) + 3px); }
@@ -41586,8 +41588,8 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .log-scope-row label { gap: 0; margin: 0; }
   .log-scope-row label > span, .log-scope-row .log-time > span, .log-scope-row .log-time-head > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .log-scope-row select.popup { margin: 0; padding-block: var(--space-8); }
-  .log-filter-panel { grid-template-columns: minmax(0, 1fr); grid-template-areas: "levels" "source" "range"; column-gap: var(--space-8); }
-  .log-filter-panel:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "levels levels" "source clear" "range range"; }
+  .log-filter-panel { grid-template-columns: minmax(0, 1fr); grid-template-areas: "range" "levels" "source"; column-gap: var(--space-8); }
+  .log-filter-panel:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "range range" "levels levels" "source clear"; }
   .log-filter-panel > :is(.log-level-row, .log-scope-row) { display: contents; }
   .log-level-row > .group { grid-area: levels; }
   .log-level-row .clear-filters { grid-area: clear; }
@@ -44849,6 +44851,15 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   /* In the Logs page's sheet the time ranges wrap into two rows of four rather than scrolling out of sight. */
   #app .log-filter-panel .log-time > .group { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; mask-image: none; -webkit-mask-image: none; }
   #app .log-filter-panel .log-time > .group button { min-width: 0; padding-inline: var(--space-4); }
+  /* The Logbook's five: three a row, Everything kept two wide beside Custom…. */
+  #app .logbook-toolbar.log-filter-panel .log-time { align-items: stretch; }
+  #app .logbook-toolbar.log-filter-panel .log-time > .group { grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; box-sizing: border-box; }
+  #app .logbook-toolbar.log-filter-panel .log-time > .group > button:nth-child(4) { grid-column: span 2; }
+  /* Two rows: a card's corners rather than a pill's, which would cut the corner choices; each choice rounded within. */
+  #app .log-filter-panel .log-time > .group { border-radius: calc(var(--radius-md) + 4px); padding: var(--space-4); gap: 2px; }
+  #app .log-filter-panel .log-time > .group > button { border-radius: var(--radius-md); }
+  /* The count on Clear filters' line, the line the time range's caption has (hidden on a phone). */
+  .logbook-card .log-time-head > .logbook-count { flex: 1 1 auto; min-width: 0; padding: 0; border: 0; }
 
   /* The Plugins page: its title alone; the search, Filters (the states, one per line) and a round Add in its bar; each
      plugin's Open a round button, its name kept for assistive technology. */
@@ -44879,8 +44890,7 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   #app .phone-bar .bar-button.primary:not(:disabled) { color: var(--accent-text); background: var(--accent-fill); border-color: transparent; }
   #app .phone-bar .bar-button.primary:disabled { opacity: 0.5; }
   .logbook-day[hidden], .logbook-entry[hidden] { display: none; }
-  .logbook-toolbar > .logbook-count { grid-column: 1 / -1; padding: 0; border: 0; }
-  /* The Logbook's sheet: one column, the count first (Clear filters is on the time range's line). */
+  /* The Logbook's sheet: one column, the count and Clear filters on the time range's line. */
   #app .logbook-toolbar.phone-sheet { grid-template-columns: minmax(0, 1fr); grid-template-areas: none; }
   #app .logbook-toolbar.phone-sheet > *, #app .logbook-toolbar.phone-sheet > .log-scope-row > * { grid-area: auto; grid-column: 1 / -1; }
   main:has(> .audit-bar) .audit-filter-grid, main:has(> .audit-bar) .audit-search { grid-template-columns: minmax(0, 1fr); }

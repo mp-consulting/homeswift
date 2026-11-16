@@ -226,9 +226,11 @@
     const head = el("div", { class: "log-action-bar logbook-head" }, countRow, histogram.element);
     const icons = new Map(accessories.map((one) => [one.id, HomeswiftWidgets.accessoryIcon(one) ?? "accessory"]));
     const byID = new Map(accessories.map((one) => [one.id, one]));
+    // The time range's caption and Clear filters; on a phone, where captions are hidden, the count beside Clear filters.
+    const timeHead = el("div", { class: "log-time-head" }, el("span", { text: t("Time range") }), clear);
     const panel = el("div", { class: "log-filter-panel logbook-toolbar" },
       el("div", { class: "log-scope-row" },
-        el("div", { class: "log-time" }, el("div", { class: "log-time-head" }, el("span", { text: t("Time range") }), clear), range.control, histogram.chip),
+        el("div", { class: "log-time" }, timeHead, range.control, histogram.chip),
         ...[[t("Room"), room], [t("Accessory"), accessory], [t("Change Source"), source]].map(([label, control]) =>
           el("label", {}, el("span", { text: label }), control))));
     // A phone (as the Logs page and the Audit log): one bar above the tab bar, a search through the entries shown, Filters
@@ -269,10 +271,10 @@
     followBox.addEventListener("change", () => setFollowing(followBox.checked));
     const bar = el("div", { class: "logbook-bar phone-bar" }, search, filters.button, followUI.button, HomeswiftCommon.assistantButton());
     const card = el("div", { class: "card log-card logbook-card" }, panel, head, list);
-    // On a phone the count heads the Filters sheet, and the histogram the log; wider, Filters is in the count's row (shown
-    // between a phone and 900px, where the filters are a side sheet).
+    // On a phone the count heads the Filters sheet, on Clear filters' line, and the histogram the log; wider, Filters is
+    // in the count's row (shown between a phone and 900px, where the filters are a side sheet).
     const placeCount = () => {
-      if (HomeswiftCommon.phone.matches) { panel.prepend(count); search.after(filters.button); }
+      if (HomeswiftCommon.phone.matches) { timeHead.prepend(count); search.after(filters.button); }
       else { countRow.prepend(count); countRow.insertBefore(filters.button, followToggle); }
     };
     placeCount();

@@ -889,7 +889,7 @@ is off until turned on, and the choice is kept in `logs/settings.json`.
 The bridge keeps its log on disk under `logs/` next to config.json: segments of 8 MB at most, a new one each day, the
 oldest removed past 64 MB or 7 days, written in batches once a second so logging never waits for the disk.
 
-<img src="images/ui/logs-phone.png" alt="The Logs page on a phone: the log fills the screen, one glass bar of actions above the tab bar" width="300"> <img src="images/ui/logs-phone-filters.png" alt="The Logs page on a phone with Filters open: the levels, what the lines are about and the time range in a sheet above the bar" width="300">
+<img src="images/ui/logs-phone.png" alt="The Logs page on a phone: the log fills the screen, one glass bar of actions above the tab bar" width="300"> <img src="images/ui/logs-phone-filters.png" alt="The Logs page on a phone with Filters open: the time range, the levels and what the lines are about in a sheet above the bar" width="300">
 
 <img src="images/ui/logs-phone-landscape.png" alt="The Logs page on a phone held sideways: the same bar of actions and a compact tab bar" width="600">
 
@@ -897,7 +897,7 @@ On a phone the log is the page: it scrolls as the page does, under the title alo
 bar, where new lines arrive (a short log grows upwards from it), and Follow keeps the page's end in view. Scrolled up, a round arrow over the bar goes back to the latest lines. A phone held sideways keeps this layout, with a compact tab bar, and the
 header scrolls away with the page. Every other line is a shade lighter, so a wrapped line reads as one. Its actions are one glass bar above the tab bar: the **⋯** menu (the count, Copy, Save payloads, Download, Empty
 the log), the text filter, **Filters** (its badge counts the filters that are not the defaults), Follow as a pause
-button (play once paused; on from the start) and the Assistant's Diagnose. **Filters** opens the levels, what the lines are about and the time range in a sheet above the bar.
+button (play once paused; on from the start) and the Assistant's Diagnose. **Filters** opens the time range, the levels and what the lines are about in a sheet above the bar.
 
 ### Settings
 
