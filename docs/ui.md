@@ -417,10 +417,10 @@ config.json, owner-only:
   range), every day named under its hours, with a range slider under it. Drag a handle (its time shows above it), drag
   across the bars, or tap a day's name to pick a span: the list shows only that span, the bars outside it go grey, and
   the span shows under the time range in the filters, where a tap goes back to the whole range (Clear filters too); the
-  pick is in the address too (`pick=<from ms>-<to ms>`). The list reads 300 entries at
-  a time: scrolling near the oldest (the list's foot, on a phone its top) reads the next ones, and **Show all N days**
-  reads every entry of the range or span at once. A day's header counts its entries, or how many of them are read
-  so far. **Follow** (on a phone, Pause and Play in its bar) reads it again every few seconds and keeps the newest in
+  pick is in the address too (`pick=<from ms>-<to ms>`). The list reads 300 entries at a time: scrolling near the
+  oldest (the list's foot, on a phone its top) reads the next ones, and **Show all N days** reads every entry of the
+  range or span at once. It holds 5,000 at most, the latest, so the page stays light; past them, pick a span on the
+  histogram to read further back. A day's header counts its entries, or how many of them are read so far. **Follow** (on a phone, Pause and Play in its bar) reads it again every few seconds and keeps the newest in
   view. It is kept as long as the History's changes. Which user or MCP client made a change is shown to administrators;
   others see "a Homeswift user" or "an MCP client". An accessory answering No Response holds no value: its hourly
   figures stop until it reports again.

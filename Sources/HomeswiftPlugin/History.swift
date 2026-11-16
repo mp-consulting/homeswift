@@ -719,10 +719,19 @@ public final class HistoryStore: @unchecked Sendable {
         return found
     }
 
-    /// How many of the Logbook's entries match in each hour (its start), every one counted: `limit` is not used. The
-    /// web UI's Logbook draws each day of its range from them before it reads the entries.
+    /// How many of the Logbook's entries match in each hour (its start), every one counted: `limit` is not used. The web
+    /// UI's Logbook draws each day of its range from them before it reads the entries. Without a filter only each line's
+    /// time is read, from its bytes; nothing is decoded.
     public func logbookHours(_ query: LogbookQuery) -> [Date: Int] {
         var hours: [Date: Int] = [:]
+        guard query.accessories != nil || query.sourceKind != nil || query.sourceName != nil else {
+            let (from, to) = bounds(query)
+            logbookLines(from: from, to: to) { _, time in
+                if let time { hours[Self.hourStart(time), default: 0] += 1 }
+                return true
+            }
+            return hours
+        }
         matches(query) { entry in
             hours[Self.hourStart(entry.time), default: 0] += 1
             return true
@@ -730,29 +739,59 @@ public final class HistoryStore: @unchecked Sendable {
         return hours
     }
 
-    /// Each entry that matches, newest first (the days from the last, each day's lines from its end), while `body` says
-    /// to go on.
+    /// Each entry that matches, newest first, while `body` says to go on: decoded only once its line's time is in the
+    /// range and, an accessory asked for, the line names it.
     private func matches(_ query: LogbookQuery, _ body: (LogbookEntry) -> Bool) {
-        flush()
-        let to = query.to ?? now()
-        let from = max(query.from ?? .distantPast, now().addingTimeInterval(-Double(retention.days + 1) * 86_400))
-        var day = Self.dayStart(to)
+        let (from, to) = bounds(query)
         let decoder = JSONDecoder()
         let needles = query.accessories.flatMap { ids in ids.count <= 20 ? ids.compactMap { id in (try? JSONEncoder().encode(id)).flatMap { String(data: $0, encoding: .utf8) }.map { "\"a\":\($0)" } } : nil }
+        logbookLines(from: from, to: to) { line, _ in
+            // An accessory asked for: the lines that name it are the only ones decoded.
+            if let needles, !needles.contains(where: { line.contains($0) }) { return true }
+            guard let entry = try? decoder.decode(LogbookEntry.self, from: Data(line.utf8)), entry.time >= from, entry.time <= to else { return true }
+            if let accessories = query.accessories, !accessories.contains(entry.accessory) { return true }
+            if let kind = query.sourceKind, entry.source.kind != kind { return true }
+            if let name = query.sourceName, entry.source.name != name { return true }
+            return body(entry)
+        }
+    }
+
+    /// A query's range: up to now when it has no end, and no further back than the days kept.
+    private func bounds(_ query: LogbookQuery) -> (from: Date, to: Date) {
+        (max(query.from ?? .distantPast, now().addingTimeInterval(-Double(retention.days + 1) * 86_400)), query.to ?? now())
+    }
+
+    /// Each Logbook line from `to` back to `from`, newest first (the days from the last, each day's lines from its end,
+    /// as they are written in order), with its time when its bytes give it, while `body` says to go on. A line whose time
+    /// is outside the range is skipped without decoding: a page of older entries decodes the page, not its whole day.
+    private func logbookLines(from: Date, to: Date, _ body: (Substring, Date?) -> Bool) {
+        flush()
+        var day = Self.dayStart(to)
         while day >= Self.dayStart(from) {
-            var entries: [LogbookEntry] = []
-            for line in lines(of: "logbook/\(Self.day(day)).jsonl") {
-                // An accessory asked for: the lines that name it are the only ones decoded.
-                if let needles, !needles.contains(where: { line.contains($0) }) { continue }
-                guard let entry = try? decoder.decode(LogbookEntry.self, from: Data(line.utf8)), entry.time >= from, entry.time <= to else { continue }
-                if let accessories = query.accessories, !accessories.contains(entry.accessory) { continue }
-                if let kind = query.sourceKind, entry.source.kind != kind { continue }
-                if let name = query.sourceName, entry.source.name != name { continue }
-                entries.append(entry)
+            for line in lines(of: "logbook/\(Self.day(day)).jsonl").reversed() {
+                let time = Self.lineTime(line)
+                if let time, time > to || time < from { continue }
+                if !body(line, time) { return }
             }
-            for entry in entries.reversed() where !body(entry) { return }
             day = day.addingTimeInterval(-86_400)
         }
+    }
+
+    /// A Logbook line's time (`t`, in milliseconds), read from its bytes without decoding it: inside a JSON string every
+    /// quote is escaped, so `"t":` is the key wherever it is. nil when there is none.
+    static func lineTime(_ line: Substring) -> Date? {
+        let bytes = line.utf8
+        let key = Array("\"t\":".utf8)
+        var index = bytes.startIndex
+        while let quote = bytes[index...].firstIndex(of: key[0]) {
+            if bytes[quote...].starts(with: key) {
+                let start = bytes.index(quote, offsetBy: key.count)
+                let end = bytes[start...].firstIndex { $0 == UInt8(ascii: ",") || $0 == UInt8(ascii: "}") } ?? bytes.endIndex
+                return Double(Substring(bytes[start..<end])).map { Date(timeIntervalSince1970: $0 / 1000) }
+            }
+            index = bytes.index(after: quote)
+        }
+        return nil
     }
 
     /// The lines of a file, from disk or memory.

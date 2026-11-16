@@ -6677,6 +6677,11 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 .logbook-card .logbook-more { display: flex; flex-direction: column; align-items: center; gap: var(--space-8); padding: var(--space-12) var(--space-16); }
 .logbook-card .logbook-more[hidden] { display: none; }
 .logbook-card .logbook-more > .error { margin: 0; }
+.logbook-card .logbook-more > .logbook-capped { margin: 0; max-width: 46ch; text-align: center; font-size: var(--text-sm); color: rgb(243 244 247 / 70%); }
+.logbook-card .logbook-more > [hidden] { display: none; }
+/* A day out of view is not laid out or painted until it comes near: thousands of rows stay light. Its size, once
+   drawn, is kept for the scrollbar. */
+.logbook-card .logbook-day { content-visibility: auto; contain-intrinsic-size: auto 2400px; }
 /* The console is dark in both appearances: a button of its own, light on a lighter dark. */
 .logbook-card .logbook-more > .logbook-earlier { color: #f3f4f7; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.16); box-shadow: none; }
 @media (hover: hover) and (pointer: fine) { .logbook-card .logbook-more > .logbook-earlier:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); } }

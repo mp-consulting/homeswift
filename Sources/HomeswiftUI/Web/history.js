@@ -295,9 +295,13 @@
     let shown = [], more = false, extended = false;
     /// A new choice of filters: the reads of an earlier one are dropped.
     let generation = 0;
+    /// The most entries the list holds: past them the page grows heavy and reading them takes long. The histogram then
+    /// narrows the range to read further back.
+    const shownCap = 5000;
     const earlier = el("button", { type: "button", class: "logbook-earlier", actionIcon: "history", text: t("Show earlier"), onclick: () => readAll() });
     const earlierError = el("p", { class: "error", hidden: true });
-    const earlierRow = el("div", { class: "logbook-more" }, earlier, earlierError);
+    const capped = el("p", { class: "muted logbook-capped", hidden: true });
+    const earlierRow = el("div", { class: "logbook-more" }, earlier, capped, earlierError);
     const dayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "long", day: "numeric", month: "long" });
     const dayKey = histogram.dayKey;
 
@@ -360,13 +364,15 @@
       if (at !== generation || (quiet && loading)) return;
       list.classList.remove("loading");
       kept = found.days;
-      // The refresh keeps the older pages read, after the newest.
+      // The refresh keeps the older pages read, after the newest: the new entries are added to the list as it is.
+      const had = shown.length;
       if (quiet && extended) shown = join(found.entries, shown);
       else { shown = found.entries; more = found.more === true; extended = false; }
       // From the first day with entries, but each day of a custom range.
       if (hours) { const span = range.span(); histogram.set({ hours: hours.hours ?? [], from: span?.[0] ?? null, to: span?.[1] ?? null, trim: !range.custom() }); }
       if (quiet && shape() === drawn) return;
       drawn = shape();
+      if (quiet && extended && shown.length >= had) { insert(shown.slice(0, shown.length - had), false); return; }
       draw(quiet ? "quiet" : entriesOnly ? "pick" : "new");
     }
 
@@ -380,12 +386,12 @@
       if (scroller) return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < reach;
       return earlierRow.getBoundingClientRect().top < innerHeight + reach;
     }
-    const maybeEarlier = () => { if (more && !loading && shown.length && !earlierRow.hidden && nearOldest()) readWhile(() => false, 300); };
+    const maybeEarlier = () => { if (more && !loading && shown.length && shown.length < shownCap && !earlierRow.hidden && nearOldest()) readWhile(() => false, 300); };
     const onScroll = () => { maybeEarlier(); spy(); };
     list.addEventListener("scroll", onScroll, { passive: true });
     addEventListener("scroll", onScroll, { passive: true, signal: HomeswiftCommon.viewSignal() });
 
-    /// Every entry of the range, or of the span picked, saying how far it is.
+    /// Every entry of the range, or of the span picked (as many as the list holds), saying how far it is.
     const readAll = () => readWhile(() => true, 1000, true);
 
     /// Reads the entries before the oldest shown, `limit` a page, while `wanted()` and older ones are left, then draws them
@@ -402,14 +408,20 @@
         do {
           const query = filterQuery();
           query.set("until", new Date(Date.parse(shown.at(-1).time) + 999).toISOString());
+          // A whole page, however few are missing to the cap: the page starts with the entries of the oldest one's second
+          // the list has, which it leaves out, so a page of one could bring nothing new.
           query.set("limit", String(limit));
           const found = await api(`/api/logbook?${query}`);
           if (at !== generation) return false;
-          shown = join(shown, found.entries);
-          more = found.more === true;
+          const had = shown.length;
+          const joined = join(shown, found.entries);
+          shown = joined.slice(0, shownCap);
+          more = found.more === true || joined.length > shownCap;
           extended = read = true;
-          if (more && progress) earlier.textContent = t("Reading {n} of {total}…", { n: shown.length, total: Math.max(histogram.count(), shown.length) });
-        } while (more && wanted());
+          // Nothing new (every entry of the page already shown): no further page would bring any.
+          if (shown.length === had) break;
+          if (more && progress) earlier.textContent = t("Reading {n} of {total}…", { n: shown.length, total: Math.min(shownCap, Math.max(histogram.count(), shown.length)) });
+        } while (more && wanted() && shown.length < shownCap);
       } catch (e) {
         if (at === generation) { earlierError.textContent = e.message; earlierError.hidden = false; }
       } finally {
@@ -419,10 +431,11 @@
       }
       if (!read || at !== generation) return read;
       drawn = shape();
-      const anchor = () => list.querySelector(`[data-index="${before - 1}"]`);
-      const top = anchor()?.getBoundingClientRect().top;
-      draw("earlier");
-      if (phone.matches && top !== undefined) document.scrollingElement.scrollBy(0, (anchor()?.getBoundingClientRect().top ?? top) - top);
+      // On a phone the older entries come above: the row that was at the top stays where it was.
+      const anchor = phone.matches ? list.querySelector(".logbook-entry") : null;
+      const top = anchor?.getBoundingClientRect().top;
+      insert(shown.slice(before), true);
+      if (anchor) document.scrollingElement.scrollBy(0, anchor.getBoundingClientRect().top - top);
       return true;
     }
 
@@ -438,62 +451,118 @@
       });
     }
 
-    function draw(mode) {
-      const newestLast = phone.matches;
-      const atEnd = followUI.atEnd();
-      const atTop = list.scrollTop < 40;
-      // Each day's entries in the span picked (all of the range without one).
-      const counts = histogram.countsByDay();
+    /// The count, Show all and the hint past the cap: what they say once entries are drawn or added.
+    function counts() {
+      const byDay = histogram.countsByDay();
       const counted = Math.max(histogram.count(), shown.length);
-      const busy = [...counts.values()].filter(Boolean).length;
+      const busy = [...byDay.values()].filter(Boolean).length;
       // How many entries the range (or the span picked) has, and, until all are read, how many are shown.
       count.textContent = more
         ? tn("{shown} of {n} entry · kept {days} days", "{shown} of {n} entries · kept {days} days", counted, { shown: shown.length, days: kept })
         : tn("{n} entry · kept {days} days", "{n} entries · kept {days} days", counted, { days: kept });
-      // Show all says how much: every day of the range, or of the span.
-      earlier.textContent = busy > 1 ? t("Show all {n} days", { n: busy }) : t("Show earlier");
-      if (!shown.length) { earlierRow.hidden = true; list.replaceChildren(el("p", { class: "muted empty", text: t("Nothing changed in this range.") })); return; }
-      // Hours and minutes read at a glance; the seconds are in the time's tooltip.
-      const timeFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", hour12: false });
-      const exactFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-      const byDay = new Map();
-      const indexed = shown.map((entry, index) => [entry, index]);
-      for (const [entry, index] of newestLast ? indexed.reverse() : indexed) {
-        const date = new Date(entry.time);
-        const key = dayKey(date);
-        if (!byDay.has(key)) byDay.set(key, { date, rows: [] });
-        byDay.get(key).rows.push(row(entry, index, date, timeFormat, exactFormat));
-      }
-      const sections = [...byDay].map(([key, { date, rows }]) => {
-        const all = counts.get(key);
-        // A day read only in part says so: the rest comes as the list scrolls on, or with Show all.
-        const summary = el("summary", {}, el("span", { text: dayFormat.format(date) }),
-          el("span", { class: "logbook-day-total", text: all && all > rows.length
-            ? t("{shown} of {total}", { shown: rows.length, total: all })
-            : tn("{n} entry", "{n} entries", rows.length) }));
-        const section = el("details", { class: "logbook-day", "data-day": key }, summary, el("ul", { class: "logbook-list" }, rows));
-        section.open = true;
-        return section;
-      });
+      // Show all says how much: every day of the range, or of the span, when the list can hold them; else the next ones,
+      // up to as many as it holds, and past them the histogram narrows the range.
+      earlier.textContent = busy > 1 && counted <= shownCap ? t("Show all {n} days", { n: busy }) : t("Show earlier");
+      const full = more && shown.length >= shownCap;
+      earlier.hidden = full;
+      capped.hidden = !full;
+      capped.textContent = full ? t("The latest {n} are shown: pick a span on the histogram to read further back.", { n: shown.length }) : "";
       // Show all goes where the oldest entries are: the foot, or on a phone the top.
       earlierRow.hidden = !more;
+      return byDay;
+    }
+
+    /// The day's header: its date, and its entries' count (or how many of them are read so far).
+    function summaryText(key, rows, byDay) {
+      const all = byDay.get(key);
+      return all && all > rows ? t("{shown} of {total}", { shown: rows, total: all }) : tn("{n} entry", "{n} entries", rows);
+    }
+    function daySection(key, date, rows, byDay) {
+      const section = el("details", { class: "logbook-day", "data-day": key },
+        el("summary", {}, el("span", { text: dayFormat.format(date) }), el("span", { class: "logbook-day-total", text: summaryText(key, rows.length, byDay) })),
+        el("ul", { class: "logbook-list" }, rows));
+      section.open = true;
+      return section;
+    }
+    // Hours and minutes read at a glance; the seconds are in the time's tooltip.
+    const timeFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", hour12: false });
+    const exactFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+
+    /// `entries` (newest first), grouped by day in the list's order: newest first, or on a phone oldest first.
+    function byDay(entries) {
+      const newestLast = phone.matches;
+      const groups = [];
+      for (const entry of newestLast ? [...entries].reverse() : entries) {
+        const date = new Date(entry.time), key = dayKey(date);
+        if (groups.at(-1)?.key !== key) groups.push({ key, date, rows: [] });
+        groups.at(-1).rows.push(row(entry, date));
+      }
+      return groups;
+    }
+
+    function draw(mode) {
+      const newestLast = phone.matches;
+      const atEnd = followUI.atEnd();
+      const atTop = list.scrollTop < 40;
+      const dayCounts = counts();
+      if (!shown.length) { earlierRow.hidden = true; list.replaceChildren(el("p", { class: "muted empty", text: t("Nothing changed in this range.") })); return; }
+      const sections = byDay(shown).map(({ key, date, rows }) => daySection(key, date, rows, dayCounts));
       list.replaceChildren(...(newestLast ? [earlierRow, ...sections] : [...sections, earlierRow]));
       applySearch();
       spy();
-      if (mode === "earlier") return;
       // Following, from the newest (or a first draw), the list stays at the newest: its top, or on a phone its foot,
       // where the arrow back is not needed.
       if (!newestLast) { if (following && (mode !== "quiet" || atTop)) list.scrollTop = 0; return; }
       if (following && (mode === "new" || atEnd)) followUI.toEnd(); else followUI.showLatest();
     }
 
-    function row(entry, index, date, timeFormat, exactFormat) {
+    /// `entries` (newest first) added to the list as it is, rather than drawn again with it: `older` ones at the oldest
+    /// end (the foot, or on a phone the top), newer ones at the newest; their rows into the day they belong to, a day
+    /// not shown yet as its own section there.
+    function insert(entries, older) {
+      if (!entries.length) return;
+      const newestLast = phone.matches;
+      const dayCounts = counts();
+      if (!list.querySelector(".logbook-day")) { draw("quiet"); return; }
+      const groups = byDay(entries);
+      // Each day placed next to what is shown, so the next lands beyond it: in the list's order where new days go at its
+      // end, from the last where they go at its start.
+      for (const { key, date, rows } of older === newestLast ? [...groups].reverse() : groups) {
+        const section = list.querySelector(`.logbook-day[data-day="${key}"]`);
+        if (section) {
+          const ul = section.querySelector(".logbook-list");
+          if (older !== newestLast) ul.append(...rows); else ul.prepend(...rows);
+          section.querySelector(".logbook-day-total").textContent = summaryText(key, ul.children.length, dayCounts);
+        } else if (older !== newestLast) {
+          // The foot: before Show all on a wider window; after the last day on a phone.
+          if (newestLast) list.append(daySection(key, date, rows, dayCounts)); else earlierRow.before(daySection(key, date, rows, dayCounts));
+        } else {
+          const first = list.querySelector(".logbook-day");
+          first.before(daySection(key, date, rows, dayCounts));
+        }
+      }
+      applySearch();
+      spy();
+      if (!older && following) { if (newestLast) { if (followUI.atEnd()) followUI.toEnd(); } else if (list.scrollTop < 40) list.scrollTop = 0; }
+    }
+
+    /// What each accessory's characteristic is (its unit, range and values), for the rows' values: found once.
+    const kinds = new Map();
+    function kindOf(entry) {
+      const key = `${entry.accessory}\u0000${entry.characteristic}`;
+      if (!kinds.has(key)) {
+        const live = byID.get(entry.accessory);
+        kinds.set(key, live?.services?.flatMap((service) => service.characteristics ?? []).find((one) => one.type === entry.characteristic) ?? null);
+      }
+      return kinds.get(key);
+    }
+
+    function row(entry, date) {
       const series = { characteristic: entry.characteristic, kind: typeof entry.value === "number" ? "number" : "state" };
-      const live = byID.get(entry.accessory);
-      const characteristic = live?.services?.flatMap((service) => service.characteristics ?? []).find((one) => one.type === entry.characteristic);
+      const characteristic = kindOf(entry);
       if (characteristic) Object.assign(series, { unit: characteristic.unit, minValue: characteristic.minValue, maxValue: characteristic.maxValue, validValues: characteristic.validValues });
       const what = t("{characteristic}: {value}", { characteristic: HomeswiftWidgets.characteristicName(entry.characteristic), value: valueText(series, entry.value) });
-      return el("li", { class: "logbook-entry", "data-index": index },
+      return el("li", { class: "logbook-entry" },
         el("time", { datetime: entry.time, title: exactFormat.format(date), text: timeFormat.format(date) }),
         el("span", { class: "tile", "aria-hidden": "true" }, HomeswiftCommon.icon(icons.get(entry.accessory) ?? "accessory")),
         el("div", { class: "who" }, el("strong", { text: entry.name }), el("span", { class: "muted", text: [what, entry.room].filter(Boolean).join(" · ") })),
