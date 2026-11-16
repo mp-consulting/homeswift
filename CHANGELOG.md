@@ -6,8 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The Logbook scrolls back through its whole range**: the page showed the latest 300 entries of its range and no
+  more, which cameras' motion can fill in a few hours, so 7 days or Everything kept still ended that morning. Scrolling
+  near the oldest entries (the list's foot, on a phone its top) reads the next ones, back to the range's start; Show
+  earlier there does it by hand, and the count says when there are more. The API and
+  `get_logbook` take `until` and answer `more`.
+
 ### Fixed
 
+- **The Status page's Energy log keeps its Show less in Safari 17**: on a wide window, a half-width card was given the
+  height of its row, which Safari 17 measured short, and the end of the expanded log (its Show less) was cut off.
 - **The chat's dictation no longer sends half a sentence**: the browser's dictation ends at the first breath, and the
   chat sent it there ("And I don't want" without the rest). It listens on through pauses and sends after two seconds of
   silence, or on send; stop still keeps the words unsent.

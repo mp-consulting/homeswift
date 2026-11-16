@@ -88,7 +88,8 @@ extension HomeswiftCatalog {
     }
 
     /// The Logbook's entries as JSON, newest first, with each accessory's room as it is now. `room` keeps the accessories
-    /// in that room, `accessory` one of them.
+    /// in that room, `accessory` one of them. `more` says whether older entries match too: the next page reads up to the
+    /// last entry's time (`until`, which includes it).
     /// `people` false (a user who is not an administrator, a token without the admin scope) leaves out which user or MCP
     /// client made a change, and filters on such names.
     public func logbookJSON(since: Date? = nil, until: Date? = nil, room: String? = nil, accessory: String? = nil, sourceKind: String? = nil,
@@ -107,10 +108,14 @@ extension HomeswiftCatalog {
         // Without `people`, a name filters only a kind that is not a person or an MCP client (an Automation, a Scene):
         // a name alone, or with those kinds, would say which changes a user made though the answer leaves their name out.
         let nameFilter = people || sourceKind.map({ !ChangeSource.kindsNamingSomeone.contains($0) }) == true ? sourceName : nil
-        let query = LogbookQuery(from: since, to: until, accessories: ids, sourceKind: sourceKind, sourceName: nameFilter, limit: min(max(limit, 1), 1000))
-        let entries = history.logbook(query)
+        // One more than asked: whether entries are left before the last one returned (`more`), for paging back with `until`.
+        let limit = min(max(limit, 1), 1000)
+        let query = LogbookQuery(from: since, to: until, accessories: ids, sourceKind: sourceKind, sourceName: nameFilter, limit: limit + 1)
+        let found = history.logbook(query)
+        let entries = found.prefix(limit)
         return [
             "days": .number(Double(history.retention.days)),
+            "more": .bool(found.count > limit),
             "entries": .array(entries.map { entry in
                 var object: [String: JSONValue] = [
                     "time": .string(Timestamp.iso8601(entry.time)), "accessory": .string(entry.accessory),
@@ -137,7 +142,7 @@ extension HomeswiftCatalog {
                     + "(which user or client only with the admin scope). "
                     + "Numeric readings (temperature, power) are not in it: get_accessory_history has them. Kept for the bridge's History retention (14 days by default). "
                     + "Filter by room, accessory (an id from list_accessories), source (homeApp, user, mcp, automation, scene, remote, device) and sourceName, and since/until "
-                    + "(ISO time or 30m, 1h, 2d). For questions like \"who opened the garage\" or \"what turned the heating on\".",
+                    + "(ISO time or 30m, 1h, 2d). more true: older entries match too; ask again with until set to the last entry's time (it is included). For questions like \"who opened the garage\" or \"what turned the heating on\".",
                 inputSchema: ["type": "object", "properties": [
                     "room": ["type": "string", "maxLength": 100], "accessory": ["type": "string", "maxLength": 200],
                     "source": ["type": "string", "enum": ["homeApp", "user", "mcp", "automation", "scene", "remote", "device"]],

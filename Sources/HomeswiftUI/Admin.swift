@@ -61,9 +61,15 @@ extension UIServer {
                 guard let date = HomeswiftCatalog.parseTimeBound(text) else { return .error(400, "since: an ISO time or a duration such as 30m, 1h, 2d") }
                 since = date
             }
+            // The page's Show earlier: the entries up to the oldest one it has (included: it drops the ones it has).
+            var until: Date?
+            if let text = request.query["until"] {
+                guard let date = HomeswiftCatalog.parseTimeBound(text) else { return .error(400, "until: an ISO time or a duration such as 30m, 1h, 2d") }
+                until = date
+            }
             let limit = min(max(request.query["limit"].flatMap(Int.init) ?? 300, 1), 1000)
             do {
-                return .json(try catalog.logbookJSON(since: since, room: request.query["room"], accessory: request.query["accessory"],
+                return .json(try catalog.logbookJSON(since: since, until: until, room: request.query["room"], accessory: request.query["accessory"],
                                                      sourceKind: request.query["source"], sourceName: request.query["sourceName"], limit: limit, people: caller.isAdmin))
             } catch let error as CatalogError {
                 return .error(error.notFound ? 404 : 503, error.description)
