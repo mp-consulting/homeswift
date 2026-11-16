@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-11-16
+
 ### Added
 
 - **The Logbook scrolls back through its whole range**: the page showed the latest 300 entries of its range and no
