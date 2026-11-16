@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.37.2] - 2026-11-16
+
 ### Fixed
 
 - The Logs page no longer crashes a phone's browser on a long range: it draws the newest 2,000 lines (500 on a phone) and
