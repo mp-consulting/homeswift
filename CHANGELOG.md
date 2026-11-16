@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.37.1] - 2026-11-16
+
 ### Fixed
 
 - The Logbook reads a long range quickly and stays light: it holds the latest 5,000 entries at most (the histogram picks
