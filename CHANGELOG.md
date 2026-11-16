@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The Logs page no longer crashes a phone's browser on a long range: it draws the newest 2,000 lines (500 on a phone) and
+  the next ones as you scroll up, rather than every line of the range at once (7 days on a phone: 6,366 lines and a
+  page 340,000 px tall before, 500 lines and 28,000 px now). On a phone its histogram stays under the header.
+- The Filters badge in a phone's bar has a ring of the bar's colour, so it stays apart from the lit Filters button.
+
 ## [0.37.1] - 2026-11-16
 
 ### Fixed

@@ -8370,15 +8370,49 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     logState.updateCounts = updateLevelCounts;
     logState.reload = load;
-    const render = () => {
+    // The page draws the newest lines only, a window of them (fewer on a phone): thousands drawn at once made a page tens
+    // of thousands of pixels tall, which a phone's browser could not keep. Scrolling up to the oldest drawn, or Show
+    // earlier there, draws the next ones before them, the line read staying where it was.
+    const windowSize = () => phone.matches ? 500 : 2000;
+    logState.window = windowSize();
+    const earlierLines = el("button", { type: "button", class: "log-earlier", actionIcon: "history", onclick: () => drawEarlier() });
+    /// `keep`: the window stays (the next lines drawn before the others), and so does the place read.
+    const render = (keep = false) => {
       updateLevelCounts();
       const shown = shownLines();
-      output.replaceChildren(...(shown.length ? shown.map(lineNode) : [el("p", { class: "muted empty-log", text: t("No line matches.") })]));
+      if (!keep) logState.window = windowSize();
+      const from = Math.max(0, shown.length - logState.window);
+      earlierLines.textContent = tn("Show {n} earlier line", "Show {n} earlier lines", Math.min(from, windowSize()));
+      output.replaceChildren(...(shown.length ? [from ? earlierLines : null, ...shown.slice(from).map(lineNode)].filter(Boolean)
+        : [el("p", { class: "muted empty-log", text: t("No line matches.") })]));
       count.textContent = logState.capped ? tn("{shown} of {n} line (the latest of the range)", "{shown} of {n} lines (the latest of the range)", logState.lines.length, { shown: shown.length })
         : tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: shown.length });
       showFilterCount();
-      if (follow.checked) toEnd();
+      if (follow.checked && !keep) toEnd();
     };
+    logState.shownCount = () => shownLines().length;
+    /// The next lines before the oldest drawn, the one read staying in place.
+    function drawEarlier() {
+      if (!earlierLines.isConnected) return;
+      const scroller = phone.matches ? document.scrollingElement : output;
+      const drawn = output.querySelectorAll(":scope > .log-line").length;
+      const top = output.querySelector(":scope > .log-line")?.getBoundingClientRect().top ?? 0;
+      logState.window = drawn + windowSize();
+      render(true);
+      const lines = output.querySelectorAll(":scope > .log-line");
+      const same = lines[lines.length - drawn];
+      if (same) scroller.scrollBy(0, same.getBoundingClientRect().top - top);
+    }
+    let nearing = 0;
+    const nearTop = () => {
+      cancelAnimationFrame(nearing);
+      nearing = requestAnimationFrame(() => {
+        const scrollTop = phone.matches ? document.scrollingElement.scrollTop : output.scrollTop;
+        if (earlierLines.isConnected && scrollTop < 400) drawEarlier();
+      });
+    };
+    output.addEventListener("scroll", nearTop, { passive: true });
+    addEventListener("scroll", nearTop, { passive: true, signal: HomeswiftCommon.viewSignal() });
     // Typing filters once it pauses: thousands of lines are not drawn again per key.
     let typing = null;
     filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { render(); keepAddress(); }, 120); });
@@ -8697,9 +8731,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const atBottom = logState.atEnd();
     $(".empty-log", output)?.remove();
     output.append(lineNode(line));
-    while (output.childElementCount > logState.cap) output.firstElementChild.remove();   // the page stays the size of what it keeps
+    // The page stays the size of its window: the oldest drawn go once newer ones come (Show earlier draws them again).
+    const drawn = output.querySelectorAll(":scope > .log-line");
+    for (let extra = drawn.length - Math.min(logState.window ?? logState.cap, logState.cap), index = 0; index < extra; index++) drawn[index].remove();
     if (logState.follow.checked && atBottom) logState.toEnd();
-    logState.count.textContent = tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: output.childElementCount });
+    logState.count.textContent = tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: logState.shownCount?.() ?? drawn.length });
     logState.showLatest?.();
   }
 
@@ -24282,6 +24318,8 @@ HomeswiftI18n.add("es", {
   "{shown} of {n} entries · kept {days} days": "{shown} de {n} entradas · guardadas {days} días",
   "Show all {n} days": "Mostrar los {n} días",
   "Whole range": "Todo el periodo",
+  "Show {n} earlier line": "Mostrar {n} línea anterior",
+  "Show {n} earlier lines": "Mostrar las {n} líneas anteriores",
   "The latest {n} are shown: pick a span on the histogram to read further back.": "Se muestran las {n} más recientes: elija un periodo en el histograma para ver más atrás.",
   "{n} line": "{n} línea",
   "{n} lines": "{n} líneas",
@@ -28092,6 +28130,8 @@ HomeswiftI18n.add("fr", {
   "{shown} of {n} entries · kept {days} days": "{shown} sur {n} entrées · gardées {days} jours",
   "Show all {n} days": "Afficher les {n} jours",
   "Whole range": "Toute la période",
+  "Show {n} earlier line": "Afficher {n} ligne précédente",
+  "Show {n} earlier lines": "Afficher les {n} lignes précédentes",
   "The latest {n} are shown: pick a span on the histogram to read further back.": "Les {n} plus récentes sont affichées : choisissez une période sur l'histogramme pour remonter plus loin.",
   "{n} line": "{n} ligne",
   "{n} lines": "{n} lignes",
@@ -31902,6 +31942,8 @@ HomeswiftI18n.add("pt", {
   "{shown} of {n} entries · kept {days} days": "{shown} de {n} entradas · guardadas {days} dias",
   "Show all {n} days": "Mostrar os {n} dias",
   "Whole range": "Todo o período",
+  "Show {n} earlier line": "Mostrar {n} linha anterior",
+  "Show {n} earlier lines": "Mostrar as {n} linhas anteriores",
   "The latest {n} are shown: pick a span on the histogram to read further back.": "São mostradas as {n} mais recentes: escolha um período no histograma para recuar mais.",
   "{n} line": "{n} linha",
   "{n} lines": "{n} linhas",
@@ -41621,7 +41663,8 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
     padding: 0; border-radius: 50%; }
   .log-card .log-filters-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .log-card .log-filters-toggle .toolbar-count { position: absolute; top: -3px; right: -3px; display: grid; place-items: center; min-width: 17px; height: 17px;
-    padding: 0 var(--space-4); border-radius: var(--radius-pill); font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
+    padding: 0 var(--space-4); border-radius: var(--radius-pill); font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text);
+    box-shadow: 0 0 0 2px var(--material-solid); }
   .log-card .log-filters-toggle .toolbar-count.hidden { display: none; }
 }
 @keyframes filters-sheet-in { from { opacity: 0; transform: translateX(-24px); } }
@@ -44580,8 +44623,13 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .log-card:has(> .log-histogram) > .log { grid-row: 3; }
 }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
-  .log-card > .log-histogram { padding: var(--space-6) var(--space-12) var(--space-4); }
+  /* A phone: the histogram stays under the header while the log scrolls by, as the Logbook's does. */
+  .log-card > .log-histogram { position: sticky; top: 76px; z-index: 2; padding: var(--space-6) var(--space-12) var(--space-4); }
 }
+/* The log draws its newest lines: the next ones before them come with this, or by scrolling up to it. */
+.log-card .log > .log-earlier { display: flex; margin: var(--space-6) auto var(--space-12); color: #f3f4f7; background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.16); box-shadow: none; }
+@media (hover: hover) and (pointer: fine) { .log-card .log > .log-earlier:hover { background: rgba(255, 255, 255, 0.16); } }
 /* The Logbook: the count, the hour under the pointer, Whole range and Follow, then the histogram. */
 .logbook-card > .logbook-head { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-4); padding: var(--space-8) var(--space-16) var(--space-4); }
 .logbook-count-row { display: flex; align-items: center; gap: var(--space-8); min-height: 28px; }
@@ -44882,7 +44930,9 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   #app .phone-bar .bar-button:is(.on, [aria-pressed="true"], .accent) { color: var(--accent-text); background: var(--accent-fill); border-color: transparent; }
   #app .phone-bar .bar-button svg { width: 21px; height: 21px; margin: 0; }
   #app .phone-bar .toolbar-count { position: absolute; top: -3px; right: -3px; display: grid; place-items: center; min-width: 17px; height: 17px; padding: 0 var(--space-4);
-    border-radius: var(--radius-pill); font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
+    border-radius: var(--radius-pill); font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text);
+    /* A ring of the bar's own colour: on a button lit with the same accent the badge stays apart from it. */
+    box-shadow: 0 0 0 2px var(--material-solid); }
   #app .phone-bar :is(button, a) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
   /* What Filters opens: a sheet over the bar, closed until then; within the bar itself (the Plugins page's states), just above it. */
   #app .phone-sheet:not(.open) { display: none; }

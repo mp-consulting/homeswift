@@ -5925,15 +5925,49 @@
     };
     logState.updateCounts = updateLevelCounts;
     logState.reload = load;
-    const render = () => {
+    // The page draws the newest lines only, a window of them (fewer on a phone): thousands drawn at once made a page tens
+    // of thousands of pixels tall, which a phone's browser could not keep. Scrolling up to the oldest drawn, or Show
+    // earlier there, draws the next ones before them, the line read staying where it was.
+    const windowSize = () => phone.matches ? 500 : 2000;
+    logState.window = windowSize();
+    const earlierLines = el("button", { type: "button", class: "log-earlier", actionIcon: "history", onclick: () => drawEarlier() });
+    /// `keep`: the window stays (the next lines drawn before the others), and so does the place read.
+    const render = (keep = false) => {
       updateLevelCounts();
       const shown = shownLines();
-      output.replaceChildren(...(shown.length ? shown.map(lineNode) : [el("p", { class: "muted empty-log", text: t("No line matches.") })]));
+      if (!keep) logState.window = windowSize();
+      const from = Math.max(0, shown.length - logState.window);
+      earlierLines.textContent = tn("Show {n} earlier line", "Show {n} earlier lines", Math.min(from, windowSize()));
+      output.replaceChildren(...(shown.length ? [from ? earlierLines : null, ...shown.slice(from).map(lineNode)].filter(Boolean)
+        : [el("p", { class: "muted empty-log", text: t("No line matches.") })]));
       count.textContent = logState.capped ? tn("{shown} of {n} line (the latest of the range)", "{shown} of {n} lines (the latest of the range)", logState.lines.length, { shown: shown.length })
         : tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: shown.length });
       showFilterCount();
-      if (follow.checked) toEnd();
+      if (follow.checked && !keep) toEnd();
     };
+    logState.shownCount = () => shownLines().length;
+    /// The next lines before the oldest drawn, the one read staying in place.
+    function drawEarlier() {
+      if (!earlierLines.isConnected) return;
+      const scroller = phone.matches ? document.scrollingElement : output;
+      const drawn = output.querySelectorAll(":scope > .log-line").length;
+      const top = output.querySelector(":scope > .log-line")?.getBoundingClientRect().top ?? 0;
+      logState.window = drawn + windowSize();
+      render(true);
+      const lines = output.querySelectorAll(":scope > .log-line");
+      const same = lines[lines.length - drawn];
+      if (same) scroller.scrollBy(0, same.getBoundingClientRect().top - top);
+    }
+    let nearing = 0;
+    const nearTop = () => {
+      cancelAnimationFrame(nearing);
+      nearing = requestAnimationFrame(() => {
+        const scrollTop = phone.matches ? document.scrollingElement.scrollTop : output.scrollTop;
+        if (earlierLines.isConnected && scrollTop < 400) drawEarlier();
+      });
+    };
+    output.addEventListener("scroll", nearTop, { passive: true });
+    addEventListener("scroll", nearTop, { passive: true, signal: HomeswiftCommon.viewSignal() });
     // Typing filters once it pauses: thousands of lines are not drawn again per key.
     let typing = null;
     filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { render(); keepAddress(); }, 120); });
@@ -6252,9 +6286,11 @@
     const atBottom = logState.atEnd();
     $(".empty-log", output)?.remove();
     output.append(lineNode(line));
-    while (output.childElementCount > logState.cap) output.firstElementChild.remove();   // the page stays the size of what it keeps
+    // The page stays the size of its window: the oldest drawn go once newer ones come (Show earlier draws them again).
+    const drawn = output.querySelectorAll(":scope > .log-line");
+    for (let extra = drawn.length - Math.min(logState.window ?? logState.cap, logState.cap), index = 0; index < extra; index++) drawn[index].remove();
     if (logState.follow.checked && atBottom) logState.toEnd();
-    logState.count.textContent = tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: output.childElementCount });
+    logState.count.textContent = tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: logState.shownCount?.() ?? drawn.length });
     logState.showLatest?.();
   }
 

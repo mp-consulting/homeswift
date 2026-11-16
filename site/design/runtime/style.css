@@ -3679,7 +3679,8 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
     padding: 0; border-radius: 50%; }
   .log-card .log-filters-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .log-card .log-filters-toggle .toolbar-count { position: absolute; top: -3px; right: -3px; display: grid; place-items: center; min-width: 17px; height: 17px;
-    padding: 0 var(--space-4); border-radius: var(--radius-pill); font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
+    padding: 0 var(--space-4); border-radius: var(--radius-pill); font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text);
+    box-shadow: 0 0 0 2px var(--material-solid); }
   .log-card .log-filters-toggle .toolbar-count.hidden { display: none; }
 }
 @keyframes filters-sheet-in { from { opacity: 0; transform: translateX(-24px); } }
@@ -6638,8 +6639,13 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .log-card:has(> .log-histogram) > .log { grid-row: 3; }
 }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
-  .log-card > .log-histogram { padding: var(--space-6) var(--space-12) var(--space-4); }
+  /* A phone: the histogram stays under the header while the log scrolls by, as the Logbook's does. */
+  .log-card > .log-histogram { position: sticky; top: 76px; z-index: 2; padding: var(--space-6) var(--space-12) var(--space-4); }
 }
+/* The log draws its newest lines: the next ones before them come with this, or by scrolling up to it. */
+.log-card .log > .log-earlier { display: flex; margin: var(--space-6) auto var(--space-12); color: #f3f4f7; background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.16); box-shadow: none; }
+@media (hover: hover) and (pointer: fine) { .log-card .log > .log-earlier:hover { background: rgba(255, 255, 255, 0.16); } }
 /* The Logbook: the count, the hour under the pointer, Whole range and Follow, then the histogram. */
 .logbook-card > .logbook-head { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-4); padding: var(--space-8) var(--space-16) var(--space-4); }
 .logbook-count-row { display: flex; align-items: center; gap: var(--space-8); min-height: 28px; }
@@ -6940,7 +6946,9 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   #app .phone-bar .bar-button:is(.on, [aria-pressed="true"], .accent) { color: var(--accent-text); background: var(--accent-fill); border-color: transparent; }
   #app .phone-bar .bar-button svg { width: 21px; height: 21px; margin: 0; }
   #app .phone-bar .toolbar-count { position: absolute; top: -3px; right: -3px; display: grid; place-items: center; min-width: 17px; height: 17px; padding: 0 var(--space-4);
-    border-radius: var(--radius-pill); font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
+    border-radius: var(--radius-pill); font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text);
+    /* A ring of the bar's own colour: on a button lit with the same accent the badge stays apart from it. */
+    box-shadow: 0 0 0 2px var(--material-solid); }
   #app .phone-bar :is(button, a) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
   /* What Filters opens: a sheet over the bar, closed until then; within the bar itself (the Plugins page's states), just above it. */
   #app .phone-sheet:not(.open) { display: none; }
