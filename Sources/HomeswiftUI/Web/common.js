@@ -1824,13 +1824,14 @@
     return button;
   }
 
-  /// A time range, the one control every page uses for it (the Status page's Activity and Energy, the Logs page): a
+  /// A time range, the one control every page uses for it (the Status page's Activity and Energy, the Logs page, the Logbook): a
   /// segmented control of `presets` (`[value, label]`: `latest`, `1h`, `6h`, `24h`, `today`, `yesterday`, `7d`), then
   /// Custom…, which opens a pop-over anchored to it, in the app's own material: a month to pick the first and the last
   /// day, and the From and To times (no browser calendar). Days more than `earliestDays` back, older than what is kept,
-  /// are not offered. `span()` is `[from, to]`, `to` null when it ends now, or null for `latest`; `address(query)` keeps
-  /// a choice other than `fallback` under `names` (`since`, `from`, `to`); `chosen()` says one is; `reset()` goes back to
-  /// `fallback` without `changed`. The control sends `change` when its choice changes, for Clear filters.
+  /// are not offered (`earliestDays` may be a function, asked as the pop-over opens). Presets may also be `Nh`, `Nd`
+  /// (that many hours or days back) and `all` (`[null, null]`). `span()` is `[from, to]`, `to` null when it ends now, or
+  /// null for `latest`; `address(query)` keeps a choice other than `fallback` under `names` (`since`, `from`, `to`);
+  /// `chosen()` says one is; `reset()` goes back to `fallback` without `changed`. The control sends `change` when its choice changes, for Clear filters.
   function rangeControl(params, { presets, fallback, names = { since: "since", from: "from", to: "to" }, earliestDays = 8, changed }) {
     // The address keeps the wall clock where the pages show times (YYYY-MM-DDTHH:mm, `isoMinute`).
     const parse = (text) => parseDay(text);
@@ -1898,7 +1899,7 @@
       const wall = HomeswiftI18n.wallClock;
       const midnight = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
       const today = midnight(wall(new Date()));
-      const earliest = new Date(today.getFullYear(), today.getMonth(), today.getDate() - earliestDays);
+      const earliest = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (typeof earliestDays === "function" ? earliestDays() : earliestDays));
       const pad = (n) => String(n).padStart(2, "0");
       const clock = (date) => `${pad(date.getHours())}:${pad(date.getMinutes())}`;
       let start = midnight(wall(custom.from)), end = midnight(wall(custom.to ?? new Date())), picking = false;
@@ -1989,8 +1990,13 @@
         const now = new Date(), day = HomeswiftI18n.zoned(now), midnight = HomeswiftI18n.startOfDay(now);
         if (value === "latest") return null;
         if (value === "custom") return [custom.from, custom.to && custom.to < now ? custom.to : null];
-        return { "1h": [new Date(now - 3600000), null], "6h": [new Date(now - 6 * 3600000), null], "24h": [new Date(now - 86400000), null],
-          today: [midnight, null], yesterday: [HomeswiftI18n.zonedDate(day.year, day.month, day.day - 1), midnight], "7d": [new Date(now - 7 * 86400000), null] }[value];
+        // Everything kept (the Logbook's `all`): no bound.
+        if (value === "all") return [null, null];
+        if (value === "today") return [midnight, null];
+        if (value === "yesterday") return [HomeswiftI18n.zonedDate(day.year, day.month, day.day - 1), midnight];
+        // Hours or days back from now: 1h, 6h, 24h, 3d, 7d.
+        const [, amount, unit] = /^(\d+)([hd])$/.exec(value) ?? [];
+        return amount ? [new Date(now - Number(amount) * (unit === "h" ? 3600000 : 86400000)), null] : undefined;
       },
       address(query) {
         if (value === fallback) return;
@@ -2000,7 +2006,288 @@
         if (custom.to) query.set(names.to, isoMinute(custom.to));
       },
       chosen: () => value !== fallback,
+      /// Whether the range is Custom…'s (its first day is the user's, not the first with data).
+      custom: () => value === "custom",
       reset() { close(); choose(fallback, true); },
+    };
+  }
+
+  /// A time range at a glance, the Logbook's and the Logs page's: how many in each hour (a few hours a bar over a long
+  /// range, no more than about 240 bars), day after day on one scale, each day named under its hours, and a range
+  /// slider under them. A handle dragged (its time above it), a drag across the bars, a tap on a bar or a day's name
+  /// picks a span: the bars outside it go grey and `changed(span)` gets it (`{ from, to }`, the end left out; null for
+  /// the whole range); a day picked again, or `chip` (the span, for the filters, a tap back to the whole range), goes
+  /// back. `unit(n)` says a count ("12 entries"). Bars may carry an `alert` count (the Logs page's errors), drawn in the
+  /// error colour at their foot. The span is the address's `pick=<from ms>-<to ms>`: read from `params`, written by
+  /// `address(query)`; `element` sends `change` whenever it changes (Clear filters listens).
+  ///
+  /// `set({ hours, from, to, trim })` draws it: `hours` as `[start in seconds, count, alert?]` (any order, empty hours
+  /// left out), from the day of `from` (with `trim`, or without `from`, the first day with any) to the day of `to` (now
+  /// when null); the same again draws nothing. `pick(span)` sets the span without `changed`. `readout` is a line to
+  /// place nearby: the hour under the pointer, the span dragged.
+  function timeHistogram(params, { unit, changed }) {
+    const readout = el("span", { class: "histogram-readout", "aria-hidden": "true" });
+    const bars = el("div", { class: "histogram-bars" });
+    const plot = el("div", { class: "histogram-plot", role: "img" }, bars);
+    const handleTime = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+    const shortTime = HomeswiftI18n.dateTimeFormat({ day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+    const dayLabel = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric" });
+    const dayName = HomeswiftI18n.dateTimeFormat({ weekday: "long", day: "numeric", month: "long" });
+    const fromLabel = el("span", { class: "histogram-label" }), toLabel = el("span", { class: "histogram-label" });
+    const handle = (label, name) => el("div", { class: "histogram-handle", role: "slider", tabindex: 0, "aria-label": name, "aria-valuemin": 0 }, label);
+    const fromHandle = handle(fromLabel, t("From")), toHandle = handle(toLabel, t("To"));
+    const fill = el("div", { class: "histogram-fill" });
+    const rail = el("div", { class: "histogram-rail" }, el("div", { class: "histogram-track" }, fill), fromHandle, toHandle);
+    const axis = el("div", { class: "histogram-axis", "aria-hidden": "true" });
+    const element = el("div", { class: "histogram", hidden: true }, plot, rail, axis);
+    const chip = el("button", { type: "button", class: "histogram-whole", actionIcon: "close", title: t("Whole range"), hidden: true,
+      onclick: () => { pick(null); changed(null); } });
+    /// A day in the zone the pages show times in, as a key.
+    const dayKey = (date) => { const at = HomeswiftI18n.zoned(date); return `${at.year}-${at.month + 1}-${at.day}`; };
+    /// The days, oldest first (`key`, `date`, `count`); the bars (`start`, `end`, `count`, `alert`, `day`); the span
+    /// picked (from the address); the handles' bars while it is made; what was last drawn.
+    let days = [], buckets = [], total = 0, first = 0, last = 0, drawn = "";
+    let selection = (() => {
+      const [from, to] = (params.get("pick") ?? "").split("-").map(Number);
+      return from && to > from ? { from: new Date(from), to: new Date(to) } : null;
+    })();
+    const sum = (from, to) => buckets.slice(from, to + 1).reduce((all, bucket) => all + bucket.count, 0);
+    /// A span's times, Now for an end in the hour under way (or later today).
+    const spanText = (from, to, format = handleTime) => buckets[to].end > Date.now()
+      ? `${format.format(buckets[from].start)} – ${t("Now")}` : format.formatRange(buckets[from].start, buckets[to].end);
+    const say = (from, to) => { readout.textContent = `${spanText(from, to)} · ${unit(sum(from, to))}`; };
+
+    function set({ hours = [], from = null, to = null, trim = true }) {
+      // The same counts over the same days, in the same hour, draw nothing new (a range back from now moves by the
+      // millisecond, not by the day).
+      const key = JSON.stringify([hours, from && dayKey(from), to && dayKey(to), trim, Math.floor(Date.now() / 3600000)]);
+      if (key === drawn) return;
+      drawn = key;
+      const counted = new Map();
+      let earliest = Infinity;
+      for (const [start, n, alert = 0] of hours) {
+        const date = new Date(start * 1000);
+        if (n) earliest = Math.min(earliest, date.getTime());
+        const key = dayKey(date);
+        if (!counted.has(key)) counted.set(key, { hours: Array(24).fill(0), alerts: Array(24).fill(0) });
+        const hour = HomeswiftI18n.zoned(date).hours;
+        counted.get(key).hours[hour] += n;
+        counted.get(key).alerts[hour] += alert;
+      }
+      const now = new Date();
+      const end = HomeswiftI18n.zoned(to ?? now);
+      // A range reaching before the first entry has nothing there: it starts at the first day with any, unless the
+      // user chose its first day.
+      const firstWith = Number.isFinite(earliest) ? earliest : null;
+      const start = HomeswiftI18n.startOfDay(new Date((trim || !from) && firstWith !== null ? Math.max(firstWith, from?.getTime() ?? 0) : from ?? firstWith ?? now));
+      days = [];
+      for (let back = 0; back < 400; back++) {
+        const date = HomeswiftI18n.zonedDate(end.year, end.month, end.day - back);
+        if (date < start) break;
+        const key = dayKey(date);
+        const found = counted.get(key) ?? { hours: Array(24).fill(0), alerts: Array(24).fill(0) };
+        days.unshift({ key, date, ...found, count: found.hours.reduce((a, b) => a + b, 0) });
+      }
+      total = days.reduce((all, day) => all + day.count, 0);
+      const size = [1, 2, 3, 4, 6, 8, 12, 24].find((hours) => days.length * 24 / hours <= 240) ?? 24;
+      const add = (list, from, to) => list.slice(from, to).reduce((a, b) => a + b, 0);
+      buckets = days.flatMap((day) => {
+        const at = HomeswiftI18n.zoned(day.date);
+        return Array.from({ length: 24 / size }, (_, index) => ({ day, count: add(day.hours, index * size, (index + 1) * size), alert: add(day.alerts, index * size, (index + 1) * size),
+          start: HomeswiftI18n.zonedDate(at.year, at.month, at.day, index * size), end: HomeswiftI18n.zonedDate(at.year, at.month, at.day, (index + 1) * size) }));
+      });
+      element.hidden = !days.length;
+      const peak = Math.max(1, ...buckets.map((bucket) => bucket.count));
+      bars.classList.toggle("dense", buckets.length > 120);
+      bars.style.setProperty("--bars", String(buckets.length));
+      bars.replaceChildren(...buckets.map((bucket) => {
+        const bar = el("i", { class: bucket.start > now ? "later" : "" });
+        if (bucket.count) bar.style.setProperty("--level", String(Math.max(0.06, bucket.count / peak)));
+        if (bucket.alert) bar.style.setProperty("--alert", String(Math.min(1, Math.max(0.08, bucket.alert / bucket.count))));
+        return bar;
+      }));
+      plot.setAttribute("aria-label", unit(total));
+      // Each day's name under its hours: a tap picks it, again the whole range.
+      axis.classList.toggle("dense", days.length > 8);
+      axis.replaceChildren(...days.map((day) => el("span", { class: `histogram-day${day.count ? "" : " empty"}`, "data-day": day.key,
+        title: `${dayName.format(day.date)} · ${unit(day.count)}` },
+        el("span", { class: "long", text: dayLabel.format(day.date) }), el("span", { class: "short", text: String(HomeswiftI18n.zoned(day.date).day) }))));
+      for (const one of [fromHandle, toHandle]) one.setAttribute("aria-valuemax", String(buckets.length));
+      fromSelection();
+      paint();
+    }
+
+    /// The handles where the picked span is (both ends when none is).
+    function fromSelection() {
+      first = 0; last = Math.max(0, buckets.length - 1);
+      if (!selection || !buckets.length) return;
+      const from = buckets.findIndex((bucket) => bucket.end > selection.from);
+      const to = buckets.findLastIndex((bucket) => bucket.start < selection.to);
+      if (from < 0 || to < from) return;
+      first = from; last = to;
+    }
+
+    /// The bars in the span coloured, the others grey; the handles, the fill between them, their times above them (one
+    /// label for both when they would meet), kept inside the chart; the chip.
+    function paint() {
+      chip.hidden = !selection || !buckets.length;
+      if (!buckets.length) return;
+      const n = buckets.length;
+      [...bars.children].forEach((bar, index) => bar.classList.toggle("out", index < first || index > last));
+      element.classList.toggle("picked", first > 0 || last < n - 1);
+      const left = first / n * 100, right = (last + 1) / n * 100;
+      fromHandle.style.left = fill.style.left = `${left}%`;
+      toHandle.style.left = `${right}%`;
+      fill.style.right = `${100 - right}%`;
+      fromHandle.setAttribute("aria-valuenow", String(first));
+      toHandle.setAttribute("aria-valuenow", String(last + 1));
+      const end = buckets[last].end > Date.now() ? t("Now") : handleTime.format(buckets[last].end);
+      fromHandle.setAttribute("aria-valuetext", fromLabel.textContent = handleTime.format(buckets[first].start));
+      toHandle.setAttribute("aria-valuetext", toLabel.textContent = end);
+      if (selection) {
+        const text = spanText(first, last, shortTime);
+        chip.replaceChildren(el("span", { text }));
+        chip.setAttribute("aria-label", `${t("Whole range")}: ${text}`);
+      }
+      toLabel.hidden = false;
+      const width = rail.clientWidth;
+      if (!width) return;
+      const place = (label, x, at = x) => {
+        const half = label.offsetWidth / 2;
+        label.style.translate = `calc(-50% + ${Math.min(Math.max(at, half), width - half) - x}px) 0`;
+      };
+      const fromX = left / 100 * width, toX = right / 100 * width;
+      if (toX - fromX < (fromLabel.offsetWidth + toLabel.offsetWidth) / 2 + 8) {
+        toLabel.hidden = true;
+        fromLabel.textContent = spanText(first, last);
+        place(fromLabel, fromX, (fromX + toX) / 2);
+      } else {
+        place(fromLabel, fromX);
+        place(toLabel, toX);
+      }
+    }
+    new ResizeObserver(() => paint()).observe(rail);
+
+    /// What the handles span, given to the page: all the bars is no pick.
+    function commit() {
+      const whole = first === 0 && last === buckets.length - 1;
+      const next = whole ? null : { from: buckets[first].start, to: buckets[last].end };
+      if ((next?.from.getTime() ?? 0) === (selection?.from.getTime() ?? 0) && (next?.to.getTime() ?? 0) === (selection?.to.getTime() ?? 0)) return;
+      selection = next;
+      paint();
+      element.dispatchEvent(new Event("change"));
+      changed(selection);
+    }
+    function pick(span) {
+      selection = span;
+      fromSelection();
+      paint();
+      element.dispatchEvent(new Event("change"));
+    }
+    function pickDay(day) {
+      const from = buckets.findIndex((bucket) => bucket.day === day), to = buckets.findLastIndex((bucket) => bucket.day === day);
+      if (selection && first === from && last === to) { pick(null); changed(null); return; }
+      first = from; last = to;
+      commit();
+    }
+
+    /// Where along the bars a pointer is: a boundary between bars (0 to their count), or the bar under it.
+    const fraction = (event) => { const box = rail.getBoundingClientRect(); return Math.min(Math.max((event.clientX - box.left) / box.width, 0), 1); };
+    const boundary = (event) => Math.round(fraction(event) * buckets.length);
+    const barAt = (event) => Math.min(buckets.length - 1, Math.floor(fraction(event) * buckets.length));
+    /// A drag on `target`: `move` as the pointer moves (the handles and the readout follow), `end` once let go (false
+    /// when cancelled).
+    function track(target, event, move, end) {
+      target.setPointerCapture(event.pointerId);
+      const moved = (over) => { if (move(over) !== false) { element.classList.add("active"); paint(); say(first, last); } };
+      const up = (ended) => {
+        target.removeEventListener("pointermove", moved);
+        element.classList.remove("active");
+        readout.textContent = "";
+        end(ended.type !== "pointercancel");
+      };
+      target.addEventListener("pointermove", moved);
+      target.addEventListener("pointerup", up, { once: true });
+      target.addEventListener("pointercancel", up, { once: true });
+      return moved;
+    }
+    /// A handle dragged (or the rail pressed: the nearer handle comes there).
+    function dragHandle(which, event) {
+      event.preventDefault();
+      const target = which === "from" ? fromHandle : toHandle;
+      target.focus({ preventScroll: true });
+      target.classList.add("dragging");
+      track(target, event, (over) => {
+        const at = boundary(over);
+        if (which === "from") first = Math.min(at, last); else last = Math.max(at - 1, first);
+      }, () => { target.classList.remove("dragging"); commit(); })(event);
+    }
+    fromHandle.addEventListener("pointerdown", (event) => dragHandle("from", event));
+    toHandle.addEventListener("pointerdown", (event) => dragHandle("to", event));
+    rail.addEventListener("pointerdown", (event) => {
+      if (event.target.closest(".histogram-handle") || !buckets.length) return;
+      const at = boundary(event);
+      dragHandle(Math.abs(at - first) <= Math.abs(at - (last + 1)) ? "from" : "to", event);
+    });
+    // Across the bars: a drag picks from where it started to where it ends; a tap, that bar's day.
+    plot.addEventListener("pointerdown", (event) => {
+      if (!buckets.length || event.button !== 0) return;
+      const start = barAt(event), x = event.clientX;
+      let dragged = false;
+      track(plot, event, (over) => {
+        dragged ||= Math.abs(over.clientX - x) > 4;
+        if (!dragged) return false;
+        const at = barAt(over);
+        first = Math.min(start, at); last = Math.max(start, at);
+      }, (done) => {
+        if (!done) { fromSelection(); paint(); } else if (dragged) commit(); else pickDay(buckets[start].day);
+      });
+    });
+    // A day's name, as a tap on its bars: that day (the keyboard moves the handles a day with Page Up and Page Down).
+    axis.addEventListener("click", (event) => {
+      const day = days.find((one) => one.key === event.target.closest(".histogram-day:not(.empty)")?.dataset.day);
+      if (day) pickDay(day);
+    });
+    // A mouse over the bars: that hour (or few) and how many, its bar lit.
+    let hovered = null;
+    const hover = (bar) => { hovered?.classList.remove("hover"); hovered = bar; bar?.classList.add("hover"); };
+    plot.addEventListener("pointermove", (event) => {
+      if (event.buttons || !buckets.length || event.pointerType !== "mouse") return;
+      const at = barAt(event);
+      hover(bars.children[at]);
+      say(at, at);
+    });
+    plot.addEventListener("pointerleave", () => { hover(null); readout.textContent = ""; });
+    // The keyboard: a bar with the arrows, a day with Page Up and Page Down, the ends with Home and End; the page
+    // follows once the keys rest.
+    let settle = 0;
+    for (const [which, target] of [["from", fromHandle], ["to", toHandle]]) target.addEventListener("keydown", (event) => {
+      const perDay = buckets.length / Math.max(1, days.length);
+      const step = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -perDay, PageUp: perDay, Home: -Infinity, End: Infinity }[event.key];
+      if (step === undefined || !buckets.length) return;
+      event.preventDefault();
+      if (which === "from") first = Math.min(Math.max(0, first + step), last);
+      else last = Math.max(Math.min(buckets.length - 1, last + step), first);
+      paint();
+      clearTimeout(settle);
+      settle = setTimeout(commit, 400);
+    });
+
+    return {
+      element, readout, chip, set, pick, dayKey,
+      get selection() { return selection; },
+      /// The span picked, in the address.
+      address(query) { if (selection) query.set("pick", `${selection.from.getTime()}-${selection.to.getTime()}`); },
+      /// How many in the span picked (the whole range without one).
+      count: () => selection ? sum(first, last) : total,
+      /// Each day's count in the span picked, by its key.
+      countsByDay() {
+        const counts = new Map();
+        for (const bucket of selection ? buckets.slice(first, last + 1) : buckets) counts.set(bucket.day.key, (counts.get(bucket.day.key) ?? 0) + bucket.count);
+        return counts;
+      },
+      /// The day named under the bars as the one in view.
+      mark(key) { for (const label of axis.children) label.classList.toggle("on", label.dataset.day === key); },
     };
   }
 
@@ -2353,7 +2640,7 @@
     foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
     openSheet, confirmAction, waveform, base64, openMicrophone, talkWorklet, listenTo, levelOf, microphoneRefusal,
     phone, viewSignal, nextView, filtersToggle, followControls, assistantButton, menuOpen: () => Boolean(openMenu),
-    $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, timeHistogram, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
 })();

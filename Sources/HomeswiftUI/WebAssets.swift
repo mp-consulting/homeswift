@@ -8354,6 +8354,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         logState.level = level;
         for (const button of levels.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
         render();
+        drawHistogram();
         keepAddress();
       } })));
     const updateLevelCounts = () => {
@@ -8390,11 +8391,51 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // A time range (HomeswiftCommon.rangeControl): the latest lines from memory, or a span from the log the bridge keeps on disk
     // (rotated, a week at most). A span that ends now keeps following; one in the past stays as it is.
     const range = HomeswiftCommon.rangeControl(params, { presets: [["latest", t("Latest lines")], ["1h", t("1 hour")], ["6h", t("6 hours")], ["24h", t("24 hours")],
-      ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]], fallback: "latest", earliestDays: 7, changed: () => load() });
+      ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]], fallback: "latest", earliestDays: 7, changed: () => { histogram.pick(null); load(); } });
+    // The range at a glance (HomeswiftCommon.timeHistogram): each hour's lines at the levels shown, errors at their foot.
+    // A span picked on it is what is read from the log on disk and shown; Whole range goes back.
+    let counted = { levels: [], hours: [], from: null, to: null };
+    const histogram = HomeswiftCommon.timeHistogram(params, { unit: (n) => tn("{n} line", "{n} lines", n), changed: () => load(true) });
+    // The hour under the pointer, over the bars.
+    histogram.element.append(histogram.readout);
+    const histogramHead = el("div", { class: "log-histogram" }, histogram.element);
+    /// The histogram at the levels shown, from the counts last read: from the first day with lines, but each day of a
+    /// custom range.
+    function drawHistogram() {
+      const shown = counted.levels.map((level) => levelShown(level, logState.level));
+      const alert = counted.levels.map((level) => level === "error" || level === "critical");
+      const add = (counts, keep) => counts.reduce((all, n, index) => all + (keep(index) ? n : 0), 0);
+      histogram.set({ hours: counted.hours.map(([start, ...counts]) => [start, add(counts, (i) => shown[i]), add(counts, (i) => shown[i] && alert[i])]),
+        from: counted.from, to: counted.to, trim: !range.custom() });
+    }
+    /// The counts of the range (for the latest lines, from the first of them), under the source chosen. `since`: only
+    /// the hours from then, merged into those read before (the live log's refresh: the files kept do not change).
+    async function readHours(signal, since = null) {
+      const chosen = range.span();
+      const from = since ?? chosen?.[0] ?? logState.lines[0]?.date;
+      if (!from) { counted = { levels: [], hours: [], from: null, to: null }; drawHistogram(); return; }
+      const query = new URLSearchParams({ from: from.toISOString() });
+      if (chosen?.[1]) query.set("to", chosen[1].toISOString());
+      const { kind, value } = source();
+      if (kind) query.set(kind, value);
+      try {
+        const found = await api(`/api/logs/hours?${query}`, { signal });
+        if (signal?.aborted) return;
+        const hours = since ? [...counted.hours.filter(([start]) => start * 1000 < since.getTime()), ...(found.hours ?? [])] : found.hours ?? [];
+        counted = { levels: found.levels ?? [], hours, from: since ? counted.from : from, to: chosen?.[1] ?? null };
+        drawHistogram();
+      } catch {}
+    }
+    // While the latest lines come in, the hour under way is read again now and then.
+    const hourly = setInterval(() => {
+      if (!histogramHead.isConnected) { clearInterval(hourly); return; }
+      if (logState.live && !document.hidden && counted.levels.length) readHours(null, new Date(Math.floor(Date.now() / 3600000) * 3600000));
+    }, 60000);
     /// The address of what is shown, in place: no new history entry per choice.
     function keepAddress() {
       const query = new URLSearchParams();
       range.address(query);
+      histogram.address(query);
       if (logState.level !== "info") query.set("level", logState.level);
       if (filter.value) query.set("q", filter.value);
       const { kind, value } = source();
@@ -8407,10 +8448,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
     }
     const nextLoad = latestLoad();
-    async function load() {
+    /// `picked`: a new span on the histogram, whose counts stay.
+    async function load(picked = false) {
       const signal = nextLoad();
       keepAddress();
-      const chosen = range.span();
+      // The span picked on the histogram, else the range; a span reaching now goes on following.
+      const span = histogram.selection;
+      const chosen = span ? [span.from, span.to > new Date() ? null : span.to] : range.span();
+      // A range's counts are read with its lines; the latest lines' once they are in (from the first of them).
+      const counting = !picked && range.span() ? readHours(signal) : null;
       const query = new URLSearchParams();
       if (chosen) query.set("from", chosen[0].toISOString());
       if (chosen?.[1]) query.set("to", chosen[1].toISOString());
@@ -8440,6 +8486,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       logState.cap = chosen ? rangeLines : latestLines;
       logState.capped = Boolean(chosen) && logState.lines.length >= rangeLines;
       render();
+      if (!picked && !counting) readHours(signal);
     }
     // Whether lines go to disk with their JSON payloads, secrets masked: for reading them, or letting the Assistant
     // read them, after the latest lines moved on. Off, only the lines in memory have them. Shown when the bridge
@@ -8511,10 +8558,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       ];
     });
     const clear = HomeswiftCommon.clearFilters([[filter, ""], [sources.picker, ""]], {
-      active: () => logState.level !== "info" || range.chosen(), events: [[levels, "click"], [range.control, "change"]],
+      active: () => logState.level !== "info" || range.chosen() || Boolean(histogram.selection), events: [[levels, "click"], [range.control, "change"], [histogram.element, "change"]],
       reset: () => {
         clearTimeout(typing);
         range.reset();
+        histogram.pick(null);
         logState.level = "info";
         for (const [index, button] of [...levels.children].entries()) {
           const selected = levelChoices[index][0] === "info";
@@ -8526,7 +8574,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const panel = el("div", { class: "log-filter-panel" }, levelRow,
       // A div, not a label: a label would press the control's first choice when its text is clicked.
       el("div", { class: "log-scope-row" },
-        el("div", { class: "log-time" }, el("span", { text: t("Time range") }), range.control),
+        el("div", { class: "log-time" }, el("span", { text: t("Time range") }), range.control, histogram.chip),
         el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker)));
     // On a phone the filters wait behind Filters, a sheet over the bar, its badge counting those that are not the
     // defaults; Follow is a pause button beside it (play once paused), on from the start, and a round arrow over the
@@ -8534,7 +8582,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     filters = HomeswiftCommon.filtersToggle(panel);
     filters.button.classList.add("log-filters-toggle");
     function showFilterCount() {
-      filters?.count((logState.level !== "info") + Boolean(range.chosen()) + Boolean(sources.picker.value));
+      filters?.count((logState.level !== "info") + Boolean(range.chosen()) + Boolean(histogram.selection) + Boolean(sources.picker.value));
     }
     followUI = HomeswiftCommon.followControls({ following: () => follow.checked,
       setFollowing: (on) => { follow.checked = on; follow.dispatchEvent(new Event("change")); } });
@@ -8546,8 +8594,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const bar = el("div", { class: "editor-bar log-action-bar phone-bar" }, count, el("span", { class: "spacer" }), filters.button, followUI.button, doctor.button, copy,
       el("label", { class: "toggle compact log-follow" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
       saveToggle, actions);
-    const card = el("div", { class: "card log-card" }, panel, bar, followUI.latest, output);
-    for (const [control, kind] of [[levels, "click"], [range.control, "change"], [sources.picker, "change"], [clear, "click"]]) control.addEventListener(kind, () => setTimeout(showFilterCount));
+    const card = el("div", { class: "card log-card" }, panel, bar, histogramHead, followUI.latest, output);
+    for (const [control, kind] of [[levels, "click"], [range.control, "change"], [histogram.element, "change"], [sources.picker, "change"], [clear, "click"]]) control.addEventListener(kind, () => setTimeout(showFilterCount));
     // The text filter stays in reach: in the phone's bar, beside the levels elsewhere.
     const placeFilter = () => {
       if (phone.matches) bar.prepend(filter);
@@ -13731,13 +13779,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return button;
   }
 
-  /// A time range, the one control every page uses for it (the Status page's Activity and Energy, the Logs page): a
+  /// A time range, the one control every page uses for it (the Status page's Activity and Energy, the Logs page, the Logbook): a
   /// segmented control of `presets` (`[value, label]`: `latest`, `1h`, `6h`, `24h`, `today`, `yesterday`, `7d`), then
   /// Custom…, which opens a pop-over anchored to it, in the app's own material: a month to pick the first and the last
   /// day, and the From and To times (no browser calendar). Days more than `earliestDays` back, older than what is kept,
-  /// are not offered. `span()` is `[from, to]`, `to` null when it ends now, or null for `latest`; `address(query)` keeps
-  /// a choice other than `fallback` under `names` (`since`, `from`, `to`); `chosen()` says one is; `reset()` goes back to
-  /// `fallback` without `changed`. The control sends `change` when its choice changes, for Clear filters.
+  /// are not offered (`earliestDays` may be a function, asked as the pop-over opens). Presets may also be `Nh`, `Nd`
+  /// (that many hours or days back) and `all` (`[null, null]`). `span()` is `[from, to]`, `to` null when it ends now, or
+  /// null for `latest`; `address(query)` keeps a choice other than `fallback` under `names` (`since`, `from`, `to`);
+  /// `chosen()` says one is; `reset()` goes back to `fallback` without `changed`. The control sends `change` when its choice changes, for Clear filters.
   function rangeControl(params, { presets, fallback, names = { since: "since", from: "from", to: "to" }, earliestDays = 8, changed }) {
     // The address keeps the wall clock where the pages show times (YYYY-MM-DDTHH:mm, `isoMinute`).
     const parse = (text) => parseDay(text);
@@ -13805,7 +13854,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const wall = HomeswiftI18n.wallClock;
       const midnight = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
       const today = midnight(wall(new Date()));
-      const earliest = new Date(today.getFullYear(), today.getMonth(), today.getDate() - earliestDays);
+      const earliest = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (typeof earliestDays === "function" ? earliestDays() : earliestDays));
       const pad = (n) => String(n).padStart(2, "0");
       const clock = (date) => `${pad(date.getHours())}:${pad(date.getMinutes())}`;
       let start = midnight(wall(custom.from)), end = midnight(wall(custom.to ?? new Date())), picking = false;
@@ -13896,8 +13945,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const now = new Date(), day = HomeswiftI18n.zoned(now), midnight = HomeswiftI18n.startOfDay(now);
         if (value === "latest") return null;
         if (value === "custom") return [custom.from, custom.to && custom.to < now ? custom.to : null];
-        return { "1h": [new Date(now - 3600000), null], "6h": [new Date(now - 6 * 3600000), null], "24h": [new Date(now - 86400000), null],
-          today: [midnight, null], yesterday: [HomeswiftI18n.zonedDate(day.year, day.month, day.day - 1), midnight], "7d": [new Date(now - 7 * 86400000), null] }[value];
+        // Everything kept (the Logbook's `all`): no bound.
+        if (value === "all") return [null, null];
+        if (value === "today") return [midnight, null];
+        if (value === "yesterday") return [HomeswiftI18n.zonedDate(day.year, day.month, day.day - 1), midnight];
+        // Hours or days back from now: 1h, 6h, 24h, 3d, 7d.
+        const [, amount, unit] = /^(\d+)([hd])$/.exec(value) ?? [];
+        return amount ? [new Date(now - Number(amount) * (unit === "h" ? 3600000 : 86400000)), null] : undefined;
       },
       address(query) {
         if (value === fallback) return;
@@ -13907,7 +13961,288 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         if (custom.to) query.set(names.to, isoMinute(custom.to));
       },
       chosen: () => value !== fallback,
+      /// Whether the range is Custom…'s (its first day is the user's, not the first with data).
+      custom: () => value === "custom",
       reset() { close(); choose(fallback, true); },
+    };
+  }
+
+  /// A time range at a glance, the Logbook's and the Logs page's: how many in each hour (a few hours a bar over a long
+  /// range, no more than about 240 bars), day after day on one scale, each day named under its hours, and a range
+  /// slider under them. A handle dragged (its time above it), a drag across the bars, a tap on a bar or a day's name
+  /// picks a span: the bars outside it go grey and `changed(span)` gets it (`{ from, to }`, the end left out; null for
+  /// the whole range); a day picked again, or `chip` (the span, for the filters, a tap back to the whole range), goes
+  /// back. `unit(n)` says a count ("12 entries"). Bars may carry an `alert` count (the Logs page's errors), drawn in the
+  /// error colour at their foot. The span is the address's `pick=<from ms>-<to ms>`: read from `params`, written by
+  /// `address(query)`; `element` sends `change` whenever it changes (Clear filters listens).
+  ///
+  /// `set({ hours, from, to, trim })` draws it: `hours` as `[start in seconds, count, alert?]` (any order, empty hours
+  /// left out), from the day of `from` (with `trim`, or without `from`, the first day with any) to the day of `to` (now
+  /// when null); the same again draws nothing. `pick(span)` sets the span without `changed`. `readout` is a line to
+  /// place nearby: the hour under the pointer, the span dragged.
+  function timeHistogram(params, { unit, changed }) {
+    const readout = el("span", { class: "histogram-readout", "aria-hidden": "true" });
+    const bars = el("div", { class: "histogram-bars" });
+    const plot = el("div", { class: "histogram-plot", role: "img" }, bars);
+    const handleTime = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+    const shortTime = HomeswiftI18n.dateTimeFormat({ day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+    const dayLabel = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric" });
+    const dayName = HomeswiftI18n.dateTimeFormat({ weekday: "long", day: "numeric", month: "long" });
+    const fromLabel = el("span", { class: "histogram-label" }), toLabel = el("span", { class: "histogram-label" });
+    const handle = (label, name) => el("div", { class: "histogram-handle", role: "slider", tabindex: 0, "aria-label": name, "aria-valuemin": 0 }, label);
+    const fromHandle = handle(fromLabel, t("From")), toHandle = handle(toLabel, t("To"));
+    const fill = el("div", { class: "histogram-fill" });
+    const rail = el("div", { class: "histogram-rail" }, el("div", { class: "histogram-track" }, fill), fromHandle, toHandle);
+    const axis = el("div", { class: "histogram-axis", "aria-hidden": "true" });
+    const element = el("div", { class: "histogram", hidden: true }, plot, rail, axis);
+    const chip = el("button", { type: "button", class: "histogram-whole", actionIcon: "close", title: t("Whole range"), hidden: true,
+      onclick: () => { pick(null); changed(null); } });
+    /// A day in the zone the pages show times in, as a key.
+    const dayKey = (date) => { const at = HomeswiftI18n.zoned(date); return `${at.year}-${at.month + 1}-${at.day}`; };
+    /// The days, oldest first (`key`, `date`, `count`); the bars (`start`, `end`, `count`, `alert`, `day`); the span
+    /// picked (from the address); the handles' bars while it is made; what was last drawn.
+    let days = [], buckets = [], total = 0, first = 0, last = 0, drawn = "";
+    let selection = (() => {
+      const [from, to] = (params.get("pick") ?? "").split("-").map(Number);
+      return from && to > from ? { from: new Date(from), to: new Date(to) } : null;
+    })();
+    const sum = (from, to) => buckets.slice(from, to + 1).reduce((all, bucket) => all + bucket.count, 0);
+    /// A span's times, Now for an end in the hour under way (or later today).
+    const spanText = (from, to, format = handleTime) => buckets[to].end > Date.now()
+      ? `${format.format(buckets[from].start)} – ${t("Now")}` : format.formatRange(buckets[from].start, buckets[to].end);
+    const say = (from, to) => { readout.textContent = `${spanText(from, to)} · ${unit(sum(from, to))}`; };
+
+    function set({ hours = [], from = null, to = null, trim = true }) {
+      // The same counts over the same days, in the same hour, draw nothing new (a range back from now moves by the
+      // millisecond, not by the day).
+      const key = JSON.stringify([hours, from && dayKey(from), to && dayKey(to), trim, Math.floor(Date.now() / 3600000)]);
+      if (key === drawn) return;
+      drawn = key;
+      const counted = new Map();
+      let earliest = Infinity;
+      for (const [start, n, alert = 0] of hours) {
+        const date = new Date(start * 1000);
+        if (n) earliest = Math.min(earliest, date.getTime());
+        const key = dayKey(date);
+        if (!counted.has(key)) counted.set(key, { hours: Array(24).fill(0), alerts: Array(24).fill(0) });
+        const hour = HomeswiftI18n.zoned(date).hours;
+        counted.get(key).hours[hour] += n;
+        counted.get(key).alerts[hour] += alert;
+      }
+      const now = new Date();
+      const end = HomeswiftI18n.zoned(to ?? now);
+      // A range reaching before the first entry has nothing there: it starts at the first day with any, unless the
+      // user chose its first day.
+      const firstWith = Number.isFinite(earliest) ? earliest : null;
+      const start = HomeswiftI18n.startOfDay(new Date((trim || !from) && firstWith !== null ? Math.max(firstWith, from?.getTime() ?? 0) : from ?? firstWith ?? now));
+      days = [];
+      for (let back = 0; back < 400; back++) {
+        const date = HomeswiftI18n.zonedDate(end.year, end.month, end.day - back);
+        if (date < start) break;
+        const key = dayKey(date);
+        const found = counted.get(key) ?? { hours: Array(24).fill(0), alerts: Array(24).fill(0) };
+        days.unshift({ key, date, ...found, count: found.hours.reduce((a, b) => a + b, 0) });
+      }
+      total = days.reduce((all, day) => all + day.count, 0);
+      const size = [1, 2, 3, 4, 6, 8, 12, 24].find((hours) => days.length * 24 / hours <= 240) ?? 24;
+      const add = (list, from, to) => list.slice(from, to).reduce((a, b) => a + b, 0);
+      buckets = days.flatMap((day) => {
+        const at = HomeswiftI18n.zoned(day.date);
+        return Array.from({ length: 24 / size }, (_, index) => ({ day, count: add(day.hours, index * size, (index + 1) * size), alert: add(day.alerts, index * size, (index + 1) * size),
+          start: HomeswiftI18n.zonedDate(at.year, at.month, at.day, index * size), end: HomeswiftI18n.zonedDate(at.year, at.month, at.day, (index + 1) * size) }));
+      });
+      element.hidden = !days.length;
+      const peak = Math.max(1, ...buckets.map((bucket) => bucket.count));
+      bars.classList.toggle("dense", buckets.length > 120);
+      bars.style.setProperty("--bars", String(buckets.length));
+      bars.replaceChildren(...buckets.map((bucket) => {
+        const bar = el("i", { class: bucket.start > now ? "later" : "" });
+        if (bucket.count) bar.style.setProperty("--level", String(Math.max(0.06, bucket.count / peak)));
+        if (bucket.alert) bar.style.setProperty("--alert", String(Math.min(1, Math.max(0.08, bucket.alert / bucket.count))));
+        return bar;
+      }));
+      plot.setAttribute("aria-label", unit(total));
+      // Each day's name under its hours: a tap picks it, again the whole range.
+      axis.classList.toggle("dense", days.length > 8);
+      axis.replaceChildren(...days.map((day) => el("span", { class: `histogram-day${day.count ? "" : " empty"}`, "data-day": day.key,
+        title: `${dayName.format(day.date)} · ${unit(day.count)}` },
+        el("span", { class: "long", text: dayLabel.format(day.date) }), el("span", { class: "short", text: String(HomeswiftI18n.zoned(day.date).day) }))));
+      for (const one of [fromHandle, toHandle]) one.setAttribute("aria-valuemax", String(buckets.length));
+      fromSelection();
+      paint();
+    }
+
+    /// The handles where the picked span is (both ends when none is).
+    function fromSelection() {
+      first = 0; last = Math.max(0, buckets.length - 1);
+      if (!selection || !buckets.length) return;
+      const from = buckets.findIndex((bucket) => bucket.end > selection.from);
+      const to = buckets.findLastIndex((bucket) => bucket.start < selection.to);
+      if (from < 0 || to < from) return;
+      first = from; last = to;
+    }
+
+    /// The bars in the span coloured, the others grey; the handles, the fill between them, their times above them (one
+    /// label for both when they would meet), kept inside the chart; the chip.
+    function paint() {
+      chip.hidden = !selection || !buckets.length;
+      if (!buckets.length) return;
+      const n = buckets.length;
+      [...bars.children].forEach((bar, index) => bar.classList.toggle("out", index < first || index > last));
+      element.classList.toggle("picked", first > 0 || last < n - 1);
+      const left = first / n * 100, right = (last + 1) / n * 100;
+      fromHandle.style.left = fill.style.left = `${left}%`;
+      toHandle.style.left = `${right}%`;
+      fill.style.right = `${100 - right}%`;
+      fromHandle.setAttribute("aria-valuenow", String(first));
+      toHandle.setAttribute("aria-valuenow", String(last + 1));
+      const end = buckets[last].end > Date.now() ? t("Now") : handleTime.format(buckets[last].end);
+      fromHandle.setAttribute("aria-valuetext", fromLabel.textContent = handleTime.format(buckets[first].start));
+      toHandle.setAttribute("aria-valuetext", toLabel.textContent = end);
+      if (selection) {
+        const text = spanText(first, last, shortTime);
+        chip.replaceChildren(el("span", { text }));
+        chip.setAttribute("aria-label", `${t("Whole range")}: ${text}`);
+      }
+      toLabel.hidden = false;
+      const width = rail.clientWidth;
+      if (!width) return;
+      const place = (label, x, at = x) => {
+        const half = label.offsetWidth / 2;
+        label.style.translate = `calc(-50% + ${Math.min(Math.max(at, half), width - half) - x}px) 0`;
+      };
+      const fromX = left / 100 * width, toX = right / 100 * width;
+      if (toX - fromX < (fromLabel.offsetWidth + toLabel.offsetWidth) / 2 + 8) {
+        toLabel.hidden = true;
+        fromLabel.textContent = spanText(first, last);
+        place(fromLabel, fromX, (fromX + toX) / 2);
+      } else {
+        place(fromLabel, fromX);
+        place(toLabel, toX);
+      }
+    }
+    new ResizeObserver(() => paint()).observe(rail);
+
+    /// What the handles span, given to the page: all the bars is no pick.
+    function commit() {
+      const whole = first === 0 && last === buckets.length - 1;
+      const next = whole ? null : { from: buckets[first].start, to: buckets[last].end };
+      if ((next?.from.getTime() ?? 0) === (selection?.from.getTime() ?? 0) && (next?.to.getTime() ?? 0) === (selection?.to.getTime() ?? 0)) return;
+      selection = next;
+      paint();
+      element.dispatchEvent(new Event("change"));
+      changed(selection);
+    }
+    function pick(span) {
+      selection = span;
+      fromSelection();
+      paint();
+      element.dispatchEvent(new Event("change"));
+    }
+    function pickDay(day) {
+      const from = buckets.findIndex((bucket) => bucket.day === day), to = buckets.findLastIndex((bucket) => bucket.day === day);
+      if (selection && first === from && last === to) { pick(null); changed(null); return; }
+      first = from; last = to;
+      commit();
+    }
+
+    /// Where along the bars a pointer is: a boundary between bars (0 to their count), or the bar under it.
+    const fraction = (event) => { const box = rail.getBoundingClientRect(); return Math.min(Math.max((event.clientX - box.left) / box.width, 0), 1); };
+    const boundary = (event) => Math.round(fraction(event) * buckets.length);
+    const barAt = (event) => Math.min(buckets.length - 1, Math.floor(fraction(event) * buckets.length));
+    /// A drag on `target`: `move` as the pointer moves (the handles and the readout follow), `end` once let go (false
+    /// when cancelled).
+    function track(target, event, move, end) {
+      target.setPointerCapture(event.pointerId);
+      const moved = (over) => { if (move(over) !== false) { element.classList.add("active"); paint(); say(first, last); } };
+      const up = (ended) => {
+        target.removeEventListener("pointermove", moved);
+        element.classList.remove("active");
+        readout.textContent = "";
+        end(ended.type !== "pointercancel");
+      };
+      target.addEventListener("pointermove", moved);
+      target.addEventListener("pointerup", up, { once: true });
+      target.addEventListener("pointercancel", up, { once: true });
+      return moved;
+    }
+    /// A handle dragged (or the rail pressed: the nearer handle comes there).
+    function dragHandle(which, event) {
+      event.preventDefault();
+      const target = which === "from" ? fromHandle : toHandle;
+      target.focus({ preventScroll: true });
+      target.classList.add("dragging");
+      track(target, event, (over) => {
+        const at = boundary(over);
+        if (which === "from") first = Math.min(at, last); else last = Math.max(at - 1, first);
+      }, () => { target.classList.remove("dragging"); commit(); })(event);
+    }
+    fromHandle.addEventListener("pointerdown", (event) => dragHandle("from", event));
+    toHandle.addEventListener("pointerdown", (event) => dragHandle("to", event));
+    rail.addEventListener("pointerdown", (event) => {
+      if (event.target.closest(".histogram-handle") || !buckets.length) return;
+      const at = boundary(event);
+      dragHandle(Math.abs(at - first) <= Math.abs(at - (last + 1)) ? "from" : "to", event);
+    });
+    // Across the bars: a drag picks from where it started to where it ends; a tap, that bar's day.
+    plot.addEventListener("pointerdown", (event) => {
+      if (!buckets.length || event.button !== 0) return;
+      const start = barAt(event), x = event.clientX;
+      let dragged = false;
+      track(plot, event, (over) => {
+        dragged ||= Math.abs(over.clientX - x) > 4;
+        if (!dragged) return false;
+        const at = barAt(over);
+        first = Math.min(start, at); last = Math.max(start, at);
+      }, (done) => {
+        if (!done) { fromSelection(); paint(); } else if (dragged) commit(); else pickDay(buckets[start].day);
+      });
+    });
+    // A day's name, as a tap on its bars: that day (the keyboard moves the handles a day with Page Up and Page Down).
+    axis.addEventListener("click", (event) => {
+      const day = days.find((one) => one.key === event.target.closest(".histogram-day:not(.empty)")?.dataset.day);
+      if (day) pickDay(day);
+    });
+    // A mouse over the bars: that hour (or few) and how many, its bar lit.
+    let hovered = null;
+    const hover = (bar) => { hovered?.classList.remove("hover"); hovered = bar; bar?.classList.add("hover"); };
+    plot.addEventListener("pointermove", (event) => {
+      if (event.buttons || !buckets.length || event.pointerType !== "mouse") return;
+      const at = barAt(event);
+      hover(bars.children[at]);
+      say(at, at);
+    });
+    plot.addEventListener("pointerleave", () => { hover(null); readout.textContent = ""; });
+    // The keyboard: a bar with the arrows, a day with Page Up and Page Down, the ends with Home and End; the page
+    // follows once the keys rest.
+    let settle = 0;
+    for (const [which, target] of [["from", fromHandle], ["to", toHandle]]) target.addEventListener("keydown", (event) => {
+      const perDay = buckets.length / Math.max(1, days.length);
+      const step = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -perDay, PageUp: perDay, Home: -Infinity, End: Infinity }[event.key];
+      if (step === undefined || !buckets.length) return;
+      event.preventDefault();
+      if (which === "from") first = Math.min(Math.max(0, first + step), last);
+      else last = Math.max(Math.min(buckets.length - 1, last + step), first);
+      paint();
+      clearTimeout(settle);
+      settle = setTimeout(commit, 400);
+    });
+
+    return {
+      element, readout, chip, set, pick, dayKey,
+      get selection() { return selection; },
+      /// The span picked, in the address.
+      address(query) { if (selection) query.set("pick", `${selection.from.getTime()}-${selection.to.getTime()}`); },
+      /// How many in the span picked (the whole range without one).
+      count: () => selection ? sum(first, last) : total,
+      /// Each day's count in the span picked, by its key.
+      countsByDay() {
+        const counts = new Map();
+        for (const bucket of selection ? buckets.slice(first, last + 1) : buckets) counts.set(bucket.day.key, (counts.get(bucket.day.key) ?? 0) + bucket.count);
+        return counts;
+      },
+      /// The day named under the bars as the one in view.
+      mark(key) { for (const label of axis.children) label.classList.toggle("on", label.dataset.day === key); },
     };
   }
 
@@ -14260,7 +14595,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
     openSheet, confirmAction, waveform, base64, openMicrophone, talkWorklet, listenTo, levelOf, microphoneRefusal,
     phone, viewSignal, nextView, filtersToggle, followControls, assistantButton, menuOpen: () => Boolean(openMenu),
-    $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, decorateAction, subnav, tile, clearFilters, rangeControl, timeHistogram, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
 })();
@@ -19481,10 +19816,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       default: return source.name ?? "";
     }
   }
-  const sinceChoices = [["24h", t("24 hours")], ["3d", t("3 days")], ["7d", t("7 days")], ["", t("Everything kept")]];
+  /// The Logbook's time ranges (HomeswiftCommon.rangeControl): hours or days back, Everything kept, or Custom… for any days kept.
+  const rangeChoices = [["24h", t("24 hours")], ["3d", t("3 days")], ["7d", t("7 days")], ["all", t("Everything kept")]];
 
   async function logbookView(main) {
     const params = new URLSearchParams(location.search);
+    // An address from before the range control: `since=` (empty) was Everything kept.
+    if (params.get("since") === "") params.set("since", "all");
     const accessories = await api("/api/accessories").catch(() => []);
     const rooms = [...new Set(accessories.map((accessory) => accessory.room).filter(Boolean))].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale));
     const select = (name, label, choices, value) => {
@@ -19496,34 +19834,37 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const accessory = select("accessory", t("Accessory"), [["", t("All accessories")],
       ...[...accessories].sort((a, b) => a.name.localeCompare(b.name, HomeswiftI18n.locale)).map((one) => [one.id, one.name])], params.get("accessory") ?? "");
     const source = select("source", t("Change Source"), sourceKinds, params.get("source") ?? "");
-    const since = select("since", t("Time range"), sinceChoices, params.get("since") ?? "24h");
-    const controls = [room, accessory, source, since];
-    since.hidden = true;
-    const periods = el("div", { class: "group logbook-periods", role: "group", "aria-label": t("Time range") },
-      sinceChoices.map(([value, label]) => el("button", { type: "button", actionIcon: "history", text: label,
-        onclick: () => { since.value = value; since.dispatchEvent(new Event("change", { bubbles: true })); } })));
-    const syncPeriods = () => [...periods.children].forEach((button, index) => {
-      const selected = since.value === sinceChoices[index][0];
-      button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
-    });
-    since.addEventListener("change", syncPeriods);
-    syncPeriods();
-    const clear = HomeswiftCommon.clearFilters(controls.map((control) => [control, control === since ? "24h" : ""]),
-      { active: () => controls.some((control) => control.value !== (control === since ? "24h" : "")), events: controls.map((control) => [control, "change"]), reset: reload });
+    const controls = [room, accessory, source];
+    /// The days the Logbook keeps: the first Custom… day offered, from the first read.
+    let kept = 30;
+    const range = HomeswiftCommon.rangeControl(params, { presets: rangeChoices, fallback: "24h", earliestDays: () => kept, changed: () => { histogram.pick(null); reload(); } });
+    // The whole range at once, before its entries are read (HomeswiftCommon.timeHistogram): a span picked on it is what
+    // the list shows; its chip under the time range goes back.
+    const histogram = HomeswiftCommon.timeHistogram(params, { unit: (n) => tn("{n} entry", "{n} entries", n), changed: () => reload(false, true) });
+    const clear = HomeswiftCommon.clearFilters(controls.map((control) => [control, ""]),
+      { active: () => range.chosen() || Boolean(histogram.selection), events: [[range.control, "change"], [histogram.element, "change"]],
+        reset: () => { range.reset(); histogram.pick(null); reload(); } });
     const list = el("div", { class: "log logbook", tabindex: 0, role: "region", "aria-label": t("Logbook") });
-    const count = el("p", { class: "muted log-action-bar logbook-count", "aria-live": "polite" });
+    const count = el("p", { class: "muted logbook-count", "aria-live": "polite" });
+    // Follow, as on the Logs page: the Logbook read again every few seconds, the newest kept in view.
+    const followBox = el("input", { type: "checkbox", checked: true });
+    const followToggle = el("label", { class: "toggle compact log-follow" }, el("span", { class: "switch" }, followBox, el("span")), el("span", { text: t("Follow") }));
+    const countRow = el("div", { class: "logbook-count-row" }, count, histogram.readout, followToggle);
+    const head = el("div", { class: "log-action-bar logbook-head" }, countRow, histogram.element);
     const icons = new Map(accessories.map((one) => [one.id, HomeswiftWidgets.accessoryIcon(one) ?? "accessory"]));
     const byID = new Map(accessories.map((one) => [one.id, one]));
     const panel = el("div", { class: "log-filter-panel logbook-toolbar" },
       el("div", { class: "log-scope-row" },
-        el("div", { class: "log-time" }, el("span", { text: t("Time range") }), periods),
+        el("div", { class: "log-time" }, el("div", { class: "log-time-head" }, el("span", { text: t("Time range") }), clear), range.control, histogram.chip),
         ...[[t("Room"), room], [t("Accessory"), accessory], [t("Change Source"), source]].map(([label, control]) =>
-          el("label", {}, el("span", { text: label }), control))), clear, since);
+          el("label", {}, el("span", { text: label }), control))));
     // A phone (as the Logs page and the Audit log): one bar above the tab bar, a search through the entries shown, Filters
     // (the panel as a sheet over the bar, its badge counting the filters that are not the defaults) and the Assistant.
     const filters = HomeswiftCommon.filtersToggle(panel);
-    const showCount = () => filters.count(controls.filter((control) => control.value !== (control === since ? "24h" : "")).length);
+    const showCount = () => filters.count(controls.filter((control) => control.value).length + (range.chosen() ? 1 : 0) + (histogram.selection ? 1 : 0));
     for (const control of controls) control.addEventListener("change", showCount);
+    range.control.addEventListener("change", showCount);
+    histogram.element.addEventListener("change", showCount);
     showCount();
     const search = el("input", { type: "search", class: "search bar-only", placeholder: t("Search"), "aria-label": t("Search") });
     const applySearch = () => {
@@ -19539,42 +19880,66 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     };
     search.addEventListener("input", applySearch);
-    // A phone follows the Logbook as the Logs page does: the newest at the foot by the bar, read again every few seconds
-    // while following (Pause stops it), and an arrow back to the end once scrolled away.
+    // Following (the switch, on a phone Pause and Play in the bar): read again every few seconds, the newest kept in
+    // view (at the top, on a phone at the foot by the bar), and on a phone an arrow back to the end once scrolled away.
     const phone = HomeswiftCommon.phone;
     let following = true;
-    const followUI = HomeswiftCommon.followControls({ following: () => following, setFollowing: (on) => {
-      following = on;
+    const followUI = HomeswiftCommon.followControls({ following: () => following, setFollowing: (on) => setFollowing(on) });
+    function setFollowing(on) {
+      following = followBox.checked = on;
       followUI.paint();
-      if (on && phone.matches) followUI.toEnd(true);
-    } });
+      if (!on) return;
+      if (phone.matches) followUI.toEnd(true); else list.scrollTop = 0;
+      reload(true);
+    }
+    followBox.addEventListener("change", () => setFollowing(followBox.checked));
     const bar = el("div", { class: "logbook-bar phone-bar" }, search, filters.button, followUI.button, HomeswiftCommon.assistantButton());
-    const card = el("div", { class: "card log-card logbook-card" }, panel, count, list);
-    // On a phone the count heads the Filters sheet, and the log has the card to itself.
-    const placeCount = () => { if (HomeswiftCommon.phone.matches) panel.prepend(count); else panel.after(count); };
+    const card = el("div", { class: "card log-card logbook-card" }, panel, head, list);
+    // On a phone the count heads the Filters sheet, and the histogram the log.
+    const placeCount = () => { if (HomeswiftCommon.phone.matches) panel.prepend(count); else countRow.prepend(count); };
     placeCount();
     // Between a phone and a wider window the entries change order (the newest at the foot, or first): drawn again.
     phone.addEventListener("change", () => { placeCount(); draw("new"); }, { signal: HomeswiftCommon.viewSignal() });
     const refresh = setInterval(() => {
       if (!bar.isConnected) { clearInterval(refresh); return; }
-      if (phone.matches && following && !document.hidden && !filters.isOpen() && !HomeswiftCommon.menuOpen()) reload(true);
+      // Wider than a phone, only at the list's top: someone reading further down keeps their place.
+      if (!phone.matches && list.scrollTop > 40) return;
+      if (following && !document.hidden && !filters.isOpen() && !HomeswiftCommon.menuOpen()) reload(true);
     }, 4000);
     HomeswiftCommon.viewSignal().addEventListener("abort", () => clearInterval(refresh));
     app().show(main, app().pageHead(t("Logbook"), t("What changed in the home, and who or what changed it.")), card, bar, followUI.latest);
 
-    /// What was last drawn: a quiet read (the phone's refresh) that finds the same entries in the same order draws nothing.
+    /// What was last drawn: a quiet read (the refresh) that finds the same entries in the same order draws nothing.
     let drawn = "";
-    /// The entries drawn, newest first; whether older ones match too; whether Show earlier added pages to the first.
-    let shown = [], more = false, extended = false, days = 0;
-    const earlier = el("button", { type: "button", class: "logbook-earlier", actionIcon: "history", text: t("Show earlier"), onclick: showEarlier });
+    /// The entries drawn, newest first; whether older ones match too; whether older pages were added to the first.
+    let shown = [], more = false, extended = false;
+    /// A new choice of filters: the reads of an earlier one are dropped.
+    let generation = 0;
+    const earlier = el("button", { type: "button", class: "logbook-earlier", actionIcon: "history", text: t("Show earlier"), onclick: () => readAll() });
     const earlierError = el("p", { class: "error", hidden: true });
     const earlierRow = el("div", { class: "logbook-more" }, earlier, earlierError);
+    const dayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "long", day: "numeric", month: "long" });
+    const dayKey = histogram.dayKey;
 
-    /// The filters as a query, and the page's address.
-    function filterQuery() {
+    /// The entries' query is the picked span's (`until` includes its bound: a millisecond before its end); the
+    /// histogram's (`whole`) is the range's.
+    function filterQuery(whole = false) {
       const query = new URLSearchParams();
       for (const control of controls) if (control.value) query.set(control.name, control.value);
+      const span = range.span(), picked = whole ? null : histogram.selection;
+      const since = picked ? picked.from : span?.[0];
+      const until = picked ? new Date(Math.min(picked.to - 1, span?.[1] ?? Infinity)) : span?.[1];
+      if (since) query.set("since", since.toISOString());
+      if (until) query.set("until", until.toISOString());
       return query;
+    }
+    /// The choice itself, for the address (a range back from now moves with the clock).
+    function filterKey() {
+      const query = new URLSearchParams();
+      range.address(query);
+      for (const control of controls) if (control.value) query.set(control.name, control.value);
+      histogram.address(query);
+      return query.toString();
     }
 
     /// `newer`, then `older`'s entries from before `newer`'s last. Times are to the second, so `older` (read up to and
@@ -19586,29 +19951,47 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       return newer.concat(older.filter((entry) => entry.time < edge || (entry.time === edge && skip-- <= 0)));
     }
 
-    async function reload(quiet = false) {
+    /// What was drawn, for a refresh that finds nothing new.
+    const shape = () => [filterKey(), phone.matches, shown.length, shown[0]?.time, shown.at(-1)?.time, histogram.count()].join("|");
+
+    /// `entriesOnly`: a new pick on the histogram, whose counts stay.
+    async function reload(quiet = false, entriesOnly = false) {
       if (quiet instanceof Event) quiet = false;
-      const query = filterQuery();
-      const search = query.toString();
-      const path = `/logbook${search ? `?${search}` : ""}`;
+      const key = filterKey();
+      const path = `/logbook${key ? `?${key}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
-      if (!quiet) list.classList.add("loading");
-      let found;
-      try { found = await api(`/api/logbook?${query}`); }
-      catch (e) { list.classList.remove("loading"); if (!quiet) list.replaceChildren(el("p", { class: "error", text: e.message })); return; }
+      const at = quiet ? generation : ++generation;
+      const query = filterQuery();
+      if (!quiet) { list.classList.add("loading"); earlierError.hidden = true; }
+      let found, hours;
+      // The counts are read with the entries, but a refresh reads them again only once a new entry came. Without them
+      // the list still shows: the histogram waits for the next read.
+      const readHours = () => api(`/api/logbook/hours?${filterQuery(true)}`).catch(() => null);
+      try {
+        [found, hours] = await Promise.all([api(`/api/logbook?${query}`), entriesOnly || quiet ? null : readHours()]);
+        const newest = (entries) => entries.slice(0, 10).map((entry) => `${entry.time} ${entry.accessory} ${entry.characteristic}`).join("|");
+        if (quiet && newest(found.entries) !== newest(shown)) hours = await readHours();
+      } catch (e) {
+        if (at !== generation) return;
+        list.classList.remove("loading");
+        if (!quiet) list.replaceChildren(el("p", { class: "error", text: e.message }));
+        return;
+      }
+      if (at !== generation || (quiet && loading)) return;
       list.classList.remove("loading");
-      days = found.days;
-      // The phone's refresh keeps the pages Show earlier added, below the newest.
+      kept = found.days;
+      // The refresh keeps the older pages read, after the newest.
       if (quiet && extended) shown = join(found.entries, shown);
       else { shown = found.entries; more = found.more === true; extended = false; }
-      const shape = [search, phone.matches, shown.length, shown[0]?.time, shown.at(-1)?.time].join("|");
-      if (quiet && shape === drawn) return;
-      drawn = shape;
-      draw(quiet ? "quiet" : "new");
+      // From the first day with entries, but each day of a custom range.
+      if (hours) { const span = range.span(); histogram.set({ hours: hours.hours ?? [], from: span?.[0] ?? null, to: span?.[1] ?? null, trim: !range.custom() }); }
+      if (quiet && shape() === drawn) return;
+      drawn = shape();
+      draw(quiet ? "quiet" : entriesOnly ? "pick" : "new");
     }
 
-    /// Infinite scroll: near the oldest entries (the list's foot, on a phone its top), the next ones are read. Show earlier
-    /// does it by hand, for a keyboard and a list too short to scroll.
+    /// Infinite scroll: near the oldest entries (the list's foot, on a phone its top), the next ones are read. Show all
+    /// reads the whole range, or span, at once.
     let loading = false;
     const reach = 600;
     function nearOldest() {
@@ -19617,49 +20000,79 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (scroller) return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < reach;
       return earlierRow.getBoundingClientRect().top < innerHeight + reach;
     }
-    const maybeEarlier = () => { if (more && !loading && shown.length && !earlierRow.hidden && nearOldest()) showEarlier(); };
-    list.addEventListener("scroll", maybeEarlier, { passive: true });
-    addEventListener("scroll", maybeEarlier, { passive: true, signal: HomeswiftCommon.viewSignal() });
+    const maybeEarlier = () => { if (more && !loading && shown.length && !earlierRow.hidden && nearOldest()) readWhile(() => false, 300); };
+    const onScroll = () => { maybeEarlier(); spy(); };
+    list.addEventListener("scroll", onScroll, { passive: true });
+    addEventListener("scroll", onScroll, { passive: true, signal: HomeswiftCommon.viewSignal() });
 
-    /// The next entries before the oldest one shown, under the same filters.
-    async function showEarlier() {
-      const oldest = shown.at(-1);
-      if (!oldest || loading) return;
+    /// Every entry of the range, or of the span picked, saying how far it is.
+    const readAll = () => readWhile(() => true, 1000, true);
+
+    /// Reads the entries before the oldest shown, `limit` a page, while `wanted()` and older ones are left, then draws them
+    /// once. On a phone the older entries come above: the one that was at the top stays where it was.
+    async function readWhile(wanted, limit, progress = false) {
+      if (loading || !shown.length) return false;
       loading = true;
-      try { await readEarlier(oldest); } finally { loading = false; }
-    }
-
-    async function readEarlier(oldest) {
-      const query = filterQuery();
-      query.set("until", new Date(Date.parse(oldest.time) + 999).toISOString());
+      const at = generation, before = shown.length;
       earlier.disabled = true;
       earlierError.hidden = true;
-      let found;
-      try { found = await api(`/api/logbook?${query}`); }
-      catch (e) { earlier.disabled = false; earlierError.textContent = e.message; earlierError.hidden = false; return; }
-      earlier.disabled = false;
-      // A filter changed meanwhile: that read is the one drawn.
-      if (filterQuery().toString() !== query.toString().replace(/&?until=[^&]*/, "")) return;
-      const before = shown.length;
-      shown = join(shown, found.entries);
-      more = found.more === true;
-      extended = true;
-      drawn = [filterQuery().toString(), phone.matches, shown.length, shown[0]?.time, shown.at(-1)?.time].join("|");
-      // On a phone the older entries come above: the one that was at the top stays where it was.
+      card.classList.add("reading");
+      let read = false;
+      try {
+        do {
+          const query = filterQuery();
+          query.set("until", new Date(Date.parse(shown.at(-1).time) + 999).toISOString());
+          query.set("limit", String(limit));
+          const found = await api(`/api/logbook?${query}`);
+          if (at !== generation) return false;
+          shown = join(shown, found.entries);
+          more = found.more === true;
+          extended = read = true;
+          if (more && progress) earlier.textContent = t("Reading {n} of {total}…", { n: shown.length, total: Math.max(histogram.count(), shown.length) });
+        } while (more && wanted());
+      } catch (e) {
+        if (at === generation) { earlierError.textContent = e.message; earlierError.hidden = false; }
+      } finally {
+        loading = false;
+        earlier.disabled = false;
+        card.classList.remove("reading");
+      }
+      if (!read || at !== generation) return read;
+      drawn = shape();
       const anchor = () => list.querySelector(`[data-index="${before - 1}"]`);
       const top = anchor()?.getBoundingClientRect().top;
       draw("earlier");
       if (phone.matches && top !== undefined) document.scrollingElement.scrollBy(0, (anchor()?.getBoundingClientRect().top ?? top) - top);
+      return true;
+    }
+
+    /// The day at the top of the list (on a phone, at the middle of the window), marked under the histogram.
+    let spying = 0;
+    function spy() {
+      cancelAnimationFrame(spying);
+      spying = requestAnimationFrame(() => {
+        const y = phone.matches ? innerHeight * 0.45 : list.getBoundingClientRect().top + 48;
+        const sections = [...list.querySelectorAll(".logbook-day:not([hidden])")];
+        const at = sections.find((section) => section.getBoundingClientRect().bottom > y) ?? sections.at(-1);
+        histogram.mark(at?.dataset.day);
+      });
     }
 
     function draw(mode) {
       const newestLast = phone.matches;
       const atEnd = followUI.atEnd();
+      const atTop = list.scrollTop < 40;
+      // Each day's entries in the span picked (all of the range without one).
+      const counts = histogram.countsByDay();
+      const counted = Math.max(histogram.count(), shown.length);
+      const busy = [...counts.values()].filter(Boolean).length;
+      // How many entries the range (or the span picked) has, and, until all are read, how many are shown.
       count.textContent = more
-        ? tn("The latest {n} entry · kept {days} days", "The latest {n} entries · kept {days} days", shown.length, { days: String(days) })
-        : tn("{n} entry · kept {days} days", "{n} entries · kept {days} days", shown.length, { days: String(days) });
-      if (!shown.length) { list.replaceChildren(el("p", { class: "muted empty", text: t("Nothing changed in this range.") })); return; }
-      const dayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "long", day: "numeric", month: "long" });
+        ? tn("{shown} of {n} entry · kept {days} days", "{shown} of {n} entries · kept {days} days", counted, { shown: shown.length, days: kept })
+        : tn("{n} entry · kept {days} days", "{n} entries · kept {days} days", counted, { days: kept });
+      // Show all says how much: every day of the range, or of the span.
+      earlier.textContent = busy > 1 ? t("Show all {n} days", { n: busy }) : t("Show earlier");
+      if (!shown.length) { earlierRow.hidden = true; list.replaceChildren(el("p", { class: "muted empty", text: t("Nothing changed in this range.") })); return; }
       // Hours and minutes read at a glance; the seconds are in the time's tooltip.
       const timeFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", hour12: false });
       const exactFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -19667,22 +20080,31 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const indexed = shown.map((entry, index) => [entry, index]);
       for (const [entry, index] of newestLast ? indexed.reverse() : indexed) {
         const date = new Date(entry.time);
-        const key = dayFormat.format(date);
-        if (!byDay.has(key)) byDay.set(key, []);
-        byDay.get(key).push(row(entry, index, date, timeFormat, exactFormat));
+        const key = dayKey(date);
+        if (!byDay.has(key)) byDay.set(key, { date, rows: [] });
+        byDay.get(key).rows.push(row(entry, index, date, timeFormat, exactFormat));
       }
-      const sections = [...byDay].map(([day, rows]) => {
-        const section = el("details", { class: "logbook-day" }, el("summary", { text: day }), el("ul", { class: "logbook-list" }, rows));
+      const sections = [...byDay].map(([key, { date, rows }]) => {
+        const all = counts.get(key);
+        // A day read only in part says so: the rest comes as the list scrolls on, or with Show all.
+        const summary = el("summary", {}, el("span", { text: dayFormat.format(date) }),
+          el("span", { class: "logbook-day-total", text: all && all > rows.length
+            ? t("{shown} of {total}", { shown: rows.length, total: all })
+            : tn("{n} entry", "{n} entries", rows.length) }));
+        const section = el("details", { class: "logbook-day", "data-day": key }, summary, el("ul", { class: "logbook-list" }, rows));
         section.open = true;
         return section;
       });
-      // Show earlier goes where the oldest entries are: the foot, or on a phone the top.
+      // Show all goes where the oldest entries are: the foot, or on a phone the top.
       earlierRow.hidden = !more;
       list.replaceChildren(...(newestLast ? [earlierRow, ...sections] : [...sections, earlierRow]));
       applySearch();
+      spy();
       if (mode === "earlier") return;
-      // Following, from the end (or a first draw), the page stays at the newest; there, the arrow back is not needed.
-      if (newestLast && following && (mode === "new" || atEnd)) followUI.toEnd(); else followUI.showLatest();
+      // Following, from the newest (or a first draw), the list stays at the newest: its top, or on a phone its foot,
+      // where the arrow back is not needed.
+      if (!newestLast) { if (following && (mode !== "quiet" || atTop)) list.scrollTop = 0; return; }
+      if (following && (mode === "new" || atEnd)) followUI.toEnd(); else followUI.showLatest();
     }
 
     function row(entry, index, date, timeFormat, exactFormat) {
@@ -23780,8 +24202,13 @@ HomeswiftI18n.add("es", {
   "Show as a table": "Mostrar como tabla",
   "Show its log": "Mostrar su registro",
   "Show earlier": "Mostrar anteriores",
-  "The latest {n} entry · kept {days} days": "{n} última entrada · guardadas {days} días",
-  "The latest {n} entries · kept {days} days": "Las {n} últimas entradas · guardadas {days} días",
+  "{shown} of {n} entry · kept {days} days": "{shown} de {n} entrada · guardadas {days} días",
+  "{shown} of {n} entries · kept {days} days": "{shown} de {n} entradas · guardadas {days} días",
+  "Show all {n} days": "Mostrar los {n} días",
+  "Whole range": "Todo el periodo",
+  "{n} line": "{n} línea",
+  "{n} lines": "{n} líneas",
+  "Reading {n} of {total}…": "Leyendo {n} de {total}…",
   "Show less": "Mostrar menos",
   "Show more": "Mostrar más",
   "Show the payload": "Mostrar el contenido",
@@ -27584,8 +28011,13 @@ HomeswiftI18n.add("fr", {
   "Show as a table": "Afficher sous forme de tableau",
   "Show its log": "Afficher son journal",
   "Show earlier": "Afficher les précédentes",
-  "The latest {n} entry · kept {days} days": "{n} dernière entrée · gardées {days} jours",
-  "The latest {n} entries · kept {days} days": "Les {n} dernières entrées · gardées {days} jours",
+  "{shown} of {n} entry · kept {days} days": "{shown} sur {n} entrée · gardées {days} jours",
+  "{shown} of {n} entries · kept {days} days": "{shown} sur {n} entrées · gardées {days} jours",
+  "Show all {n} days": "Afficher les {n} jours",
+  "Whole range": "Toute la période",
+  "{n} line": "{n} ligne",
+  "{n} lines": "{n} lignes",
+  "Reading {n} of {total}…": "Lecture : {n} sur {total}…",
   "Show less": "Afficher moins",
   "Show more": "Afficher plus",
   "Show the payload": "Afficher le contenu",
@@ -31388,8 +31820,13 @@ HomeswiftI18n.add("pt", {
   "Show as a table": "Mostrar como tabela",
   "Show its log": "Mostrar o registo",
   "Show earlier": "Mostrar anteriores",
-  "The latest {n} entry · kept {days} days": "{n} última entrada · guardadas {days} dias",
-  "The latest {n} entries · kept {days} days": "As {n} últimas entradas · guardadas {days} dias",
+  "{shown} of {n} entry · kept {days} days": "{shown} de {n} entrada · guardadas {days} dias",
+  "{shown} of {n} entries · kept {days} days": "{shown} de {n} entradas · guardadas {days} dias",
+  "Show all {n} days": "Mostrar os {n} dias",
+  "Whole range": "Todo o período",
+  "{n} line": "{n} linha",
+  "{n} lines": "{n} linhas",
+  "Reading {n} of {total}…": "A ler {n} de {total}…",
   "Show less": "Mostrar menos",
   "Show more": "Mostrar mais",
   "Show the payload": "Mostrar o conteúdo",
@@ -41049,7 +41486,7 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 .log-scope-row label, .log-scope-row .log-time { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-8); min-width: 0; }
 .log-scope-row label { align-items: stretch; }
 .log-scope-row .log-time { grid-column: 1 / -1; }
-.log-scope-row label > span, .log-scope-row .log-time > span { font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
+.log-scope-row label > span, .log-scope-row .log-time > span, .log-scope-row .log-time-head > span { font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
 .log-scope-row select.popup { width: 100%; max-width: none; min-width: 0; }
 /* Intermediate widths use both columns instead of reserving a whole row for time. */
 @media (min-width: 641px) and (max-width: 1179px) and (min-height: 501px), (min-width: 641px) and (max-width: 1179px) and (pointer: fine) {
@@ -41120,7 +41557,7 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .admin-dialog .page-head .tools .clear-filters { flex: none; width: 40px; height: 40px; min-height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; border-radius: 50%; }
   .log-scope-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-8); }
   .log-scope-row label { gap: 0; margin: 0; }
-  .log-scope-row label > span, .log-scope-row .log-time > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .log-scope-row label > span, .log-scope-row .log-time > span, .log-scope-row .log-time-head > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .log-scope-row select.popup { margin: 0; padding-block: var(--space-8); }
   .log-filter-panel { grid-template-columns: minmax(0, 1fr); grid-template-areas: "levels" "source" "range"; column-gap: var(--space-8); }
   .log-filter-panel:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "levels levels" "source clear" "range range"; }
@@ -43973,12 +44410,99 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 
 /* Logbook shares the Logs toolbar and scrollable console, with compact event rows. */
 .logbook-card .logbook { padding: 0; }
-.logbook-card .logbook-periods { max-width: 100%; }
-.logbook-card .logbook-periods button { min-width: 0; white-space: normal; }
 .logbook-card .logbook-toolbar > select.popup { flex: 1 1 140px; min-width: 0; }
 .logbook-toolbar .clear-filters { width: 36px; height: 36px; min-height: 36px; flex: 0 0 36px; padding: 0; margin: 0; gap: 0; font-size: 0; border-radius: 50%; }
 .logbook-toolbar .clear-filters:disabled { display: none; }
-.logbook-card .logbook-count { margin: 0; padding: var(--space-6) var(--space-16); font-size: var(--text-xs); border-bottom: 1px solid var(--line); }
+/* A time range at a glance (common.js's timeHistogram, the Logbook's and the Logs page's): a bar an hour (or a few),
+   on one scale, with a range slider under it (two handles, their times above them) and each day's name; the bars
+   between the handles in the accent, the others grey, a bar's errors at its foot. */
+.histogram { position: relative; display: grid; user-select: none; -webkit-user-select: none; }
+/* The hour under the pointer or the span dragged, over the bars' top right where a page has no row for it. */
+.histogram > .histogram-readout { position: absolute; top: 0; right: 0; z-index: 3; padding: 1px var(--space-6); border-radius: var(--radius-xs); background: var(--material-solid); pointer-events: none; }
+.histogram > .histogram-readout:empty { display: none; }
+.histogram[hidden] { display: none; }
+.histogram-plot { height: 48px; touch-action: pan-y; cursor: crosshair; }
+.histogram-bars { display: grid; grid-template-columns: repeat(var(--bars, 24), minmax(0, 1fr)); align-items: end; column-gap: 2px; height: 100%; }
+.histogram-bars.dense { column-gap: 1px; }
+.histogram-bars > i { justify-self: center; width: 100%; max-width: 10px; height: 2px; border-radius: var(--radius-pill) var(--radius-pill) 0 0; background: var(--accent); transition: background-color var(--fast) ease; }
+.histogram-bars > i[style] { height: calc(var(--level) * 100%); min-height: 3px; }
+.histogram-bars > i:not([style]) { background: color-mix(in srgb, var(--muted) 18%, transparent); }
+.histogram-bars > i.out[style] { background: color-mix(in srgb, var(--muted) 30%, transparent); }
+.histogram-bars > i[style*="--alert"] { background: linear-gradient(to top, var(--error) calc(var(--alert) * 100%), var(--accent) 0); }
+.histogram-bars > i.out[style*="--alert"] { background: linear-gradient(to top, color-mix(in srgb, var(--error) 45%, transparent) calc(var(--alert) * 100%), color-mix(in srgb, var(--muted) 30%, transparent) 0); }
+.histogram-bars > i.later { visibility: hidden; }
+/* The bar under the mouse, which the readout tells. */
+.histogram-bars > i.hover[style] { filter: brightness(1.18) saturate(1.1); }
+.histogram-bars > i.hover:not([style]) { background: var(--accent); }
+/* The rail: the track and its fill, the handles on it (a 44px target round each 18px circle). */
+.histogram-rail { position: relative; height: 18px; touch-action: none; cursor: pointer; }
+.histogram-track { position: absolute; inset: 7px 0 auto; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--muted) 22%, transparent); }
+.histogram-fill { position: absolute; top: 0; bottom: 0; border-radius: 2px; background: var(--accent); }
+.histogram-handle { position: absolute; top: 9px; width: 16px; height: 16px; margin: -8px 0 0 -8px; box-sizing: border-box; border-radius: 50%; background: #fff;
+  border: 2px solid var(--accent); box-shadow: 0 1px 4px rgb(0 0 0 / 22%); cursor: grab; touch-action: none; transition: transform 160ms var(--ease-out); z-index: 1; }
+.histogram-handle::before { content: ""; position: absolute; inset: -14px; border-radius: 50%; }
+.histogram-handle.dragging { cursor: grabbing; transform: scale(1.15); z-index: 2; }
+@media (hover: hover) and (pointer: fine) { .histogram-handle:hover:not(.dragging) { transform: scale(1.08); } }
+@media (prefers-reduced-motion: reduce) { .histogram-handle, .histogram-handle.dragging, .histogram-handle:hover { transform: none; transition: none; } }
+.histogram-handle:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
+/* Each handle's time above it, over the bars' foot, kept inside the chart: shown while a span is picked or made, so the
+   whole range takes no room for them. */
+.histogram-label { opacity: 0; transition: opacity var(--fast) ease; position: absolute; bottom: calc(100% + 6px); left: 50%; translate: -50% 0; padding: 2px var(--space-6); font-size: 11px; line-height: 16px; border-radius: var(--radius-xs);
+  white-space: nowrap; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; color: var(--accent-text); background: var(--accent);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 18%); pointer-events: none; }
+.histogram-label[hidden] { display: none; }
+.histogram:is(.picked, .active, :focus-within) .histogram-label { opacity: 1; }
+/* The days' names, each under its own hours, a line between days; the one in view marked. */
+.histogram-axis { display: flex; }
+.histogram-day { display: flex; align-items: center; flex: 1 1 0; min-width: 0; height: 18px; padding: 0 2px; justify-content: center; font-size: 11px; font-weight: var(--weight-medium); cursor: pointer;
+  color: var(--muted); background: none; border: 0; border-left: 1px solid var(--line); border-radius: 0; box-shadow: none; white-space: nowrap; overflow: hidden; }
+.histogram-day:first-child { border-left-color: transparent; }
+.histogram-day.on { color: var(--accent); font-weight: var(--weight-semibold); }
+.histogram-day.empty { opacity: 0.5; cursor: default; }
+@media (hover: hover) and (pointer: fine) { .histogram-day:hover:not(.empty) { color: var(--text); } }
+.histogram-day > .short, .histogram-axis.dense .histogram-day > .long { display: none; }
+.histogram-axis.dense .histogram-day > .short { display: inline; }
+.histogram-readout { flex: 1 1 auto; min-width: 0; text-align: end; font-size: var(--text-xs); font-variant-numeric: tabular-nums; color: var(--text); font-weight: var(--weight-medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The span picked, under the time range in the filters: its times, a tap back to the whole range. */
+#app .histogram-whole { align-self: stretch; justify-content: flex-start; min-width: 0; min-height: 30px; height: auto; padding: var(--space-6) var(--space-10); gap: var(--space-6);
+  font-size: var(--text-xs); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; text-align: start; white-space: normal;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: var(--radius-md); box-shadow: none; }
+#app .histogram-whole > span { min-width: 0; }
+#app .histogram-whole[hidden] { display: none; }
+/* The Logs page: the histogram under its bar, above the lines (in a wide window, a third row beside the filters). */
+.log-card > .log-histogram { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-6) var(--space-20) var(--space-4); border-bottom: 1px solid var(--line); background: var(--material-solid); }
+.log-card > .log-histogram:has(> .histogram[hidden]) { display: none; }
+@media (min-width: 1180px) {
+  .log-card:has(> .log-histogram) { grid-template-rows: auto auto minmax(0, 1fr); }
+  .log-card:has(> .log-histogram) > .log-filter-panel { grid-row: 1 / span 3; }
+  .log-card > .log-histogram { grid-column: 2; grid-row: 2; border-left: 1px solid var(--line); }
+  .log-card:has(> .log-histogram) > .log { grid-row: 3; }
+}
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  .log-card > .log-histogram { padding: var(--space-6) var(--space-12) var(--space-4); }
+}
+/* The Logbook: the count, the hour under the pointer, Whole range and Follow, then the histogram. */
+.logbook-card > .logbook-head { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-4); padding: var(--space-8) var(--space-16) var(--space-4); }
+.logbook-count-row { display: flex; align-items: center; gap: var(--space-8); min-height: 28px; }
+.logbook-card .logbook-count { margin: 0; flex: 0 1 auto; min-width: 0; font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.logbook-count-row > .log-follow { flex: none; margin: 0; }
+.logbook-card.reading .histogram { cursor: progress; }
+/* Clear filters on the Time range line, at its end (as on the Logs page, at the filters' top), so the column keeps
+   every filter in view with a span picked under the time range; the line keeps its height when it is hidden. */
+.logbook-card .log-time-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); align-self: stretch; min-height: 28px; }
+.logbook-card .log-time-head > .clear-filters { width: 28px; height: 28px; min-height: 28px; flex: 0 0 28px; }
+/* A phone: the histogram kept short, above the entries as they scroll; the count is in the Filters sheet and Follow in
+   the bar. */
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  .logbook-card > .logbook-head { padding: var(--space-8) var(--space-12) var(--space-4); gap: var(--space-4); }
+  .logbook-count-row { min-height: 0; }
+  .logbook-count-row > .log-follow { display: none; }
+  .logbook-card .log-time-head > .clear-filters { width: 40px; height: 40px; min-height: 40px; flex-basis: 40px; }
+  .logbook-count-row:not(:has(> .histogram-readout:not(:empty))) { display: none; }
+  .histogram-plot { height: 40px; }
+}
+/* A day header's count, at its end: the whole day's, or how much of it is read so far. */
+.logbook-card .logbook-day-total { float: inline-end; font-weight: var(--weight-regular, 400); font-variant-numeric: tabular-nums; opacity: 0.8; }
 .logbook-card .logbook-day > summary { cursor: pointer; min-height: 40px; box-sizing: border-box; align-content: center; font-weight: var(--weight-semibold); position: sticky; top: 0; z-index: 1; margin: 0; padding: var(--space-6) var(--space-16); font-size: var(--text-xs); color: #ffcfaa; background: linear-gradient(rgb(224 117 55 / 18%), rgb(224 117 55 / 18%)), var(--console); border-bottom: 1px solid rgb(224 117 55 / 25%); }
 .logbook-card .logbook-list { border: 0; border-radius: 0; background: none; }
 .logbook-card .logbook-entry { padding: 3px var(--space-16); gap: var(--space-8); grid-template-columns: auto minmax(0, 1fr) auto; }
@@ -43999,7 +44523,6 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 @media (hover: hover) and (pointer: fine) { .logbook-card .logbook-more > .logbook-earlier:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); } }
 @media (hover: hover) and (pointer: fine) { .logbook-card .logbook-entry:hover { background: var(--material-thin); } }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
-  .logbook-card .logbook-periods button { min-width: 0; white-space: normal; font-size: var(--text-xs); }
   .logbook-card .logbook-entry { grid-template-columns: auto minmax(0, 1fr); padding: var(--space-8) var(--space-12); gap: 1px var(--space-8); }
   .logbook-toolbar .clear-filters { width: 40px; height: 40px; min-height: 40px; flex-basis: 40px; }
 }
@@ -44074,8 +44597,6 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .logbook-toolbar .log-scope-row > label { grid-area: auto; }
   .logbook-toolbar .log-scope-row > .log-time { grid-area: auto; grid-column: 1 / -1; }
   .logbook-toolbar .log-scope-row > label:last-child { grid-column: 1 / -1; }
-  .logbook-toolbar .logbook-periods { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; }
-  .logbook-toolbar .logbook-periods button { padding: var(--space-6) var(--space-4); gap: var(--space-4); }
 }
 
 .logbook-card .logbook-day > summary::marker { color: currentColor; }
@@ -44332,10 +44853,9 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   #app .phone-bar .bar-button.primary:disabled { opacity: 0.5; }
   .logbook-day[hidden], .logbook-entry[hidden] { display: none; }
   .logbook-toolbar > .logbook-count { grid-column: 1 / -1; padding: 0; border: 0; }
-  /* The Logbook's sheet: one column, the count first and the reset last, at the end of its own line. */
+  /* The Logbook's sheet: one column, the count first (Clear filters is on the time range's line). */
   #app .logbook-toolbar.phone-sheet { grid-template-columns: minmax(0, 1fr); grid-template-areas: none; }
   #app .logbook-toolbar.phone-sheet > *, #app .logbook-toolbar.phone-sheet > .log-scope-row > * { grid-area: auto; grid-column: 1 / -1; }
-  #app .logbook-toolbar.phone-sheet > .clear-filters { justify-self: end; }
   main:has(> .audit-bar) .audit-filter-grid, main:has(> .audit-bar) .audit-search { grid-template-columns: minmax(0, 1fr); }
   main:has(> .audit-bar) .audit-results .data-table, main:has(> .audit-bar) .audit-results .data-table tbody { display: block; }
   main:has(> .audit-bar) .audit-results .data-table thead { display: none; }

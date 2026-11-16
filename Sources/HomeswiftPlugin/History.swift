@@ -710,14 +710,36 @@ public final class HistoryStore: @unchecked Sendable {
 
     /// The Logbook's entries that match, newest first.
     public func logbook(_ query: LogbookQuery) -> [LogbookEntry] {
+        var found: [LogbookEntry] = []
+        guard query.limit > 0 else { return found }
+        matches(query) { entry in
+            found.append(entry)
+            return found.count < query.limit
+        }
+        return found
+    }
+
+    /// How many of the Logbook's entries match in each hour (its start), every one counted: `limit` is not used. The
+    /// web UI's Logbook draws each day of its range from them before it reads the entries.
+    public func logbookHours(_ query: LogbookQuery) -> [Date: Int] {
+        var hours: [Date: Int] = [:]
+        matches(query) { entry in
+            hours[Self.hourStart(entry.time), default: 0] += 1
+            return true
+        }
+        return hours
+    }
+
+    /// Each entry that matches, newest first (the days from the last, each day's lines from its end), while `body` says
+    /// to go on.
+    private func matches(_ query: LogbookQuery, _ body: (LogbookEntry) -> Bool) {
         flush()
         let to = query.to ?? now()
         let from = max(query.from ?? .distantPast, now().addingTimeInterval(-Double(retention.days + 1) * 86_400))
-        var found: [LogbookEntry] = []
         var day = Self.dayStart(to)
         let decoder = JSONDecoder()
         let needles = query.accessories.flatMap { ids in ids.count <= 20 ? ids.compactMap { id in (try? JSONEncoder().encode(id)).flatMap { String(data: $0, encoding: .utf8) }.map { "\"a\":\($0)" } } : nil }
-        while day >= Self.dayStart(from), found.count < query.limit {
+        while day >= Self.dayStart(from) {
             var entries: [LogbookEntry] = []
             for line in lines(of: "logbook/\(Self.day(day)).jsonl") {
                 // An accessory asked for: the lines that name it are the only ones decoded.
@@ -728,11 +750,9 @@ public final class HistoryStore: @unchecked Sendable {
                 if let name = query.sourceName, entry.source.name != name { continue }
                 entries.append(entry)
             }
-            found.append(contentsOf: entries.reversed())
+            for entry in entries.reversed() where !body(entry) { return }
             day = day.addingTimeInterval(-86_400)
         }
-        // Newest first already: the days from the last, each day's lines from its end.
-        return Array(found.prefix(query.limit))
     }
 
     /// The lines of a file, from disk or memory.

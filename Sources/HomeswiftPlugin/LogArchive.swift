@@ -196,49 +196,95 @@ public final class LogArchive: @unchecked Sendable {
     public func lines(
         from: Date, to: Date, limit: Int, matching: ((LogBuffer.Line) -> Bool)? = nil, mayMatch: ((String) -> Bool)? = nil
     ) -> [LogBuffer.Line] {
+        var found: [LogBuffer.Line] = []   // newest first
+        rows(from: from, to: to, mayMatch: mayMatch) { row in
+            guard let line = Self.line(row) else { return true }
+            if line.date > to { return true }
+            if line.date < from { return false }
+            if let matching, !matching(line) { return true }
+            found.append(line)
+            return found.count < limit
+        }
+        return found.reversed()
+    }
+
+    /// The levels `hours` counts, in its order.
+    public static let levels: [Logger.Level] = [.trace, .debug, .info, .notice, .warning, .error, .critical]
+
+    /// How many lines `matching` keeps in each hour from `from` to `to` (the hour's start in seconds since 1970), by
+    /// level in `levels`' order: the web UI's Logs page draws its range from them. A row is parsed only when a filter
+    /// needs the line; else its time and level are read from its bytes.
+    public func hours(
+        from: Date, to: Date, matching: ((LogBuffer.Line) -> Bool)? = nil, mayMatch: ((String) -> Bool)? = nil
+    ) -> [Int: [Int]] {
+        var hours: [Int: [Int]] = [:]
+        rows(from: from, to: to, mayMatch: mayMatch) { row in
+            if let matching {
+                guard let line = Self.line(row), line.date >= from, line.date <= to, matching(line) else { return true }
+                Self.count(&hours, at: line.date.timeIntervalSince1970, level: Self.levels.firstIndex(of: line.level))
+            } else if let time = Self.time(of: row) {
+                Self.count(&hours, at: time, level: Self.level(of: row))
+            }
+            return true
+        }
+        return hours
+    }
+
+    /// One line more in its hour's count of its level (`levels`' index; info when unknown): `hours` and the log in
+    /// memory (`LogBuffer.hours`) count alike.
+    static func count(_ hours: inout [Int: [Int]], at time: Double, level: Int?) {
+        let hour = Int((time / 3600).rounded(.down)) * 3600
+        hours[hour, default: Array(repeating: 0, count: levels.count)][level ?? 2] += 1
+    }
+
+    /// Each row from `to` back to `from`, newest first, that `mayMatch` (given its raw JSON text) lets through, while
+    /// `body` says to go on. Read row by row from each segment's end, in place: splitting a segment into rows first
+    /// cost as much as parsing them. A row whose time cannot be read from its bytes is given too, to check once parsed.
+    private func rows(from: Date, to: Date, mayMatch: ((String) -> Bool)?, _ body: (UnsafeRawBufferPointer) -> Bool) {
         flush()
         let all = segments()
-        var chunks: [[LogBuffer.Line]] = []   // newest segment first, each newest line first
-        var count = 0
+        let (start, end) = (from.timeIntervalSince1970, to.timeIntervalSince1970)
         // A segment covers from its start to the next one's.
-        scan: for (index, segment) in all.enumerated().reversed() {
-            let end = index + 1 < all.count ? all[index + 1].start : .distantFuture
-            guard segment.start <= to, end >= from else { continue }
-            guard let data = try? Data(contentsOf: segment.url) else { continue }
-            var found: [LogBuffer.Line] = []
-            // Row by row from the end, in place: splitting the segment into rows first cost as much as parsing them.
+        for (index, segment) in all.enumerated().reversed() {
+            let next = index + 1 < all.count ? all[index + 1].start : .distantFuture
+            guard segment.start <= to, next >= from, let data = try? Data(contentsOf: segment.url) else { continue }
             let done = data.withUnsafeBytes { bytes -> Bool in
-                var end = bytes.count
-                while end > 0 {
-                    var start = end
-                    while start > 0, bytes[start - 1] != 0x0A { start -= 1 }
-                    defer { end = start - 1 }
-                    guard start < end else { continue }
-                    let row = UnsafeRawBufferPointer(rebasing: bytes[start..<end])
+                var rowEnd = bytes.count
+                while rowEnd > 0 {
+                    var rowStart = rowEnd
+                    while rowStart > 0, bytes[rowStart - 1] != 0x0A { rowStart -= 1 }
+                    defer { rowEnd = rowStart - 1 }
+                    guard rowStart < rowEnd else { continue }
+                    let row = UnsafeRawBufferPointer(rebasing: bytes[rowStart..<rowEnd])
                     if let time = Self.time(of: row) {
-                        if time > to.timeIntervalSince1970 { continue }
-                        if time < from.timeIntervalSince1970 { return true }
+                        if time > end { continue }
+                        if time < start { return true }
                     }
                     if let mayMatch, !mayMatch(String(decoding: row, as: UTF8.self)) { continue }
-                    guard let line = Self.line(row) else { continue }
-                    if line.date > to { continue }
-                    if line.date < from { return true }
-                    if let matching, !matching(line) { continue }
-                    found.append(line)
-                    count += 1
-                    if count >= limit { return true }
+                    if !body(row) { return true }
                 }
                 return false
             }
-            chunks.append(found)
-            if done { break scan }
+            if done { return }
         }
-        // Oldest first, in one array.
-        var lines: [LogBuffer.Line] = []
-        lines.reserveCapacity(count)
-        for chunk in chunks.reversed() { lines.append(contentsOf: chunk.reversed()) }
-        return lines
     }
+
+    /// A row's level as `levels`' index, read from its bytes: inside a JSON string every quote is escaped, so `"l":"` is
+    /// the key, and each level's first letter is its own.
+    static func level(of raw: UnsafeRawBufferPointer) -> Int? {
+        let bytes = raw.bindMemory(to: UInt8.self)
+        var index = 0
+        while index + 5 < bytes.count {
+            if bytes[index] == 0x22, bytes[index + 1] == 0x6C, bytes[index + 2] == 0x22, bytes[index + 3] == 0x3A, bytes[index + 4] == 0x22 {
+                return levelByInitial[bytes[index + 5]]
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    /// `levels`' index by its name's first letter: trace, debug, info, notice, warning, error, critical.
+    private static let levelByInitial: [UInt8: Int] = Dictionary(uniqueKeysWithValues: levels.enumerated().map { ($1.rawValue.utf8.first!, $0) })
 
     /// A row's `t`, read from its bytes without parsing the row: inside a JSON string every quote is escaped, so the
     /// bytes `"t":` are the key wherever it is. nil when there is none (not a row).

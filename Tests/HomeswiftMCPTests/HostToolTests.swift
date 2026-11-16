@@ -242,6 +242,12 @@ struct HostToolTests {
         let rest = try await client.tool("get_logbook", ["accessory": "Devices:lamp", "until": .string("\(newest.dropLast()).999Z")])["structuredContent"]
         #expect(rest?["more"] == false)
         #expect(rest?["entries"]?.arrayValue?.last?["source"]?["kind"] == "mcp")
+        // The page's days: how many entries each hour has, under the same filters.
+        let hours = try environment.catalog.logbookHoursJSON(accessory: "Devices:lamp")
+        #expect(hours["total"] == 2)
+        let counted = hours["hours"]?.arrayValue?.compactMap { $0.arrayValue?.last?.intValue }
+        #expect(counted?.reduce(0, +) == 2)
+        #expect(try environment.catalog.logbookHoursJSON(sourceKind: "mcp")["total"] == 1)
 
         let history = try await client.tool("get_accessory_history", ["id": "Devices:lamp", "type": "On"])["structuredContent"]
         let on = history?["series"]?.arrayValue?.first

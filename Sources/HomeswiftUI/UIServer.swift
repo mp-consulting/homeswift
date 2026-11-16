@@ -527,7 +527,7 @@ public final class UIServer: Sendable {
     static func requiredScope(_ method: HTTPMethod, _ route: [String]) -> Scope {
         switch method {
         case .GET:
-            if [["status"], ["presence"], ["accessories"], ["plugins"], ["metrics"], ["metrics", "energy"], ["metrics", "energy", "history"], ["metrics", "energy", "story"], ["metrics", "consumption"], ["events"], ["assistant"], ["logbook"]].contains(route) { return .read }
+            if [["status"], ["presence"], ["accessories"], ["plugins"], ["metrics"], ["metrics", "energy"], ["metrics", "energy", "history"], ["metrics", "energy", "story"], ["metrics", "consumption"], ["events"], ["assistant"], ["logbook"], ["logbook", "hours"]].contains(route) { return .read }
             // A camera's pan and tilt: asking may sign in to the camera, so it is for those who may move it.
             if route.count == 3, route[0] == "cameras", route[2] == "controls" { return .control }
             // A Talk's WebSocket (CameraTalkSocket.swift), as its POST.
@@ -829,8 +829,9 @@ public final class UIServer: Sendable {
                 guard let block else { return .error(404, "no block \(path[3]) of \(path[2])") }
                 // The page shows secrets as the placeholder; a save that keeps it keeps the stored value.
                 return .json(Redaction.redactSecrets(block))
-            case ["logs"]:
+            case ["logs"], ["logs", "hours"]:
                 // `from` (and `to`, now when left out) as ISO 8601: that span, from the archive on disk; else the latest lines.
+                // `hours`: how many lines each hour of the span has, by level, for the page's histogram.
                 // `accessory`, `bridge` (a device ID, or `all`), `plugin` (a block's name): only the lines about them,
                 // picked before the limit.
                 // A bridge's lines or a plugin's, not both: the page sends one of the two.
@@ -846,13 +847,17 @@ public final class UIServer: Sendable {
                 let matching = Self.all(found.map(Self.logMatcher(for:)), labels.map(Self.logMatcher(labels:)))
                 // The same, on a row of the log on disk before it is parsed: what the row must hold to match.
                 let mayMatch = Self.all(found.flatMap(Self.rowFilter(for:)), labels.flatMap(Self.rowFilter(labels:)))
-                if let from = request.query["from"].flatMap(Self.date(iso:)) {
-                    let to = request.query["to"].flatMap(Self.date(iso:)) ?? Date()
-                    // The archive is read off the concurrency pool: up to a week of files.
-                    let logs = catalog.logs
-                    let lines = await withCheckedContinuation { continuation in
-                        DispatchQueue.global(qos: .userInitiated).async { continuation.resume(returning: logs.lines(from: from, to: to, limit: Self.logLimit, matching: matching, mayMatch: mayMatch)) }
-                    }
+                let from = request.query["from"].flatMap(Self.date(iso:)), to = request.query["to"].flatMap(Self.date(iso:)) ?? Date()
+                // The archive is read off the concurrency pool: up to a week of files.
+                let logs = catalog.logs
+                if route.count == 2 {
+                    guard let from else { return .error(400, "from: an ISO 8601 time") }
+                    let hours = await Self.offPool { logs.hours(from: from, to: to, matching: matching, mayMatch: mayMatch) }
+                    let rows: [JSONValue] = hours.keys.sorted().map { hour in .array([.number(Double(hour))] + (hours[hour] ?? []).map { .number(Double($0)) }) }
+                    return .json(["levels": .array(LogArchive.levels.map { .string($0.rawValue) }), "hours": .array(rows)])
+                }
+                if let from {
+                    let lines = await Self.offPool { logs.lines(from: from, to: to, limit: Self.logLimit, matching: matching, mayMatch: mayMatch) }
                     return .data(status: 200, contentType: "application/json", body: Self.logsJSON(lines))
                 }
                 return .data(status: 200, contentType: "application/json", body: Self.logsJSON(catalog.logs.recent(2000, matching: matching)))
@@ -860,9 +865,7 @@ public final class UIServer: Sendable {
                 // The log as a text file: everything kept (a week at most), or `from` to `to` (ISO 8601).
                 let (from, to) = (request.query["from"].flatMap(Self.date(iso:)), request.query["to"].flatMap(Self.date(iso:)))
                 let catalog = catalog
-                let text = await withCheckedContinuation { continuation in
-                    DispatchQueue.global(qos: .userInitiated).async { continuation.resume(returning: catalog.logText(from: from, to: to)) }
-                }
+                let text = await Self.offPool { catalog.logText(from: from, to: to) }
                 let stamp = Timestamp.iso8601(Date()).prefix(19).replacingOccurrences(of: ":", with: "-")
                 return .data(status: 200, contentType: "text/plain; charset=utf-8", body: Data((text.isEmpty ? "" : text + "\n").utf8),
                              headers: ["Content-Disposition": "attachment; filename=\"homeswift-\(stamp).log\""])
@@ -1488,6 +1491,13 @@ public final class UIServer: Sendable {
 
     /// The most lines one time range answers with: the latest of them.
     static let logLimit = 10_000
+
+    /// `work` on a global queue, off the concurrency pool: reading days of files must not hold one of its threads.
+    static func offPool<Value: Sendable>(_ work: @escaping @Sendable () -> Value) async -> Value {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async { continuation.resume(returning: work()) }
+        }
+    }
 
     /// What names an accessory in a line, lower-cased: its name, id, address (`ElgatoKeyLights:3C:6A:…`) and serial.
     static func logTerms(for found: HomeswiftCatalog.Located) -> [String] {

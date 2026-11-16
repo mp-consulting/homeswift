@@ -189,10 +189,13 @@
       default: return source.name ?? "";
     }
   }
-  const sinceChoices = [["24h", t("24 hours")], ["3d", t("3 days")], ["7d", t("7 days")], ["", t("Everything kept")]];
+  /// The Logbook's time ranges (HomeswiftCommon.rangeControl): hours or days back, Everything kept, or Custom… for any days kept.
+  const rangeChoices = [["24h", t("24 hours")], ["3d", t("3 days")], ["7d", t("7 days")], ["all", t("Everything kept")]];
 
   async function logbookView(main) {
     const params = new URLSearchParams(location.search);
+    // An address from before the range control: `since=` (empty) was Everything kept.
+    if (params.get("since") === "") params.set("since", "all");
     const accessories = await api("/api/accessories").catch(() => []);
     const rooms = [...new Set(accessories.map((accessory) => accessory.room).filter(Boolean))].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale));
     const select = (name, label, choices, value) => {
@@ -204,34 +207,37 @@
     const accessory = select("accessory", t("Accessory"), [["", t("All accessories")],
       ...[...accessories].sort((a, b) => a.name.localeCompare(b.name, HomeswiftI18n.locale)).map((one) => [one.id, one.name])], params.get("accessory") ?? "");
     const source = select("source", t("Change Source"), sourceKinds, params.get("source") ?? "");
-    const since = select("since", t("Time range"), sinceChoices, params.get("since") ?? "24h");
-    const controls = [room, accessory, source, since];
-    since.hidden = true;
-    const periods = el("div", { class: "group logbook-periods", role: "group", "aria-label": t("Time range") },
-      sinceChoices.map(([value, label]) => el("button", { type: "button", actionIcon: "history", text: label,
-        onclick: () => { since.value = value; since.dispatchEvent(new Event("change", { bubbles: true })); } })));
-    const syncPeriods = () => [...periods.children].forEach((button, index) => {
-      const selected = since.value === sinceChoices[index][0];
-      button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
-    });
-    since.addEventListener("change", syncPeriods);
-    syncPeriods();
-    const clear = HomeswiftCommon.clearFilters(controls.map((control) => [control, control === since ? "24h" : ""]),
-      { active: () => controls.some((control) => control.value !== (control === since ? "24h" : "")), events: controls.map((control) => [control, "change"]), reset: reload });
+    const controls = [room, accessory, source];
+    /// The days the Logbook keeps: the first Custom… day offered, from the first read.
+    let kept = 30;
+    const range = HomeswiftCommon.rangeControl(params, { presets: rangeChoices, fallback: "24h", earliestDays: () => kept, changed: () => { histogram.pick(null); reload(); } });
+    // The whole range at once, before its entries are read (HomeswiftCommon.timeHistogram): a span picked on it is what
+    // the list shows; its chip under the time range goes back.
+    const histogram = HomeswiftCommon.timeHistogram(params, { unit: (n) => tn("{n} entry", "{n} entries", n), changed: () => reload(false, true) });
+    const clear = HomeswiftCommon.clearFilters(controls.map((control) => [control, ""]),
+      { active: () => range.chosen() || Boolean(histogram.selection), events: [[range.control, "change"], [histogram.element, "change"]],
+        reset: () => { range.reset(); histogram.pick(null); reload(); } });
     const list = el("div", { class: "log logbook", tabindex: 0, role: "region", "aria-label": t("Logbook") });
-    const count = el("p", { class: "muted log-action-bar logbook-count", "aria-live": "polite" });
+    const count = el("p", { class: "muted logbook-count", "aria-live": "polite" });
+    // Follow, as on the Logs page: the Logbook read again every few seconds, the newest kept in view.
+    const followBox = el("input", { type: "checkbox", checked: true });
+    const followToggle = el("label", { class: "toggle compact log-follow" }, el("span", { class: "switch" }, followBox, el("span")), el("span", { text: t("Follow") }));
+    const countRow = el("div", { class: "logbook-count-row" }, count, histogram.readout, followToggle);
+    const head = el("div", { class: "log-action-bar logbook-head" }, countRow, histogram.element);
     const icons = new Map(accessories.map((one) => [one.id, HomeswiftWidgets.accessoryIcon(one) ?? "accessory"]));
     const byID = new Map(accessories.map((one) => [one.id, one]));
     const panel = el("div", { class: "log-filter-panel logbook-toolbar" },
       el("div", { class: "log-scope-row" },
-        el("div", { class: "log-time" }, el("span", { text: t("Time range") }), periods),
+        el("div", { class: "log-time" }, el("div", { class: "log-time-head" }, el("span", { text: t("Time range") }), clear), range.control, histogram.chip),
         ...[[t("Room"), room], [t("Accessory"), accessory], [t("Change Source"), source]].map(([label, control]) =>
-          el("label", {}, el("span", { text: label }), control))), clear, since);
+          el("label", {}, el("span", { text: label }), control))));
     // A phone (as the Logs page and the Audit log): one bar above the tab bar, a search through the entries shown, Filters
     // (the panel as a sheet over the bar, its badge counting the filters that are not the defaults) and the Assistant.
     const filters = HomeswiftCommon.filtersToggle(panel);
-    const showCount = () => filters.count(controls.filter((control) => control.value !== (control === since ? "24h" : "")).length);
+    const showCount = () => filters.count(controls.filter((control) => control.value).length + (range.chosen() ? 1 : 0) + (histogram.selection ? 1 : 0));
     for (const control of controls) control.addEventListener("change", showCount);
+    range.control.addEventListener("change", showCount);
+    histogram.element.addEventListener("change", showCount);
     showCount();
     const search = el("input", { type: "search", class: "search bar-only", placeholder: t("Search"), "aria-label": t("Search") });
     const applySearch = () => {
@@ -247,42 +253,66 @@
       }
     };
     search.addEventListener("input", applySearch);
-    // A phone follows the Logbook as the Logs page does: the newest at the foot by the bar, read again every few seconds
-    // while following (Pause stops it), and an arrow back to the end once scrolled away.
+    // Following (the switch, on a phone Pause and Play in the bar): read again every few seconds, the newest kept in
+    // view (at the top, on a phone at the foot by the bar), and on a phone an arrow back to the end once scrolled away.
     const phone = HomeswiftCommon.phone;
     let following = true;
-    const followUI = HomeswiftCommon.followControls({ following: () => following, setFollowing: (on) => {
-      following = on;
+    const followUI = HomeswiftCommon.followControls({ following: () => following, setFollowing: (on) => setFollowing(on) });
+    function setFollowing(on) {
+      following = followBox.checked = on;
       followUI.paint();
-      if (on && phone.matches) followUI.toEnd(true);
-    } });
+      if (!on) return;
+      if (phone.matches) followUI.toEnd(true); else list.scrollTop = 0;
+      reload(true);
+    }
+    followBox.addEventListener("change", () => setFollowing(followBox.checked));
     const bar = el("div", { class: "logbook-bar phone-bar" }, search, filters.button, followUI.button, HomeswiftCommon.assistantButton());
-    const card = el("div", { class: "card log-card logbook-card" }, panel, count, list);
-    // On a phone the count heads the Filters sheet, and the log has the card to itself.
-    const placeCount = () => { if (HomeswiftCommon.phone.matches) panel.prepend(count); else panel.after(count); };
+    const card = el("div", { class: "card log-card logbook-card" }, panel, head, list);
+    // On a phone the count heads the Filters sheet, and the histogram the log.
+    const placeCount = () => { if (HomeswiftCommon.phone.matches) panel.prepend(count); else countRow.prepend(count); };
     placeCount();
     // Between a phone and a wider window the entries change order (the newest at the foot, or first): drawn again.
     phone.addEventListener("change", () => { placeCount(); draw("new"); }, { signal: HomeswiftCommon.viewSignal() });
     const refresh = setInterval(() => {
       if (!bar.isConnected) { clearInterval(refresh); return; }
-      if (phone.matches && following && !document.hidden && !filters.isOpen() && !HomeswiftCommon.menuOpen()) reload(true);
+      // Wider than a phone, only at the list's top: someone reading further down keeps their place.
+      if (!phone.matches && list.scrollTop > 40) return;
+      if (following && !document.hidden && !filters.isOpen() && !HomeswiftCommon.menuOpen()) reload(true);
     }, 4000);
     HomeswiftCommon.viewSignal().addEventListener("abort", () => clearInterval(refresh));
     app().show(main, app().pageHead(t("Logbook"), t("What changed in the home, and who or what changed it.")), card, bar, followUI.latest);
 
-    /// What was last drawn: a quiet read (the phone's refresh) that finds the same entries in the same order draws nothing.
+    /// What was last drawn: a quiet read (the refresh) that finds the same entries in the same order draws nothing.
     let drawn = "";
-    /// The entries drawn, newest first; whether older ones match too; whether Show earlier added pages to the first.
-    let shown = [], more = false, extended = false, days = 0;
-    const earlier = el("button", { type: "button", class: "logbook-earlier", actionIcon: "history", text: t("Show earlier"), onclick: showEarlier });
+    /// The entries drawn, newest first; whether older ones match too; whether older pages were added to the first.
+    let shown = [], more = false, extended = false;
+    /// A new choice of filters: the reads of an earlier one are dropped.
+    let generation = 0;
+    const earlier = el("button", { type: "button", class: "logbook-earlier", actionIcon: "history", text: t("Show earlier"), onclick: () => readAll() });
     const earlierError = el("p", { class: "error", hidden: true });
     const earlierRow = el("div", { class: "logbook-more" }, earlier, earlierError);
+    const dayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "long", day: "numeric", month: "long" });
+    const dayKey = histogram.dayKey;
 
-    /// The filters as a query, and the page's address.
-    function filterQuery() {
+    /// The entries' query is the picked span's (`until` includes its bound: a millisecond before its end); the
+    /// histogram's (`whole`) is the range's.
+    function filterQuery(whole = false) {
       const query = new URLSearchParams();
       for (const control of controls) if (control.value) query.set(control.name, control.value);
+      const span = range.span(), picked = whole ? null : histogram.selection;
+      const since = picked ? picked.from : span?.[0];
+      const until = picked ? new Date(Math.min(picked.to - 1, span?.[1] ?? Infinity)) : span?.[1];
+      if (since) query.set("since", since.toISOString());
+      if (until) query.set("until", until.toISOString());
       return query;
+    }
+    /// The choice itself, for the address (a range back from now moves with the clock).
+    function filterKey() {
+      const query = new URLSearchParams();
+      range.address(query);
+      for (const control of controls) if (control.value) query.set(control.name, control.value);
+      histogram.address(query);
+      return query.toString();
     }
 
     /// `newer`, then `older`'s entries from before `newer`'s last. Times are to the second, so `older` (read up to and
@@ -294,29 +324,47 @@
       return newer.concat(older.filter((entry) => entry.time < edge || (entry.time === edge && skip-- <= 0)));
     }
 
-    async function reload(quiet = false) {
+    /// What was drawn, for a refresh that finds nothing new.
+    const shape = () => [filterKey(), phone.matches, shown.length, shown[0]?.time, shown.at(-1)?.time, histogram.count()].join("|");
+
+    /// `entriesOnly`: a new pick on the histogram, whose counts stay.
+    async function reload(quiet = false, entriesOnly = false) {
       if (quiet instanceof Event) quiet = false;
-      const query = filterQuery();
-      const search = query.toString();
-      const path = `/logbook${search ? `?${search}` : ""}`;
+      const key = filterKey();
+      const path = `/logbook${key ? `?${key}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
-      if (!quiet) list.classList.add("loading");
-      let found;
-      try { found = await api(`/api/logbook?${query}`); }
-      catch (e) { list.classList.remove("loading"); if (!quiet) list.replaceChildren(el("p", { class: "error", text: e.message })); return; }
+      const at = quiet ? generation : ++generation;
+      const query = filterQuery();
+      if (!quiet) { list.classList.add("loading"); earlierError.hidden = true; }
+      let found, hours;
+      // The counts are read with the entries, but a refresh reads them again only once a new entry came. Without them
+      // the list still shows: the histogram waits for the next read.
+      const readHours = () => api(`/api/logbook/hours?${filterQuery(true)}`).catch(() => null);
+      try {
+        [found, hours] = await Promise.all([api(`/api/logbook?${query}`), entriesOnly || quiet ? null : readHours()]);
+        const newest = (entries) => entries.slice(0, 10).map((entry) => `${entry.time} ${entry.accessory} ${entry.characteristic}`).join("|");
+        if (quiet && newest(found.entries) !== newest(shown)) hours = await readHours();
+      } catch (e) {
+        if (at !== generation) return;
+        list.classList.remove("loading");
+        if (!quiet) list.replaceChildren(el("p", { class: "error", text: e.message }));
+        return;
+      }
+      if (at !== generation || (quiet && loading)) return;
       list.classList.remove("loading");
-      days = found.days;
-      // The phone's refresh keeps the pages Show earlier added, below the newest.
+      kept = found.days;
+      // The refresh keeps the older pages read, after the newest.
       if (quiet && extended) shown = join(found.entries, shown);
       else { shown = found.entries; more = found.more === true; extended = false; }
-      const shape = [search, phone.matches, shown.length, shown[0]?.time, shown.at(-1)?.time].join("|");
-      if (quiet && shape === drawn) return;
-      drawn = shape;
-      draw(quiet ? "quiet" : "new");
+      // From the first day with entries, but each day of a custom range.
+      if (hours) { const span = range.span(); histogram.set({ hours: hours.hours ?? [], from: span?.[0] ?? null, to: span?.[1] ?? null, trim: !range.custom() }); }
+      if (quiet && shape() === drawn) return;
+      drawn = shape();
+      draw(quiet ? "quiet" : entriesOnly ? "pick" : "new");
     }
 
-    /// Infinite scroll: near the oldest entries (the list's foot, on a phone its top), the next ones are read. Show earlier
-    /// does it by hand, for a keyboard and a list too short to scroll.
+    /// Infinite scroll: near the oldest entries (the list's foot, on a phone its top), the next ones are read. Show all
+    /// reads the whole range, or span, at once.
     let loading = false;
     const reach = 600;
     function nearOldest() {
@@ -325,49 +373,79 @@
       if (scroller) return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < reach;
       return earlierRow.getBoundingClientRect().top < innerHeight + reach;
     }
-    const maybeEarlier = () => { if (more && !loading && shown.length && !earlierRow.hidden && nearOldest()) showEarlier(); };
-    list.addEventListener("scroll", maybeEarlier, { passive: true });
-    addEventListener("scroll", maybeEarlier, { passive: true, signal: HomeswiftCommon.viewSignal() });
+    const maybeEarlier = () => { if (more && !loading && shown.length && !earlierRow.hidden && nearOldest()) readWhile(() => false, 300); };
+    const onScroll = () => { maybeEarlier(); spy(); };
+    list.addEventListener("scroll", onScroll, { passive: true });
+    addEventListener("scroll", onScroll, { passive: true, signal: HomeswiftCommon.viewSignal() });
 
-    /// The next entries before the oldest one shown, under the same filters.
-    async function showEarlier() {
-      const oldest = shown.at(-1);
-      if (!oldest || loading) return;
+    /// Every entry of the range, or of the span picked, saying how far it is.
+    const readAll = () => readWhile(() => true, 1000, true);
+
+    /// Reads the entries before the oldest shown, `limit` a page, while `wanted()` and older ones are left, then draws them
+    /// once. On a phone the older entries come above: the one that was at the top stays where it was.
+    async function readWhile(wanted, limit, progress = false) {
+      if (loading || !shown.length) return false;
       loading = true;
-      try { await readEarlier(oldest); } finally { loading = false; }
-    }
-
-    async function readEarlier(oldest) {
-      const query = filterQuery();
-      query.set("until", new Date(Date.parse(oldest.time) + 999).toISOString());
+      const at = generation, before = shown.length;
       earlier.disabled = true;
       earlierError.hidden = true;
-      let found;
-      try { found = await api(`/api/logbook?${query}`); }
-      catch (e) { earlier.disabled = false; earlierError.textContent = e.message; earlierError.hidden = false; return; }
-      earlier.disabled = false;
-      // A filter changed meanwhile: that read is the one drawn.
-      if (filterQuery().toString() !== query.toString().replace(/&?until=[^&]*/, "")) return;
-      const before = shown.length;
-      shown = join(shown, found.entries);
-      more = found.more === true;
-      extended = true;
-      drawn = [filterQuery().toString(), phone.matches, shown.length, shown[0]?.time, shown.at(-1)?.time].join("|");
-      // On a phone the older entries come above: the one that was at the top stays where it was.
+      card.classList.add("reading");
+      let read = false;
+      try {
+        do {
+          const query = filterQuery();
+          query.set("until", new Date(Date.parse(shown.at(-1).time) + 999).toISOString());
+          query.set("limit", String(limit));
+          const found = await api(`/api/logbook?${query}`);
+          if (at !== generation) return false;
+          shown = join(shown, found.entries);
+          more = found.more === true;
+          extended = read = true;
+          if (more && progress) earlier.textContent = t("Reading {n} of {total}…", { n: shown.length, total: Math.max(histogram.count(), shown.length) });
+        } while (more && wanted());
+      } catch (e) {
+        if (at === generation) { earlierError.textContent = e.message; earlierError.hidden = false; }
+      } finally {
+        loading = false;
+        earlier.disabled = false;
+        card.classList.remove("reading");
+      }
+      if (!read || at !== generation) return read;
+      drawn = shape();
       const anchor = () => list.querySelector(`[data-index="${before - 1}"]`);
       const top = anchor()?.getBoundingClientRect().top;
       draw("earlier");
       if (phone.matches && top !== undefined) document.scrollingElement.scrollBy(0, (anchor()?.getBoundingClientRect().top ?? top) - top);
+      return true;
+    }
+
+    /// The day at the top of the list (on a phone, at the middle of the window), marked under the histogram.
+    let spying = 0;
+    function spy() {
+      cancelAnimationFrame(spying);
+      spying = requestAnimationFrame(() => {
+        const y = phone.matches ? innerHeight * 0.45 : list.getBoundingClientRect().top + 48;
+        const sections = [...list.querySelectorAll(".logbook-day:not([hidden])")];
+        const at = sections.find((section) => section.getBoundingClientRect().bottom > y) ?? sections.at(-1);
+        histogram.mark(at?.dataset.day);
+      });
     }
 
     function draw(mode) {
       const newestLast = phone.matches;
       const atEnd = followUI.atEnd();
+      const atTop = list.scrollTop < 40;
+      // Each day's entries in the span picked (all of the range without one).
+      const counts = histogram.countsByDay();
+      const counted = Math.max(histogram.count(), shown.length);
+      const busy = [...counts.values()].filter(Boolean).length;
+      // How many entries the range (or the span picked) has, and, until all are read, how many are shown.
       count.textContent = more
-        ? tn("The latest {n} entry · kept {days} days", "The latest {n} entries · kept {days} days", shown.length, { days: String(days) })
-        : tn("{n} entry · kept {days} days", "{n} entries · kept {days} days", shown.length, { days: String(days) });
-      if (!shown.length) { list.replaceChildren(el("p", { class: "muted empty", text: t("Nothing changed in this range.") })); return; }
-      const dayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "long", day: "numeric", month: "long" });
+        ? tn("{shown} of {n} entry · kept {days} days", "{shown} of {n} entries · kept {days} days", counted, { shown: shown.length, days: kept })
+        : tn("{n} entry · kept {days} days", "{n} entries · kept {days} days", counted, { days: kept });
+      // Show all says how much: every day of the range, or of the span.
+      earlier.textContent = busy > 1 ? t("Show all {n} days", { n: busy }) : t("Show earlier");
+      if (!shown.length) { earlierRow.hidden = true; list.replaceChildren(el("p", { class: "muted empty", text: t("Nothing changed in this range.") })); return; }
       // Hours and minutes read at a glance; the seconds are in the time's tooltip.
       const timeFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", hour12: false });
       const exactFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -375,22 +453,31 @@
       const indexed = shown.map((entry, index) => [entry, index]);
       for (const [entry, index] of newestLast ? indexed.reverse() : indexed) {
         const date = new Date(entry.time);
-        const key = dayFormat.format(date);
-        if (!byDay.has(key)) byDay.set(key, []);
-        byDay.get(key).push(row(entry, index, date, timeFormat, exactFormat));
+        const key = dayKey(date);
+        if (!byDay.has(key)) byDay.set(key, { date, rows: [] });
+        byDay.get(key).rows.push(row(entry, index, date, timeFormat, exactFormat));
       }
-      const sections = [...byDay].map(([day, rows]) => {
-        const section = el("details", { class: "logbook-day" }, el("summary", { text: day }), el("ul", { class: "logbook-list" }, rows));
+      const sections = [...byDay].map(([key, { date, rows }]) => {
+        const all = counts.get(key);
+        // A day read only in part says so: the rest comes as the list scrolls on, or with Show all.
+        const summary = el("summary", {}, el("span", { text: dayFormat.format(date) }),
+          el("span", { class: "logbook-day-total", text: all && all > rows.length
+            ? t("{shown} of {total}", { shown: rows.length, total: all })
+            : tn("{n} entry", "{n} entries", rows.length) }));
+        const section = el("details", { class: "logbook-day", "data-day": key }, summary, el("ul", { class: "logbook-list" }, rows));
         section.open = true;
         return section;
       });
-      // Show earlier goes where the oldest entries are: the foot, or on a phone the top.
+      // Show all goes where the oldest entries are: the foot, or on a phone the top.
       earlierRow.hidden = !more;
       list.replaceChildren(...(newestLast ? [earlierRow, ...sections] : [...sections, earlierRow]));
       applySearch();
+      spy();
       if (mode === "earlier") return;
-      // Following, from the end (or a first draw), the page stays at the newest; there, the arrow back is not needed.
-      if (newestLast && following && (mode === "new" || atEnd)) followUI.toEnd(); else followUI.showLatest();
+      // Following, from the newest (or a first draw), the list stays at the newest: its top, or on a phone its foot,
+      // where the arrow back is not needed.
+      if (!newestLast) { if (following && (mode !== "quiet" || atTop)) list.scrollTop = 0; return; }
+      if (following && (mode === "new" || atEnd)) followUI.toEnd(); else followUI.showLatest();
     }
 
     function row(entry, index, date, timeFormat, exactFormat) {
