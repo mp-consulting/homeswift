@@ -1842,6 +1842,7 @@ HomeswiftI18n.add("pt", {
   "{shown} of {n} entries · kept {days} days": "{shown} de {n} entradas · guardadas {days} dias",
   "Show all {n} days": "Mostrar os {n} dias",
   "Whole range": "Todo o período",
+  "The latest {n} are shown: pick a span on the histogram to read further back.": "São mostradas as {n} mais recentes: escolha um período no histograma para recuar mais.",
   "{n} line": "{n} linha",
   "{n} lines": "{n} linhas",
   "Reading {n} of {total}…": "A ler {n} de {total}…",

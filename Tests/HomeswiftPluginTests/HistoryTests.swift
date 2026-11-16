@@ -48,6 +48,13 @@ struct HistoryTests {
         // The user's change was not logged as a write: only a write marks it.
         #expect(entries.map(\.write) == [false, false])
         #expect(store.logbook(LogbookQuery(sourceKind: "user")).count == 1)
+        // The counts by hour: without a filter from each line's time alone, with one from the decoded entries; a page of
+        // older entries skips the lines after it.
+        #expect(store.logbookHours(LogbookQuery()).values.reduce(0, +) == 2)
+        #expect(store.logbookHours(LogbookQuery(sourceKind: "device")).values.reduce(0, +) == 1)
+        #expect(store.logbook(LogbookQuery(to: start, limit: 10)).map(\.source) == [.user("ann")])
+        #expect(HistoryStore.lineTime(#"{"a":"x","t":1800000000500,"v":"t\":1"}"#) == Date(timeIntervalSince1970: 1_800_000_000.5))
+        #expect(HistoryStore.lineTime(#"{"a":"no time"}"#) == nil)
     }
 
     @Test func numbersAreKeptAtMostEveryIntervalAndTheLastOfABurstStays() throws {

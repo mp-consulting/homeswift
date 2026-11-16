@@ -1842,6 +1842,7 @@ HomeswiftI18n.add("fr", {
   "{shown} of {n} entries · kept {days} days": "{shown} sur {n} entrées · gardées {days} jours",
   "Show all {n} days": "Afficher les {n} jours",
   "Whole range": "Toute la période",
+  "The latest {n} are shown: pick a span on the histogram to read further back.": "Les {n} plus récentes sont affichées : choisissez une période sur l'histogramme pour remonter plus loin.",
   "{n} line": "{n} ligne",
   "{n} lines": "{n} lignes",
   "Reading {n} of {total}…": "Lecture : {n} sur {total}…",
