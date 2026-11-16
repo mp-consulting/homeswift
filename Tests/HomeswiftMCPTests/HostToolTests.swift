@@ -235,6 +235,13 @@ struct HostToolTests {
         #expect(byName?.count == 2)
         #expect(try await admin.tool("get_logbook", ["sourceName": "tests"])["structuredContent"]?["entries"]?.arrayValue?.count == 1)
         #expect(try await client.tool("get_logbook", ["since": "soon"])["isError"] == true)
+        // A page of one says more are left; the next, up to the first one's time, has the second and says none are.
+        let first = try await client.tool("get_logbook", ["accessory": "Devices:lamp", "limit": 1])["structuredContent"]
+        #expect(first?["more"] == true)
+        let newest = try #require(first?["entries"]?.arrayValue?.first?["time"]?.stringValue)
+        let rest = try await client.tool("get_logbook", ["accessory": "Devices:lamp", "until": .string("\(newest.dropLast()).999Z")])["structuredContent"]
+        #expect(rest?["more"] == false)
+        #expect(rest?["entries"]?.arrayValue?.last?["source"]?["kind"] == "mcp")
 
         let history = try await client.tool("get_accessory_history", ["id": "Devices:lamp", "type": "On"])["structuredContent"]
         let on = history?["series"]?.arrayValue?.first

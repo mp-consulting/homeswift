@@ -412,7 +412,8 @@ config.json, owner-only:
   an MCP client (by the name it gave), an Automation or a Scene (by name), or the device itself (changed at the device,
   by its hub, or by its plugin). Numeric readings (a temperature, a power) are left out: the History has them. Filter
   by room, accessory, Change Source and time; the filters are the address's (`/logbook?room=Kitchen&source=homeApp`).
-  It is kept as long as the History's changes. Which user or MCP client made a change is shown to administrators;
+  It reads the range 300 entries at a time: scrolling near the oldest (the list's foot, on a phone its top) reads the
+  next ones, as far back as the range goes, and **Show earlier** there does it by hand. It is kept as long as the History's changes. Which user or MCP client made a change is shown to administrators;
   others see "a Homeswift user" or "an MCP client". An accessory answering No Response holds no value: its hourly
   figures stop until it reports again.
 
@@ -425,8 +426,8 @@ Unchanged states use compact rows. Names and identifiers are grouped under **Det
 ![The Logbook: each change with who or what made it](images/ui/logbook.png)
 
 `GET /api/accessories/<id>/history?range=day|week|year&timeZone=…` answers the History tab and `GET /api/logbook`
-(`room`, `accessory`, `source`, `sourceName`, `since`, `limit`) the Logbook, to anyone signed in, as the accessories
-are. Over MCP, `get_accessory_history` and `get_logbook` ([docs/mcp.md](mcp.md)).
+(`room`, `accessory`, `source`, `sourceName`, `since`, `until`, `limit`) the Logbook, to anyone signed in, as the
+accessories are; `more` says whether older entries match too, read with `until` set to the last entry's time. Over MCP, `get_accessory_history` and `get_logbook` ([docs/mcp.md](mcp.md)).
 
 ### Quick controls
 

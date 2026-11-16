@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The Logbook scrolls back through its whole range**: the page showed the latest 300 entries of its range and no
+  more, which cameras' motion can fill in a few hours, so 7 days or Everything kept still ended that morning. Scrolling
+  near the oldest entries (the list's foot, on a phone its top) reads the next ones, back to the range's start; Show
+  earlier there does it by hand, and the count says when there are more. The API and
+  `get_logbook` take `until` and answer `more`.
+
 ### Fixed
 
 - **The chat's dictation no longer sends half a sentence**: the browser's dictation ends at the first breath, and the
