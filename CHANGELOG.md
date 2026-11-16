@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-11-16
+
 ### Added
 
 - The Logbook shows its whole range as a histogram, each hour's changes day after day, with a range slider under it:
