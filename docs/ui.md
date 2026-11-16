@@ -852,8 +852,10 @@ instead. **Find again** asks the plugin again.
 
 ![The Logs page: levels with their counts, the search, the time range and what the lines are about](images/ui/logs.png)
 
-The live log, filtered by the following; in a window 1180 px wide or more they sit in a column down the log's left, the
-levels and time ranges as lists, and the log takes the window's height:
+The live log, filtered by the following. From 900 px wide they sit in a column down the log's left (the Logbook's too),
+the levels and time ranges as lists, and from 1180 px the log takes the window's height; between a phone and 900 px they
+are a side sheet over the log, behind **Filters** in its bar (its badge counting the filters that are not the
+defaults), so the log starts right under the bar:
 
 - **Level**: All; Info (info and above); Warnings or Errors alone, each with how many lines it has.
 - **Text**, which looks inside a line's JSON payload too.

@@ -234,6 +234,7 @@
     // A phone (as the Logs page and the Audit log): one bar above the tab bar, a search through the entries shown, Filters
     // (the panel as a sheet over the bar, its badge counting the filters that are not the defaults) and the Assistant.
     const filters = HomeswiftCommon.filtersToggle(panel);
+    filters.button.classList.add("log-filters-toggle");
     const showCount = () => filters.count(controls.filter((control) => control.value).length + (range.chosen() ? 1 : 0) + (histogram.selection ? 1 : 0));
     for (const control of controls) control.addEventListener("change", showCount);
     range.control.addEventListener("change", showCount);
@@ -268,8 +269,12 @@
     followBox.addEventListener("change", () => setFollowing(followBox.checked));
     const bar = el("div", { class: "logbook-bar phone-bar" }, search, filters.button, followUI.button, HomeswiftCommon.assistantButton());
     const card = el("div", { class: "card log-card logbook-card" }, panel, head, list);
-    // On a phone the count heads the Filters sheet, and the histogram the log.
-    const placeCount = () => { if (HomeswiftCommon.phone.matches) panel.prepend(count); else countRow.prepend(count); };
+    // On a phone the count heads the Filters sheet, and the histogram the log; wider, Filters is in the count's row (shown
+    // between a phone and 900px, where the filters are a side sheet).
+    const placeCount = () => {
+      if (HomeswiftCommon.phone.matches) { panel.prepend(count); search.after(filters.button); }
+      else { countRow.prepend(count); countRow.insertBefore(filters.button, followToggle); }
+    };
     placeCount();
     // Between a phone and a wider window the entries change order (the newest at the foot, or first): drawn again.
     phone.addEventListener("change", () => { placeCount(); draw("new"); }, { signal: HomeswiftCommon.viewSignal() });
