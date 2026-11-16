@@ -97,20 +97,10 @@ extension HomeswiftCatalog {
         guard let history else { throw CatalogError("This homeswift keeps no Logbook") }
         let located = located()
         let byID = Dictionary(located.map { ($0.accessory.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var ids: Set<String>?
-        if let room {
-            ids = Set(located.filter { $0.room.map { Self.normalized($0) == Self.normalized(room) } ?? false }.map(\.accessory.id))
-        }
-        if let accessory {
-            guard let found = find(id: accessory) else { throw CatalogError("No accessory with that id", notFound: true) }
-            ids = ids.map { $0.intersection([found.accessory.id]) } ?? [found.accessory.id]
-        }
-        // Without `people`, a name filters only a kind that is not a person or an MCP client (an Automation, a Scene):
-        // a name alone, or with those kinds, would say which changes a user made though the answer leaves their name out.
-        let nameFilter = people || sourceKind.map({ !ChangeSource.kindsNamingSomeone.contains($0) }) == true ? sourceName : nil
         // One more than asked: whether entries are left before the last one returned (`more`), for paging back with `until`.
         let limit = min(max(limit, 1), 1000)
-        let query = LogbookQuery(from: since, to: until, accessories: ids, sourceKind: sourceKind, sourceName: nameFilter, limit: limit + 1)
+        let query = try logbookQuery(since: since, until: until, room: room, accessory: accessory, sourceKind: sourceKind, sourceName: sourceName,
+                                     limit: limit + 1, people: people, located: located)
         let found = history.logbook(query)
         let entries = found.prefix(limit)
         return [
@@ -128,6 +118,38 @@ extension HomeswiftCatalog {
                 return .object(object)
             }),
         ]
+    }
+
+    /// How many Logbook entries match in each hour of the range, under the filters `logbookJSON` takes: `hours` as
+    /// `[start, count]` pairs (the hour's start in seconds since 1970, oldest first, the hours without any left out), and
+    /// `total`. The web UI's Logbook draws every day of its range from them, before it reads the entries.
+    public func logbookHoursJSON(since: Date? = nil, until: Date? = nil, room: String? = nil, accessory: String? = nil, sourceKind: String? = nil,
+                                 sourceName: String? = nil, people: Bool = true) throws -> JSONValue {
+        guard let history else { throw CatalogError("This homeswift keeps no Logbook") }
+        let query = try logbookQuery(since: since, until: until, room: room, accessory: accessory, sourceKind: sourceKind, sourceName: sourceName,
+                                     limit: 0, people: people, located: located())
+        let hours = history.logbookHours(query).sorted { $0.key < $1.key }
+        return [
+            "total": .number(Double(hours.reduce(0) { $0 + $1.value })),
+            "hours": .array(hours.map { .array([.number($0.key.timeIntervalSince1970), .number(Double($0.value))]) }),
+        ]
+    }
+
+    /// The Logbook query of `logbookJSON`'s filters: `room` keeps the accessories in that room, `accessory` one of them.
+    private func logbookQuery(since: Date?, until: Date?, room: String?, accessory: String?, sourceKind: String?, sourceName: String?,
+                              limit: Int, people: Bool, located: [Located]) throws -> LogbookQuery {
+        var ids: Set<String>?
+        if let room {
+            ids = Set(located.filter { $0.room.map { Self.normalized($0) == Self.normalized(room) } ?? false }.map(\.accessory.id))
+        }
+        if let accessory {
+            guard let found = find(id: accessory) else { throw CatalogError("No accessory with that id", notFound: true) }
+            ids = ids.map { $0.intersection([found.accessory.id]) } ?? [found.accessory.id]
+        }
+        // Without `people`, a name filters only a kind that is not a person or an MCP client (an Automation, a Scene):
+        // a name alone, or with those kinds, would say which changes a user made though the answer leaves their name out.
+        let nameFilter = people || sourceKind.map({ !ChangeSource.kindsNamingSomeone.contains($0) }) == true ? sourceName : nil
+        return LogbookQuery(from: since, to: until, accessories: ids, sourceKind: sourceKind, sourceName: nameFilter, limit: limit)
     }
 
     // MARK: Tools

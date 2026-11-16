@@ -246,6 +246,16 @@ struct PanelTests {
         #expect(file.body.contains("[Lamps] [WARNING] Desk Lamp slow"))
         let range = try await browser.get("/api/logs/download?from=2001-01-01T00:00:00Z&to=2001-01-02T00:00:00Z")
         #expect(!range.body.contains("Desk Lamp"))
+        // The Logs page's histogram: each hour's lines by level (from memory here, the bridge keeping no log on disk).
+        let hourAgo = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-3600))
+        let hours = try await browser.get("/api/logs/hours?from=\(hourAgo)").json
+        let warning = try #require(hours?["levels"]?.arrayValue?.firstIndex(of: "warning"))
+        #expect(hours?["hours"]?.arrayValue?.compactMap { $0.arrayValue?[warning + 1].intValue }.reduce(0, +) == 1)
+        #expect(try await browser.get("/api/logs/hours").status == 400)
+        #expect(try await browser.get("/api/logs/hours?from=\(hourAgo)&bridge=all&plugin=Lamps").status == 400)
+        // The Logbook's counts: a bad bound is refused; a bridge keeping no Logbook says so.
+        #expect(try await browser.get("/api/logbook/hours?since=soon").status == 400)
+        #expect(try await browser.get("/api/logbook/hours?since=7d").status == 503)
         #expect(try await browser.post("/api/logs/truncate", [:]).json?["truncated"] == true)
         #expect(try await browser.get("/api/logs").json?.arrayValue?.contains { $0["text"] == "Desk Lamp slow" } == false)
     }

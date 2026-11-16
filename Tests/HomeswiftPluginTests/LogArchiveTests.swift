@@ -33,6 +33,29 @@ import Testing
         #expect((attributes[.posixPermissions] as? Int) == 0o600)
     }
 
+    /// The Logs page's histogram: the lines of each hour by level, read from the rows' bytes or, with a filter, parsed.
+    @Test func countsEachHoursLinesByLevel() throws {
+        let directory = directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let archive = LogArchive(directory: directory)
+        // 1_800_000_000 is 08:00 UTC: two lines that hour, three the next (one an error, about the lamp "Hall").
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        for (offset, level, label) in [(0.0, Logger.Level.info, "Lamps"), (60, .warning, "Lamps"), (3600, .info, "Lamps"), (3700, .error, "Hall"), (3800, .debug, "Lamps")] {
+            archive.append(LogBuffer.Line(date: start.addingTimeInterval(offset), level: level, label: label, text: "line"))
+        }
+        let hours = archive.hours(from: start, to: start.addingTimeInterval(7200))
+        let level = { (name: Logger.Level) in LogArchive.levels.firstIndex(of: name)! }
+        #expect(hours.keys.sorted() == [1_800_000_000, 1_800_003_600])
+        #expect(hours[1_800_000_000]?[level(.info)] == 1)
+        #expect(hours[1_800_000_000]?[level(.warning)] == 1)
+        #expect(hours[1_800_003_600]?.reduce(0, +) == 3)
+        #expect(hours[1_800_003_600]?[level(.error)] == 1)
+        let hall = archive.hours(from: start, to: start.addingTimeInterval(7200), matching: { $0.label == "Hall" })
+        #expect(hall == [1_800_003_600: [0, 0, 0, 0, 0, 1, 0]])
+        // Past the range: nothing.
+        #expect(archive.hours(from: start.addingTimeInterval(7200), to: start.addingTimeInterval(9000)).isEmpty)
+    }
+
     /// A line's payload reaches the disk only while saving is on, a choice kept for the next start.
     @Test func savesPayloadsOnlyWhenAsked() throws {
         let directory = directory()

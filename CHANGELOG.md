@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The Logbook shows its whole range as a histogram, each hour's changes day after day, with a range slider under it:
+  drag a handle or across the bars, or tap a day, and the list shows only that span. **Show all N days** reads every
+  entry at once, the time range has **Custom…** for any days kept, and **Follow** keeps the newest in view at any
+  width. `GET /api/logbook/hours` counts the entries.
+- The Logs page has the same histogram: each hour's lines at the levels shown, errors in red; a span picked on it is read
+  from the log on disk. `GET /api/logs/hours` counts the lines by level.
+- The Logs page's and the Logbook's filters are a column beside the log from 900 px wide (from 1180 px before), and a side
+  sheet behind Filters between a phone and 900 px, so the log starts right under its bar.
+
 ## [0.36.0] - 2026-11-16
 
 ### Added

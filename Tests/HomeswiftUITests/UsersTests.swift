@@ -165,6 +165,9 @@ struct UsersServerTests {
         #expect(try await admin.get("/api/status").json?["bridges"]?[0]?["setupCode"] == "0314-5154")
         #expect(try await milo.get("/api/accessories").status == 200)
         #expect(try await milo.get("/api/plugins").status == 200)
+        // The Logbook is anyone's, its histogram's counts too (this bridge keeps none: 503, not 403); the log's are not.
+        #expect(try await milo.get("/api/logbook/hours?since=7d").status == 503)
+        #expect(try await milo.get("/api/logs/hours?from=2026-01-01T00:00:00Z").status == 403)
         #expect(try await milo.put("/api/accessories/Lamps:lamp", ["characteristic": "Brightness", "value": 70]).status == 200)
         #expect(try await milo.post("/api/accessories/Lamps:lamp/identify", [:]).status == 200)
         for (method, path) in [("GET", "/api/config"), ("GET", "/api/logs"), ("GET", "/api/qr/0.svg"), ("GET", "/api/users"), ("GET", "/api/tokens"),

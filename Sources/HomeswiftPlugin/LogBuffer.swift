@@ -99,6 +99,17 @@ public final class LogBuffer: Sendable {
         return Array(all.filter { $0.date >= from && $0.date <= to && matching?($0) != false }.suffix(limit))
     }
 
+    /// How many lines `matching` keeps in each hour from `from` to `to`, by level (`LogArchive.hours`): from the
+    /// archive when there is one, from memory otherwise.
+    public func hours(from: Date, to: Date, matching: ((Line) -> Bool)? = nil, mayMatch: ((String) -> Bool)? = nil) -> [Int: [Int]] {
+        if let archive { return archive.hours(from: from, to: to, matching: matching, mayMatch: mayMatch) }
+        var hours: [Int: [Int]] = [:]
+        for line in all where line.date >= from && line.date <= to && matching?(line) != false {
+            LogArchive.count(&hours, at: line.date.timeIntervalSince1970, level: LogArchive.levels.firstIndex(of: line.level))
+        }
+        return hours
+    }
+
     /// Calls `observer` with every line from now on, until the observation is cancelled.
     @discardableResult
     public func observe(_ observer: @escaping @Sendable (Line) -> Void) -> Observation {

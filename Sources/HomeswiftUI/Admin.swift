@@ -55,7 +55,7 @@ extension UIServer {
             }
         }
         // The Logbook is anyone's to read, as the accessories are; which user or MCP client made a change, an administrator's.
-        if method == .GET, route == ["logbook"] {
+        if method == .GET, route == ["logbook"] || route == ["logbook", "hours"] {
             var since: Date?
             if let text = request.query["since"] {
                 guard let date = HomeswiftCatalog.parseTimeBound(text) else { return .error(400, "since: an ISO time or a duration such as 30m, 1h, 2d") }
@@ -67,10 +67,22 @@ extension UIServer {
                 guard let date = HomeswiftCatalog.parseTimeBound(text) else { return .error(400, "until: an ISO time or a duration such as 30m, 1h, 2d") }
                 until = date
             }
-            let limit = min(max(request.query["limit"].flatMap(Int.init) ?? 300, 1), 1000)
+            let (catalog, query, people, from, to) = (catalog, request.query, caller.isAdmin, since, until)
+            let limit = min(max(query["limit"].flatMap(Int.init) ?? 300, 1), 1000)
+            // The day files are read off the concurrency pool: `hours` (how many entries match in each hour, for the
+            // page's histogram) reads the whole range.
+            let hours = route.count == 2
+            let answer = await Self.offPool {
+                Result {
+                    hours
+                        ? try catalog.logbookHoursJSON(since: from, until: to, room: query["room"], accessory: query["accessory"],
+                                                       sourceKind: query["source"], sourceName: query["sourceName"], people: people)
+                        : try catalog.logbookJSON(since: from, until: to, room: query["room"], accessory: query["accessory"],
+                                                  sourceKind: query["source"], sourceName: query["sourceName"], limit: limit, people: people)
+                }
+            }
             do {
-                return .json(try catalog.logbookJSON(since: since, until: until, room: request.query["room"], accessory: request.query["accessory"],
-                                                     sourceKind: request.query["source"], sourceName: request.query["sourceName"], limit: limit, people: caller.isAdmin))
+                return .json(try answer.get())
             } catch let error as CatalogError {
                 return .error(error.notFound ? 404 : 503, error.description)
             }

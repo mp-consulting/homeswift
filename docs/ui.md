@@ -411,9 +411,17 @@ config.json, owner-only:
   with its **Change Source**: the Home app (by its pairing, the only thing HomeKit says of who wrote), a Homeswift user,
   an MCP client (by the name it gave), an Automation or a Scene (by name), or the device itself (changed at the device,
   by its hub, or by its plugin). Numeric readings (a temperature, a power) are left out: the History has them. Filter
-  by room, accessory, Change Source and time; the filters are the address's (`/logbook?room=Kitchen&source=homeApp`).
-  It reads the range 300 entries at a time: scrolling near the oldest (the list's foot, on a phone its top) reads the
-  next ones, as far back as the range goes, and **Show earlier** there does it by hand. It is kept as long as the History's changes. Which user or MCP client made a change is shown to administrators;
+  by room, accessory, Change Source and time (24 hours, 3 days, 7 days, everything kept, or **Custom…**, any days kept,
+  as on the Logs page); the filters are the address's (`/logbook?room=Kitchen&source=homeApp&since=7d`). Above the
+  entries, a histogram shows the whole range at once: how many changed in each hour (a few hours a bar over a long
+  range), every day named under its hours, with a range slider under it. Drag a handle (its time shows above it), drag
+  across the bars, or tap a day's name to pick a span: the list shows only that span, the bars outside it go grey, and
+  the span shows under the time range in the filters, where a tap goes back to the whole range (Clear filters too); the
+  pick is in the address too (`pick=<from ms>-<to ms>`). The list reads 300 entries at
+  a time: scrolling near the oldest (the list's foot, on a phone its top) reads the next ones, and **Show all N days**
+  reads every entry of the range or span at once. A day's header counts its entries, or how many of them are read
+  so far. **Follow** (on a phone, Pause and Play in its bar) reads it again every few seconds and keeps the newest in
+  view. It is kept as long as the History's changes. Which user or MCP client made a change is shown to administrators;
   others see "a Homeswift user" or "an MCP client". An accessory answering No Response holds no value: its hourly
   figures stop until it reports again.
 
@@ -427,7 +435,10 @@ Unchanged states use compact rows. Names and identifiers are grouped under **Det
 
 `GET /api/accessories/<id>/history?range=day|week|year&timeZone=…` answers the History tab and `GET /api/logbook`
 (`room`, `accessory`, `source`, `sourceName`, `since`, `until`, `limit`) the Logbook, to anyone signed in, as the
-accessories are; `more` says whether older entries match too, read with `until` set to the last entry's time. Over MCP, `get_accessory_history` and `get_logbook` ([docs/mcp.md](mcp.md)).
+accessories are; `more` says whether older entries match too, read with `until` set to the last entry's time.
+`GET /api/logbook/hours` (the same filters, without `limit`) counts them: `hours` as `[start, count]` pairs (the hour's
+start in seconds, oldest first, empty hours left out) and `total`, which the histogram draws. Over MCP,
+`get_accessory_history` and `get_logbook` ([docs/mcp.md](mcp.md)).
 
 ### Quick controls
 
@@ -841,8 +852,10 @@ instead. **Find again** asks the plugin again.
 
 ![The Logs page: levels with their counts, the search, the time range and what the lines are about](images/ui/logs.png)
 
-The live log, filtered by the following; in a window 1180 px wide or more they sit in a column down the log's left, the
-levels and time ranges as lists, and the log takes the window's height:
+The live log, filtered by the following. From 900 px wide they sit in a column down the log's left (the Logbook's too),
+the levels and time ranges as lists, and from 1180 px the log takes the window's height; between a phone and 900 px they
+are a side sheet over the log, behind **Filters** in its bar (its badge counting the filters that are not the
+defaults), so the log starts right under the bar:
 
 - **Level**: All; Info (info and above); Warnings or Errors alone, each with how many lines it has.
 - **Text**, which looks inside a line's JSON payload too.
@@ -851,6 +864,14 @@ levels and time ranges as lists, and the log takes the window's height:
 - **What the lines are about**, one menu: every line; the bridges' own lines (their servers' connections, pairings and
   controllers), every bridge's or one's; a plugin's own lines (its pairing, devices, clouds and errors); or an
   accessory's (those of its own server and those that name it, its id or its address), grouped by plugin.
+
+Above the lines, the range's histogram, the Logbook's: how many lines each hour has at the levels shown, the errors at
+the foot of each bar in red, every day named under its hours, with a range slider under it. Drag a handle, drag across
+the bars or tap a day to pick a span: that span is read from the log on disk and shown (a span reaching now goes on
+following), the bars outside it go grey, and the span shows under the time range, where a tap goes back to the whole
+range; the pick is in the address (`pick=`). For the
+latest lines it covers the day of the first of them. `GET /api/logs/hours` (`from`, `to`, and `accessory`, `bridge` or
+`plugin`) counts them: `levels`, then `hours` as `[start in seconds, a count per level]`.
 
 **Copy** puts the lines shown on the clipboard as text. **Diagnose** (Log Doctor, with the Assistant on) sends the lines
 shown, the latest 3,000, to the Assistant, which groups the issues with their causes and fixes as it writes; secrets and

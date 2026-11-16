@@ -5909,6 +5909,7 @@
         logState.level = level;
         for (const button of levels.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
         render();
+        drawHistogram();
         keepAddress();
       } })));
     const updateLevelCounts = () => {
@@ -5945,11 +5946,51 @@
     // A time range (HomeswiftCommon.rangeControl): the latest lines from memory, or a span from the log the bridge keeps on disk
     // (rotated, a week at most). A span that ends now keeps following; one in the past stays as it is.
     const range = HomeswiftCommon.rangeControl(params, { presets: [["latest", t("Latest lines")], ["1h", t("1 hour")], ["6h", t("6 hours")], ["24h", t("24 hours")],
-      ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]], fallback: "latest", earliestDays: 7, changed: () => load() });
+      ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]], fallback: "latest", earliestDays: 7, changed: () => { histogram.pick(null); load(); } });
+    // The range at a glance (HomeswiftCommon.timeHistogram): each hour's lines at the levels shown, errors at their foot.
+    // A span picked on it is what is read from the log on disk and shown; Whole range goes back.
+    let counted = { levels: [], hours: [], from: null, to: null };
+    const histogram = HomeswiftCommon.timeHistogram(params, { unit: (n) => tn("{n} line", "{n} lines", n), changed: () => load(true) });
+    // The hour under the pointer, over the bars.
+    histogram.element.append(histogram.readout);
+    const histogramHead = el("div", { class: "log-histogram" }, histogram.element);
+    /// The histogram at the levels shown, from the counts last read: from the first day with lines, but each day of a
+    /// custom range.
+    function drawHistogram() {
+      const shown = counted.levels.map((level) => levelShown(level, logState.level));
+      const alert = counted.levels.map((level) => level === "error" || level === "critical");
+      const add = (counts, keep) => counts.reduce((all, n, index) => all + (keep(index) ? n : 0), 0);
+      histogram.set({ hours: counted.hours.map(([start, ...counts]) => [start, add(counts, (i) => shown[i]), add(counts, (i) => shown[i] && alert[i])]),
+        from: counted.from, to: counted.to, trim: !range.custom() });
+    }
+    /// The counts of the range (for the latest lines, from the first of them), under the source chosen. `since`: only
+    /// the hours from then, merged into those read before (the live log's refresh: the files kept do not change).
+    async function readHours(signal, since = null) {
+      const chosen = range.span();
+      const from = since ?? chosen?.[0] ?? logState.lines[0]?.date;
+      if (!from) { counted = { levels: [], hours: [], from: null, to: null }; drawHistogram(); return; }
+      const query = new URLSearchParams({ from: from.toISOString() });
+      if (chosen?.[1]) query.set("to", chosen[1].toISOString());
+      const { kind, value } = source();
+      if (kind) query.set(kind, value);
+      try {
+        const found = await api(`/api/logs/hours?${query}`, { signal });
+        if (signal?.aborted) return;
+        const hours = since ? [...counted.hours.filter(([start]) => start * 1000 < since.getTime()), ...(found.hours ?? [])] : found.hours ?? [];
+        counted = { levels: found.levels ?? [], hours, from: since ? counted.from : from, to: chosen?.[1] ?? null };
+        drawHistogram();
+      } catch {}
+    }
+    // While the latest lines come in, the hour under way is read again now and then.
+    const hourly = setInterval(() => {
+      if (!histogramHead.isConnected) { clearInterval(hourly); return; }
+      if (logState.live && !document.hidden && counted.levels.length) readHours(null, new Date(Math.floor(Date.now() / 3600000) * 3600000));
+    }, 60000);
     /// The address of what is shown, in place: no new history entry per choice.
     function keepAddress() {
       const query = new URLSearchParams();
       range.address(query);
+      histogram.address(query);
       if (logState.level !== "info") query.set("level", logState.level);
       if (filter.value) query.set("q", filter.value);
       const { kind, value } = source();
@@ -5962,10 +6003,15 @@
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
     }
     const nextLoad = latestLoad();
-    async function load() {
+    /// `picked`: a new span on the histogram, whose counts stay.
+    async function load(picked = false) {
       const signal = nextLoad();
       keepAddress();
-      const chosen = range.span();
+      // The span picked on the histogram, else the range; a span reaching now goes on following.
+      const span = histogram.selection;
+      const chosen = span ? [span.from, span.to > new Date() ? null : span.to] : range.span();
+      // A range's counts are read with its lines; the latest lines' once they are in (from the first of them).
+      const counting = !picked && range.span() ? readHours(signal) : null;
       const query = new URLSearchParams();
       if (chosen) query.set("from", chosen[0].toISOString());
       if (chosen?.[1]) query.set("to", chosen[1].toISOString());
@@ -5995,6 +6041,7 @@
       logState.cap = chosen ? rangeLines : latestLines;
       logState.capped = Boolean(chosen) && logState.lines.length >= rangeLines;
       render();
+      if (!picked && !counting) readHours(signal);
     }
     // Whether lines go to disk with their JSON payloads, secrets masked: for reading them, or letting the Assistant
     // read them, after the latest lines moved on. Off, only the lines in memory have them. Shown when the bridge
@@ -6066,10 +6113,11 @@
       ];
     });
     const clear = HomeswiftCommon.clearFilters([[filter, ""], [sources.picker, ""]], {
-      active: () => logState.level !== "info" || range.chosen(), events: [[levels, "click"], [range.control, "change"]],
+      active: () => logState.level !== "info" || range.chosen() || Boolean(histogram.selection), events: [[levels, "click"], [range.control, "change"], [histogram.element, "change"]],
       reset: () => {
         clearTimeout(typing);
         range.reset();
+        histogram.pick(null);
         logState.level = "info";
         for (const [index, button] of [...levels.children].entries()) {
           const selected = levelChoices[index][0] === "info";
@@ -6081,7 +6129,7 @@
     const panel = el("div", { class: "log-filter-panel" }, levelRow,
       // A div, not a label: a label would press the control's first choice when its text is clicked.
       el("div", { class: "log-scope-row" },
-        el("div", { class: "log-time" }, el("span", { text: t("Time range") }), range.control),
+        el("div", { class: "log-time" }, el("span", { text: t("Time range") }), range.control, histogram.chip),
         el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker)));
     // On a phone the filters wait behind Filters, a sheet over the bar, its badge counting those that are not the
     // defaults; Follow is a pause button beside it (play once paused), on from the start, and a round arrow over the
@@ -6089,7 +6137,7 @@
     filters = HomeswiftCommon.filtersToggle(panel);
     filters.button.classList.add("log-filters-toggle");
     function showFilterCount() {
-      filters?.count((logState.level !== "info") + Boolean(range.chosen()) + Boolean(sources.picker.value));
+      filters?.count((logState.level !== "info") + Boolean(range.chosen()) + Boolean(histogram.selection) + Boolean(sources.picker.value));
     }
     followUI = HomeswiftCommon.followControls({ following: () => follow.checked,
       setFollowing: (on) => { follow.checked = on; follow.dispatchEvent(new Event("change")); } });
@@ -6101,8 +6149,8 @@
     const bar = el("div", { class: "editor-bar log-action-bar phone-bar" }, count, el("span", { class: "spacer" }), filters.button, followUI.button, doctor.button, copy,
       el("label", { class: "toggle compact log-follow" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
       saveToggle, actions);
-    const card = el("div", { class: "card log-card" }, panel, bar, followUI.latest, output);
-    for (const [control, kind] of [[levels, "click"], [range.control, "change"], [sources.picker, "change"], [clear, "click"]]) control.addEventListener(kind, () => setTimeout(showFilterCount));
+    const card = el("div", { class: "card log-card" }, panel, bar, histogramHead, followUI.latest, output);
+    for (const [control, kind] of [[levels, "click"], [range.control, "change"], [histogram.element, "change"], [sources.picker, "change"], [clear, "click"]]) control.addEventListener(kind, () => setTimeout(showFilterCount));
     // The text filter stays in reach: in the phone's bar, beside the levels elsewhere.
     const placeFilter = () => {
       if (phone.matches) bar.prepend(filter);

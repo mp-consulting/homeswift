@@ -3623,32 +3623,13 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 .log-scope-row label, .log-scope-row .log-time { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-8); min-width: 0; }
 .log-scope-row label { align-items: stretch; }
 .log-scope-row .log-time { grid-column: 1 / -1; }
-.log-scope-row label > span, .log-scope-row .log-time > span { font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
+.log-scope-row label > span, .log-scope-row .log-time > span, .log-scope-row .log-time-head > span { font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
 .log-scope-row select.popup { width: 100%; max-width: none; min-width: 0; }
-/* Intermediate widths use both columns instead of reserving a whole row for time. */
-@media (min-width: 641px) and (max-width: 1179px) and (min-height: 501px), (min-width: 641px) and (max-width: 1179px) and (pointer: fine) {
-  .log-filter-panel { gap: var(--space-12); padding: var(--space-16) var(--space-20); }
-  .log-scope-row { grid-template-columns: minmax(0, 1fr) minmax(200px, .4fr); align-items: start; gap: var(--space-16); }
-  .log-scope-row .log-time { grid-column: auto; }
-  .log-scope-row label { margin: 0; }
-  .log-time > .group { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; box-sizing: border-box; border-radius: var(--radius-lg); }
-  .log-time > .group button { min-width: 0; padding-inline: var(--space-8); border-radius: var(--radius-md); }
-}
-/* A wide window: the filters become a column down the log's left, each a list (the levels with their counts, the time
-   ranges), so the log takes the card's whole height rather than sitting under a band of filters. */
-@media (min-width: 1180px) {
-  /* The page fills the frame, which fills the window, and the log the card's height under its bar. */
-  html #app:has(> main > .log-card) { height: calc(100dvh - 48px); min-height: 740px; }
-  #app > main:has(> .log-card) { display: flex; flex-direction: column; align-self: stretch; min-height: 0; }
-  /* The window's height, not its lines': the log scrolls inside (Follow keeps its end in view), never the page; a
-     grid's own minimum would count every line. The frame's floor below keeps the filters whole. */
-  .log-card { flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: 248px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-  /* The filters never scroll on their own: the card is at least as tall as they are, and when a short window scrolls
-     the page they stay in place beside the log (sticky), the line between them drawn by the log's side. */
-  .log-card > .log-filter-panel { grid-column: 1; grid-row: 1 / span 2; align-self: start; position: sticky; top: 0; gap: var(--space-16); padding: var(--space-16); }
-  html .log-card > .log-action-bar { grid-column: 2; grid-row: 1; top: 0; border-top: 0; border-bottom: 1px solid var(--line); border-left: 1px solid var(--line); }
-  .log-card > .log { grid-column: 2; grid-row: 2; height: auto; min-height: 0; border-left: 1px solid var(--line); }
-  /* The search with Clear filters beside it as its glyph (its name kept for assistive technology), the levels under. */
+/* Wider than a phone, the filters are a column (beside the log, or a side sheet): each a list (the levels with their
+   counts, the time ranges), the search with Clear filters beside it as its glyph (its name kept for assistive
+   technology). */
+@media (min-width: 641px) and (min-height: 501px), (min-width: 641px) and (pointer: fine) {
+  .log-card > .log-filter-panel { gap: var(--space-16); padding: var(--space-16); }
   .log-level-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-10) var(--space-8); }
   .log-level-row .search { grid-row: 1; grid-column: 1; width: 100%; max-width: none; min-width: 0; }
   .log-level-row .clear-filters { grid-row: 1; grid-column: 2; width: 40px; height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; }
@@ -3662,6 +3643,47 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .logbook-card .log-time > .group { grid-template-columns: minmax(0, 1fr); }
   .log-scope-row { grid-template-columns: minmax(0, 1fr); }
 }
+/* From 900px: the column down the log's left, so the log starts under its bar rather than under a band of filters;
+   it stays in place beside the log while the page scrolls (sticky), the line between them drawn by the log's side. */
+@media (min-width: 900px) {
+  .log-card { display: grid; grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .log-card > .log-filter-panel { grid-column: 1; grid-row: 1 / span 2; align-self: start; position: sticky; top: 76px; }
+  html .log-card > .log-action-bar { grid-column: 2; grid-row: 1; border-top: 0; border-bottom: 1px solid var(--line); border-left: 1px solid var(--line); }
+  .log-card > .log { grid-column: 2; grid-row: 2; border-left: 1px solid var(--line); }
+}
+/* A wide window: the page fills the frame, which fills the window, and the log the card's height under its bar. */
+@media (min-width: 1180px) {
+  html #app:has(> main > .log-card) { height: calc(100dvh - 48px); min-height: 740px; }
+  #app > main:has(> .log-card) { display: flex; flex-direction: column; align-self: stretch; min-height: 0; }
+  /* The window's height, not its lines': the log scrolls inside (Follow keeps its end in view), never the page; a
+     grid's own minimum would count every line. The frame's floor below keeps the filters whole. */
+  .log-card { flex: 1 1 0; min-height: 0; grid-template-columns: 248px minmax(0, 1fr); }
+  .log-card > .log-filter-panel { top: 0; }
+  html .log-card > .log-action-bar { top: 0; }
+  .log-card > .log { height: auto; min-height: 0; }
+}
+/* Between a phone and 900px: the filters are a sheet from the left, over the log, behind Filters in the bar (its badge
+   counting the filters that are not the defaults); the log starts right under the bar. */
+@media (min-width: 641px) and (max-width: 899px) and (min-height: 501px), (min-width: 641px) and (max-width: 899px) and (pointer: fine) {
+  .log-card > .log-filter-panel.phone-sheet:not(.open) { display: none; }
+  /* The card's own left side, top to bottom, over the bar, the histogram and the log: the card's corners on its left, a
+     shadow along its right edge. */
+  .log-card:has(> .log-filter-panel.phone-sheet) { position: relative; }
+  .log-card > .log-filter-panel.phone-sheet.open {
+    position: absolute; z-index: var(--layer-panel); top: 0; bottom: 0; left: 0; width: min(300px, 100%); box-sizing: border-box;
+    overflow-y: auto; overscroll-behavior: contain; background: var(--material-solid); border-right: 1px solid var(--edge);
+    border-radius: inherit; border-top-right-radius: 0; border-bottom-right-radius: 0; box-shadow: 12px 0 32px rgb(0 0 0 / 18%);
+    animation: filters-sheet-in 200ms var(--ease-out);
+  }
+  .log-card .log-filters-toggle { position: relative; display: inline-grid; place-items: center; flex: none; width: 36px; height: 36px; min-width: 36px; min-height: 36px;
+    padding: 0; border-radius: 50%; }
+  .log-card .log-filters-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .log-card .log-filters-toggle .toolbar-count { position: absolute; top: -3px; right: -3px; display: grid; place-items: center; min-width: 17px; height: 17px;
+    padding: 0 var(--space-4); border-radius: var(--radius-pill); font-size: var(--text-2xs); background: var(--accent-fill); color: var(--accent-text); }
+  .log-card .log-filters-toggle .toolbar-count.hidden { display: none; }
+}
+@keyframes filters-sheet-in { from { opacity: 0; transform: translateX(-24px); } }
+@media (prefers-reduced-motion: reduce) { .log-card > .log-filter-panel.phone-sheet.open { animation: none; } }
 .log-card .log-action-bar { border-top: 1px solid var(--line); padding: var(--space-12) var(--space-20); gap: var(--space-14); }
 /* The count, Copy, Follow and the menu stay in reach while the page scrolls: under the floating header, solid so the
    lines do not show through. */
@@ -3694,7 +3716,7 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .admin-dialog .page-head .tools .clear-filters { flex: none; width: 40px; height: 40px; min-height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; border-radius: 50%; }
   .log-scope-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-8); }
   .log-scope-row label { gap: 0; margin: 0; }
-  .log-scope-row label > span, .log-scope-row .log-time > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .log-scope-row label > span, .log-scope-row .log-time > span, .log-scope-row .log-time-head > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .log-scope-row select.popup { margin: 0; padding-block: var(--space-8); }
   .log-filter-panel { grid-template-columns: minmax(0, 1fr); grid-template-areas: "levels" "source" "range"; column-gap: var(--space-8); }
   .log-filter-panel:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "levels levels" "source clear" "range range"; }
@@ -6547,12 +6569,99 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 
 /* Logbook shares the Logs toolbar and scrollable console, with compact event rows. */
 .logbook-card .logbook { padding: 0; }
-.logbook-card .logbook-periods { max-width: 100%; }
-.logbook-card .logbook-periods button { min-width: 0; white-space: normal; }
 .logbook-card .logbook-toolbar > select.popup { flex: 1 1 140px; min-width: 0; }
 .logbook-toolbar .clear-filters { width: 36px; height: 36px; min-height: 36px; flex: 0 0 36px; padding: 0; margin: 0; gap: 0; font-size: 0; border-radius: 50%; }
 .logbook-toolbar .clear-filters:disabled { display: none; }
-.logbook-card .logbook-count { margin: 0; padding: var(--space-6) var(--space-16); font-size: var(--text-xs); border-bottom: 1px solid var(--line); }
+/* A time range at a glance (common.js's timeHistogram, the Logbook's and the Logs page's): a bar an hour (or a few),
+   on one scale, with a range slider under it (two handles, their times above them) and each day's name; the bars
+   between the handles in the accent, the others grey, a bar's errors at its foot. */
+.histogram { position: relative; display: grid; user-select: none; -webkit-user-select: none; }
+/* The hour under the pointer or the span dragged, over the bars' top right where a page has no row for it. */
+.histogram > .histogram-readout { position: absolute; top: 0; right: 0; z-index: 3; padding: 1px var(--space-6); border-radius: var(--radius-xs); background: var(--material-solid); pointer-events: none; }
+.histogram > .histogram-readout:empty { display: none; }
+.histogram[hidden] { display: none; }
+.histogram-plot { height: 48px; touch-action: pan-y; cursor: crosshair; }
+.histogram-bars { display: grid; grid-template-columns: repeat(var(--bars, 24), minmax(0, 1fr)); align-items: end; column-gap: 2px; height: 100%; }
+.histogram-bars.dense { column-gap: 1px; }
+.histogram-bars > i { justify-self: center; width: 100%; max-width: 10px; height: 2px; border-radius: var(--radius-pill) var(--radius-pill) 0 0; background: var(--accent); transition: background-color var(--fast) ease; }
+.histogram-bars > i[style] { height: calc(var(--level) * 100%); min-height: 3px; }
+.histogram-bars > i:not([style]) { background: color-mix(in srgb, var(--muted) 18%, transparent); }
+.histogram-bars > i.out[style] { background: color-mix(in srgb, var(--muted) 30%, transparent); }
+.histogram-bars > i[style*="--alert"] { background: linear-gradient(to top, var(--error) calc(var(--alert) * 100%), var(--accent) 0); }
+.histogram-bars > i.out[style*="--alert"] { background: linear-gradient(to top, color-mix(in srgb, var(--error) 45%, transparent) calc(var(--alert) * 100%), color-mix(in srgb, var(--muted) 30%, transparent) 0); }
+.histogram-bars > i.later { visibility: hidden; }
+/* The bar under the mouse, which the readout tells. */
+.histogram-bars > i.hover[style] { filter: brightness(1.18) saturate(1.1); }
+.histogram-bars > i.hover:not([style]) { background: var(--accent); }
+/* The rail: the track and its fill, the handles on it (a 44px target round each 18px circle). */
+.histogram-rail { position: relative; height: 18px; touch-action: none; cursor: pointer; }
+.histogram-track { position: absolute; inset: 7px 0 auto; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--muted) 22%, transparent); }
+.histogram-fill { position: absolute; top: 0; bottom: 0; border-radius: 2px; background: var(--accent); }
+.histogram-handle { position: absolute; top: 9px; width: 16px; height: 16px; margin: -8px 0 0 -8px; box-sizing: border-box; border-radius: 50%; background: #fff;
+  border: 2px solid var(--accent); box-shadow: 0 1px 4px rgb(0 0 0 / 22%); cursor: grab; touch-action: none; transition: transform 160ms var(--ease-out); z-index: 1; }
+.histogram-handle::before { content: ""; position: absolute; inset: -14px; border-radius: 50%; }
+.histogram-handle.dragging { cursor: grabbing; transform: scale(1.15); z-index: 2; }
+@media (hover: hover) and (pointer: fine) { .histogram-handle:hover:not(.dragging) { transform: scale(1.08); } }
+@media (prefers-reduced-motion: reduce) { .histogram-handle, .histogram-handle.dragging, .histogram-handle:hover { transform: none; transition: none; } }
+.histogram-handle:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
+/* Each handle's time above it, over the bars' foot, kept inside the chart: shown while a span is picked or made, so the
+   whole range takes no room for them. */
+.histogram-label { opacity: 0; transition: opacity var(--fast) ease; position: absolute; bottom: calc(100% + 6px); left: 50%; translate: -50% 0; padding: 2px var(--space-6); font-size: 11px; line-height: 16px; border-radius: var(--radius-xs);
+  white-space: nowrap; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; color: var(--accent-text); background: var(--accent);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 18%); pointer-events: none; }
+.histogram-label[hidden] { display: none; }
+.histogram:is(.picked, .active, :focus-within) .histogram-label { opacity: 1; }
+/* The days' names, each under its own hours, a line between days; the one in view marked. */
+.histogram-axis { display: flex; }
+.histogram-day { display: flex; align-items: center; flex: 1 1 0; min-width: 0; height: 18px; padding: 0 2px; justify-content: center; font-size: 11px; font-weight: var(--weight-medium); cursor: pointer;
+  color: var(--muted); background: none; border: 0; border-left: 1px solid var(--line); border-radius: 0; box-shadow: none; white-space: nowrap; overflow: hidden; }
+.histogram-day:first-child { border-left-color: transparent; }
+.histogram-day.on { color: var(--accent); font-weight: var(--weight-semibold); }
+.histogram-day.empty { opacity: 0.5; cursor: default; }
+@media (hover: hover) and (pointer: fine) { .histogram-day:hover:not(.empty) { color: var(--text); } }
+.histogram-day > .short, .histogram-axis.dense .histogram-day > .long { display: none; }
+.histogram-axis.dense .histogram-day > .short { display: inline; }
+.histogram-readout { flex: 1 1 auto; min-width: 0; text-align: end; font-size: var(--text-xs); font-variant-numeric: tabular-nums; color: var(--text); font-weight: var(--weight-medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The span picked, under the time range in the filters: its times, a tap back to the whole range. */
+#app .histogram-whole { align-self: stretch; justify-content: flex-start; min-width: 0; min-height: 30px; height: auto; padding: var(--space-6) var(--space-10); gap: var(--space-6);
+  font-size: var(--text-xs); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; text-align: start; white-space: normal;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: var(--radius-md); box-shadow: none; }
+#app .histogram-whole > span { min-width: 0; }
+#app .histogram-whole[hidden] { display: none; }
+/* The Logs page: the histogram under its bar, above the lines (from 900px, a third row beside the filters). */
+.log-card > .log-histogram { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-6) var(--space-20) var(--space-4); border-bottom: 1px solid var(--line); background: var(--material-solid); }
+.log-card > .log-histogram:has(> .histogram[hidden]) { display: none; }
+@media (min-width: 900px) {
+  .log-card:has(> .log-histogram) { grid-template-rows: auto auto minmax(0, 1fr); }
+  .log-card:has(> .log-histogram) > .log-filter-panel { grid-row: 1 / span 3; }
+  .log-card > .log-histogram { grid-column: 2; grid-row: 2; border-left: 1px solid var(--line); }
+  .log-card:has(> .log-histogram) > .log { grid-row: 3; }
+}
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  .log-card > .log-histogram { padding: var(--space-6) var(--space-12) var(--space-4); }
+}
+/* The Logbook: the count, the hour under the pointer, Whole range and Follow, then the histogram. */
+.logbook-card > .logbook-head { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-4); padding: var(--space-8) var(--space-16) var(--space-4); }
+.logbook-count-row { display: flex; align-items: center; gap: var(--space-8); min-height: 28px; }
+.logbook-card .logbook-count { margin: 0; flex: 0 1 auto; min-width: 0; font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.logbook-count-row > .log-follow { flex: none; margin: 0; }
+.logbook-card.reading .histogram { cursor: progress; }
+/* Clear filters on the Time range line, at its end (as on the Logs page, at the filters' top), so the column keeps
+   every filter in view with a span picked under the time range; the line keeps its height when it is hidden. */
+.logbook-card .log-time-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); align-self: stretch; min-height: 28px; }
+.logbook-card .log-time-head > .clear-filters { width: 28px; height: 28px; min-height: 28px; flex: 0 0 28px; }
+/* A phone: the histogram kept short, above the entries as they scroll; the count is in the Filters sheet and Follow in
+   the bar. */
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  .logbook-card > .logbook-head { padding: var(--space-8) var(--space-12) var(--space-4); gap: var(--space-4); }
+  .logbook-count-row { min-height: 0; }
+  .logbook-count-row > .log-follow { display: none; }
+  .logbook-card .log-time-head > .clear-filters { width: 40px; height: 40px; min-height: 40px; flex-basis: 40px; }
+  .logbook-count-row:not(:has(> .histogram-readout:not(:empty))) { display: none; }
+  .histogram-plot { height: 40px; }
+}
+/* A day header's count, at its end: the whole day's, or how much of it is read so far. */
+.logbook-card .logbook-day-total { float: inline-end; font-weight: var(--weight-regular, 400); font-variant-numeric: tabular-nums; opacity: 0.8; }
 .logbook-card .logbook-day > summary { cursor: pointer; min-height: 40px; box-sizing: border-box; align-content: center; font-weight: var(--weight-semibold); position: sticky; top: 0; z-index: 1; margin: 0; padding: var(--space-6) var(--space-16); font-size: var(--text-xs); color: #ffcfaa; background: linear-gradient(rgb(224 117 55 / 18%), rgb(224 117 55 / 18%)), var(--console); border-bottom: 1px solid rgb(224 117 55 / 25%); }
 .logbook-card .logbook-list { border: 0; border-radius: 0; background: none; }
 .logbook-card .logbook-entry { padding: 3px var(--space-16); gap: var(--space-8); grid-template-columns: auto minmax(0, 1fr) auto; }
@@ -6573,7 +6682,6 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
 @media (hover: hover) and (pointer: fine) { .logbook-card .logbook-more > .logbook-earlier:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); } }
 @media (hover: hover) and (pointer: fine) { .logbook-card .logbook-entry:hover { background: var(--material-thin); } }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
-  .logbook-card .logbook-periods button { min-width: 0; white-space: normal; font-size: var(--text-xs); }
   .logbook-card .logbook-entry { grid-template-columns: auto minmax(0, 1fr); padding: var(--space-8) var(--space-12); gap: 1px var(--space-8); }
   .logbook-toolbar .clear-filters { width: 40px; height: 40px; min-height: 40px; flex-basis: 40px; }
 }
@@ -6648,8 +6756,6 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   .logbook-toolbar .log-scope-row > label { grid-area: auto; }
   .logbook-toolbar .log-scope-row > .log-time { grid-area: auto; grid-column: 1 / -1; }
   .logbook-toolbar .log-scope-row > label:last-child { grid-column: 1 / -1; }
-  .logbook-toolbar .logbook-periods { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; }
-  .logbook-toolbar .logbook-periods button { padding: var(--space-6) var(--space-4); gap: var(--space-4); }
 }
 
 .logbook-card .logbook-day > summary::marker { color: currentColor; }
@@ -6906,10 +7012,9 @@ button.plugins-close { width: 40px; height: 40px; min-height: 40px; padding: 0; 
   #app .phone-bar .bar-button.primary:disabled { opacity: 0.5; }
   .logbook-day[hidden], .logbook-entry[hidden] { display: none; }
   .logbook-toolbar > .logbook-count { grid-column: 1 / -1; padding: 0; border: 0; }
-  /* The Logbook's sheet: one column, the count first and the reset last, at the end of its own line. */
+  /* The Logbook's sheet: one column, the count first (Clear filters is on the time range's line). */
   #app .logbook-toolbar.phone-sheet { grid-template-columns: minmax(0, 1fr); grid-template-areas: none; }
   #app .logbook-toolbar.phone-sheet > *, #app .logbook-toolbar.phone-sheet > .log-scope-row > * { grid-area: auto; grid-column: 1 / -1; }
-  #app .logbook-toolbar.phone-sheet > .clear-filters { justify-self: end; }
   main:has(> .audit-bar) .audit-filter-grid, main:has(> .audit-bar) .audit-search { grid-template-columns: minmax(0, 1fr); }
   main:has(> .audit-bar) .audit-results .data-table, main:has(> .audit-bar) .audit-results .data-table tbody { display: block; }
   main:has(> .audit-bar) .audit-results .data-table thead { display: none; }
