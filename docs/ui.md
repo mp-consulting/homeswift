@@ -873,6 +873,10 @@ range; the pick is in the address (`pick=`). For the
 latest lines it covers the day of the first of them. `GET /api/logs/hours` (`from`, `to`, and `accessory`, `bridge` or
 `plugin`) counts them: `levels`, then `hours` as `[start in seconds, a count per level]`.
 
+The log draws the newest lines of what is shown, 2,000 (500 on a phone): scrolling up to the oldest drawn, or **Show N
+earlier lines** there, draws the next ones before them, the line read staying in place. On a phone the histogram stays
+under the header while the log scrolls.
+
 **Copy** puts the lines shown on the clipboard as text. **Diagnose** (Log Doctor, with the Assistant on) sends the lines
 shown, the latest 3,000, to the Assistant, which groups the issues with their causes and fixes as it writes; secrets and
 addresses are masked first. The **⋯** menu downloads the range shown, or the whole log for the latest lines, as a text
