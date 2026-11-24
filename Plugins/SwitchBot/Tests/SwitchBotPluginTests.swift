@@ -281,6 +281,30 @@ extension SwitchBotPluginTests {
         #expect(service[.currentHeaterCoolerState]?.value == .int(1))
     }
 
+    /// After a restart the cached values are the air conditioner's state: Off is sent while it runs, not dropped as the
+    /// default (off) it had before.
+    @Test func anIRAirConditionerRestartsWithItsCachedState() async throws {
+        let id = "SwitchBot:02-202102220012-55-Air Conditioner", device = "02-202102220012-55"
+        let host = try await environment.start()
+        #expect(await eventually { host.accessory(id) != nil })
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { await plugin.entries["02-202102220012-55-Air Conditioner"] != nil })
+        let service = try #require(host.accessory(id)?.service(.heaterCooler))
+        try await service.characteristic(.active).write(.int(1))
+        try await service.characteristic(.targetHeaterCoolerState).write(.int(1))
+        #expect(environment.cloud.commands(to: device).map(\.command) == ["turnOn", "setAll"])
+        await host.stop()
+
+        let again = try await environment.start()
+        let restarted = try #require(environment.plugin)
+        #expect(await eventually { await restarted.entries["02-202102220012-55-Air Conditioner"] != nil })
+        let air = try #require(again.accessory(id)?.service(.heaterCooler))
+        #expect(air[.active]?.value == .int(1) && air[.targetHeaterCoolerState]?.value == .int(1))
+        try await air.characteristic(.active).write(.int(0))
+        #expect(environment.cloud.commands(to: device).last == Command(command: "turnOff"))
+        await again.stop()
+    }
+
     @Test func aBotInPressModePressesAndReturnsToOff() async throws {
         let sent = SentCommands()
         let info = DeviceInfo(id: "D1A2B3C4D5E6", deviceID: "D1A2B3C4D5E6-Bot", type: "Bot", name: "Bot", options: DeviceOptions(["mode": "press"]), isRemote: false, firmware: "1")

@@ -209,6 +209,27 @@ final class RemoteAccessory: DeviceAccessory, @unchecked Sendable {
         showClimateState()
     }
 
+    /// The cached values are the air conditioner's state after a restart (the remote has none): writes equal to the
+    /// defaults (Off while it runs) are sent again rather than dropped.
+    override func restored() {
+        guard family == .airConditioner else { return }
+        let service = primary
+        lock.withLock {
+            climate.active = service.characteristic(.active).value.intValue == 1
+            let state = service.characteristic(.targetHeaterCoolerState).value.intValue
+            climate.mode = state == 1 ? .heat : state == 2 ? .cool : state == 0 ? .auto : climate.mode
+            let low = service[.heatingThresholdTemperature]?.value.doubleValue, high = service[.coolingThresholdTemperature]?.value.doubleValue
+            let threshold = switch climate.mode {
+            case .heat: low
+            case .cool: high
+            case .auto: low.flatMap { low in high.map { (low + $0) / 2 } }
+            }
+            if let threshold { climate.threshold = threshold }
+            if let speed = service[.rotationSpeed]?.value.intValue { climate.speed = min(max(speed, 1), 4) }
+        }
+        showClimateState()
+    }
+
     /// What HomeKit asked, kept here (the remote has no status): the power first, then the mode and target in one `setAll`.
     func applyClimate(_ command: ClimateCommand) async throws {
         var sentAll = false
