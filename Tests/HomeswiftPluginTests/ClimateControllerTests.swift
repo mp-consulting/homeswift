@@ -19,8 +19,8 @@ struct ClimateControllerTests {
         let overlapped = NIOLockedValueBox(false)
         var sent: [ClimateCommand] { commands.withLockedValue { $0 } }
 
-        func controller(_ kind: ClimateServiceKind, _ capabilities: ClimateCapabilities) -> ClimateController {
-            ClimateController(kind, name: "Living room", capabilities: capabilities, window: .milliseconds(5)) { [self] command in
+        func controller(_ kind: ClimateServiceKind, _ capabilities: ClimateCapabilities, window: Duration = .milliseconds(5)) -> ClimateController {
+            ClimateController(kind, name: "Living room", capabilities: capabilities, window: window) { [self] command in
                 inFlight.withLockedValue { count in
                     count += 1
                     if count > 1 { overlapped.withLockedValue { $0 = true } }
@@ -219,12 +219,13 @@ struct ClimateControllerTests {
     /// A slider dragged for longer than the window is one command, when it stops.
     @Test func aDragIsOneCommandWhenItStops() async throws {
         let unit = Unit()
-        let climate = unit.controller(.heaterCooler, Self.airConditioner)
+        // Writes 20 ms apart, each started once the one before it is gathered, in a 60 ms window: a drag of 140 ms.
+        let climate = unit.controller(.heaterCooler, Self.airConditioner, window: .milliseconds(60))
         climate.update(ClimateReport(power: true, mode: .cool, current: 28, target: 24))
         var writes: [Task<Void, any Error>] = []
         for value in stride(from: 23.0, through: 20.0, by: -0.5) {
             writes.append(Task { try await climate.service.characteristic(.coolingThresholdTemperature).write(.double(value)) })
-            try await Task.sleep(for: .milliseconds(3))
+            try await Task.sleep(for: .milliseconds(20))
         }
         for write in writes { try await write.value }
         #expect(unit.sent == [ClimateCommand(target: 20)])

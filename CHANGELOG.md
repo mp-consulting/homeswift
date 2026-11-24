@@ -50,7 +50,8 @@ All notable changes to this project are documented here. The format follows
   no temperature; a simulated thermostat puts its state back and fails the write when its relay cannot follow.
 - Tuya: an air conditioner in dehumidify or fan keeps its mode shown and its range around the target in auto (fixed
   thresholds that refused writes before), a thermostat's eco is a mode of its own rather than Cool, Off is offered only
-  with a switch, and an infrared air conditioner's tile follows each change at once.
+  with a switch, and an infrared air conditioner's tile follows each change at once. A heater (qn) shows as Heat rather
+  than Auto: an automation that set it to Auto sets it to Heat again.
 - SwitchBot: an infrared air conditioner's mode and temperature of one change go as one command, at once (the 1.5 s
   wait stays for its fan speed).
 - Ring: a thermostat's mode and set point chosen together are one request to the hub, a failed one shows No Response
