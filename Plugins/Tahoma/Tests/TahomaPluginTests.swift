@@ -233,6 +233,94 @@ struct TahomaPluginTests {
         await host.stop()
     }
 
+    /// A HeatingSystem's states never name its mode: a completed execution is its mode and power until they do, so a
+    /// state shown afterwards keeps Auto, and Off is sent. After a restart, the cached mode is the device's.
+    @Test func aHeatingSystemKeepsTheModeItWasSent() async throws {
+        let url = "io://1234-5678-9012/410"
+        let server = FakeOverkiz(devices: [
+            FakeOverkiz.device(url, label: "Floor", uiClass: "HeatingSystem", widget: "SomeHeatingSystem", commands: ["auto", "off", "setTargetTemperature"],
+                               states: [("core:TargetTemperatureState", 2, 20), ("core:TemperatureState", 2, 19)]),
+        ])
+        let environment = TestEnvironment(server: server)
+        let host = try await environment.start()
+        #expect(await eventually { host.accessory(url) != nil })
+        let thermostat = try #require(host.accessory(url)?.service(.thermostat))
+        let state = thermostat.characteristic(.targetHeatingCoolingState)
+        try await state.writeFromHomeKit(.int(HAP.auto))
+        #expect(server.applies.last?.body?["actions"]?[0]?["commands"] == [["type": 1, "name": "auto", "parameters": []]])
+        let execID = try #require(server.execID(for: url))
+        server.queue([
+            ["name": "ExecutionStateChangedEvent", "execId": .string(execID), "newState": "COMPLETED", "timeToNextState": -1],
+            ["name": "DeviceStateChangedEvent", "deviceURL": .string(url), "deviceStates": [["name": "core:TemperatureState", "type": 2, "value": 18]]],
+        ])
+        #expect(await eventually { thermostat.characteristic(.currentTemperature).value.doubleValue == 18 })
+        #expect(state.value == .int(HAP.auto))
+        try await state.writeFromHomeKit(.int(HAP.off))
+        #expect(server.applies.last?.body?["actions"]?[0]?["commands"] == [["type": 1, "name": "off", "parameters": []]])
+        let offID = try #require(server.execID(for: url))
+        server.queue([["name": "ExecutionStateChangedEvent", "execId": .string(offID), "newState": "COMPLETED", "timeToNextState": -1]])
+        #expect(await eventually { await environment.plugin?.executions.inFlight == 0 })
+        try await state.writeFromHomeKit(.int(HAP.auto))
+        let onID = try #require(server.execID(for: url))
+        server.queue([["name": "ExecutionStateChangedEvent", "execId": .string(onID), "newState": "COMPLETED", "timeToNextState": -1]])
+        #expect(await eventually { await environment.plugin?.executions.inFlight == 0 })
+        await host.stop()
+
+        // Restarted: the cached Auto stands through the states, and Off is sent.
+        let again = try await environment.start()
+        // The cached accessory is there at once: the plugin's, built on it, once the devices are listed.
+        #expect(await eventually { await environment.plugin?.mappers[url] != nil })
+        let restarted = try #require(again.accessory(url)?.service(.thermostat))
+        #expect(restarted.characteristic(.targetHeatingCoolingState).value == .int(HAP.auto))
+        let applies = server.applies.count
+        try await restarted.characteristic(.targetHeatingCoolingState).writeFromHomeKit(.int(HAP.off))
+        #expect(server.applies.count == applies + 1)
+        await again.stop()
+    }
+
+    /// A stateless thermostat shows what it was sent once the execution completed, heating in auto.
+    @Test func aStatelessThermostatHeatsWhenSentAuto() async throws {
+        let url = "io://1234-5678-9012/411"
+        let server = FakeOverkiz(devices: [
+            FakeOverkiz.device(url, label: "Panel", uiClass: "HeatingSystem", widget: "SomeHeatingSystem", commands: ["auto", "off", "setTargetTemperature"]),
+        ])
+        let environment = TestEnvironment(server: server)
+        let host = try await environment.start()
+        #expect(await eventually { host.accessory(url) != nil })
+        let thermostat = try #require(host.accessory(url)?.service(.thermostat))
+        try await thermostat.characteristic(.targetHeatingCoolingState).writeFromHomeKit(.int(HAP.auto))
+        let execID = try #require(server.execID(for: url))
+        server.queue([["name": "ExecutionStateChangedEvent", "execId": .string(execID), "newState": "COMPLETED", "timeToNextState": -1]])
+        #expect(await eventually { thermostat.characteristic(.currentHeatingCoolingState).value == .int(HAP.heat) })
+        #expect(thermostat.characteristic(.targetHeatingCoolingState).value == .int(HAP.auto))
+        await host.stop()
+    }
+
+    /// A pilot wire heater's snapped target is shown, not taken for the device's: a failed execution shows the device's
+    /// level again.
+    @Test func aFailedSnapShowsThePilotWireLevelAgain() async throws {
+        let url = "io://1234-5678-9012/412"
+        let server = FakeOverkiz(devices: [
+            FakeOverkiz.device(url, label: "Radiator", uiClass: "HeatingSystem", widget: "AtlanticElectricalHeater", commands: ["setHeatingLevel"],
+                               states: [("io:TargetHeatingLevelState", 3, "comfort")]),
+        ])
+        let environment = TestEnvironment(server: server)
+        let host = try await environment.start()
+        #expect(await eventually { host.accessory(url) != nil })
+        let radiator = try #require(host.accessory(url)?.service(.thermostat))
+        try await radiator.characteristic(.targetTemperature).writeFromHomeKit(.double(16))
+        #expect(await eventually {
+            radiator.characteristic(.targetTemperature).value.doubleValue == 17 && radiator.characteristic(.targetHeatingCoolingState).value == .int(HAP.cool)
+        })
+        let execID = try #require(server.execID(for: url))
+        server.queue([["name": "ExecutionStateChangedEvent", "execId": .string(execID), "newState": "FAILED", "timeToNextState": -1,
+                       "failureType": "CMDCANCELLED", "failedCommands": [["deviceURL": .string(url), "command": ["name": "setHeatingLevel"]]]]])
+        #expect(await eventually {
+            radiator.characteristic(.targetTemperature).value.doubleValue == 19 && radiator.characteristic(.targetHeatingCoolingState).value == .int(HAP.heat)
+        })
+        await host.stop()
+    }
+
     @Test func exclusionsAndUnsupportedDevicesAreLeftOut() async throws {
         let server = FakeOverkiz(devices: .array((FakeOverkiz.setupExcerpt.arrayValue ?? []) + [
             FakeOverkiz.device("internal://1234-5678-9012/pod/0", label: "Box", uiClass: "Pod", widget: "Pod"),

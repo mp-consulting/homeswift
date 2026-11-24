@@ -145,22 +145,53 @@ class ThermostatMapper: Mapper, @unchecked Sendable {
         return Executions.merge([], commands)
     }
 
-    /// Sends one change as one execution. A failed execution shows the device's state again; a stateless device keeps
-    /// what it was sent once it completed.
+    /// Sends one change as one execution. A failed execution shows the device's state again; a completed one is the
+    /// device's state until its states say otherwise (most never name the mode, and a stateless device none).
     func applyClimate(_ command: ClimateCommand) async throws {
         let commands = try climateCommands(command)
         try await execute(commands) { [weak self] update in
             guard let self else { return }
             if update.state.isFailure {
                 climate.update(reading.withLockedValue { $0 })
-            } else if update.state == .completed, stateless {
-                reading.withLockedValue { reading in
-                    if let power = command.power { reading.power = power }
-                    if let mode = command.mode { reading.mode = mode }
-                    if let target = command.target { reading.target = target }
-                }
+            } else if update.state == .completed {
+                completed(power: command.power, mode: command.mode, target: command.target)
             }
         }
+    }
+
+    /// An execution completed: what it sent is the device's state. A stateless device, which says nothing of what it
+    /// does, is shown doing what its mode says (heat or auto heating, cool cooling).
+    func completed(power: Bool?, mode: ClimateMode?, target: Double?) {
+        let report = reading.withLockedValue { reading in
+            if let power { reading.power = power }
+            if let mode { reading.mode = mode }
+            if let target { reading.target = target }
+            if stateless, power != nil || mode != nil {
+                reading.action = !reading.power ? .idle : reading.mode.map { $0 == .cool ? .cooling : .heating }
+            }
+            return reading
+        }
+        climate.update(report)
+    }
+
+    /// The accessory took its cached values: until the device's states say otherwise, they are its state (the mode and
+    /// power of a device whose states never name them).
+    override func restored() {
+        guard let climate = climate as ClimateController? else { return }
+        let thermostat = climate.service
+        let state = thermostat.characteristic(.targetHeatingCoolingState).value.intValue
+        let target = thermostat.number(.targetTemperature), current = thermostat.number(.currentTemperature)
+        let modes = climate.capabilities.modes
+        let report = reading.withLockedValue { reading in
+            if let state {
+                reading.power = state != HAP.off
+                if let mode = HAP.climateMode(state), modes.contains(mode) { reading.mode = mode }
+            }
+            if let target { reading.target = target }
+            if let current { reading.current = current }
+            return reading
+        }
+        climate.update(report)
     }
 
     // MARK: Showing
@@ -283,21 +314,24 @@ final class PilotWireHeaterMapper: ThermostatMapper, @unchecked Sendable {
         default: ("comfort", .heat)
         }
         try await execute([OverkizCommand("setHeatingLevel", .string(level))]) { [weak self] update in
-            guard let self, update.state.isFailure else { return }
-            climate.update(reading.withLockedValue { $0 })
+            guard let self else { return }
+            if update.state.isFailure {
+                climate.update(reading.withLockedValue { $0 })
+            } else if update.state == .completed {
+                completed(power: true, mode: mode, target: snapped)
+            }
         }
         schedule("snap", after: scaled(0.05)) { [weak self] in self?.showSnapped((snapped, mode)) }
     }
 
-    /// Shows the temperature and mode a target snapped to, or the device's state again.
+    /// Shows the temperature and mode a target snapped to, or the device's state again. The device's state stays as
+    /// its states say until the execution completes: one that fails shows it again.
     private func showSnapped(_ snapped: (temperature: Double, mode: ClimateMode)?) {
-        let report = reading.withLockedValue { reading in
-            if let snapped {
-                reading.power = true
-                reading.mode = snapped.mode
-                reading.target = snapped.temperature
-            }
-            return reading
+        var report = reading.withLockedValue { $0 }
+        if let snapped {
+            report.power = true
+            report.mode = snapped.mode
+            report.target = snapped.temperature
         }
         climate.update(report)
     }
