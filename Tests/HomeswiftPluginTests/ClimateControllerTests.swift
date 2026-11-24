@@ -174,7 +174,10 @@ struct ClimateControllerTests {
         async let high: Void = service.characteristic(.coolingThresholdTemperature).write(.double(26))
         _ = try await (low, high)
         #expect(unit.sent == [ClimateCommand(target: 22.5, heating: 19, cooling: 26)])
-        // An unchanged threshold sends nothing.
+        // An unchanged threshold sends nothing, not even the auto setpoint when it moved elsewhere.
+        try await service.characteristic(.heatingThresholdTemperature).write(.double(19))
+        #expect(unit.sent.count == 1)
+        climate.update(ClimateReport(power: true, mode: .auto, current: 21, target: 23, heating: 19, cooling: 26))
         try await service.characteristic(.heatingThresholdTemperature).write(.double(19))
         #expect(unit.sent.count == 1)
         // Without an auto setpoint, only the threshold.

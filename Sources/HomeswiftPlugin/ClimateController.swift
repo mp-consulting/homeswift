@@ -570,6 +570,8 @@ public final class ClimateController: Sendable {
         } else {
             if command.heating == report.heating { command.heating = nil }
             if command.cooling == report.cooling { command.cooling = nil }
+            // The auto setpoint follows a threshold that changed, never one written again as it was.
+            if case .separate(true) = capabilities.setpoints, command.heating == nil, command.cooling == nil { command.target = nil }
         }
         return (command, newBand)
     }
