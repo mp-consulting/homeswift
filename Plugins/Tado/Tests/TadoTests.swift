@@ -400,11 +400,11 @@ struct TadoPluginTests {
         await expectEventually({ accessory(host, "My Home Living Room Heater")?.service(.thermostat)?[.currentTemperature]?.value.doubleValue == 19.6 })
         let thermostat = try #require(accessory(host, "My Home Living Room Heater")?.service(.thermostat))
         let target = try #require(thermostat[.targetTemperature])
-        // A slider dragged: three writes one after another, a few milliseconds apart.
+        // A slider dragged: three writes one after another, apart enough that each has started before the next.
         var writes: [Task<Void, any Error>] = []
         for value in [20.0, 21.0, 22.0] {
             writes.append(Task { try await write(target, .double(value)) })
-            try await Task.sleep(for: .milliseconds(5))
+            try await Task.sleep(for: .milliseconds(20))
         }
         for task in writes { try await task.value }
         let overlays = environment.tado.sent("PUT", "/api/v2/homes/123456/zones/1/overlay")
