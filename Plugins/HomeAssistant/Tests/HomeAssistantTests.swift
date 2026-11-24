@@ -286,10 +286,18 @@ struct HomeAssistantTests {
         #expect(server.calls.last == .init(domain: "climate", service: "set_temperature", data: ["target_temp_low": 20, "target_temp_high": 24], entityID: "climate.office"))
         server.change("climate.office", state: "dry", attributes: [
             "friendly_name": "Office", "hvac_modes": ["off", "heat", "cool", "heat_cool", "dry"], "current_temperature": 22,
-            "target_temp_low": 20, "target_temp_high": 24, "min_temp": 7, "max_temp": 35, "supported_features": 3,
+            "target_temp_low": 20, "target_temp_high": 24, "min_temp": 7, "max_temp": 35, "supported_features": 3, "hvac_action": "drying",
         ])
         #expect(await eventually { thermostat[.currentTemperature]?.value == .double(22) })
         #expect(thermostat[.targetHeatingCoolingState]?.value == .int(3))
+        // Drying is an Other Mode's doing: idle, not cooling (nor is a fan's).
+        #expect(thermostat[.currentHeatingCoolingState]?.value == .int(0))
+        server.change("climate.office", state: "fan_only", attributes: [
+            "friendly_name": "Office", "hvac_modes": ["off", "heat", "cool", "heat_cool", "dry"], "current_temperature": 23,
+            "target_temp_low": 20, "target_temp_high": 24, "min_temp": 7, "max_temp": 35, "supported_features": 3, "hvac_action": "fan",
+        ])
+        #expect(await eventually { thermostat[.currentTemperature]?.value == .double(23) })
+        #expect(thermostat[.currentHeatingCoolingState]?.value == .int(0))
         try await thermostat.characteristic(.targetHeatingCoolingState).write(.int(0))
         #expect(server.calls.last == .init(domain: "climate", service: "set_hvac_mode", data: ["hvac_mode": "off"], entityID: "climate.office"))
         await host.stop()

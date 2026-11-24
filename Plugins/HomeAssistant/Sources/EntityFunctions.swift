@@ -569,12 +569,13 @@ final class ClimateFunction: EntityFunction, @unchecked Sendable {
         state.double(key).map { Temperature.tenth(Temperature.celsius($0, fahrenheit: fahrenheit)) }
     }
 
-    /// The entity's state for the controller: off is the power, `dry` and `fan_only` Other Modes.
+    /// The entity's state for the controller: off is the power, `dry` and `fan_only` Other Modes, whose drying and fan
+    /// are idle (docs/adr/0013-climate-is-mapped-once.md, rule 3).
     func report(_ state: EntityState) -> ClimateReport {
         let action: ClimateAction? = switch state.string("hvac_action") {
         case nil: nil
         case "heating", "preheating", "defrosting": .heating
-        case "cooling", "drying", "fan": .cooling
+        case "cooling": .cooling
         default: .idle
         }
         return ClimateReport(power: state.state != "off", mode: climateMode(state.state), action: action,
