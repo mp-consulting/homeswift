@@ -559,8 +559,7 @@ struct NodeBuilder {
             }
             var climateMode = mode == nil ? fixedMode : now.mode.flatMap(Self.climateMode)
             if let known = climateMode, !modes.contains(known) { climateMode = nil }
-            // 1 Heating, 2 Cooling; the fan-only and pending states are neither.
-            let action: ClimateAction? = hasOperatingState ? now.operating.map { $0 == 1 ? .heating : $0 == 2 ? .cooling : .idle } : nil
+            let action = hasOperatingState ? now.operating.flatMap(Self.climateAction) : nil
             climate.update(ClimateReport(power: now.mode.map { $0 != 0 } ?? true, mode: climateMode, action: action, current: now.current,
                                          target: separate ? nil : now.heating ?? now.cooling,
                                          heating: separate ? now.heating : nil, cooling: separate ? now.cooling : nil))
@@ -595,6 +594,18 @@ struct NodeBuilder {
             }
         }
         add(service)
+    }
+
+    /// What a Thermostat Operating State says the unit does: idle (0), heating (1, and 7, 8, 10, 11: auxiliary and
+    /// later stages), cooling (2, and 9: the second stage); nil for its fan alone, a pending stage or venting (3 to 6),
+    /// which leave the controller to judge from the room.
+    static func climateAction(_ operatingState: Int) -> ClimateAction? {
+        switch operatingState {
+        case 0: .idle
+        case 1, 7, 8, 10, 11: .heating
+        case 2, 9: .cooling
+        default: nil
+        }
     }
 
     // MARK: Meters

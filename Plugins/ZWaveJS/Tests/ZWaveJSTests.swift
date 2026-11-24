@@ -337,17 +337,40 @@ struct ZWaveJSTests {
     @Test func anOtherModeKeepsTheThermostatsModeAndTarget() async throws {
         let host = try await started()
         let thermostat = try #require(host.accessory(id(6))?.service(.thermostat))
-        // 11, Energy Save Heat: on, still shown as Heat with the heating setpoint.
+        // Cool first: Heat is also the mode shown before any, so the Other Mode must keep another.
+        environment.server.valueUpdated(node: 6, commandClass: 64, property: "mode", value: 2)
+        #expect(await eventually { thermostat[.targetHeatingCoolingState]?.value == 2 })
+        // 11, Energy Save Heat: on, still shown as Cool with the cooling setpoint.
         environment.server.valueUpdated(node: 6, commandClass: 64, property: "mode", value: 11)
-        environment.server.valueUpdated(node: 6, commandClass: 67, property: "setpoint", propertyKey: 1, value: 19)
-        #expect(await eventually { thermostat[.targetTemperature]?.value == .double(19) })
-        #expect(thermostat[.targetHeatingCoolingState]?.value == 1)
+        environment.server.valueUpdated(node: 6, commandClass: 67, property: "setpoint", propertyKey: 2, value: 26)
+        #expect(await eventually { thermostat[.targetTemperature]?.value == .double(26) })
+        #expect(thermostat[.targetHeatingCoolingState]?.value == 2)
         // Off is mode 0; Heat turns it on again.
         try await thermostat[.targetHeatingCoolingState]!.write(.int(0), origin: nil)
         #expect(environment.server.setValues.last?["value"] == 0)
         try await thermostat[.targetHeatingCoolingState]!.write(.int(1), origin: nil)
         #expect(environment.server.setValues.last?["valueId"] == ["commandClass": 64, "endpoint": 0, "property": "mode"])
         #expect(environment.server.setValues.last?["value"] == 1)
+        await host.stop()
+    }
+
+    /// The operating state's later stages are heating or cooling; its fan alone, a pending stage or venting say nothing,
+    /// the room then judged against the setpoint.
+    @Test func operatingStagesAreTheThermostatsAction() async throws {
+        let host = try await started()
+        let thermostat = try #require(host.accessory(id(6))?.service(.thermostat))
+        let server = environment.server
+        for (state, current) in [(0, 0), (8, 1), (0, 0), (9, 2), (11, 1)] {
+            server.valueUpdated(node: 6, commandClass: 66, property: "state", value: .number(Double(state)))
+            #expect(await eventually { thermostat[.currentHeatingCoolingState]?.value == .int(current) }, "state \(state)")
+        }
+        // Fan only, in heat with the room (19.5) below its setpoint (21): heating, as the controller judges it.
+        server.valueUpdated(node: 6, commandClass: 66, property: "state", value: 3)
+        #expect(await eventually { thermostat[.currentHeatingCoolingState]?.value == 1 })
+        server.valueUpdated(node: 6, commandClass: 66, property: "state", value: 0)
+        #expect(await eventually { thermostat[.currentHeatingCoolingState]?.value == 0 })
+        server.valueUpdated(node: 6, commandClass: 66, property: "state", value: 5)
+        #expect(await eventually { thermostat[.currentHeatingCoolingState]?.value == 1 })
         await host.stop()
     }
 
