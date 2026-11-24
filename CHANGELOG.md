@@ -30,6 +30,13 @@ All notable changes to this project are documented here. The format follows
 - Home Assistant: a climate entity in dry or fan only keeps its mode shown (they showed as Cool), its low and high go
   out together in one `set_temperature`, and the thresholds no longer have to be 5 °C apart.
 - ESPHome: dry and fan only keep a thermostat's mode shown, and one change goes out as one climate command.
+- Xiaomi MIoT: an air conditioner in dry or fan keeps its mode shown and reads idle, a heater no longer turns on when
+  Heat is chosen (Active does), and a unit that is off reads Inactive rather than Idle.
+- Govee: the H7130, H7131 and H7132 heaters show whether they heat (it was never set), Inactive when off; fan only
+  keeps the mode shown rather than passing for Heat, Heat chosen from it heats at low, and a mode never turns a heater
+  on. A failed command puts the tile back at once rather than after 2 s.
+- Dyson: a Hot+Cool's Thermostat no longer reads Heating just because heating is on: it shows what the heater reports,
+  idle with the fan off, and a temperature set while heating is off is sent without turning it on.
 - Z-Wave JS: a thermostat's fan, eco or other modes keep the mode and target shown, and one with both setpoints has its
   heat-to and cool-to thresholds in Auto.
 - Zigbee2MQTT: a thermostat without a system mode no longer always shows Heating (its room's temperature tells), a mode
