@@ -170,6 +170,34 @@ struct GoogleNestSDMTests {
         await host.stop()
     }
 
+    /// A mode uses only its own setpoint: the other one alone is refused (the Homebridge plugin's canSetThresholds), and in
+    /// eco a mode goes out while its setpoints are refused.
+    @Test func aSetpointTheModeDoesNotUseIsRefused() async throws {
+        let host = try await environment.loaded()
+        let service = try thermostat(host)
+        #expect(service[.targetHeatingCoolingState]?.value.intValue == 1)
+        await #expect(throws: HAPStatusError(.notAllowedInCurrentState, reason: "Set the cool-to temperature in COOL or HEATCOOL")) {
+            try await service[.coolingThresholdTemperature]?.write(.double(26))
+        }
+        #expect(environment.google.commands.isEmpty)
+        await host.stop()
+    }
+
+    @Test func inEcoAModeIsSentAndItsSetpointsRefused() async throws {
+        thermostatTraits(["sdm.devices.traits.ThermostatEco": ["availableModes": ["OFF", "MANUAL_ECO"], "mode": "MANUAL_ECO", "heatCelsius": 9.7, "coolCelsius": 29.4]])
+        let host = try await environment.loaded()
+        let service = try thermostat(host)
+        let mode = try #require(service[.targetHeatingCoolingState]), target = try #require(service[.targetTemperature])
+        async let cool = status { try await mode.write(.int(2)) }
+        async let temperature = status { try await target.write(.double(24)) }
+        let statuses = await [cool, temperature]
+        #expect(statuses == [.notAllowedInCurrentState, .notAllowedInCurrentState])
+        #expect(environment.google.commands.map { $0["command"]?.stringValue } == ["sdm.devices.commands.ThermostatMode.SetMode"])
+        #expect(environment.google.commands.first?["params"] == ["mode": "COOL"])
+        #expect(mode.value.intValue == 2)
+        await host.stop()
+    }
+
     /// A temperature written while the thermostat is off waits for the next mode, and goes out after it in one change.
     @Test func aSetpointWrittenWhileOffGoesOutWithTheMode() async throws {
         thermostatTraits(["sdm.devices.traits.ThermostatMode": ["mode": "OFF", "availableModes": ["HEAT", "COOL", "HEATCOOL", "OFF"]]])
@@ -438,4 +466,14 @@ final class NIOLockedBox: @unchecked Sendable {
     private var count = 0
     var value: Int { lock.withLock { count } }
     func increment() { lock.withLock { count += 1 } }
+}
+
+/// The status a write failed with, nil when it succeeded.
+private func status(_ write: () async throws -> Void) async -> HAPStatus? {
+    do {
+        try await write()
+        return nil
+    } catch {
+        return (error as? HAPStatusError)?.status ?? .serviceCommunicationFailure
+    }
 }

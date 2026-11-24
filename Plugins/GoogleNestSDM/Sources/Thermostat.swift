@@ -128,14 +128,15 @@ final class NestThermostat: @unchecked Sendable {
         name: "Eco", uuid: HAPUUID("F66DE49D-792E-44A6-99C8-5E3576328BA1"), format: .bool, permissions: [.pairedRead, .pairedWrite, .events])
 
     /// A slider sends one command, not one per step of the drag (the thermostat allows 5 a minute): the controller
-    /// gathers what is written within this window into one command.
+    /// gathers what is written within this window into one command (the default of `Dependencies.climateWindow`).
     static let writeWindow = Duration.milliseconds(600)
 
     static func accessoryID(_ device: SDMDevice) -> String { GoogleNestSDMPlugin.accessoryID(deviceID: device.name) }
     static func fanAccessoryID(_ device: SDMDevice) -> String { GoogleNestSDMPlugin.accessoryID(deviceID: "\(device.name) Fan") }
 
     /// `stale` runs on HomeKit's reads, so a cache older than a day is fetched again in the background.
-    init(device: SDMDevice, options: NestOptions, send: @escaping Commander, log: Logger, stale: @escaping @Sendable () -> Void) {
+    init(device: SDMDevice, options: NestOptions, window: Duration = writeWindow, send: @escaping Commander, log: Logger,
+         stale: @escaping @Sendable () -> Void) {
         let state = ThermostatState(device)
         props = state.props
         let props = props
@@ -151,7 +152,7 @@ final class NestThermostat: @unchecked Sendable {
         climate = ClimateController(
             .thermostat, name: device.displayName, isPrimary: true, capabilities: capabilities,
             optional: [.currentRelativeHumidity, .currentTemperature.with(minValue: props.readableMin, maxValue: props.readableMax)],
-            window: Self.writeWindow) { command in try await apply.withLockedValue { $0 }?(command) }
+            window: window) { command in try await apply.withLockedValue { $0 }?(command) }
         eco = climate.service.characteristic(adding: Self.ecoType)
         let name = device.displayName
         accessory = Accessory(
@@ -233,11 +234,11 @@ final class NestThermostat: @unchecked Sendable {
 
     /// Sends what HomeKit asked in Google's commands: Off or the mode first, then the setpoint the mode uses (SetHeat in
     /// HEAT, SetCool in COOL, SetRange with both ends in HEATCOOL, the other end from the cache when one moved).
-    /// Google takes no setpoint in eco: those are refused before anything is sent.
+    /// Google takes no setpoint in eco, and a mode uses only its own: a command whose setpoints are all of that kind is
+    /// refused after its power and mode are sent (the Homebridge plugin refused them too).
     func applyClimate(_ command: ClimateCommand) async throws {
         let state = state
         let setpoints = command.target != nil || command.heating != nil || command.cooling != nil
-        if state.ecoOn, setpoints { throw refused("Set the temperatures with eco off") }
         if command.power == false { try await self.command("ThermostatMode.SetMode", ["mode": "OFF"]) }
         var mode = state.mode
         // A turn-on carries the mode chosen.
@@ -250,11 +251,20 @@ final class NestThermostat: @unchecked Sendable {
             try await self.command("ThermostatMode.SetMode", ["mode": .string(sdm)])
             mode = sdm
         }
+        if state.ecoOn, setpoints { throw refusedAfter(command, "Set the temperatures with eco off") }
         switch mode {
         case "HEAT":
-            if let heat = command.heating { try await self.command("ThermostatTemperatureSetpoint.SetHeat", ["heatCelsius": .number(heat)]) }
+            if let heat = command.heating {
+                try await self.command("ThermostatTemperatureSetpoint.SetHeat", ["heatCelsius": .number(heat)])
+            } else if command.cooling != nil {
+                throw refusedAfter(command, "Set the cool-to temperature in COOL or HEATCOOL")
+            }
         case "COOL":
-            if let cool = command.cooling { try await self.command("ThermostatTemperatureSetpoint.SetCool", ["coolCelsius": .number(cool)]) }
+            if let cool = command.cooling {
+                try await self.command("ThermostatTemperatureSetpoint.SetCool", ["coolCelsius": .number(cool)])
+            } else if command.heating != nil {
+                throw refusedAfter(command, "Set the heat-to temperature in HEAT or HEATCOOL")
+            }
         case "HEATCOOL":
             guard command.heating != nil || command.cooling != nil else { break }
             var range: [String: JSONValue] = [:]
@@ -265,6 +275,21 @@ final class NestThermostat: @unchecked Sendable {
             break
         }
         show()
+    }
+
+    /// Refuses a command's setpoints, its power and mode sent: shown first, so the controller puts the tile back to them.
+    private func refusedAfter(_ command: ClimateCommand, _ reason: String) -> HAPStatusError {
+        if command.power != nil || command.mode != nil {
+            show()
+            // Eco names no mode: the one sent shows as the mode beneath it.
+            let state = state
+            if state.ecoOn, let mode = command.mode {
+                var beneath = state.report
+                beneath.mode = mode
+                climate.update(beneath)
+            }
+        }
+        return refused(reason)
     }
 
     private func refused(_ reason: String) -> HAPStatusError {

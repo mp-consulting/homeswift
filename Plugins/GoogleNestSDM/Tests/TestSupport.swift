@@ -151,7 +151,10 @@ final class TestEnvironment: Sendable {
     var plugin: GoogleNestSDMPlugin? { plugins.withLockedValue { $0.last } }
 
     var dependencies: GoogleNestSDMPlugin.Dependencies {
-        GoogleNestSDMPlugin.Dependencies(transport: google, ffmpeg: { logger, _ in testFFmpeg(logger) }, timeScale: 0.01)
+        var dependencies = GoogleNestSDMPlugin.Dependencies(transport: google, ffmpeg: { logger, _ in testFFmpeg(logger) }, timeScale: 0.01)
+        // The thermostat's writes gathered for 30 ms, not 600.
+        dependencies.climateWindow = .milliseconds(30)
+        return dependencies
     }
 
     func start(settings: [String: Any] = accountBlock) async throws -> PluginHost {

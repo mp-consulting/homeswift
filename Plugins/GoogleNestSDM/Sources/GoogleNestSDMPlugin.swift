@@ -22,6 +22,8 @@ public actor GoogleNestSDMPlugin: HomeswiftPlugin {
         /// Multiplies the plugin's waits (motion, retries, the stale cache): tests shorten them.
         var timeScale: Double = 1
         var now: @Sendable () -> Date = { Date() }
+        /// How long a thermostat's writes are gathered into one command (`NestThermostat.writeWindow`): tests shorten it.
+        var climateWindow = NestThermostat.writeWindow
     }
 
     public static let platform = "homebridge-google-nest-sdm"
@@ -189,7 +191,7 @@ public actor GoogleNestSDMPlugin: HomeswiftPlugin {
 
     private func makeThermostat(_ device: SDMDevice) -> NestThermostat {
         let resource = device.name
-        return NestThermostat(device: device, options: options, send: commander(), log: logger) { [weak self] in
+        return NestThermostat(device: device, options: options, window: dependencies.climateWindow, send: commander(), log: logger) { [weak self] in
             Task { await self?.refreshIfStale(resource) }
         }
     }
