@@ -265,7 +265,33 @@ struct HomeAssistantTests {
         #expect(server.calls.last == .init(domain: "climate", service: "set_hvac_mode", data: ["hvac_mode": "heat_cool"], entityID: "climate.living"))
         try await thermostat.characteristic(.targetTemperature).write(.double(22))
         #expect(server.calls.last == .init(domain: "climate", service: "set_temperature", data: ["temperature": 71.6], entityID: "climate.living"))
-        #expect(ClimateFunction.modes(["off", "heat", "auto", "heat_cool", "dry", "cool"]) == [0: "off", 1: "heat", 3: "heat_cool", 2: "cool"])
+        #expect(ClimateFunction.modes(["off", "heat", "auto", "heat_cool", "dry", "cool"]) == [.heat: "heat", .auto: "heat_cool", .cool: "cool"])
+        #expect(ClimateFunction.modes(["off", "fan_only"]) == [.auto: "fan_only"])
+        await host.stop()
+    }
+
+    /// An entity in `dry` (an Other Mode) keeps the mode it was in; auto with a range shows it, and a threshold write
+    /// sends both ends.
+    @Test func climateKeepsItsModeInDryAndSendsTheRange() async throws {
+        server.add("climate.office", state: "heat_cool", attributes: [
+            "friendly_name": "Office", "hvac_modes": ["off", "heat", "cool", "heat_cool", "dry"], "current_temperature": 21,
+            "target_temp_low": 19, "target_temp_high": 24, "min_temp": 7, "max_temp": 35, "supported_features": 3,
+        ], registryID: "reg-office")
+        let host = try await environment.start()
+        let thermostat = try #require(service(try await environment.waitFor("entity:reg-office", in: host), .thermostat, "demo.reg-office"))
+        #expect(thermostat[.targetHeatingCoolingState]?.value == .int(3))
+        #expect(thermostat[.heatingThresholdTemperature]?.value == .double(19))
+        #expect(thermostat[.coolingThresholdTemperature]?.value == .double(24))
+        try await thermostat.characteristic(.heatingThresholdTemperature).write(.double(20))
+        #expect(server.calls.last == .init(domain: "climate", service: "set_temperature", data: ["target_temp_low": 20, "target_temp_high": 24], entityID: "climate.office"))
+        server.change("climate.office", state: "dry", attributes: [
+            "friendly_name": "Office", "hvac_modes": ["off", "heat", "cool", "heat_cool", "dry"], "current_temperature": 22,
+            "target_temp_low": 20, "target_temp_high": 24, "min_temp": 7, "max_temp": 35, "supported_features": 3,
+        ])
+        #expect(await eventually { thermostat[.currentTemperature]?.value == .double(22) })
+        #expect(thermostat[.targetHeatingCoolingState]?.value == .int(3))
+        try await thermostat.characteristic(.targetHeatingCoolingState).write(.int(0))
+        #expect(server.calls.last == .init(domain: "climate", service: "set_hvac_mode", data: ["hvac_mode": "off"], entityID: "climate.office"))
         await host.stop()
     }
 

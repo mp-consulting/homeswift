@@ -85,12 +85,11 @@ struct GoogleNestSDMTests {
         #expect(service[.targetTemperature]?.type.maxValue == 32.2)
         #expect(service[.currentTemperature]?.type.minValue == -17.8)
         #expect(service[.currentTemperature]?.type.maxValue == 71.1)
-        #expect(service[.targetHeatingCoolingState]?.type.validValues == [1, 2, 3, 0])
+        #expect(service[.targetHeatingCoolingState]?.type.validValues == [0, 1, 2, 3])
         #expect(service[.targetHeatingCoolingState]?.value.intValue == 1)
         #expect(service[.currentHeatingCoolingState]?.value.intValue == 1)
         #expect(service[.targetTemperature]?.value.doubleValue == 20.5)
         #expect(service[.heatingThresholdTemperature]?.value.doubleValue == 20.5)
-        #expect(service[.coolingThresholdTemperature]?.value.doubleValue == 20.0)
         #expect(service[.temperatureDisplayUnits]?.value.intValue == 1)
         #expect(service[.currentRelativeHumidity]?.value.doubleValue == 42)
         #expect(service[.currentTemperature]?.value.doubleValue == 19.8)
@@ -120,17 +119,24 @@ struct GoogleNestSDMTests {
         await host.stop()
     }
 
-    @Test func aThresholdWriteInAutoSendsTheRange() async throws {
+    /// Sets traits of the thermostat Google lists.
+    func thermostatTraits(_ change: [String: JSONValue]) {
         environment.google.state.withLockedValue { state in
             var devices = state.devices["devices"]!.arrayValue!
             var traits = devices[0]["traits"]!.objectValue!
-            traits["sdm.devices.traits.ThermostatMode"] = ["mode": "HEATCOOL", "availableModes": ["HEAT", "COOL", "HEATCOOL", "OFF"]]
-            traits["sdm.devices.traits.ThermostatTemperatureSetpoint"] = ["heatCelsius": 18, "coolCelsius": 24]
+            traits.merge(change) { $1 }
             var device = devices[0].objectValue!
             device["traits"] = .object(traits)
             devices[0] = .object(device)
             state.devices = ["devices": .array(devices)]
         }
+    }
+
+    @Test func aThresholdWriteInAutoSendsTheRange() async throws {
+        thermostatTraits([
+            "sdm.devices.traits.ThermostatMode": ["mode": "HEATCOOL", "availableModes": ["HEAT", "COOL", "HEATCOOL", "OFF"]],
+            "sdm.devices.traits.ThermostatTemperatureSetpoint": ["heatCelsius": 18, "coolCelsius": 24],
+        ])
         let host = try await environment.loaded()
         let service = try thermostat(host)
         try await service[.heatingThresholdTemperature]?.write(.double(19))
@@ -144,8 +150,42 @@ struct GoogleNestSDMTests {
         let ranges = environment.google.command("ThermostatTemperatureSetpoint.SetRange")
         #expect(ranges.count == 2)
         #expect(ranges.last?["params"] == ["heatCelsius": 18.5, "coolCelsius": 25])
-        // The target temperature belongs to heat and cool.
-        await #expect(throws: HAPStatusError.self) { try await service[.targetTemperature]?.write(.double(20)) }
+        #expect(service[.targetHeatingCoolingState]?.value.intValue == 3)
+        await host.stop()
+    }
+
+    /// Eco is an Other Mode: the target state stays the mode beneath it, eco's range shows, and a setpoint written then is
+    /// refused (Google takes none in eco) without a command.
+    @Test func ecoKeepsTheModeAndRefusesSetpoints() async throws {
+        thermostatTraits(["sdm.devices.traits.ThermostatEco": ["availableModes": ["OFF", "MANUAL_ECO"], "mode": "MANUAL_ECO", "heatCelsius": 9.7, "coolCelsius": 29.4]])
+        let host = try await environment.loaded()
+        let service = try thermostat(host)
+        #expect(service[.targetHeatingCoolingState]?.value.intValue == 1)
+        #expect(service[.heatingThresholdTemperature]?.value.doubleValue == 9.7)
+        await #expect(throws: HAPStatusError(.notAllowedInCurrentState, reason: "Set the temperatures with eco off")) {
+            try await service[.targetTemperature]?.write(.double(21))
+        }
+        #expect(environment.google.commands.isEmpty)
+        #expect(service[.targetTemperature]?.value.doubleValue == 9.7)
+        await host.stop()
+    }
+
+    /// A temperature written while the thermostat is off waits for the next mode, and goes out after it in one change.
+    @Test func aSetpointWrittenWhileOffGoesOutWithTheMode() async throws {
+        thermostatTraits(["sdm.devices.traits.ThermostatMode": ["mode": "OFF", "availableModes": ["HEAT", "COOL", "HEATCOOL", "OFF"]]])
+        let host = try await environment.loaded()
+        let service = try thermostat(host)
+        #expect(service[.targetHeatingCoolingState]?.value.intValue == 0)
+        try await service[.targetTemperature]?.write(.double(22))
+        #expect(environment.google.commands.isEmpty)
+        #expect(service[.targetTemperature]?.value.doubleValue == 22)
+        try await service[.targetHeatingCoolingState]?.write(.int(1))
+        #expect(environment.google.commands.map { $0["command"]?.stringValue } == [
+            "sdm.devices.commands.ThermostatMode.SetMode", "sdm.devices.commands.ThermostatTemperatureSetpoint.SetHeat",
+        ])
+        #expect(environment.google.commands.first?["params"] == ["mode": "HEAT"])
+        #expect(environment.google.commands.last?["params"] == ["heatCelsius": 22])
+        #expect(service[.targetHeatingCoolingState]?.value.intValue == 1)
         await host.stop()
     }
 
@@ -194,7 +234,8 @@ struct GoogleNestSDMTests {
         let eco = try thermostat(host)
         #expect(eco[.heatingThresholdTemperature]?.value.doubleValue == 9.7)
         #expect(eco[.coolingThresholdTemperature]?.value.doubleValue == 29.4)
-        #expect(eco[.targetHeatingCoolingState]?.value.intValue == 0)
+        // Eco is an Other Mode: the target stays Cool, the mode beneath it.
+        #expect(eco[.targetHeatingCoolingState]?.value.intValue == 2)
         #expect(eco[NestThermostat.ecoType]?.value == true)
         await host.stop()
     }

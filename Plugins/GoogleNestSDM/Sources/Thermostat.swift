@@ -43,61 +43,40 @@ struct ThermostatState: Sendable, Equatable {
     var ecoOn: Bool { ecoMode != "OFF" }
     var fahrenheit: Bool { scale == "FAHRENHEIT" }
 
-    static func homeKitMode(_ mode: String) -> Int? {
-        ["HEAT": 1, "COOL": 2, "HEATCOOL": 3, "OFF": 0][mode]
+    /// SDM's mode as a Climate Mode: HEATCOOL is auto, OFF is the power.
+    static func climateMode(_ mode: String) -> ClimateMode? {
+        ["HEAT": .heat, "COOL": .cool, "HEATCOOL": .auto][mode]
     }
 
-    static func sdmMode(_ value: Int) -> String {
-        [1: "HEAT", 2: "COOL", 3: "HEATCOOL"][value] ?? "OFF"
+    static func sdmMode(_ mode: ClimateMode) -> String {
+        switch mode {
+        case .heat: "HEAT"
+        case .cool: "COOL"
+        case .auto: "HEATCOOL"
+        }
     }
 
-    var currentHeatingCooling: Int? {
-        switch hvac {
-        case "HEATING": 1
-        case "COOLING": 2
-        case "OFF": 0
+    /// The Climate Modes `availableModes` lists; all three when it lists none.
+    var climateModes: Set<ClimateMode> {
+        let modes = Set(availableModes.compactMap(Self.climateMode))
+        return modes.isEmpty ? [.heat, .cool, .auto] : modes
+    }
+
+    var canTurnOff: Bool { availableModes.isEmpty || availableModes.contains("OFF") }
+
+    var isOn: Bool { mode != nil && mode != "OFF" }
+
+    /// What the thermostat is set to and does, for the controller. Eco is an Other Mode, its range eco's own; the
+    /// heat-to and cool-to are SDM's heatCelsius and coolCelsius, one used in heat or cool and both in HEATCOOL.
+    var report: ClimateReport {
+        let action: ClimateAction? = switch hvac {
+        case "HEATING": .heating
+        case "COOLING": .cooling
+        case "OFF": .idle
         default: nil
         }
-    }
-
-    /// OFF in eco, else the mode.
-    var targetHeatingCooling: Int? { ecoOn ? 0 : mode.flatMap(Self.homeKitMode) }
-
-    /// The setpoint of HEAT or COOL with eco off.
-    var targetTemperature: Double? {
-        guard !ecoOn else { return nil }
-        switch mode {
-        case "HEAT": return heat
-        case "COOL": return cool
-        default: return nil
-        }
-    }
-
-    /// The setpoints in HEAT, COOL or HEATCOOL, nothing when off.
-    private var range: (heat: Double?, cool: Double?)? {
-        guard ["HEAT", "COOL", "HEATCOOL"].contains(mode ?? "") else { return nil }
-        return (heat, cool)
-    }
-
-    /// In eco, eco's own range (as an eco event shows it); else by mode, the other end half a degree away in heat or cool.
-    var heatingThreshold: Double? {
-        if ecoOn { return ecoHeat }
-        guard let range else { return nil }
-        switch mode {
-        case "HEAT", "HEATCOOL": return range.heat
-        case "COOL": return range.cool.map { $0 + 0.5 }
-        default: return nil
-        }
-    }
-
-    var coolingThreshold: Double? {
-        if ecoOn { return ecoCool }
-        guard let range else { return nil }
-        switch mode {
-        case "COOL", "HEATCOOL": return range.cool
-        case "HEAT": return range.heat.map { $0 - 0.5 }
-        default: return nil
-        }
+        return ClimateReport(power: isOn, mode: ecoOn ? nil : mode.flatMap(Self.climateMode), action: action, current: ambient,
+                             heating: ecoOn ? ecoHeat : heat, cooling: ecoOn ? ecoCool : cool)
     }
 
     var displayUnits: Int? {
@@ -108,31 +87,24 @@ struct ThermostatState: Sendable, Equatable {
         }
     }
 
-    var canSetTargetTemperature: Bool { !ecoOn && (mode == "HEAT" || mode == "COOL") }
-    var canSetThresholds: Bool { !ecoOn && mode == "HEATCOOL" }
-
-    /// The props "configure" sets (section 5.1): the ranges by scale and eco, the target states by available modes.
+    /// The props "configure" sets (section 5.1): the ranges by scale and eco, the modes by available modes.
     struct Props: Sendable, Equatable {
         var settableMin: Double
         var settableMax: Double
         var readableMin: Double
         var readableMax: Double
-        /// nil in eco: HAP's own.
-        var validModes: [Int]?
+        var modes: Set<ClimateMode>
+        var canTurnOff: Bool
     }
 
     var props: Props {
         // To a tenth: HomeKit steps by 0.1 from the minimum, so -17.778 would show 19.8 °C as 19.822.
         func celsius(_ fahrenheit: Double) -> Double { ((fahrenheit - 32) / 1.8 * 10).rounded() / 10 }
         var props = fahrenheit
-            ? Props(settableMin: celsius(50), settableMax: celsius(90), readableMin: celsius(0), readableMax: celsius(160))
-            : Props(settableMin: 9, settableMax: 32, readableMin: -20, readableMax: 60)
-        if ecoOn {
-            props.settableMin = fahrenheit ? celsius(40) : 4.5
-        } else {
-            let modes = availableModes.compactMap(Self.homeKitMode)
-            props.validModes = modes.isEmpty ? nil : modes
-        }
+            ? Props(settableMin: celsius(50), settableMax: celsius(90), readableMin: celsius(0), readableMax: celsius(160),
+                    modes: climateModes, canTurnOff: canTurnOff)
+            : Props(settableMin: 9, settableMax: 32, readableMin: -20, readableMax: 60, modes: climateModes, canTurnOff: canTurnOff)
+        if ecoOn { props.settableMin = fahrenheit ? celsius(40) : 4.5 }
         return props
     }
 }
@@ -142,21 +114,22 @@ final class NestThermostat: @unchecked Sendable {
     let accessory: Accessory
     let fanAccessory: Accessory?
     let props: ThermostatState.Props
-    private let service: Service
+    let climate: ClimateController
+    private var service: Service { climate.service }
     private let eco: Characteristic
     private let fan: Service?
     private let cache: NIOLockedValueBox<SDMDevice>
     private let send: Commander
     private let options: NestOptions
     private let log: Logger
-    /// A slider sends one command, not one per step of the drag (the thermostat allows 5 a minute).
-    private let setpoints = LatestCallGuard(delay: .milliseconds(600))
-    /// The thresholds written since the last SetRange, by Google's key.
-    private let pendingRange = NIOLockedValueBox<[String: Double]>([:])
 
     /// The Eco characteristic (section 5.1): its UUID is the Homebridge plugin's, so its iid stays.
     static let ecoType = CharacteristicType(
         name: "Eco", uuid: HAPUUID("F66DE49D-792E-44A6-99C8-5E3576328BA1"), format: .bool, permissions: [.pairedRead, .pairedWrite, .events])
+
+    /// A slider sends one command, not one per step of the drag (the thermostat allows 5 a minute): the controller
+    /// gathers what is written within this window into one command.
+    static let writeWindow = Duration.milliseconds(600)
 
     static func accessoryID(_ device: SDMDevice) -> String { GoogleNestSDMPlugin.accessoryID(deviceID: device.name) }
     static func fanAccessoryID(_ device: SDMDevice) -> String { GoogleNestSDMPlugin.accessoryID(deviceID: "\(device.name) Fan") }
@@ -166,21 +139,24 @@ final class NestThermostat: @unchecked Sendable {
         let state = ThermostatState(device)
         props = state.props
         let props = props
-        let temperature = { (type: CharacteristicType) in type.with(minValue: props.settableMin, maxValue: props.settableMax) }
-        service = Service(.thermostat, name: device.displayName, optional: [
-            .currentRelativeHumidity, temperature(.targetTemperature), temperature(.heatingThresholdTemperature), temperature(.coolingThresholdTemperature),
-            .currentTemperature.with(minValue: props.readableMin, maxValue: props.readableMax),
-            .targetHeatingCoolingState.with(validValues: props.validModes),
-        ], isPrimary: true)
-        eco = service.characteristic(adding: Self.ecoType)
         cache = NIOLockedValueBox(device)
         self.send = send
         self.options = options
         self.log = log
+        // Google refuses setpoints while the thermostat is off: they wait for the next mode.
+        let capabilities = ClimateCapabilities(
+            modes: props.modes, setpoints: .separate(autoSetpoint: false), range: props.settableMin...props.settableMax,
+            step: 0.1, canTurnOff: props.canTurnOff, whileOff: .holds)
+        let apply = NIOLockedValueBox<(@Sendable (ClimateCommand) async throws -> Void)?>(nil)
+        climate = ClimateController(
+            .thermostat, name: device.displayName, isPrimary: true, capabilities: capabilities,
+            optional: [.currentRelativeHumidity, .currentTemperature.with(minValue: props.readableMin, maxValue: props.readableMax)],
+            window: Self.writeWindow) { command in try await apply.withLockedValue { $0 }?(command) }
+        eco = climate.service.characteristic(adding: Self.ecoType)
         let name = device.displayName
         accessory = Accessory(
             id: Self.accessoryID(device), name: name, manufacturer: "Google Nest", model: "Thermostat", serialNumber: device.shortID,
-            category: .thermostat, services: [service], onIdentify: { [log] in log.info("\(name) identified!") })
+            category: .thermostat, services: [climate.service], onIdentify: { [log] in log.info("\(name) identified!") })
         if options.showFan {
             let fan = Service(.fan, name: "\(name) Fan", isPrimary: true)
             self.fan = fan
@@ -190,6 +166,13 @@ final class NestThermostat: @unchecked Sendable {
         } else {
             fan = nil
             fanAccessory = nil
+        }
+        apply.withLockedValue { $0 = { [weak self] command in try await self?.applyClimate(command) } }
+        // A thermostat built in eco shows the mode beneath it, which eco leaves as it was.
+        if state.ecoOn, let mode = state.mode.flatMap(ThermostatState.climateMode) {
+            var beneath = state.report
+            beneath.mode = mode
+            climate.update(beneath)
         }
         bindHandlers(stale: stale)
         show()
@@ -212,21 +195,12 @@ final class NestThermostat: @unchecked Sendable {
         return state.props != props
     }
 
-    /// Sets each characteristic the state has a value for; HomeKit hears of those that changed. A value outside the props
-    /// is brought into them, as HomeKit would refuse it.
+    /// Shows the cached traits: the climate through the controller, the rest here. A value outside the props is brought
+    /// into them, as HomeKit would refuse it.
     func show() {
         let state = state
-        func set(_ type: CharacteristicType, _ value: Double?, min: Double, max: Double) {
-            guard let value else { return }
-            service.characteristic(type).value = .double(Swift.min(Swift.max(value, min), max))
-        }
-        if let value = state.currentHeatingCooling { service.characteristic(.currentHeatingCoolingState).value = .int(value) }
-        if let value = state.targetHeatingCooling { service.characteristic(.targetHeatingCoolingState).value = .int(value) }
-        set(.currentTemperature, state.ambient, min: props.readableMin, max: props.readableMax)
-        set(.currentRelativeHumidity, state.humidity, min: 0, max: 100)
-        set(.targetTemperature, state.targetTemperature, min: props.settableMin, max: props.settableMax)
-        set(.heatingThresholdTemperature, state.heatingThreshold, min: props.settableMin, max: props.settableMax)
-        set(.coolingThresholdTemperature, state.coolingThreshold, min: props.settableMin, max: props.settableMax)
+        climate.update(state.report)
+        if let humidity = state.humidity { service.characteristic(.currentRelativeHumidity).value = .double(min(max(humidity, 0), 100)) }
         if let units = state.displayUnits { service.characteristic(.temperatureDisplayUnits).value = .int(units) }
         eco.value = .bool(state.ecoMode == "MANUAL_ECO")
         fan?.characteristic(.on).value = .bool(state.fanOn)
@@ -237,47 +211,11 @@ final class NestThermostat: @unchecked Sendable {
             stale()
             return self?.service.characteristic(.currentTemperature).value ?? .null
         }
-        service.characteristic(.targetHeatingCoolingState).onWrite { [weak self] value in
-            guard let self else { return }
-            let mode = ThermostatState.sdmMode(value.intValue ?? 0)
-            guard state.availableModes.contains(mode) else {
-                log.error("\(accessory.name): the thermostat does not have the mode \(mode)")
-                throw HAPStatusError(.invalidValueInRequest, reason: "The thermostat does not have this mode")
-            }
-            try await command("ThermostatMode.SetMode", ["mode": .string(mode)])
-        }
-        service.characteristic(.targetTemperature).onWrite { [weak self] value in
-            guard let self, let celsius = value.doubleValue else { return }
-            let state = state
-            guard state.canSetTargetTemperature else { throw refused("Set the target temperature in heat or cool, with eco off") }
-            guard await setpoints("target") else { return }
-            let (name, key) = state.mode == "HEAT" ? ("SetHeat", "heatCelsius") : ("SetCool", "coolCelsius")
-            try await command("ThermostatTemperatureSetpoint.\(name)", [key: .number(celsius)])
-        }
-        for (type, key) in [(CharacteristicType.heatingThresholdTemperature, "heatCelsius"), (.coolingThresholdTemperature, "coolCelsius")] {
-            service.characteristic(type).onWrite { [weak self] value in
-                guard let self, let celsius = value.doubleValue else { return }
-                let state = state
-                guard state.canSetThresholds else { throw refused("Set the thresholds in auto, with eco off") }
-                // Both handles of the Home app's slider arrive together: the last write sends both, the other end of the
-                // range from the cache when only one moved.
-                pendingRange.withLockedValue { $0[key] = celsius }
-                guard await setpoints("range") else { return }
-                let moved = pendingRange.withLockedValue { pending in
-                    defer { pending = [:] }
-                    return pending
-                }
-                let current = self.state
-                var range: [String: JSONValue] = [:]
-                if let heat = moved["heatCelsius"] ?? current.heat { range["heatCelsius"] = .number(heat) }
-                if let cool = moved["coolCelsius"] ?? current.cool { range["coolCelsius"] = .number(cool) }
-                try await command("ThermostatTemperatureSetpoint.SetRange", range)
-            }
-        }
         eco.onWrite { [weak self] value in
             guard let self else { return }
             let mode = value.boolValue == true ? "MANUAL_ECO" : "OFF"
             try await command("ThermostatEco.SetMode", ["mode": .string(mode)])
+            show()
         }
         fan?.characteristic(.on).onWrite { [weak self] value in
             guard let self else { return }
@@ -291,6 +229,42 @@ final class NestThermostat: @unchecked Sendable {
             if on { params["duration"] = .string("\(duration)s") }
             try await command("Fan.SetTimer", params, update: ["Fan": ["timerMode": .string(on ? "ON" : "OFF")]])
         }
+    }
+
+    /// Sends what HomeKit asked in Google's commands: Off or the mode first, then the setpoint the mode uses (SetHeat in
+    /// HEAT, SetCool in COOL, SetRange with both ends in HEATCOOL, the other end from the cache when one moved).
+    /// Google takes no setpoint in eco: those are refused before anything is sent.
+    func applyClimate(_ command: ClimateCommand) async throws {
+        let state = state
+        let setpoints = command.target != nil || command.heating != nil || command.cooling != nil
+        if state.ecoOn, setpoints { throw refused("Set the temperatures with eco off") }
+        if command.power == false { try await self.command("ThermostatMode.SetMode", ["mode": "OFF"]) }
+        var mode = state.mode
+        // A turn-on carries the mode chosen.
+        if let wanted = command.mode {
+            let sdm = ThermostatState.sdmMode(wanted)
+            guard state.availableModes.isEmpty || state.availableModes.contains(sdm) else {
+                log.error("\(accessory.name): the thermostat does not have the mode \(sdm)")
+                throw HAPStatusError(.invalidValueInRequest, reason: "The thermostat does not have this mode")
+            }
+            try await self.command("ThermostatMode.SetMode", ["mode": .string(sdm)])
+            mode = sdm
+        }
+        switch mode {
+        case "HEAT":
+            if let heat = command.heating { try await self.command("ThermostatTemperatureSetpoint.SetHeat", ["heatCelsius": .number(heat)]) }
+        case "COOL":
+            if let cool = command.cooling { try await self.command("ThermostatTemperatureSetpoint.SetCool", ["coolCelsius": .number(cool)]) }
+        case "HEATCOOL":
+            guard command.heating != nil || command.cooling != nil else { break }
+            var range: [String: JSONValue] = [:]
+            if let heat = command.heating ?? state.heat { range["heatCelsius"] = .number(heat) }
+            if let cool = command.cooling ?? state.cool { range["coolCelsius"] = .number(cool) }
+            try await self.command("ThermostatTemperatureSetpoint.SetRange", range)
+        default:
+            break
+        }
+        show()
     }
 
     private func refused(_ reason: String) -> HAPStatusError {

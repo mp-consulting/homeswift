@@ -137,9 +137,12 @@ struct MessageTests {
 
     @Test func climateModesAndUnits() {
         let modes = ClimateModes(supported: [0, 3])
-        #expect(modes.validValues == [0, 1])
-        #expect(modes.esphome(1) == 3 && modes.esphome(2) == nil)
-        #expect(ClimateModes(supported: [0, 6]).esphome(3) == 6)
+        #expect(modes.modes == [.heat: 3] && modes.canTurnOff)
+        #expect(ClimateModes(supported: [0, 6]).modes[.auto] == 6)
+        // AUTO beside HEAT_COOL, DRY and FAN_ONLY are Other Modes.
+        let all = ClimateModes(supported: [0, 1, 2, 3, 4, 5, 6])
+        #expect(all.climateMode(1) == .auto && all.climateMode(6) == nil && all.climateMode(5) == nil && all.climateMode(0) == nil)
+        #expect(ClimateModes(supported: [4]).modes == [.auto: 4] && !ClimateModes(supported: [4]).canTurnOff)
         #expect(Temperature.celsius(212, unit: 1) == 100)
         #expect(abs(Temperature.device(20, unit: 1) - 68) < 0.001)
         #expect(abs(Temperature.celsius(293.15, unit: 2) - 20) < 0.001)

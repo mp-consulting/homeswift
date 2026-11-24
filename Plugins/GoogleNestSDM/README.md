@@ -20,8 +20,10 @@ Each accessory is named after its room ("Hallway Thermostat", "Front Door Doorbe
 `homebridge-google-nest-sdm:<the device's resource name>` (`enterprises/<project>/devices/<id>`), the fan's the same
 followed by ` Fan`, so a new Device Access project makes new accessories.
 
-The thermostat follows Google's rules: the target temperature is set in Heat or Cool, the thresholds in Auto, nothing
-with eco on (the Home app is refused rather than shown a value the thermostat does not have). Ranges follow the
+The thermostat is mapped by Homeswift's shared climate controller and follows Google's rules: the target temperature is
+the heat-to in Heat and the cool-to in Cool, the thresholds both in Auto; eco keeps the mode beneath it on screen with
+eco's range, and refuses setpoints (the Home app is refused rather than shown a value the thermostat does not have). A
+temperature set while the thermostat is off is shown and sent with the next mode, as Google takes none while off. Ranges follow the
 thermostat's scale (10 to 32.2 °C in Fahrenheit, 9 to 32 °C in Celsius, from 4.5 °C in eco), and a change of scale, eco
 or modes builds the accessory again under the same ids. A command Google refuses is "No Response" in the Home app.
 
