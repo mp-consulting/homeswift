@@ -1,6 +1,7 @@
 import Foundation
 import Homeswift
 import HomeswiftAI
+import HomeswiftPlugin
 import NIOConcurrencyHelpers
 
 /// The services of each Tuya category (the spec's §5), on the builder's blocks.
@@ -233,63 +234,50 @@ extension TuyaAccessoryBuilder {
         let range = mode.range
         let main = service(.heaterCooler)
         @Sendable func modeNow() -> String? { device.string(mode) }
-        main.add(.active, onlineCheck: true, get: {
-            guard let on = device.bool(power) else { return nil }
-            return .int(on && acModes.contains(modeNow() ?? "") ? 1 : 0)
-        }) { value in
-            var commands = [TuyaCommand(code: power.code, value: .bool(value.intValue == 1))]
-            if !acModes.contains(modeNow() ?? ""), let first = acModes.first(where: range.contains) {
-                commands.append(TuyaCommand(code: mode.code, value: .string(first)))
-            }
-            try await link.send(commands, debounced: true)
+        let words: [ClimateMode: String] = [.auto: "auto", .heat: "hot", .cool: "cold"]
+        var modes = Set(words.filter { range.contains($0.value) }.keys)
+        if modes.isEmpty {
+            logger.warning("\(device.name)'s modes have none of auto, hot and cold: it is shown as a cooler")
+            modes = [.cool]
         }
-        let state = find("work_status", "mode")
-        main.add(.currentHeaterCoolerState, get: {
-            device.string(state).map { ["heating": 2, "hot": 2, "cooling": 3, "cold": 3][$0].map(HAPValue.int) ?? .int(0) }
-        })
-        let valid = [range.contains("auto") ? 0 : nil, range.contains("hot") ? 1 : nil, range.contains("cold") ? 2 : nil].compactMap { $0 }
-        if valid.isEmpty {
-            logger.warning("\(device.name)'s modes have none of auto, hot and cold: Target Heater Cooler State is not configured")
-        } else {
-            main.add(.targetHeaterCoolerState.with(minValue: Double(valid.first!), maxValue: Double(valid.last!), validValues: valid), get: {
-                switch modeNow() {
-                case "hot"?: return .int(1)
-                case "cold"?: return .int(2)
-                case nil: return nil
-                default: return .int(valid.contains(0) ? 0 : valid[0])
+        let setpoint = find("temp_set").map { setpointScale($0, minimumWidth: 1) }
+        let workStatus = find("work_status")
+        let modeOf: @Sendable (String?) -> ClimateMode? = { word in words.first { $0.value == word }?.key }
+        main.climate = TuyaServiceDraft.Climate(
+            kind: .heaterCooler,
+            capabilities: ClimateCapabilities(modes: modes, range: setpoint?.range ?? 16...30, step: setpoint?.step ?? 1),
+            report: {
+                // Dry and fan only are Other Modes: the unit stays on, the mode and target shown are kept.
+                guard let on = device.bool(power) else { return nil }
+                let action: ClimateAction? = workStatus.flatMap { device.string($0) }.map { ["heating": .heating, "hot": .heating, "cooling": .cooling, "cold": .cooling][$0] ?? .idle }
+                return ClimateReport(power: on, mode: modeOf(modeNow()), action: action,
+                                     current: device.number(current).map { $0 / current.multiple }, target: setpoint?.value(device))
+            },
+            apply: { command in
+                var commands: [TuyaCommand] = []
+                if let on = command.power {
+                    commands.append(TuyaCommand(code: power.code, value: .bool(on)))
+                    // Turned on in dry or fan only: back to a mode the Heater Cooler shows.
+                    if on, command.mode == nil, !acModes.contains(modeNow() ?? ""), let first = acModes.first(where: range.contains) {
+                        commands.append(TuyaCommand(code: mode.code, value: .string(first)))
+                    }
                 }
-            }) { value in
-                try await link.send(mode.code, .string(value.intValue == 1 ? "hot" : value.intValue == 2 ? "cold" : "auto"))
-            }
-        }
+                if let wanted = command.mode, let word = words[wanted] { commands.append(TuyaCommand(code: mode.code, value: .string(word))) }
+                if let target = command.target, let setpoint { commands.append(setpoint.command(target)) }
+                try await link.send(commands, debounced: false)
+            })
         currentTemperature(main, current)
         let lock = find("lock", "child_lock")
         lockPhysicalControls(main, lock)
         let speed = find("fan_speed_enum", "windspeed")
         if let speed { rotationSpeed(main, levels: speed, ignoring: ["auto"]) }
-        if let setpoint = find("temp_set") {
-            let multiple = setpoint.multiple
-            let low = setpoint.min / multiple, high = Swift.max(setpoint.max / multiple, low + 1), step = Swift.max(0.1, setpoint.step / multiple)
-            for (type, autoValue) in [(CharacteristicType.coolingThresholdTemperature, low), (.heatingThresholdTemperature, high)] {
-                let ref = TuyaCharacteristicRef()
-                main.add(type.with(minValue: low, maxValue: high, minStep: step), ref: ref, get: {
-                    if modeNow() == "auto" { return .double(autoValue) }
-                    return device.number(setpoint).flatMap { Self.double(Self.clamp($0 / multiple, low, high)) }
-                }) { value in
-                    guard modeNow() != "auto" else {
-                        Task { ref.characteristic?.value = .double(autoValue) }
-                        return
-                    }
-                    try await link.send(setpoint.code, Self.json((value.doubleValue ?? 0) * multiple))
-                }
-            }
-        }
         temperatureDisplayUnits(main, find("temp_unit_convert", "c_f"))
         let humidity = find("humidity_current")
         if range.contains("wet") {
             let dry = service(.humidifierDehumidifier, name: "\(device.name) Dehumidifier")
             dry.add(.active, onlineCheck: true, get: { device.bool(power).map { .int($0 && modeNow() == "wet" ? 1 : 0) } }) { value in
                 try await link.send([TuyaCommand(code: power.code, value: .bool(value.intValue == 1)), TuyaCommand(code: mode.code, value: .string("wet"))], debounced: true)
+                link.refresh()
             }
             dry.add(.currentHumidifierDehumidifierState, value: .int(3))
             dry.add(.targetHumidifierDehumidifierState.with(minValue: 2, maxValue: 2, validValues: [2]), value: .int(2))
@@ -302,6 +290,7 @@ extension TuyaAccessoryBuilder {
             let fan = service(.fanv2, name: "\(device.name) Fan")
             fan.add(.active, onlineCheck: true, get: { device.bool(power).map { .int($0 && modeNow() == "wind" ? 1 : 0) } }) { value in
                 try await link.send([TuyaCommand(code: power.code, value: .bool(value.intValue == 1)), TuyaCommand(code: mode.code, value: .string("wind"))], debounced: true)
+                link.refresh()
             }
             lockPhysicalControls(fan, lock)
             if let speed { rotationSpeed(fan, levels: speed, ignoring: ["auto"]) }
@@ -311,43 +300,44 @@ extension TuyaAccessoryBuilder {
         return true
     }
 
-    /// A threshold or target temperature from an Integer DP, `low` and `high` bounding its range; the write is rounded
-    /// to what the DP takes.
-    func setpoint(_ draft: TuyaServiceDraft, _ type: CharacteristicType, _ item: TuyaSchemaItem, bounds: ClosedRange<Double>? = nil,
-                  fallback: ClosedRange<Double>? = nil) {
+    /// A temperature DP's range, step and scale, `bounds` bounding its range; a range that is not usable is `fallback`.
+    func setpointScale(_ item: TuyaSchemaItem, bounds: ClosedRange<Double>? = nil, fallback: ClosedRange<Double>? = nil, minimumWidth: Double = 0)
+        -> TuyaSetpoint {
         var multiple = item.multiple
-        var low = item.min / multiple, high = item.max / multiple, step = Swift.max(0.1, item.step / multiple)
+        var low = item.min / multiple, high = Swift.max(item.max / multiple, low + minimumWidth), step = Swift.max(0.1, item.step / multiple)
         if let bounds { low = Swift.max(bounds.lowerBound, low); high = Swift.min(bounds.upperBound, high) }
         if high <= low {
             let fallback = fallback ?? (bounds ?? 10...38)
             logger.warning("\(device.name)'s \(item.code) range is not usable: \(fallback.lowerBound) to \(fallback.upperBound) is used")
             low = fallback.lowerBound; high = fallback.upperBound; step = 1; multiple = 1
         }
-        let device = device, link = link
-        let scale = multiple
-        draft.add(type.with(minValue: low, maxValue: high, minStep: step), get: { [low, high] in
-            guard let raw = device.number(item) else { return .double(low) }
-            return Self.double(Self.clamp(raw / scale, low, high))
-        }) { value in
-            try await link.send(item.code, Self.json((value.doubleValue ?? 0) * scale), debounced: false)
-        }
+        return TuyaSetpoint(item: item, range: low...high, step: step, multiple: multiple)
     }
 
     func heater() -> Bool {
         guard require([["switch"]]), let power = find("switch") else { return false }
-        let device = device
+        let device = device, link = link
         let main = service(.heaterCooler)
-        active(main, power)
-        let workState = find("work_state")
-        main.add(.currentHeaterCoolerState, get: {
-            guard let workState else { return .int(1) }
-            return device.string(workState).map { .int($0 == "heating" ? 2 : $0 == "warming" ? 1 : 0) }
-        })
-        main.add(.targetHeaterCoolerState.with(minValue: 0, maxValue: 0, validValues: [0]), value: .int(0), get: { .int(0) }) { _ in }
-        if let current = find("temp_current") { currentTemperature(main, current) }
+        let workState = find("work_state"), current = find("temp_current")
+        let setpoint = find("temp_set").map { setpointScale($0) }
+        main.climate = TuyaServiceDraft.Climate(
+            kind: .heaterCooler,
+            capabilities: ClimateCapabilities(modes: [.heat], range: setpoint?.range ?? 10...38, step: setpoint?.step ?? 1),
+            report: {
+                guard let on = device.bool(power) else { return nil }
+                let action = workState.flatMap { device.string($0) }.map { $0 == "heating" ? ClimateAction.heating : .idle }
+                return ClimateReport(power: on, mode: .heat, action: action, current: current.flatMap { device.number($0) }.map { $0 / current!.multiple },
+                                     target: setpoint?.value(device))
+            },
+            apply: { command in
+                var commands: [TuyaCommand] = []
+                if let on = command.power { commands.append(TuyaCommand(code: power.code, value: .bool(on))) }
+                if let target = command.target, let setpoint { commands.append(setpoint.command(target)) }
+                try await link.send(commands, debounced: false)
+            })
+        if let current { currentTemperature(main, current) }
         lockPhysicalControls(main, find("lock"))
         swingMode(main, find("shake"))
-        if let target = find("temp_set") { setpoint(main, .heatingThresholdTemperature, target) }
         temperatureDisplayUnits(main, find("temp_unit_convert", "c_f"))
         return true
     }
@@ -358,46 +348,38 @@ extension TuyaAccessoryBuilder {
         let main = service(.thermostat)
         let power = find("switch")
         let mode = find("mode")
-        let state = find("work_state", "mode")
+        let workState = find("work_state")
         let current = find("temp_current", "temp_set")
-        main.add(.currentHeatingCoolingState, get: {
-            if let power, device.bool(power) == false { return .int(0) }
-            if let state {
-                return device.string(state).map { ["hot": 1, "opened": 1, "heating": 1, "cold": 2, "eco": 2, "idle": 2, "window_opened": 2][$0].map(HAPValue.int) ?? .int(0) }
-            }
-            guard let wanted = device.number(target), let now = device.number(current) else { return nil }
-            return .int(wanted > now ? 1 : wanted < now ? 2 : 0)
-        })
         let range = mode?.range ?? []
-        let valid = [power != nil ? 0 : nil, range.contains("hot") ? 1 : nil, range.contains("cold") || range.contains("eco") ? 2 : nil, 3].compactMap { $0 }
-        main.add(.targetHeatingCoolingState.with(minValue: Double(valid.first!), maxValue: 3, validValues: valid), get: {
-            if let power, device.bool(power) == false { return .int(0) }
-            guard let mode else { return .int(3) }
-            switch device.string(mode) {
-            case "hot"?: return .int(1)
-            case "cold"?, "eco"?: return .int(2)
-            default: return .int(3)
-            }
-        }) { value in
-            var commands: [TuyaCommand] = []
-            let wanted = value.intValue ?? 3
-            if let power {
-                if wanted == 0 { commands.append(TuyaCommand(code: power.code, value: .bool(false))) }
-                else if device.bool(power) == false { commands.append(TuyaCommand(code: power.code, value: .bool(true))) }
-            }
-            if let mode {
-                let word: String? = switch wanted {
-                case 1: range.contains("hot") ? "hot" : nil
-                case 2: range.contains("eco") ? "eco" : range.contains("cold") ? "cold" : nil
-                case 3: range.contains("auto") ? "auto" : nil
-                default: nil
+        // Hot, cold, and auto or program; eco and the others are Other Modes.
+        let wordsOf: [ClimateMode: [String]] = [.heat: ["hot"], .cool: ["cold"], .auto: ["auto", "program"]]
+        var modes = Set(wordsOf.filter { $0.value.contains(where: range.contains) }.keys)
+        if modes.isEmpty { modes = [.auto] }
+        let setpoint = setpointScale(target, bounds: 10...38)
+        main.climate = TuyaServiceDraft.Climate(
+            kind: .thermostat,
+            capabilities: ClimateCapabilities(modes: modes, range: setpoint.range, step: setpoint.step, canTurnOff: power != nil),
+            report: {
+                let on = power.flatMap { device.bool($0) } ?? true
+                let climateMode: ClimateMode? = mode.map { mode in
+                    device.string(mode).flatMap { word in wordsOf.first { $0.value.contains(word) }?.key }
+                } ?? .auto
+                let action = workState.flatMap { device.string($0) }.map { word -> ClimateAction in
+                    ["hot", "opened", "heating"].contains(word) ? .heating : word == "cold" ? .cooling : .idle
                 }
-                if let word { commands.append(TuyaCommand(code: mode.code, value: .string(word))) }
-            }
-            try await link.send(commands, debounced: false)
-        }
+                return ClimateReport(power: on, mode: climateMode, action: action, current: current.flatMap { device.number($0) }.map { $0 / current!.multiple },
+                                     target: setpoint.value(device))
+            },
+            apply: { command in
+                var commands: [TuyaCommand] = []
+                if let on = command.power, let power { commands.append(TuyaCommand(code: power.code, value: .bool(on))) }
+                if let wanted = command.mode, let mode, let word = wordsOf[wanted]?.first(where: range.contains) {
+                    commands.append(TuyaCommand(code: mode.code, value: .string(word)))
+                }
+                if let target = command.target { commands.append(setpoint.command(target)) }
+                try await link.send(commands, debounced: false)
+            })
         if let current { currentTemperature(main, current) }
-        setpoint(main, .targetTemperature, target, bounds: 10...38)
         temperatureDisplayUnits(main, find("temp_unit_convert", "c_f"))
         return true
     }
@@ -407,14 +389,22 @@ extension TuyaAccessoryBuilder {
         let device = device, link = link
         let main = service(.thermostat)
         let power = find("powerswitch")
-        let heat: TuyaGetter = { .int(power.flatMap { device.bool($0) } == false ? 0 : 1) }
-        main.add(.currentHeatingCoolingState, get: heat)
-        main.add(.targetHeatingCoolingState.with(minValue: 0, maxValue: 1, validValues: [0, 1]), get: heat) { value in
-            guard let power else { return }
-            try await link.send(power.code, .bool(value.intValue == 1), debounced: false)
-        }
-        if let current = find("currtemp", "settemp") { currentTemperature(main, current) }
-        setpoint(main, .targetTemperature, target, bounds: 30...90, fallback: 30...90)
+        let current = find("currtemp", "settemp")
+        let setpoint = setpointScale(target, bounds: 30...90, fallback: 30...90)
+        main.climate = TuyaServiceDraft.Climate(
+            kind: .thermostat,
+            capabilities: ClimateCapabilities(modes: [.heat], range: setpoint.range, step: setpoint.step, canTurnOff: power != nil),
+            report: {
+                ClimateReport(power: power.flatMap { device.bool($0) } ?? true, mode: .heat,
+                              current: current.flatMap { device.number($0) }.map { $0 / current!.multiple }, target: setpoint.value(device))
+            },
+            apply: { command in
+                var commands: [TuyaCommand] = []
+                if let on = command.power, let power { commands.append(TuyaCommand(code: power.code, value: .bool(on))) }
+                if let target = command.target { commands.append(setpoint.command(target)) }
+                try await link.send(commands, debounced: false)
+            })
+        if let current { currentTemperature(main, current) }
         temperatureDisplayUnits(main, find("temp_unit_convert", "c_f"))
         for (code, name) in [("lightswitch", "Sauna Main Light"), ("ledswitch", "Sauna LED Light")] {
             let draft = service(.lightbulb, name: name, subtype: code)

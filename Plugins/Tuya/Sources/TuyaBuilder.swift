@@ -31,12 +31,22 @@ final class TuyaServiceDraft {
         var ref: TuyaCharacteristicRef
     }
 
+    /// A Heater Cooler's or Thermostat's climate, mapped by a `ClimateController`: what the device can do, its state
+    /// from the cached DPs, and what a command sends. The specs then hold only the service's other characteristics.
+    struct Climate {
+        var kind: ClimateServiceKind
+        var capabilities: ClimateCapabilities
+        var report: @Sendable () -> ClimateReport?
+        var apply: @Sendable (ClimateCommand) async throws -> Void
+    }
+
     let type: ServiceType
     let name: String?
     let subtype: String?
     /// The name also given as Configured Name (the source's name helper).
     var configuredName: String?
     var specs: [Spec] = []
+    var climate: Climate?
     /// Told the service once it is built.
     var onBuild: ((Service) -> Void)?
 
@@ -58,6 +68,22 @@ final class TuyaServiceDraft {
     }
 
     func has(_ type: CharacteristicType) -> Bool { specs.contains { $0.type.uuid == type.uuid } }
+}
+
+/// A temperature DP in °C: its range, step and scale.
+struct TuyaSetpoint: Sendable {
+    let item: TuyaSchemaItem
+    let range: ClosedRange<Double>
+    let step: Double
+    let multiple: Double
+
+    /// The device's value, in its range; nil when it did not say.
+    func value(_ device: TuyaDevice) -> Double? {
+        device.number(item).map { Swift.min(range.upperBound, Swift.max(range.lowerBound, $0 / multiple)) }
+    }
+
+    /// The command that sets it to `celsius`.
+    func command(_ celsius: Double) -> TuyaCommand { TuyaCommand(code: item.code, value: TuyaAccessoryBuilder.json(celsius * multiple)) }
 }
 
 /// An item of a push, as event handlers see it.
