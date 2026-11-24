@@ -33,6 +33,10 @@ class Heater1aDevice: GoveeDevice {
     func setupPowerSwingAndLock() {
         service.characteristic(.active).onWrite { [weak self] value in try await self?.internalStateUpdate(value.intValue ?? 0) }
         cacheState = int(service[.active]) == 1 ? "on" : "off"
+        setupSwingAndLock()
+    }
+
+    func setupSwingAndLock() {
         service.characteristic(.swingMode).onWrite { [weak self] value in try await self?.internalSwingUpdate(value.intValue ?? 0) }
         cacheSwing = int(service[.swingMode]) == 1 ? "on" : "off"
         service.characteristic(.lockPhysicalControls).onWrite { [weak self] value in try await self?.internalLockUpdate(value.intValue ?? 0) }
@@ -46,6 +50,9 @@ class Heater1aDevice: GoveeDevice {
 
     /// The power changed, from HomeKit or the device.
     func stateChanged(_ state: String) {}
+
+    /// Shows the power the device reported.
+    func showState() { update(service[.active], cacheState == "on" ? 1 : 0) }
 
     private func internalStateUpdate(_ value: Int) async throws {
         let state = try await toggle(value == 1, current: cacheState, label: Lang.curState, service[.active], revert: .int(cacheState == "on" ? 1 : 0)) {
@@ -84,7 +91,7 @@ class Heater1aDevice: GoveeDevice {
     override func externalUpdate(_ update: DeviceUpdate) async {
         if let state = update.state, state != cacheState {
             cacheState = state
-            self.update(service[.active], cacheState == "on" ? 1 : 0)
+            showState()
             log("\(Lang.curState) [\(cacheState)]")
             stateChanged(cacheState)
         }
@@ -141,11 +148,13 @@ class Heater1aDevice: GoveeDevice {
     }
 }
 
-/// The H7130 family with temperature reporting (`device/heater1b.ts`): a heater-cooler with auto and heat
-/// modes and a 5-30°C target, and a fan tile for the speed that follows the heater.
+/// The H7130 family with temperature reporting (`device/heater1b.ts`): a heater-cooler with auto (the heater's
+/// thermostat keeps the target) and heat, a 5-30°C target, and a fan tile for the speed that follows the heater. The
+/// Heater Cooler is a `ClimateController`'s (ADR 0013).
 final class Heater1bDevice: Heater1aDevice {
     static let defaultTemperature = 20.0
 
+    private var climate: ClimateController!
     private var fan: Service!
     private var cacheMode = "auto"
     private var cacheTemp = 20.0
@@ -155,25 +164,24 @@ final class Heater1bDevice: Heater1aDevice {
     override var speedService: Service { fan }
 
     override func configure() {
-        let fresh = environment.cached?.service(.heaterCooler) == nil
-        service = addService(.heaterCooler, characteristics: [
-            .swingMode, .lockPhysicalControls, .targetHeaterCoolerState.with(minValue: 0, maxValue: 1, validValues: [0, 1]),
-            .heatingThresholdTemperature.with(minValue: Double(Catalog.heaterTempMin), maxValue: Double(Catalog.heaterTempMax), minStep: 1),
-        ], primary: true)
-        if fresh {
-            update(service[.currentTemperature], Self.defaultTemperature)
-            update(service[.heatingThresholdTemperature], Self.defaultTemperature)
+        let range = Double(Catalog.heaterTempMin)...Double(Catalog.heaterTempMax)
+        climate = addClimate(capabilities: ClimateCapabilities(modes: [.auto, .heat], setpoints: .single, range: range, step: 1),
+                             characteristics: [.swingMode, .lockPhysicalControls], primary: true) { [weak self] command in
+            try await self?.apply(command)
+        }
+        service = climate.service
+        if let cached = cachedService(.heaterCooler) {
+            cacheState = cached[.active]?.value.intValue == 1 ? "on" : "off"
+            cacheMode = cached[.targetHeaterCoolerState]?.value.intValue == 1 ? "heat" : "auto"
+            cacheTemp = cached[.currentTemperature]?.value.doubleValue ?? Self.defaultTemperature
+            cacheTarget = Govee.roundInt(cachedClimateTarget() ?? Self.defaultTemperature)
         }
         fan = addService(.fan, characteristics: [speedType])
-        setupPowerSwingAndLock()
-        service.characteristic(.targetHeaterCoolerState).onWrite { [weak self] value in try await self?.internalModeUpdate(value.intValue ?? 0) }
-        cacheMode = int(service[.targetHeaterCoolerState]) == 0 ? "auto" : "heat"
-        cacheTemp = double(service[.currentTemperature])
-        service.characteristic(.heatingThresholdTemperature).onWrite { [weak self] value in try await self?.internalTemperatureUpdate(value.intValue ?? 20) }
-        cacheTarget = int(service[.heatingThresholdTemperature])
+        setupSwingAndLock()
         fan.characteristic(.on).onWrite { [weak self] value in await self?.internalFanStateUpdate(value.boolValue ?? false) }
         cacheFanState = bool(fan[.on]) ? "on" : "off"
         setupSpeed()
+        showClimate()
         logInitOptions([("tempReporting", "true")])
         initialised = true
     }
@@ -185,30 +193,37 @@ final class Heater1bDevice: Heater1aDevice {
         update(fan[.on], state == "on")
     }
 
-    private func codes(_ mode: String) -> [Int: String] { mode == "auto" ? Catalog.heaterH7130TempCodesAuto : Catalog.heaterH7130TempCodesHeat }
+    override func showState() { showClimate() }
 
-    private func internalModeUpdate(_ value: Int) async throws {
-        let mode = value == 0 ? "auto" : "heat"
-        guard cacheMode != mode else { return }
-        do {
-            guard let code = codes(mode)[cacheTarget] else { throw GoveeAPIError.message("no code for \(cacheTarget)°C") }
-            try await send(.ptReal(code))
-            cacheMode = mode
-            log("\(Lang.curMode) [\(mode)]")
-        } catch {
-            throw failed(error, service[.targetHeaterCoolerState], revert: .int(cacheMode == "auto" ? 0 : 1))
-        }
+    private func showClimate() {
+        climate.update(ClimateReport(power: cacheState == "on", mode: cacheMode == "auto" ? .auto : .heat, current: cacheTemp,
+                                     target: Double(cacheTarget)))
     }
 
-    private func internalTemperatureUpdate(_ value: Int) async throws {
-        guard cacheTarget != value else { return }
+    private func codes(_ mode: String) -> [Int: String] { mode == "auto" ? Catalog.heaterH7130TempCodesAuto : Catalog.heaterH7130TempCodesHeat }
+
+    /// The power, then the mode and the target together: one code says both.
+    private func apply(_ command: ClimateCommand) async throws {
         do {
-            guard let code = codes(cacheMode)[value] else { throw GoveeAPIError.message("no code for \(value)°C") }
+            if let power = command.power {
+                let state = power ? "on" : "off"
+                try await send(.ptReal(Catalog.deviceStateCodes[state]!))
+                cacheState = state
+                log("\(Lang.curState) [\(state)]")
+                stateChanged(state)
+            }
+            guard command.mode != nil || command.target != nil else { return }
+            let mode = command.mode.map { $0 == .auto ? "auto" : "heat" } ?? cacheMode
+            let target = command.target.map(Govee.roundInt) ?? cacheTarget
+            guard mode != cacheMode || target != cacheTarget else { return }
+            guard let code = codes(mode)[target] else { throw GoveeAPIError.message("no code for \(target)°C") }
             try await send(.ptReal(code))
-            cacheTarget = value
-            log("\(Lang.curTarg) [\(cacheTarget)°C]")
+            if mode != cacheMode { log("\(Lang.curMode) [\(mode)]") }
+            if target != cacheTarget { log("\(Lang.curTarg) [\(target)°C]") }
+            cacheMode = mode
+            cacheTarget = target
         } catch {
-            throw failed(error, service[.heatingThresholdTemperature], revert: .int(cacheTarget))
+            throw climateFailed(error)
         }
     }
 
@@ -235,7 +250,7 @@ final class Heater1bDevice: Heater1aDevice {
                     logWarn("you should disable `tempReporting` in the config for this device")
                 } else {
                     cacheTemp = converted
-                    self.update(service[.currentTemperature], cacheTemp)
+                    showClimate()
                     log("\(Lang.curTemp) [\(DeviceUpdate.format(cacheTemp))°C]")
                 }
             }
@@ -244,7 +259,7 @@ final class Heater1bDevice: Heater1aDevice {
             let converted = Govee.roundInt(Govee.farToCen(target / Self.temperatureThreshold))
             if converted != cacheTarget {
                 cacheTarget = converted
-                self.update(service[.heatingThresholdTemperature], cacheTarget)
+                showClimate()
                 log("\(Lang.curTarg) [\(cacheTarget)°C]")
             }
         }
@@ -272,14 +287,20 @@ final class Heater1bDevice: Heater1aDevice {
         let mode = Govee.item(parts, 3) == "01" ? "auto" : "heat"
         guard cacheMode != mode else { return }
         cacheMode = mode
-        update(service[.targetHeaterCoolerState], cacheMode == "auto" ? 0 : 1)
+        showClimate()
         log("\(Lang.curMode) [\(cacheMode)]")
     }
 }
 
-/// The H7131 and H7132 (`device/heater2.ts`): a heater-cooler (auto with a 5-30°C target, or heat at a fan
-/// speed), a fan for fan-only, low, medium and high, and the night light with its colour.
+/// The H7131 and H7132 (`device/heater2.ts`): a heater-cooler (auto keeps a 5-30°C target with the heater's
+/// thermostat, heat runs at a fan speed), a fan for fan-only, low, medium and high, and the night light with its colour.
+/// The Heater Cooler is a `ClimateController`'s (ADR 0013): fan-only, which does not heat, is an Other Mode.
 final class Heater2Device: GoveeDevice {
+    static let defaultTemperature = 20.0
+    /// Heat's slowest speed: the fan tile's 25 is fan-only.
+    static let heatSpeed = 50
+
+    private var climate: ClimateController!
     private var service: Service!
     private var fan: Service!
     private var nightLight: NightLight!
@@ -294,24 +315,19 @@ final class Heater2Device: GoveeDevice {
     override var category: AccessoryCategory { .heater }
 
     override func configure() {
-        let fresh = environment.cached?.service(.heaterCooler) == nil
-        service = addService(.heaterCooler, characteristics: [
-            .targetHeaterCoolerState.with(minValue: 0, maxValue: 1, validValues: [0, 1]),
-            .heatingThresholdTemperature.with(minValue: 5, maxValue: 30, minStep: 1), .swingMode, .lockPhysicalControls,
-        ], primary: true)
-        if fresh {
-            update(service[.currentTemperature], 20.0)
-            update(service[.heatingThresholdTemperature], 20.0)
+        climate = addClimate(capabilities: ClimateCapabilities(modes: [.auto, .heat], setpoints: .single, range: 5...30, step: 1),
+                             characteristics: [.swingMode, .lockPhysicalControls], primary: true) { [weak self] command in
+            try await self?.apply(command)
+        }
+        service = climate.service
+        if let cached = cachedService(.heaterCooler) {
+            cacheState = cached[.active]?.value.intValue == 1 ? "on" : "off"
+            cacheTemp = cached[.currentTemperature]?.value.doubleValue ?? Self.defaultTemperature
+            cacheTarget = Govee.roundInt(cachedClimateTarget() ?? Self.defaultTemperature)
         }
         fan = addService(.fan, characteristics: [.rotationSpeed.with(minStep: 25, validValues: [0, 25, 50, 75, 100])])
         nightLight = NightLight(self, frames: .separate)
 
-        service.characteristic(.active).onWrite { [weak self] value in try await self?.internalStateUpdate(value.intValue ?? 0) }
-        cacheState = int(service[.active]) == 1 ? "on" : "off"
-        service.characteristic(.targetHeaterCoolerState).onWrite { [weak self] value in try await self?.internalModeUpdate(value.intValue ?? 0) }
-        cacheTemp = double(service[.currentTemperature])
-        service.characteristic(.heatingThresholdTemperature).onWrite { [weak self] value in try await self?.internalTemperatureUpdate(value.intValue ?? 20) }
-        cacheTarget = int(service[.heatingThresholdTemperature])
         service.characteristic(.swingMode).onWrite { [weak self] value in try await self?.internalSwingUpdate(value.intValue ?? 0) }
         cacheSwing = int(service[.swingMode]) == 1 ? "on" : "off"
         service.characteristic(.lockPhysicalControls).onWrite { [weak self] value in try await self?.internalLockUpdate(value.intValue ?? 0) }
@@ -321,59 +337,71 @@ final class Heater2Device: GoveeDevice {
         fan.characteristic(.rotationSpeed).onWrite { [weak self] value in try await self?.internalSpeedUpdate(value.intValue ?? 0) }
         cacheSpeed = int(fan[.rotationSpeed])
         cacheMode = Catalog.heater2SpeedLabels[cacheSpeed] ?? "auto"
+        showClimate()
         logInitOptions([])
         initialised = true
     }
 
-    private func internalStateUpdate(_ value: Int) async throws {
-        let newValue = value == 1 ? "on" : "off"
-        guard cacheState != newValue else { return }
-        do {
-            try await send(.stateHeat(value == 1))
-            if newValue == "off" { update(fan[.on], false) }
-            cacheState = newValue
-            log("\(Lang.curState) [\(newValue)]")
-        } catch {
-            throw failed(error, service[.active], revert: .int(cacheState == "on" ? 1 : 0))
+    /// Auto is auto, low to high heat, fan-only an Other Mode.
+    private var climateMode: ClimateMode? {
+        switch cacheMode {
+        case "auto": .auto
+        case "fan-only": nil
+        default: .heat
         }
     }
 
-    private func internalModeUpdate(_ value: Int) async throws {
-        let code: String?
-        let mode: String
-        if value == 0 {
-            code = Catalog.heater2TempCodesAutoTurn[cacheTarget]
-            mode = "auto"
-        } else {
-            code = Catalog.heater2SpeedCodes[cacheSpeed] ?? Catalog.heater2SpeedCodes[25]
-            mode = Catalog.heater2SpeedLabels[cacheSpeed] ?? Catalog.heater2SpeedLabels[25]!
-        }
+    private func showClimate() {
+        climate.update(ClimateReport(power: cacheState == "on", mode: climateMode, current: cacheTemp, target: Double(cacheTarget)))
+    }
+
+    /// The power, then the mode, then the target. The heater takes a target only in auto: a target alone while it heats at
+    /// a speed switches it to auto, as it did; with Heat chosen in the same change, it is kept for auto.
+    private func apply(_ command: ClimateCommand) async throws {
         do {
-            guard let code else { throw GoveeAPIError.message("no code for \(cacheTarget)°C") }
-            try await send(.multiSync(code))
-            if mode == "auto" { update(fan[.on], false) }
-            if cacheMode != mode {
-                cacheMode = mode
-                log("\(Lang.curMode) [\(cacheMode)]")
+            if let power = command.power {
+                try await send(.stateHeat(power))
+                if !power { update(fan[.on], false) }
+                cacheState = power ? "on" : "off"
+                log("\(Lang.curState) [\(cacheState)]")
+            }
+            let target = command.target.map(Govee.roundInt)
+            if command.mode == .heat {
+                let speed = cacheSpeed >= Self.heatSpeed ? cacheSpeed : Self.heatSpeed
+                try await send(.multiSync(Catalog.heater2SpeedCodes[speed]!))
+                cacheFanState = "on"
+                cacheSpeed = speed
+                update(fan[.on], true)
+                update(fan[.rotationSpeed], speed)
+                setMode(Catalog.heater2SpeedLabels[speed]!)
+                if let target { setTarget(target) }
+            } else if command.mode == .auto || target != nil {
+                let value = target ?? cacheTarget
+                let codes = command.mode == nil && cacheMode == "auto" ? Catalog.heater2TempCodesAuto : Catalog.heater2TempCodesAutoTurn
+                guard let code = codes[value] else { throw GoveeAPIError.message("no code for \(value)°C") }
+                try await send(.multiSync(code))
+                if command.mode == .auto { update(fan[.on], false) }
+                let switched = cacheMode != "auto"
+                setMode("auto")
+                setTarget(value)
+                // Switched to auto by the target: shown now, the controller keeping the mode it was not asked for.
+                if switched, command.mode == nil { showClimate() }
             }
         } catch {
-            throw failed(error, service[.targetHeaterCoolerState], revert: .int(cacheMode == "auto" ? 0 : 1))
+            throw climateFailed(error)
         }
     }
 
-    private func internalTemperatureUpdate(_ value: Int) async throws {
-        guard cacheTarget != value else { return }
-        // A target puts the heater in auto mode.
-        let code = cacheMode == "auto" ? Catalog.heater2TempCodesAuto[value] : Catalog.heater2TempCodesAutoTurn[value]
-        do {
-            guard let code else { throw GoveeAPIError.message("no code for \(value)°C") }
-            try await send(.multiSync(code))
-            cacheMode = "auto"
-            cacheTarget = value
-            log("\(Lang.curTarg) [\(cacheTarget)°C]")
-        } catch {
-            throw failed(error, service[.heatingThresholdTemperature], revert: .int(cacheTarget))
-        }
+    private func setMode(_ mode: String) {
+        guard cacheMode != mode else { return }
+        cacheMode = mode
+        log("\(Lang.curMode) [\(cacheMode)]")
+    }
+
+    private func setTarget(_ target: Int) {
+        guard cacheTarget != target else { return }
+        cacheTarget = target
+        log("\(Lang.curTarg) [\(cacheTarget)°C]")
     }
 
     private func internalSwingUpdate(_ value: Int) async throws {
@@ -396,7 +424,7 @@ final class Heater2Device: GoveeDevice {
         if newValue == "on" {
             if cacheState != "on" {
                 cacheState = "on"
-                update(service[.active], 1)
+                showClimate()
                 log("\(Lang.curState) [\(cacheState)]")
             }
             cacheFanState = "on"
@@ -405,7 +433,7 @@ final class Heater2Device: GoveeDevice {
         // The fan off: back to auto mode.
         cacheFanState = "off"
         cacheMode = "auto"
-        update(service[.targetHeaterCoolerState], 0)
+        showClimate()
         log("\(Lang.curMode) [\(cacheMode)]")
     }
 
@@ -414,13 +442,13 @@ final class Heater2Device: GoveeDevice {
         do {
             try await send(.multiSync(code))
             cacheFanState = "on"
-            update(service[.active], 1)
-            update(service[.targetHeaterCoolerState], 1)
+            cacheState = "on"
             if cacheSpeed != value {
                 cacheSpeed = value
                 cacheMode = Catalog.heater2SpeedLabels[value] ?? cacheMode
                 log("\(Lang.curMode) [\(cacheMode)]")
             }
+            showClimate()
         } catch {
             throw failed(error, fan[.rotationSpeed], revert: .int(cacheSpeed))
         }
@@ -429,14 +457,14 @@ final class Heater2Device: GoveeDevice {
     override func externalUpdate(_ update: DeviceUpdate) async {
         if let state = update.state, state != cacheState {
             cacheState = state
-            self.update(service[.active], cacheState == "on" ? 1 : 0)
+            showClimate()
             log("\(Lang.curState) [\(cacheState)]")
         }
         if let temperature = update.temperature {
             let converted = Govee.nearestHalf(Govee.farToCen(temperature / 100))
             if converted != cacheTemp {
                 cacheTemp = converted
-                self.update(service[.currentTemperature], cacheTemp)
+                showClimate()
                 log("\(Lang.curTemp) [\(DeviceUpdate.format(cacheTemp))°C]")
             }
         }
@@ -447,7 +475,7 @@ final class Heater2Device: GoveeDevice {
                 cacheFanState = "off"
                 cacheSpeed = 0
                 cacheMode = "auto"
-                self.update(service[.heatingThresholdTemperature], cacheTarget)
+                showClimate()
                 log("\(Lang.curTarg) [\(cacheTarget)°C]")
             }
         }
@@ -457,16 +485,16 @@ final class Heater2Device: GoveeDevice {
             "1b05": { [unowned self] parts, _ in nightLight.report(colour: parts) },
             "1f00": { [unowned self] parts, _ in swingLockReport(parts) },
             "1f01": { [unowned self] parts, _ in swingLockReport(parts) },
-            "0509": { [unowned self] _, _ in fanMode("fan-only", speed: 25, target: 1) },
+            "0509": { [unowned self] _, _ in fanMode("fan-only", speed: 25) },
             "0501": { [unowned self] parts, _ in
                 switch Govee.item(parts, 4) {
-                case "01": fanMode("low", speed: 50, target: 1)
-                case "02": fanMode("medium", speed: 75, target: 1)
-                case "03": fanMode("high", speed: 100, target: 1)
+                case "01": fanMode("low", speed: 50)
+                case "02": fanMode("medium", speed: 75)
+                case "03": fanMode("high", speed: 100)
                 default: break
                 }
             },
-            "0503": { [unowned self] _, _ in fanMode("auto", speed: 0, target: 0) },
+            "0503": { [unowned self] _, _ in fanMode("auto", speed: 0) },
         ]
         for ignored in ["1a00", "1100", "1101", "1600", "1601"] { handlers[ignored] = { _, _ in } }
         Govee.processCommands(commands, handlers) { [unowned self] command, hex, _ in newScene(command, hex) }
@@ -487,15 +515,15 @@ final class Heater2Device: GoveeDevice {
         }
     }
 
-    /// A mode report: the fan's state and speed and the heater's target state follow it.
-    private func fanMode(_ mode: String, speed: Int, target: Int) {
+    /// A mode report: the fan's state and speed and the heater's mode follow it.
+    private func fanMode(_ mode: String, speed: Int) {
         guard cacheMode != mode else { return }
         cacheMode = mode
         cacheFanState = speed > 0 ? "on" : "off"
         cacheSpeed = speed
         update(fan[.on], speed > 0)
         update(fan[.rotationSpeed], speed)
-        update(service[.targetHeaterCoolerState], target)
+        showClimate()
         log("\(Lang.curMode) [\(cacheMode)]")
     }
 }

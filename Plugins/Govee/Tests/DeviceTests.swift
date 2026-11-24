@@ -359,8 +359,58 @@ final class AdaptiveLightingProbe: @unchecked Sendable {
         // At 20°C until the sensor reports: below the target, so the plug runs.
         #expect(harness.sent.items == [.stateOutlet(true)])
         #expect(await eventually(.seconds(8)) { heater[.currentTemperature]?.value.doubleValue == 17 })
-        try await harness.write(heater[.heatingThresholdTemperature], 16)
+        // Running is heating (ADR 0013: the plug says what it does).
+        #expect(heater[.currentHeaterCoolerState]?.value == .int(2))
+        // The range of one change sets the one target at its middle: 16, under the room's 17.
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { try await harness.write(heater[.heatingThresholdTemperature], 15) }
+            group.addTask { try await harness.write(heater[.coolingThresholdTemperature], 17) }
+            try await group.waitForAll()
+        }
         #expect(harness.sent.items == [.stateOutlet(true), .stateOutlet(false)])
+        #expect(heater[.targetHeaterCoolerState]?.value == .int(0))
+        #expect(heater[.currentHeaterCoolerState]?.value == .int(1))
+    }
+
+    /// ADR 0013: choosing a mode and a target on an H7130 that is off sends one code for both, and never its power.
+    @Test func heater1bModeAndTargetMakeOneCodeAndNeverPowerOn() async throws {
+        let harness = await DeviceHarness(model: "H7130", settings: ["tempReporting": true])
+        let heater = try #require(await harness.service(.heaterCooler))
+        #expect(heater[.targetHeaterCoolerState]?.type.validValues == [0, 1])
+        #expect(heater[.active]?.value == .int(0) && heater[.currentHeaterCoolerState]?.value == .int(0))
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { try await harness.write(heater[.targetHeaterCoolerState], 1) }
+            group.addTask { try await harness.write(heater[.heatingThresholdTemperature], 23) }
+            try await group.waitForAll()
+        }
+        #expect(harness.sent.items == [.ptReal(Catalog.heaterH7130TempCodesHeat[23]!)])
+        #expect(heater[.active]?.value == .int(0))
+        // A failed command puts the tile back as the heater last said.
+        harness.failing = true
+        await #expect(throws: (any Error).self) { try await harness.write(heater[.heatingThresholdTemperature], 26) }
+        #expect(heater[.heatingThresholdTemperature]?.value.doubleValue == 23)
+    }
+
+    /// ADR 0013: an H7131 in fan-only (an Other Mode) keeps the mode shown and is idle; a target alone while it heats at
+    /// a speed switches it to auto, the only mode that takes one.
+    @Test func heater2FanOnlyKeepsTheModeAndATargetSwitchesToAuto() async throws {
+        let harness = await DeviceHarness(model: "H7131")
+        let heater = try #require(await harness.service(.heaterCooler))
+        await harness.update(update {
+            $0.state = "on"
+            $0.temperature = 6800
+            $0.commands = [frame("aa050101")]
+        })
+        #expect(heater[.targetHeaterCoolerState]?.value == .int(1))
+        await harness.update(update { $0.commands = [frame("aa0509")] })
+        #expect(heater[.targetHeaterCoolerState]?.value == .int(1))
+        #expect(heater[.currentHeaterCoolerState]?.value == .int(1))
+        // Heat chosen in fan-only heats, at the slowest heating speed.
+        try await harness.write(heater[.targetHeaterCoolerState], 1)
+        #expect(harness.sent.items == [.multiSync(Catalog.heater2SpeedCodes[50]!)])
+        try await harness.write(heater[.heatingThresholdTemperature], 24)
+        #expect(harness.sent.items.last == .multiSync(Catalog.heater2TempCodesAutoTurn[24]!))
+        #expect(heater[.targetHeaterCoolerState]?.value == .int(0))
     }
 }
 

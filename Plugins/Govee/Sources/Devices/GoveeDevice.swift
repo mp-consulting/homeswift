@@ -148,6 +148,40 @@ class GoveeDevice {
         return service
     }
 
+    /// Adds a Heater Cooler or Thermostat built by a `ClimateController` (docs/adr/0013-climate-is-mapped-once.md), which
+    /// owns its power, modes and temperatures and sends `apply` one command per change; `characteristics` are the
+    /// handler's own (swing, child lock), bound by it. Values come from the cached accessory as `addService`'s do.
+    func addClimate(
+        _ kind: ClimateServiceKind = .heaterCooler, capabilities: ClimateCapabilities, characteristics: [CharacteristicType] = [], primary: Bool = false,
+        apply: @escaping @Sendable (ClimateCommand) async throws -> Void
+    ) -> ClimateController {
+        let controller = ClimateController(kind, name: info.name, isPrimary: primary, capabilities: capabilities, optional: characteristics, apply: apply)
+        let service = controller.service
+        if let old = cachedService(service.type) { service.takeValues(from: old) }
+        services.append(service)
+        return controller
+    }
+
+    /// The cached accessory's service of this type, without a subtype.
+    func cachedService(_ type: ServiceType) -> Service? {
+        environment.cached?.services.first { $0.type.uuid == type.uuid && $0.subtype == nil }
+    }
+
+    /// A single target as the cached Heater Cooler showed it: the middle of its two thresholds in auto, else its heating one.
+    func cachedClimateTarget() -> Double? {
+        guard let cached = cachedService(.heaterCooler), let heating = cached[.heatingThresholdTemperature]?.value.doubleValue else { return nil }
+        if cached[.targetHeaterCoolerState]?.value.intValue == 0, let cooling = cached[.coolingThresholdTemperature]?.value.doubleValue {
+            return (heating + cooling) / 2
+        }
+        return heating
+    }
+
+    /// A climate command failed: logged, and HomeKit told the device did not answer (the controller puts the service back).
+    func climateFailed(_ error: any Error) -> HAPStatusError {
+        logWarn("\(Lang.devNotUpdated) \(error)")
+        return HAPStatusError(.serviceCommunicationFailure)
+    }
+
     /// Starts the Eve history of this accessory (fakegato's `new eveService(kind, accessory)`).
     func startHistory(_ kind: EveHistory.Kind) {
         guard let directory = environment.historyDirectory else { return }
