@@ -62,9 +62,9 @@ struct ServiceTests {
         #expect(rotation.type.minValue == 0)
         #expect(rotation.type.maxValue == 100)
         #expect(rotation.type.minStep == 20)
-        // Heating, on, fixed speed 2 of 5.
+        // Heating, on, fixed speed 2 of 5; idle, the room (25) above the heating setpoint (22).
         #expect(service.characteristic(.active).value == 1)
-        #expect(service.characteristic(.currentHeaterCoolerState).value == 2)
+        #expect(service.characteristic(.currentHeaterCoolerState).value == 1)
         #expect(service.characteristic(.targetHeaterCoolerState).value == 1)
         #expect(service.characteristic(.currentTemperature).value == .double(25))
         #expect(rotation.value == .double(40))
@@ -110,12 +110,36 @@ struct ServiceTests {
         ("dx23Airco2", "heating", 0, "auto"), ("dx23Airco2", "heating", 1, nil), ("dx23Airco2", "heating", 2, "cooling"),
         // Dry and fan only read back as Auto but must still switch the unit to auto.
         ("dx23Airco2", "dry", 0, "auto"), ("dx23Airco2", "fanOnly", 0, "auto"), ("dx23Airco2", "auto", 0, nil),
-        ("unknownJan", "cooling", 0, "auto"), ("unknownKitchenGuests", "cooling", 2, nil),
+        ("unknownKitchenGuests", "cooling", 2, nil),
     ] as [(String, String, Int, String?)])
     func targetState(_ fixture: String, _ mode: String, _ state: Int, _ expected: String?) async throws {
         let (service, _) = climate(Fixture.json(fixture, operationMode: mode))
-        try await service.setTargetState(state)
+        try await service.service.characteristic(.targetHeaterCoolerState).write(.int(state))
         #expect(api.recorded == (expected.map { [Write(cc, "operationMode", .string($0))] } ?? []))
+    }
+
+    @Test func dryKeepsTheTargetAndAutoStaysAuto() async throws {
+        let (service, device) = climate(Fixture.json("dx23Airco2", operationMode: "cooling"))
+        let target = service.service.characteristic(.targetHeaterCoolerState)
+        #expect(target.value == 2)
+        // Dry is an Other Mode: the tile keeps Cool, and does not claim to cool.
+        device.apply(WebSocketDeviceUpdate(deviceID: device.id, embeddedID: cc, characteristicName: "operationMode", data: ["name": "operationMode", "value": "dry"]))
+        service.refreshValues()
+        #expect(target.value == 2)
+        #expect(service.service.characteristic(.currentHeaterCoolerState).value == 1)
+        // Auto chosen in dry is sent, and auto reads back as Auto.
+        try await target.write(0)
+        #expect(api.recorded == [Write(cc, "operationMode", "auto")])
+        #expect(target.value == 0)
+    }
+
+    @Test func onlyTheUnitsModesAreOffered() async throws {
+        // unknownJan only cools (and dries, and fans): Cool alone, and no heating threshold.
+        let (service, _) = climate(Fixture.json("unknownJan"))
+        #expect(service.service.characteristic(.targetHeaterCoolerState).type.validValues == [2])
+        #expect(service.service[.heatingThresholdTemperature] == nil)
+        await #expect(throws: HAPStatusError(.invalidValueInRequest)) { try await service.service.characteristic(.targetHeaterCoolerState).write(0) }
+        #expect(api.recorded.isEmpty)
     }
 
     @Test(arguments: [
@@ -167,7 +191,7 @@ struct ServiceTests {
     func coolingThresholdSyncsAuto(_ mode: String) async throws {
         let (service, _) = climate(Fixture.json("dx23Airco2", operationMode: mode))
         // Heating 13 + cooling 22 → 17.5, clamped to the auto minimum 18.
-        try await service.setThreshold(.cooling, 22)
+        try await service.service.characteristic(.coolingThresholdTemperature).write(.double(22))
         #expect(api.recorded == [
             Write(cc, "temperatureControl", 22, "/operationModes/cooling/setpoints/roomTemperature"),
             Write(cc, "temperatureControl", 18, "/operationModes/auto/setpoints/roomTemperature"),
@@ -178,7 +202,7 @@ struct ServiceTests {
     func heatingThresholdSyncsAuto(_ mode: String) async throws {
         let (service, _) = climate(Fixture.json("dx23Airco", operationMode: mode))
         // Heating 21 + cooling 17 → 19.
-        try await service.setThreshold(.heating, 21)
+        try await service.service.characteristic(.heatingThresholdTemperature).write(.double(21))
         #expect(api.recorded == [
             Write(cc, "temperatureControl", 21, "/operationModes/heating/setpoints/roomTemperature"),
             Write(cc, "temperatureControl", 19, "/operationModes/auto/setpoints/roomTemperature"),
@@ -188,22 +212,24 @@ struct ServiceTests {
     @Test(arguments: ["unknownJan", "unknownKitchenGuests"])
     func noAutoSetpointOnlyTheThreshold(_ fixture: String) async throws {
         let (service, _) = climate(Fixture.json(fixture))
-        try await service.setThreshold(.cooling, 24.3)
+        try await service.service.characteristic(.coolingThresholdTemperature).write(.double(24.3))
         #expect(api.recorded == [Write(cc, "temperatureControl", 24.5, "/operationModes/cooling/setpoints/roomTemperature")])
     }
 
     @Test func equalityGuards() async throws {
         let forced = NIOLockedValueBox(0)
         let (service, _) = climate(Fixture.json("dx4Airco"), forced: forced)
-        try await service.setThreshold(.cooling, 25)
-        try await service.setThreshold(.cooling, 24.9)
-        try await service.setThreshold(.heating, 22)
-        try await service.setTargetState(1)
+        let heaterCooler = service.service
+        try await heaterCooler.characteristic(.coolingThresholdTemperature).write(.double(25))
+        try await heaterCooler.characteristic(.coolingThresholdTemperature).write(.double(24.9))
+        try await heaterCooler.characteristic(.heatingThresholdTemperature).write(.double(22))
+        try await heaterCooler.characteristic(.targetHeaterCoolerState).write(.int(1))
+        try await heaterCooler.characteristic(.active).write(.int(1))
         try await service.setSwing(false)
         try await service.setActive(true)
         #expect(api.recorded.isEmpty)
         #expect(forced.withLockedValue { $0 } == 0)
-        try await service.setActive(false)
+        try await heaterCooler.characteristic(.active).write(.int(0))
         #expect(api.recorded == [Write(cc, "onOffMode", "off")])
         #expect(forced.withLockedValue { $0 } == 1)
         #expect(service.service.characteristic(.active).value == 0)
@@ -212,40 +238,31 @@ struct ServiceTests {
 
     @Test func rangeChangeSyncsAutoOnceWithTheFinalValues() async throws {
         let (service, _) = climate(Fixture.json("dx4Airco"))
-        let heatingGate = Signal(), coolingGate = Signal()
-        api.next { _ in await heatingGate.wait() }
-        api.next { _ in await coolingGate.wait() }
-        // HomeKit writes both thresholds of a range change at once.
-        async let heating: Void = service.setThreshold(.heating, 19)
-        try await Task.sleep(for: .milliseconds(20))
-        async let cooling: Void = service.setThreshold(.cooling, 27)
-        try await Task.sleep(for: .milliseconds(20))
-        heatingGate.fire()
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(!api.recorded.contains { $0.path == "/operationModes/auto/setpoints/roomTemperature" })
-        coolingGate.fire()
+        // HomeKit writes both thresholds of a range change at once: one command, the auto setpoint synced last.
+        async let heating: Void = service.service.characteristic(.heatingThresholdTemperature).write(.double(19))
+        async let cooling: Void = service.service.characteristic(.coolingThresholdTemperature).write(.double(27))
         _ = try await (heating, cooling)
         // (19 + 27) / 2 = 23, not the stale (19 + 25) / 2.
-        #expect(api.recorded.count == 3)
-        #expect(api.recorded.last == Write(cc, "temperatureControl", 23, "/operationModes/auto/setpoints/roomTemperature"))
+        #expect(api.recorded == [
+            Write(cc, "temperatureControl", 19, "/operationModes/heating/setpoints/roomTemperature"),
+            Write(cc, "temperatureControl", 27, "/operationModes/cooling/setpoints/roomTemperature"),
+            Write(cc, "temperatureControl", 23, "/operationModes/auto/setpoints/roomTemperature"),
+        ])
     }
 
-    @Test func syncsTheThresholdThatSucceeded() async throws {
+    @Test func aFailedRangeChangeFailsBothThresholds() async throws {
         let (service, _) = climate(Fixture.json("dx4Airco"))
-        let heatingGate = Signal()
-        api.next { _ in
-            await heatingGate.wait()
-            throw DaikinError("422")
-        }
-        let heating = Task { try await service.setThreshold(.heating, 19) }
-        try await Task.sleep(for: .milliseconds(20))
-        let cooling = Task { try await service.setThreshold(.cooling, 27) }
-        try await Task.sleep(for: .milliseconds(20))
-        heatingGate.fire()
-        await #expect(throws: HAPStatusError(.serviceCommunicationFailure)) { try await heating.value }
-        try await cooling.value
-        // Heating stays 22 (its write failed) + cooling 27 → 24.5.
-        #expect(api.recorded.filter { $0.path == "/operationModes/auto/setpoints/roomTemperature" } == [Write(cc, "temperatureControl", 24.5, "/operationModes/auto/setpoints/roomTemperature")])
+        api.next { _ in throw DaikinError("422") }
+        let heating = service.service.characteristic(.heatingThresholdTemperature)
+        let cooling = service.service.characteristic(.coolingThresholdTemperature)
+        let heatingWrite = Task { try await heating.write(.double(19)) }
+        let coolingWrite = Task { try await cooling.write(.double(27)) }
+        await #expect(throws: HAPStatusError(.serviceCommunicationFailure)) { try await heatingWrite.value }
+        await #expect(throws: HAPStatusError(.serviceCommunicationFailure)) { try await coolingWrite.value }
+        // Nothing after the failed heating setpoint (a failed write is not recorded), and the service shows the unit as it is.
+        #expect(api.recorded.isEmpty)
+        #expect(heating.value == .double(22))
+        #expect(cooling.value == .double(25))
     }
 
     @Test func aFailedWriteIsNoResponse() async throws {
@@ -307,9 +324,16 @@ struct ServiceTests {
         return tank
     }
 
+    /// Writes to a tank's Thermostat while the tank is alive: its controller sends through it.
+    static func write(_ tank: HotWaterTankService, _ type: CharacteristicType, _ value: HAPValue) async throws {
+        try await tank.service.characteristic(type).write(value)
+        withExtendedLifetime(tank) {}
+    }
+
     @Test(arguments: tanks)
     func hotWaterTank(_ test: TankCase) async throws {
-        let service = tank(test).service
+        let unit = tank(test)
+        let service = unit.service
         #expect(service.subtype == "hot_water_tank")
         #expect(service[.name]?.value == "Hot water tank")
         #expect(service[.configuredName]?.value == "Hot water tank")
@@ -317,31 +341,37 @@ struct ServiceTests {
         #expect(target.type.minValue == test.min)
         #expect(target.type.maxValue == test.max)
         #expect(target.value == .double(test.target))
-        #expect(service.characteristic(.currentHeatingCoolingState).value == .int(test.on ? 1 : 0))
+        // Heating while the tank is half a degree below its setpoint.
+        let heating = test.on && (unit.currentTemperature ?? .infinity) <= test.target - 0.5
+        #expect(service.characteristic(.currentHeatingCoolingState).value == .int(heating ? 1 : 0))
         #expect(service.characteristic(.targetHeatingCoolingState).value == .int(test.on ? 1 : 0))
 
-        // The rounded setpoint; nothing when unchanged.
-        try await tank(test).setTargetTemperature(test.target - 1.2)
-        #expect(api.recorded == [Write(test.tank, "temperatureControl", .number(jsRound((test.target - 1.2) * 2) / 2), HotWaterTankService.targetTemperaturePath)])
+        // The rounded setpoint; refused when the unit does not let anyone set it; nothing when unchanged.
+        if unit.device.data(test.tank, "temperatureControl", HotWaterTankService.targetTemperaturePath).settable == false {
+            await #expect(throws: HAPStatusError(.readOnlyCharacteristic)) { try await Self.write(tank(test), .targetTemperature, .double(test.target - 1.2)) }
+            #expect(api.recorded.isEmpty)
+        } else {
+            try await Self.write(tank(test), .targetTemperature, .double(test.target - 1.2))
+            #expect(api.recorded == [Write(test.tank, "temperatureControl", .number(jsRound((test.target - 1.2) * 2) / 2), HotWaterTankService.targetTemperaturePath)])
+        }
         api.reset()
-        try await tank(test).setTargetTemperature(test.target)
+        try await Self.write(tank(test), .targetTemperature, .double(test.target))
         #expect(api.recorded.isEmpty)
 
         // Off: only when on.
-        try await tank(test).setTargetState(0)
+        try await Self.write(tank(test), .targetHeatingCoolingState, 0)
         #expect(api.recorded == (test.on ? [Write(test.tank, "onOffMode", "off")] : []))
         api.reset()
         // Heat: on when off, and never the fixed heating mode.
-        try await tank(test).setTargetState(1)
+        try await Self.write(tank(test), .targetHeatingCoolingState, 1)
         #expect(api.recorded == (test.on ? [] : [Write(test.tank, "onOffMode", "on")]))
         api.reset()
-        // Auto: a mode the unit does not let anyone set is not written.
-        try await tank(test).setTargetState(3)
-        #expect(api.recorded == (test.on ? [] : [Write(test.tank, "onOffMode", "on")]))
-        api.reset()
+        // Auto: not offered by a tank whose mode nobody may set.
+        await #expect(throws: HAPStatusError(.invalidValueInRequest)) { try await Self.write(tank(test), .targetHeatingCoolingState, 3) }
+        #expect(api.recorded.isEmpty)
         // Auto with a settable mode: on, then the mode.
         let settable = Fixture.json(test.name, managementPoint: test.tank) { $0["operationMode"] = ["settable": true, "values": ["heating", "auto"], "value": "heating"] }
-        try await tank(test, fixture: settable).setTargetState(3)
+        try await Self.write(tank(test, fixture: settable), .targetHeatingCoolingState, 3)
         #expect(api.recorded == (test.on ? [] : [Write(test.tank, "onOffMode", "on")]) + [Write(test.tank, "operationMode", "auto")])
         api.reset()
 
@@ -361,16 +391,16 @@ struct ServiceTests {
         #expect(unit.currentTemperature == 48)
         // Not settable and heating: Off and Heat only.
         #expect(unit.service.characteristic(.targetHeatingCoolingState).type.validValues == [0, 1])
-        let states: [(String, Int)] = [("cooling", 2), ("auto", 3), ("fanOnly", 3), ("dry", 3), ("heating", 1)]
+        // Dry and fan only are Other Modes: the target stays the last Climate Mode, heat before any.
+        let states: [(String, Int)] = [("cooling", 2), ("auto", 3), ("fanOnly", 1), ("dry", 1), ("heating", 1)]
         for (mode, state) in states {
             let fixture = Fixture.json(test.name, managementPoint: test.tank) { $0["operationMode"] = ["settable": true, "values": ["auto", "dry", "cooling", "heating", "fanOnly"], "value": .string(mode)] }
-            #expect(tank(test, fixture: fixture).targetState == state)
+            #expect(tank(test, fixture: fixture).service.characteristic(.targetHeatingCoolingState).value == .int(state), "\(mode)")
         }
         let off = Fixture.json(test.name, managementPoint: test.tank) { $0["onOffMode"] = ["value": "off"] }
-        #expect(tank(test, fixture: off).targetState == 0)
+        #expect(tank(test, fixture: off).service.characteristic(.targetHeatingCoolingState).value == 0)
         let settable = Fixture.json(test.name, managementPoint: test.tank) { $0["operationMode"] = ["settable": true, "value": "heating"] }
-        let props = HotWaterTankService.targetStateProps(DaikinCloudDevice(settable, api: api).data(test.tank, "operationMode"))
-        #expect(props.validValues == nil && props.maxValue == 3)
+        #expect(tank(test, fixture: settable).service.characteristic(.targetHeatingCoolingState).type.validValues == [0, 1, 2, 3])
         // Powerful mode follows its switch, off by default here.
         #expect(tank(test, ["showExtraFeatures": true]).features.feature(.powerful)?.isOn == false)
     }
