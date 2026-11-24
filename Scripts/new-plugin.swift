@@ -121,6 +121,8 @@ let serviceNotes: [String: String] = [
     "lockMechanism": "Lock Target State is a security control: the MCP server and the Assistant write it only through set_security_accessory.",
     "garageDoorOpener": "Target Door State is a security control: the MCP server and the Assistant write it only through set_security_accessory.",
     "securitySystem": "Security System Target State is a security control: the MCP server and the Assistant write it only through set_security_accessory.",
+    "thermostat": "TODO: build the Thermostat with `ClimateController(.thermostat, …)` and report the device's state to it, rather than binding its states and temperatures (docs/adr/0013-climate-is-mapped-once.md; Plugins/LGThinQ is an example).",
+    "heaterCooler": "TODO: build the Heater Cooler with `ClimateController(.heaterCooler, …)` and report the device's state to it, rather than binding Active, its states and thresholds (docs/adr/0013-climate-is-mapped-once.md; Plugins/LGThinQ is an example).",
     "statelessProgrammableSwitch": "A button: set Programmable Switch Event's value when the device reports a press (0 single, 1 double, 2 long).",
 ]
 
