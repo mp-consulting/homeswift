@@ -64,7 +64,8 @@ let zoneStatesJSON: JSONValue = try! JSONValue(string: """
       "1": { "tadoMode": "HOME", "overlayType": null, "overlay": null, "openWindow": null, "openWindowDetected": false,
              "setting": { "type": "HEATING", "power": "ON", "temperature": { "celsius": 21.0, "fahrenheit": 69.8 } },
              "sensorDataPoints": { "insideTemperature": { "celsius": 19.6, "fahrenheit": 67.28 },
-                                   "humidity": { "type": "PERCENTAGE", "percentage": 48.2 } } },
+                                   "humidity": { "type": "PERCENTAGE", "percentage": 48.2 } },
+             "activityDataPoints": { "heatingPower": { "type": "PERCENTAGE", "percentage": 35.0 } } },
       "2": { "overlayType": "MANUAL",
              "overlay": { "type": "MANUAL", "setting": { "type": "HEATING", "power": "OFF", "temperature": null },
                           "termination": { "type": "MANUAL", "typeSkillBasedApp": "MANUAL" } },
@@ -136,7 +137,7 @@ final class TestEnvironment: Sendable {
         return ["homes": try! JSONValue.array([.object(home)]).anyValue()]
     }
 
-    func start(settings: [String: Any], dailyLimit: Int? = nil, writeSleep: (@Sendable (Duration) async throws -> Void)? = nil) async throws -> PluginHost {
+    func start(settings: [String: Any], dailyLimit: Int? = nil) async throws -> PluginHost {
         var registry = PluginRegistry()
         registry.register(platform: TadoPlugin.platform, name: TadoPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(TadoPlugin.Configuration.self, from: json)
@@ -145,7 +146,6 @@ final class TestEnvironment: Sendable {
                 if delay > .seconds(30) { try await Task.sleep(for: .seconds(3600)) }
             })
             dependencies.home.writeDelay = .milliseconds(20)
-            if let writeSleep { dependencies.home.writeSleep = writeSleep }
             dependencies.home.resetDelay = .milliseconds(10)
             dependencies.home.delayUnit = .milliseconds(10)
             let plugin = TadoPlugin(configuration: configuration, context: context, dependencies: dependencies)
@@ -372,26 +372,39 @@ struct TadoPluginTests {
         await host.stop()
     }
 
-    @Test func temperatureWritesAreCoalescedAndSendTheirOverlay() async throws {
+    @Test func oneChangesWritesAreOneOverlay() async throws {
         let environment = TestEnvironment()
-        let released = NIOLockedValueBox(false)
-        let host = try await environment.start(settings: TestEnvironment.home(zones: [livingRoom]), writeSleep: { _ in
-            // Advance the debounce only after all writes, independent of runner load.
-            while !released.withLockedValue({ $0 }) { try await Task.sleep(for: .milliseconds(1)) }
-        })
+        let host = try await environment.start(settings: TestEnvironment.home(zones: [livingRoom]))
         await expectEventually({ accessory(host, "My Home Living Room Heater")?.service(.thermostat)?[.currentTemperature]?.value.doubleValue == 19.6 })
         let thermostat = try #require(accessory(host, "My Home Living Room Heater")?.service(.thermostat))
-        let target = try #require(thermostat[.targetTemperature])
-        for value in [20.0, 21.5, 22.5] { try await write(target, .double(value)) }
-        #expect(environment.tado.sent("PUT", "/api/v2/homes/123456/zones/1/overlay").isEmpty)
-        released.withLockedValue { $0 = true }
-        await expectEventually({ environment.tado.sent("PUT", "/api/v2/homes/123456/zones/1/overlay").count == 1 })
-        let body = environment.tado.sent("PUT", "/api/v2/homes/123456/zones/1/overlay").first?.body
-        #expect(body == ["setting": ["type": "HEATING", "power": "ON", "temperature": ["celsius": 22.5]], "termination": ["type": "MANUAL"]])
-        // Back to the schedule.
         let state = try #require(thermostat[.targetHeatingCoolingState])
+        let target = try #require(thermostat[.targetTemperature])
+        // Heat at 22.4 (on the zone's 1 degree step: 22), as the Home app sends one change: the writes return once it is sent.
+        async let mode: Void = write(state, .int(1))
+        async let temperature: Void = write(target, .double(22.4))
+        _ = try await (mode, temperature)
+        let overlays = environment.tado.sent("PUT", "/api/v2/homes/123456/zones/1/overlay")
+        #expect(overlays.count == 1)
+        #expect(overlays.first?.body == ["setting": ["type": "HEATING", "power": "ON", "temperature": ["celsius": 22]], "termination": ["type": "MANUAL"]])
+        #expect(environment.tado.sent("DELETE", "/api/v2/homes/123456/zones/1/overlay").isEmpty)
+        // Back to the schedule.
         try await write(state, .int(3))
-        await expectEventually({ environment.tado.sent("DELETE", "/api/v2/homes/123456/zones/1/overlay").count == 1 })
+        #expect(environment.tado.sent("DELETE", "/api/v2/homes/123456/zones/1/overlay").count == 1)
+        await host.stop()
+    }
+
+    @Test func aRefusedOverlayFailsTheWriteAndPutsTheTileBack() async throws {
+        let environment = TestEnvironment()
+        environment.tado.reset("PUT", "/api/v2/homes/123456/zones/1/overlay")
+        environment.tado.answer("PUT", "/api/v2/homes/123456/zones/1/overlay", status: 422, ["errors": [["code": "invalid"]]])
+        let host = try await environment.start(settings: TestEnvironment.home(zones: [livingRoom]))
+        await expectEventually({ accessory(host, "My Home Living Room Heater")?.service(.thermostat)?[.currentTemperature]?.value.doubleValue == 19.6 })
+        let thermostat = try #require(accessory(host, "My Home Living Room Heater")?.service(.thermostat))
+        let state = try #require(thermostat[.targetHeatingCoolingState])
+        await #expect(throws: HAPStatusError(.serviceCommunicationFailure)) { try await write(state, .int(0)) }
+        #expect(environment.tado.sent("PUT", "/api/v2/homes/123456/zones/1/overlay").count >= 1)
+        // Still on its schedule.
+        #expect(state.value.intValue == 3)
         await host.stop()
     }
 
@@ -407,6 +420,25 @@ struct TadoPluginTests {
         await host.stop()
     }
 
+    @Test func aSetpointWrittenWhileOffWaitsForTheTurnOn() async throws {
+        let environment = TestEnvironment()
+        environment.tado.answer("PUT", "/api/v2/homes/123456/zones/2/overlay", ["setting": [:]])
+        let host = try await environment.start(settings: TestEnvironment.home(zones: [kitchen]))
+        await expectEventually({ accessory(host, "My Home Kitchen Heater")?.service(.thermostat)?[.currentTemperature]?.value.doubleValue == 17 })
+        let thermostat = try #require(accessory(host, "My Home Kitchen Heater")?.service(.thermostat))
+        #expect(thermostat[.targetHeatingCoolingState]?.value.intValue == 0)
+        // Off: the setpoint does not turn the zone on, and is shown.
+        try await write(try #require(thermostat[.targetTemperature]), .double(23))
+        #expect(environment.tado.sent("PUT", "/api/v2/homes/123456/zones/2/overlay").isEmpty)
+        #expect(thermostat[.targetTemperature]?.value.doubleValue == 23)
+        // Heat turns it on at that setpoint.
+        try await write(try #require(thermostat[.targetHeatingCoolingState]), .int(1))
+        await expectEventually({ environment.tado.sent("PUT", "/api/v2/homes/123456/zones/2/overlay").count == 1 })
+        let body = environment.tado.sent("PUT", "/api/v2/homes/123456/zones/2/overlay").first?.body
+        #expect(body?["setting"] == ["type": "HEATING", "power": "ON", "temperature": ["celsius": 23]])
+        await host.stop()
+    }
+
     @Test func customModeTurnsOnToTheSchedule() async throws {
         let environment = TestEnvironment()
         var zone = livingRoom.objectValue!
@@ -415,11 +447,15 @@ struct TadoPluginTests {
         let host = try await environment.start(settings: TestEnvironment.home(zones: [.object(zone)]))
         await expectEventually({ accessory(host, "My Home Living Room Heater")?.service(.heaterCooler)?[.active]?.value.intValue == 1 })
         let active = try #require(accessory(host, "My Home Living Room Heater")?.service(.heaterCooler)?[.active])
+        // Already on: nothing to send.
         try await write(active, .int(1))
-        await expectEventually({ environment.tado.sent("DELETE", "/api/v2/homes/123456/zones/1/overlay").count == 1 })
         try await write(active, .int(0))
         await expectEventually({ environment.tado.sent("PUT", "/api/v2/homes/123456/zones/1/overlay").count == 1 })
         #expect(environment.tado.sent("PUT", "/api/v2/homes/123456/zones/1/overlay").first?.body?["termination"] == ["type": "MANUAL"])
+        #expect(environment.tado.sent("DELETE", "/api/v2/homes/123456/zones/1/overlay").isEmpty)
+        // Turning it on again goes back to the schedule.
+        try await write(active, .int(1))
+        await expectEventually({ environment.tado.sent("DELETE", "/api/v2/homes/123456/zones/1/overlay").count == 1 })
         await host.stop()
     }
 
