@@ -137,7 +137,7 @@ final class TestEnvironment: Sendable {
         return ["homes": try! JSONValue.array([.object(home)]).anyValue()]
     }
 
-    func start(settings: [String: Any], dailyLimit: Int? = nil) async throws -> PluginHost {
+    func start(settings: [String: Any], dailyLimit: Int? = nil, writeDelay: Duration = .milliseconds(20)) async throws -> PluginHost {
         var registry = PluginRegistry()
         registry.register(platform: TadoPlugin.platform, name: TadoPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(TadoPlugin.Configuration.self, from: json)
@@ -145,7 +145,7 @@ final class TestEnvironment: Sendable {
             var dependencies = TadoPlugin.Dependencies(transport: self.tado, sleep: { delay in
                 if delay > .seconds(30) { try await Task.sleep(for: .seconds(3600)) }
             })
-            dependencies.home.writeDelay = .milliseconds(20)
+            dependencies.home.writeDelay = writeDelay
             dependencies.home.resetDelay = .milliseconds(10)
             dependencies.home.delayUnit = .milliseconds(10)
             let plugin = TadoPlugin(configuration: configuration, context: context, dependencies: dependencies)
@@ -390,6 +390,80 @@ struct TadoPluginTests {
         // Back to the schedule.
         try await write(state, .int(3))
         #expect(environment.tado.sent("DELETE", "/api/v2/homes/123456/zones/1/overlay").count == 1)
+        await host.stop()
+    }
+
+    @Test func temperatureWritesAreCoalescedAndSendTheirOverlay() async throws {
+        let environment = TestEnvironment()
+        // A window long enough for the writes below under load: it closes once they stop (a slider let go).
+        let host = try await environment.start(settings: TestEnvironment.home(zones: [livingRoom]), writeDelay: .milliseconds(300))
+        await expectEventually({ accessory(host, "My Home Living Room Heater")?.service(.thermostat)?[.currentTemperature]?.value.doubleValue == 19.6 })
+        let thermostat = try #require(accessory(host, "My Home Living Room Heater")?.service(.thermostat))
+        let target = try #require(thermostat[.targetTemperature])
+        // A slider dragged: three writes one after another, a few milliseconds apart.
+        var writes: [Task<Void, any Error>] = []
+        for value in [20.0, 21.0, 22.0] {
+            writes.append(Task { try await write(target, .double(value)) })
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        for task in writes { try await task.value }
+        let overlays = environment.tado.sent("PUT", "/api/v2/homes/123456/zones/1/overlay")
+        #expect(overlays.count == 1)
+        #expect(overlays.first?.body == ["setting": ["type": "HEATING", "power": "ON", "temperature": ["celsius": 22]], "termination": ["type": "MANUAL"]])
+        await host.stop()
+    }
+
+    @Test func withPreferSiriTemperatureFiveDegreesInAutoIsTheSchedule() async throws {
+        let environment = TestEnvironment()
+        var settings = TestEnvironment.home(zones: [livingRoom])
+        settings["preferSiriTemperature"] = true
+        let host = try await environment.start(settings: settings)
+        await expectEventually({ accessory(host, "My Home Living Room Heater")?.service(.thermostat)?[.currentTemperature]?.value.doubleValue == 19.6 })
+        let thermostat = try #require(accessory(host, "My Home Living Room Heater")?.service(.thermostat))
+        #expect(thermostat[.targetHeatingCoolingState]?.value.intValue == 3)
+        let target = try #require(thermostat[.targetTemperature])
+        // On the schedule (auto), 5 degrees, the heating minimum, means the schedule: no overlay.
+        try await write(target, .double(5))
+        #expect(environment.tado.sent("PUT", "/api/v2/homes/123456/zones/1/overlay").isEmpty)
+        #expect(environment.tado.sent("DELETE", "/api/v2/homes/123456/zones/1/overlay").count == 1)
+        // Another temperature in auto is kept as it was written.
+        try await write(target, .double(22))
+        #expect(environment.tado.sent("PUT", "/api/v2/homes/123456/zones/1/overlay").first?.body?["setting"]?["temperature"] == ["celsius": 22])
+        await host.stop()
+    }
+
+    @Test func aBoilerOnByHandIsHeating() async throws {
+        let environment = TestEnvironment()
+        var states = zoneStatesJSON.objectValue!["zoneStates"]!.objectValue!
+        var water = states["0"]!.objectValue!
+        water["overlayType"] = "MANUAL"
+        water["overlay"] = ["termination": ["type": "MANUAL"]]
+        states["0"] = .object(water)
+        environment.tado.reset("GET", "/api/v2/homes/123456/zoneStates")
+        environment.tado.answer("GET", "/api/v2/homes/123456/zoneStates", ["zoneStates": .object(states)])
+        var zone = bathroom.objectValue!
+        zone["boilerTempSupport"] = true
+        let host = try await environment.start(settings: TestEnvironment.home(zones: [.object(zone)]))
+        await expectEventually({ accessory(host, "My Home Bathroom Boiler")?.service(.heaterCooler)?[.active]?.value.intValue == 1 })
+        let heaterCooler = try #require(accessory(host, "My Home Bathroom Boiler")?.service(.heaterCooler))
+        #expect(heaterCooler[.currentHeaterCoolerState]?.value.intValue == 2)
+        await host.stop()
+    }
+
+    @Test func anAirConditionerOffKeepsTheModeShown() async throws {
+        let environment = TestEnvironment()
+        var states = zoneStatesJSON.objectValue!["zoneStates"]!.objectValue!
+        var ac = states["5"]!.objectValue!
+        ac["setting"] = ["type": "AIR_CONDITIONING", "power": "OFF"]
+        states["5"] = .object(ac)
+        environment.tado.reset("GET", "/api/v2/homes/123456/zoneStates")
+        environment.tado.answer("GET", "/api/v2/homes/123456/zoneStates", ["zoneStates": .object(states)])
+        let host = try await environment.start(settings: TestEnvironment.home(zones: [office]))
+        await expectEventually({ accessory(host, "My Home Office AC")?.service(.heaterCooler)?[.currentTemperature]?.value.doubleValue == 25.3 })
+        let heaterCooler = try #require(accessory(host, "My Home Office AC")?.service(.heaterCooler))
+        #expect(heaterCooler[.active]?.value.intValue == 0)
+        // Off and naming no mode: not Cool, the mode shown (Heat, before any) stays.
+        #expect(heaterCooler[.targetHeaterCoolerState]?.value.intValue == 1)
         await host.stop()
     }
 

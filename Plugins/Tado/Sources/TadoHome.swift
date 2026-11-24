@@ -105,7 +105,8 @@ actor TadoHome {
             if zone.id == nil { logger.warning("Zone \(zone.name) has no id: it is looked up by its name") }
             let name = zone.name
             var (services, accessories) = TadoAccessories.zone(zone, home: settings.name, unit: unit, firmware: firmware,
-                                                               window: options.writeDelay) { [weak self] command in
+                                                               window: options.writeDelay,
+                                                               preferSiriTemperature: options.preferSiriTemperature) { [weak self] command in
                 try await self?.apply(name, command)
             }
             guard !context.isExcluded(services.deviceID) else { continue }
@@ -466,10 +467,12 @@ actor TadoHome {
                 services.fanSwitch?.characteristic(.on).value = .bool(state.power && mode == "FAN")
                 services.drySwitch?.characteristic(.on).value = .bool(state.power && mode == "DRY")
             }
-            // A boiler has no thermometer: its setpoint stands for the water's temperature.
+            // A boiler has no thermometer: its setpoint stands for the water's temperature, and it heats while it is on
+            // by hand when tado gives no activity (the room's temperature, its setpoint, would never say so).
             let current = state.current ?? (isAC ? nil : state.target)
+            let action = state.action ?? (isAC ? nil : state.power && !state.onSchedule ? .heating : .idle)
             services.climate?.update(ClimateReport(power: state.power, mode: isAC ? state.climateMode(schedule: false) : .heat,
-                                                   action: state.action, current: current, target: state.target))
+                                                   action: action, current: current, target: state.target))
             if isAC, services.zone.acFanSpeed, state.power, let level = state.fanLevel,
                let fan = TadoOverlay.fanLevels(capabilities[zoneID]?[state.acMode ?? "COOL"]), let index = fan.levels.firstIndex(of: level) {
                 acFanLevels[services.zone.name] = level
@@ -631,12 +634,18 @@ actor TadoHome {
         if let temperature, !(options.preferSiriTemperature && temperature == 5) { lastTemperature[zone] = temperature }
         let last = lastTemperature[zone] ?? (isBoiler ? services.limits.min : (services.climate?.report?.target ?? 20))
         let custom = services.zone.mode == .custom && services.kind.isHeaterCooler
+        // Asked for auto, or a temperature written while in it (on the schedule).
+        let inAuto = entry.mode == .auto || (entry.mode == nil && services.climate?.report?.mode == .auto)
         let action: Action?
         if entry.power == false {
             action = .off
+        } else if options.preferSiriTemperature, inAuto, let temperature {
+            // With preferSiriTemperature, a temperature chosen in auto is kept, 5 degrees meaning the schedule (its
+            // Auto Band is empty: the temperature arrives as written, TadoAccessories.capabilities).
+            action = temperature == 5 ? .schedule : .temperature(temperature)
         } else if entry.mode == .auto {
-            // Auto is the schedule; with preferSiriTemperature, a temperature chosen with it is kept, 5 degrees meaning the schedule.
-            if options.preferSiriTemperature, let temperature { action = temperature == 5 ? .schedule : .temperature(temperature) } else { action = .schedule }
+            // Auto is the schedule.
+            action = .schedule
         } else if let temperature {
             action = .temperature(temperature)
         } else if entry.power == true || entry.mode == .heat {

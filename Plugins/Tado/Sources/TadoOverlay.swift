@@ -42,10 +42,12 @@ struct ZoneState: Sendable, Equatable {
     }
 
     /// The zone's Climate Mode: a heating zone on its schedule is in auto when its service offers it; an air
-    /// conditioner's fan, dry and auto modes are Other Modes.
+    /// conditioner's fan, dry and auto modes are Other Modes, and an air conditioner that is off or names no mode says
+    /// none (the mode kept stays shown).
     func climateMode(schedule: Bool) -> ClimateMode? {
         guard settingType == ZoneType.airConditioning.rawValue else { return schedule && onSchedule ? .auto : .heat }
-        switch acMode ?? "COOL" {
+        guard power, let acMode else { return nil }
+        switch acMode {
         case "HEAT": return .heat
         case "COOL": return .cool
         default: return nil

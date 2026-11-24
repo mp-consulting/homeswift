@@ -67,10 +67,16 @@ enum TadoAccessories {
     /// What a zone's climate service offers (section 6.1): a heating zone heats, its Auto going back to the schedule on
     /// a Thermostat; hot water heats; an air conditioner heats and cools, its fan, dry and auto modes being Other Modes.
     /// tado keeps no temperature while a zone is off: setpoints written then wait for the next turn-on.
-    static func capabilities(_ kind: ZoneKind, limits: (min: Double, max: Double, step: Double)) -> ClimateCapabilities {
+    ///
+    /// With `preferSiriTemperature`, a Thermostat's Auto Band is empty: tado's schedule has no range, and a Target
+    /// Temperature written in auto then reaches `apply` as it was written rather than as the middle of a moved band, so
+    /// 5 degrees (the heating minimum, clamped at the band's low end otherwise) still means the schedule.
+    static func capabilities(_ kind: ZoneKind, limits: (min: Double, max: Double, step: Double), preferSiriTemperature: Bool = false) -> ClimateCapabilities {
         let range = limits.min...limits.max
         switch kind {
-        case .thermostat: return ClimateCapabilities(modes: [.heat, .auto], range: range, step: limits.step, whileOff: .holds)
+        case .thermostat:
+            return ClimateCapabilities(modes: [.heat, .auto], range: range, step: limits.step, whileOff: .holds,
+                                       autoBand: preferSiriTemperature ? 0 : 2)
         case .airConditioner:
             return ClimateCapabilities(modes: [.heat, .cool], heatingRange: range, coolingRange: 10...35, step: limits.step, whileOff: .holds)
         default: return ClimateCapabilities(modes: [.heat], range: range, step: limits.step, whileOff: .holds)
@@ -81,6 +87,7 @@ enum TadoAccessories {
     /// what Apple Home asks of its climate service, the writes of `window` gathered into one command: a slider drag is
     /// one overlay, each request counting against the account's day.
     static func zone(_ zone: ZoneSettings, home: String, unit: TemperatureUnit, firmware: String, window: Duration = .milliseconds(400),
+                     preferSiriTemperature: Bool = false,
                      apply: @escaping @Sendable (ClimateCommand) async throws -> Void = { _ in }) -> (services: ZoneServices, accessories: [Accessory]) {
         let display = HomeSettings.zoneDeviceID(home: home, zone: zone.name, type: zone.type)
         let kind = zone.kind
@@ -102,7 +109,7 @@ enum TadoAccessories {
             optional = [.currentTemperature.with(minValue: -255, maxValue: 255)] + (humidity ? [.currentRelativeHumidity] : [])
             extra.append(Characteristic(.eveValvePosition, value: .int(0)))
             let controller = ClimateController(.thermostat, name: display, subtype: kind.rawValue, isPrimary: true,
-                                               capabilities: capabilities(kind, limits: limits), optional: optional, extra: extra,
+                                               capabilities: capabilities(kind, limits: limits, preferSiriTemperature: preferSiriTemperature), optional: optional, extra: extra,
                                                window: window, apply: apply)
             climate = controller
             primary = controller.service
