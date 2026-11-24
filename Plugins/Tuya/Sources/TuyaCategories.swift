@@ -265,7 +265,7 @@ extension TuyaAccessoryBuilder {
                 if let wanted = command.mode, let word = words[wanted] { commands.append(TuyaCommand(code: mode.code, value: .string(word))) }
                 if let target = command.target, let setpoint { commands.append(setpoint.command(target)) }
                 try await link.send(commands, debounced: false)
-            })
+            }, onlineCheck: true)
         currentTemperature(main, current)
         let lock = find("lock", "child_lock")
         lockPhysicalControls(main, lock)
@@ -334,7 +334,7 @@ extension TuyaAccessoryBuilder {
                 if let on = command.power { commands.append(TuyaCommand(code: power.code, value: .bool(on))) }
                 if let target = command.target, let setpoint { commands.append(setpoint.command(target)) }
                 try await link.send(commands, debounced: false)
-            })
+            }, onlineCheck: true)
         if let current { currentTemperature(main, current) }
         lockPhysicalControls(main, find("lock"))
         swingMode(main, find("shake"))
@@ -356,11 +356,18 @@ extension TuyaAccessoryBuilder {
         var modes = Set(wordsOf.filter { $0.value.contains(where: range.contains) }.keys)
         if modes.isEmpty { modes = [.auto] }
         let setpoint = setpointScale(target, bounds: 10...38)
+        // The last Climate Mode's word, for the Eco switch to go back to.
+        let lastWord = NIOLockedValueBox<String?>(nil)
+        @Sendable func climateWord(_ word: String?) -> String? {
+            guard let word, wordsOf.values.contains(where: { $0.contains(word) }) else { return nil }
+            return word
+        }
         main.climate = TuyaServiceDraft.Climate(
             kind: .thermostat,
             capabilities: ClimateCapabilities(modes: modes, range: setpoint.range, step: setpoint.step, canTurnOff: power != nil),
             report: {
                 let on = power.flatMap { device.bool($0) } ?? true
+                if let word = climateWord(mode.flatMap { device.string($0) }) { lastWord.withLockedValue { $0 = word } }
                 let climateMode: ClimateMode? = mode.map { mode in
                     device.string(mode).flatMap { word in wordsOf.first { $0.value.contains(word) }?.key }
                 } ?? .auto
@@ -373,14 +380,27 @@ extension TuyaAccessoryBuilder {
             apply: { command in
                 var commands: [TuyaCommand] = []
                 if let on = command.power, let power { commands.append(TuyaCommand(code: power.code, value: .bool(on))) }
-                if let wanted = command.mode, let mode, let word = wordsOf[wanted]?.first(where: range.contains) {
-                    commands.append(TuyaCommand(code: mode.code, value: .string(word)))
-                }
+                let word = command.mode.flatMap { wordsOf[$0]?.first(where: range.contains) }
+                if let mode, let word { commands.append(TuyaCommand(code: mode.code, value: .string(word))) }
                 if let target = command.target { commands.append(setpoint.command(target)) }
                 try await link.send(commands, debounced: false)
+                if let word { lastWord.withLockedValue { $0 = word } }
             })
         if let current { currentTemperature(main, current) }
         temperatureDisplayUnits(main, find("temp_unit_convert", "c_f"))
+        // Eco is an Other Mode (docs/adr/0013-climate-is-mapped-once.md, rule 3): a switch of its own chooses it, and
+        // turned off goes back to the last Climate Mode.
+        if let mode, range.contains("eco") {
+            let fallback = [ClimateMode.heat, .auto, .cool].compactMap { wordsOf[$0]?.first(where: range.contains) }.first
+            service(.switch, name: "\(device.name) Eco", subtype: "eco").add(.on, onlineCheck: true, get: {
+                device.string(mode).map { .bool($0 == "eco") }
+            }) { value in
+                let word = value.boolValue == true ? "eco" : lastWord.withLockedValue { $0 } ?? fallback
+                guard let word else { return }
+                try await link.send([TuyaCommand(code: mode.code, value: .string(word))], debounced: false)
+                link.refresh()
+            }
+        }
         return true
     }
 

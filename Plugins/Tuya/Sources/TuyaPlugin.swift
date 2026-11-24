@@ -567,6 +567,16 @@ final class TuyaRuntime: Sendable {
                 }
                 if let set = spec.set { characteristic.onWrite(set) }
             }
+            if let climate = draft.climate, climate.onlineCheck {
+                let power: CharacteristicType = climate.kind == .heaterCooler ? .active : .targetHeatingCoolingState
+                for type in [power, .currentTemperature] {
+                    guard let characteristic = service[type] else { continue }
+                    characteristic.onRead { [weak characteristic] in
+                        guard device.online else { throw HAPStatusError(.serviceCommunicationFailure) }
+                        return characteristic?.value ?? .null
+                    }
+                }
+            }
             draft.onBuild?(service)
             return service
         }

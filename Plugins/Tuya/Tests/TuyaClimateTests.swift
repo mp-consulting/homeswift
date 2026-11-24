@@ -115,4 +115,40 @@ struct TuyaClimateTests {
         #expect(commands(environment, Self.thermostatID).last == #"{"commands":[{"code":"temp_set","value":225}]}"#)
         await host.stop()
     }
+
+    /// Eco, an Other Mode, has a switch of its own: on while the thermostat is in eco, on sends eco, off goes back to the
+    /// last Climate Mode.
+    @Test func aThermostatsEcoIsASwitch() async throws {
+        let environment = Self.environment()
+        let host = try await started(environment)
+        let accessory = try #require(host.accessory(thermostat))
+        let eco = try #require(accessory.service(.switch, subtype: "eco"))
+        #expect(eco[.name]?.value == "Hall Eco")
+        #expect(eco[.on]?.value == true)
+        let service = try #require(accessory.service(.thermostat))
+        try await write(service[.targetHeatingCoolingState], 3)
+        #expect(commands(environment, Self.thermostatID).last == #"{"commands":[{"code":"mode","value":"program"}]}"#)
+        try await write(eco[.on], true)
+        #expect(commands(environment, Self.thermostatID).last == #"{"commands":[{"code":"mode","value":"eco"}]}"#)
+        try await write(eco[.on], false)
+        #expect(commands(environment, Self.thermostatID).last == #"{"commands":[{"code":"mode","value":"program"}]}"#)
+        await host.stop()
+    }
+
+    /// An air conditioner offline is No Response: its power and room are not read from the last state.
+    @Test func anOfflineAirConditionerIsNoResponse() async throws {
+        let environment = TestEnvironment()
+        let cloud = environment.cloud
+        cloud.set("GET /v1.0/homes/12345678/devices", try JSONValue(string: Self.deviceList.replacingOccurrences(of: #""uuid":"ac01","name":"Bedroom AC","online":true"#,
+                                                                                                                 with: #""uuid":"ac01","name":"Bedroom AC","online":false"#)))
+        cloud.set("GET /v1.0/devices/\(Self.airConditionerID)/specifications", try JSONValue(string: Self.airConditionerSpecification))
+        cloud.set("GET /v1.0/devices/\(Self.thermostatID)/specifications", try JSONValue(string: Self.thermostatSpecification))
+        let host = try await started(environment)
+        let service = try #require(host.accessory(airConditioner)?.service(.heaterCooler))
+        for type in [CharacteristicType.active, .currentTemperature] {
+            let read = try #require(service[type]?.readHandler)
+            await #expect(throws: HAPStatusError(.serviceCommunicationFailure)) { _ = try await read() }
+        }
+        await host.stop()
+    }
 }

@@ -38,6 +38,9 @@ final class TuyaServiceDraft {
         var capabilities: ClimateCapabilities
         var report: @Sendable () -> ClimateReport?
         var apply: @Sendable (ClimateCommand) async throws -> Void
+        /// Reads of its power (Active, or a Thermostat's target state) and Current Temperature fail while the device is
+        /// offline: No Response rather than the last state.
+        var onlineCheck = false
     }
 
     let type: ServiceType
