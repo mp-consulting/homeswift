@@ -307,7 +307,7 @@ public final class ClimateController: Sendable {
         if turnedOnWithHeld {
             Task { [weak self] in
                 guard let self else { return }
-                try? await commands.run { [self] in
+                await commands.run { [self] in
                     let held = takeHeld()
                     guard self.report?.power == true, !held.isEmpty else { return restoreHeld(held) }
                     do { try await send(held) } catch { restoreHeld(held) }

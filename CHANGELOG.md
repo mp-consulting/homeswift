@@ -21,6 +21,20 @@ All notable changes to this project are documented here. The format follows
 - LG ThinQ: an air conditioner in auto shows as Auto, where it showed Heat or Cool by its room's temperature, with its
   range around the target; a temperature set while it is off goes out when it is turned on (it was dropped), and a mode
   button switched off goes back to the unit's last mode, chosen in Apple Home or on the unit.
+- SmartThings: an air conditioner's dry and wind modes keep its mode shown (dry showed as Cool, wind as Off), its own
+  auto (`aiComfort`) counts as Auto, and a thermostat's configured heat and cool modes count as Heat and Cool; one
+  change goes out as one request, 0.3 s after the last write, within SmartThings' 12 requests a minute.
+- Google Nest: eco keeps the thermostat's mode shown, with eco's range, and a temperature set in eco is refused rather
+  than sent; one set while it is off goes out with its turn-on, and one change is one command (SetMode, then SetHeat,
+  SetCool or SetRange), gathered for 0.6 s within Google's 5 commands a minute.
+- Home Assistant: a climate entity in dry or fan only keeps its mode shown (they showed as Cool), its low and high go
+  out together in one `set_temperature`, and the thresholds no longer have to be 5 °C apart.
+- ESPHome: dry and fan only keep a thermostat's mode shown, and one change goes out as one climate command.
+- Z-Wave JS: a thermostat's fan, eco or other modes keep the mode and target shown, and one with both setpoints has its
+  heat-to and cool-to thresholds in Auto.
+- Zigbee2MQTT: a thermostat without a system mode no longer always shows Heating (its room's temperature tells), a mode
+  such as sleep keeps Heat and the setpoint shown, Off is offered only when the device lists it, and one change goes
+  out as one `/set` message.
 
 ## [0.37.2] - 2026-11-16
 
