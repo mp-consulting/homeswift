@@ -445,52 +445,68 @@ extension ServiceBuilder {
 
 // MARK: Thermostat (9.5)
 
+/// The thermostat's states and setpoint are the shared `ClimateController`'s (docs/adr/0013-climate-is-mapped-once.md):
+/// this says what the device can do, publishes a command and reports what the device says.
 final class ThermostatHandler: ServiceHandler, @unchecked Sendable {
     let service: Service
     let gettableKeys: [String]
+    let climate: ClimateController
     private let localTemperature: Expose
     private let setpoint: Expose
     private let systemMode: Expose?
     private let runningState: Expose?
-    static let running = ["idle": 0, "heat": 1, "cool": 2]
-    static let modes = ["off": 0, "heat": 1, "cool": 2, "auto": 3]
+    /// The device's state, gathered from its messages: one may carry only what changed.
+    private let reading = NIOLockedValueBox(Reading())
+    static let running: [String: ClimateAction] = ["idle": .idle, "heat": .heating, "cool": .cooling]
+    static let modes: [String: ClimateMode] = ["heat": .heat, "cool": .cool, "auto": .auto]
 
-    init(service: Service, localTemperature: Expose, setpoint: Expose, systemMode: Expose?, runningState: Expose?, link: DeviceLink) {
-        self.service = service
+    private struct Reading {
+        var mode: String?
+        var running: String?
+        var current: Double?
+        var target: Double?
+    }
+
+    init(name: String?, subtype: String?, capabilities: ClimateCapabilities, localTemperature: Expose, setpoint: Expose,
+         systemMode: Expose?, runningState: Expose?, link: DeviceLink) {
         self.localTemperature = localTemperature
         self.setpoint = setpoint
         self.systemMode = systemMode
         self.runningState = runningState
         gettableKeys = [localTemperature.gettableProperty, setpoint.gettableProperty, systemMode?.gettableProperty, runningState?.gettableProperty].compactMap { $0 }
         let setpointProperty = setpoint.property ?? "current_heating_setpoint"
-        service.characteristic(.targetTemperature).onWrite { value in
-            link.set([setpointProperty: .number(value.doubleValue ?? 0)])
-        }
-        if let systemMode, let property = systemMode.property {
-            service.characteristic(.targetHeatingCoolingState).onWrite { value in
-                guard let mode = Self.modes.first(where: { $0.value == value.intValue })?.key, systemMode.valueStrings.contains(mode) else { return }
-                link.set([property: .string(mode)])
+        let modeProperty = systemMode?.property
+        let units = Characteristic(CharacteristicType.temperatureDisplayUnits.with(minValue: 0, maxValue: 0, validValues: [0]), value: .int(0))
+        climate = ClimateController(.thermostat, name: name, subtype: subtype, capabilities: capabilities,
+                                    optional: [ranged(.currentTemperature, localTemperature)], extra: [units]) { command in
+            var partial: [String: JSONValue] = [:]
+            if let modeProperty {
+                if command.power == false {
+                    partial[modeProperty] = .string("off")
+                } else if let mode = command.mode {
+                    partial[modeProperty] = .string(mode.rawValue)
+                }
             }
-        } else {
-            service.characteristic(.targetHeatingCoolingState).onWrite { _ in
-                throw HAPStatusError(.serviceCommunicationFailure, reason: "changing the target state is not supported")
-            }
+            if let target = command.target { partial[setpointProperty] = .number(target) }
+            guard !partial.isEmpty else { return }
+            link.set(partial)
         }
+        service = climate.service
     }
 
     func update(_ message: [String: JSONValue]) {
-        if let property = localTemperature.property, let value = message[property]?.doubleValue {
-            service.characteristic(.currentTemperature).value = .double(value)
+        let now = reading.withLockedValue { reading in
+            if let property = localTemperature.property, let value = message[property]?.doubleValue { reading.current = value }
+            if let property = setpoint.property, let value = message[property]?.doubleValue { reading.target = value }
+            if let property = runningState?.property, let value = message[property]?.stringValue { reading.running = value }
+            if let property = systemMode?.property, let value = message[property]?.stringValue { reading.mode = value }
+            return reading
         }
-        if let property = setpoint.property, let value = message[property]?.doubleValue {
-            service.characteristic(.targetTemperature).value = .double(value)
-        }
-        if let property = runningState?.property, let value = message[property]?.stringValue, let state = Self.running[value] {
-            service.characteristic(.currentHeatingCoolingState).value = .int(state)
-        }
-        if let property = systemMode?.property, let value = message[property]?.stringValue, let mode = Self.modes[value] {
-            service.characteristic(.targetHeatingCoolingState).value = .int(mode)
-        }
+        // Without system_mode, the device heats; a mode HomeKit has no name for is an Other Mode.
+        var mode = systemMode == nil ? .heat : now.mode.flatMap { Self.modes[$0] }
+        if let known = mode, !climate.capabilities.modes.contains(known) { mode = nil }
+        climate.update(ClimateReport(power: now.mode != "off", mode: mode, action: runningState == nil ? nil : now.running.flatMap { Self.running[$0] },
+                                     current: now.current, target: now.target))
     }
 }
 
@@ -507,28 +523,24 @@ extension ServiceBuilder {
                 systemMode = nil
                 runningState = nil
             }
-            func single(_ type: CharacteristicType, _ value: Int) -> Characteristic {
-                Characteristic(type.with(minValue: Double(value), maxValue: Double(value), validValues: [value]), value: .int(value))
-            }
-            func restricted(_ type: CharacteristicType, _ values: [Int]) -> Characteristic {
-                Characteristic(type.with(minValue: Double(values.min() ?? 0), maxValue: Double(values.max() ?? 0), validValues: values), value: .int(values[0]))
-            }
-            var extra = [single(.temperatureDisplayUnits, 0)]
+            var modes: Set<ClimateMode> = [.heat]
+            var canTurnOff = false
             if let systemMode, let runningState {
-                let running = ["idle", "heat", "cool"].filter(runningState.valueStrings.contains).compactMap { ThermostatHandler.running[$0] }
-                let modes = ["off", "heat", "cool", "auto"].filter(systemMode.valueStrings.contains).compactMap { ThermostatHandler.modes[$0] }
-                guard !running.isEmpty, !modes.isEmpty else {
+                let running = ["idle", "heat", "cool"].filter(runningState.valueStrings.contains)
+                let found = ["heat", "cool", "auto"].filter(systemMode.valueStrings.contains).compactMap { ThermostatHandler.modes[$0] }
+                canTurnOff = systemMode.valueStrings.contains("off")
+                guard !running.isEmpty, !found.isEmpty || canTurnOff else {
                     warn("no running state or system mode HomeKit has", expose)
                     continue
                 }
-                extra += [restricted(.currentHeatingCoolingState, running), restricted(.targetHeatingCoolingState, modes)]
-            } else {
-                extra += [single(.currentHeatingCoolingState, 1), single(.targetHeatingCoolingState, 1)]
+                if !found.isEmpty { modes = Set(found) }
             }
+            var range: ClosedRange<Double> = 5...35
+            if setpoint.isNumericRange, let low = setpoint.valueMin, let high = setpoint.valueMax, low <= high { range = low...high }
+            let capabilities = ClimateCapabilities(modes: modes, range: range, step: setpoint.valueStep ?? 0.5, canTurnOff: canTurnOff)
             guard claim(.thermostat, subtype: expose.endpoint) else { continue }
-            let service = service(.thermostat, subtype: expose.endpoint,
-                                  optional: [ranged(.currentTemperature, local), ranged(.targetTemperature, setpoint)], extra: extra)
-            add(ThermostatHandler(service: service, localTemperature: local, setpoint: setpoint, systemMode: systemMode, runningState: runningState, link: link))
+            add(ThermostatHandler(name: serviceName(expose.endpoint), subtype: expose.endpoint, capabilities: capabilities, localTemperature: local,
+                                  setpoint: setpoint, systemMode: systemMode, runningState: runningState, link: link))
         }
     }
 }

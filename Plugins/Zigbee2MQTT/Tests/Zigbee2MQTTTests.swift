@@ -405,6 +405,14 @@ struct Zigbee2MQTTTests {
         #expect(await eventually { environment.published("0x0000000000000007/set").last == #"{"current_heating_setpoint":19}"# })
         try await thermostat.characteristic(.targetHeatingCoolingState).write(.int(0))
         #expect(await eventually { environment.published("0x0000000000000007/set").last == #"{"system_mode":"off"}"# })
+        // A mode HomeKit has no name for keeps the last one shown; Heat turns it on in heat.
+        environment.send("radiator", #"{"system_mode":"off","current_heating_setpoint":19}"#)
+        #expect(await eventually { thermostat.characteristic(.targetHeatingCoolingState).value == .int(0) })
+        try await thermostat.characteristic(.targetHeatingCoolingState).write(.int(1))
+        #expect(await eventually { environment.published("0x0000000000000007/set").last == #"{"system_mode":"heat"}"# })
+        environment.send("radiator", #"{"system_mode":"sleep"}"#)
+        #expect(await eventually { thermostat.characteristic(.targetHeatingCoolingState).value == .int(1) })
+        #expect(thermostat.characteristic(.targetTemperature).value == .double(19))
 
         let plug = try #require(host.accessory("0x0000000000000008"))
         let switches = plug.services.filter { $0.type.uuid == ServiceType.switch.uuid }
