@@ -7,8 +7,8 @@ Platform `DaikinCloud`; a Homebridge block works unchanged.
 
 ## What it does
 
-- **Air conditioners** (any device with a climate control): a HeaterCooler with power, Cool / Heat / Auto (dry
-  and fan only read as Auto), the room temperature, heating and cooling thresholds with the unit's ranges (the
+- **Air conditioners** (any device with a climate control): a HeaterCooler with power, the unit's own Cool / Heat / Auto
+  (in dry or fan only the tile keeps the mode it last showed), the room temperature, heating and cooling thresholds with the unit's ranges (the
   middle of the range is mirrored to Daikin's single auto setpoint), fan speed as a 0-100 % slider in steps of
   the unit's scale (5 levels: 20, 40, 60, 80, 100 %) and swing (both axes).
 - **Altherma heat pumps**: the climate control as above (room temperature, or leaving water offset or temperature

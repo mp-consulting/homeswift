@@ -206,6 +206,29 @@ struct RingPluginTests {
         await host.stop()
     }
 
+    @Test func theThermostatSendsOneChangeAtOnceAndKeepsItsModeInAnOtherMode() async throws {
+        let host = try await environment.start(settings: ["refreshToken": Fixtures.wrapper])
+        #expect(await eventually { host.accessory("zid-thermostat") != nil })
+        let thermostat = try #require(host.accessory("zid-thermostat")?.service(.thermostat))
+        let mode = try #require(thermostat[.targetHeatingCoolingState])
+        let target = try #require(thermostat[.targetTemperature])
+        // Cool at 24 °C: one DeviceInfoSet with both.
+        async let modeWrite: Void = write(mode, .int(2))
+        async let targetWrite: Void = write(target, .double(24))
+        _ = try await (modeWrite, targetWrite)
+        let sets = environment.socket.sentText.filter { $0.contains("zid-thermostat") && $0.contains("DeviceInfoSet") }
+        #expect(sets.count == 1)
+        let sent = try JSONValue(string: try #require(sets.first))
+        #expect(sent["msg"]?["body"]?[0]?["device"]?["v1"] == ["mode": "cool", "setPoint": 24])
+        environment.socket.receive(text: Fixtures.update("zid-thermostat", #"{"mode":"cool","setPoint":24}"#))
+        #expect(await eventually { mode.value == .int(2) })
+        // Ring's auto is an Other Mode: still on, still Cool.
+        environment.socket.receive(text: Fixtures.update("zid-thermostat", #"{"mode":"auto"}"#))
+        #expect(await eventually { thermostat[.currentHeatingCoolingState]?.value == .int(0) })
+        #expect(mode.value == .int(2))
+        await host.stop()
+    }
+
     @Test func nightArmsAwayBypassingOpenSensors() async throws {
         let host = try await environment.start(settings: ["refreshToken": Fixtures.wrapper, "nightModeBypassFor": "all"])
         #expect(await eventually { host.accessory("zid-contact") != nil })

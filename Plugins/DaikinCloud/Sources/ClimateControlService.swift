@@ -6,28 +6,22 @@ import Logging
 /// The HeaterCooler of a climateControl management point: power, mode, room temperature, the heating and
 /// cooling thresholds, fan speed and swing, with the feature switches and the optional separate Fan tile.
 ///
-/// HomeKit's modes map to Daikin's: Cool is cooling, Heat is heating, Auto is auto (and dry and fan only
-/// read back as Auto). Power belongs to Active alone: iOS sends Active=1 with every mode change, so a mode
-/// change that also switched the unit on would race a "turn off" scene.
+/// The Heater Cooler is the shared `ClimateController`'s (docs/adr/0013-climate-is-mapped-once.md): Daikin's
+/// heating, cooling and auto are its Climate Modes, dry and fan only are Other Modes, and its setpoints are Separate,
+/// the heating and cooling ones kept apart with the auto one at their middle when the unit has one. Power belongs to
+/// Active alone.
 final class ClimateControlService: @unchecked Sendable {
-    static let defaultCoolingTemperature = 25.0
-    static let defaultRoomTemperature = 20.0
-    static let homeKitMinimum = 10.0
-    static let coolingClampMax = 35.0
-    static let heatingClampMin = 0.0
-    static let heatingClampMax = 25.0
-
     let device: DaikinCloudDevice
     let managementPointID: String
     let name: String
     let context: ServiceContext
-    let service: Service
+    let climate: ClimateController
+    var service: Service { climate.service }
     let features: FeatureSet
     let separateFan: Service?
     let swing: SwingController
     let fanSpeed: FanSpeedController
     let setpoints: SetpointResolver
-    let autoSync: AutoSetpointSync
     /// The swing axes the service was built with: an axis the current mode adds needs a rebuild, one it lacks does not
     /// (its writes fail), so switching modes back and forth never rebuilds the service.
     let swingAxes: [ClimateSwing]
@@ -54,16 +48,12 @@ final class ClimateControlService: @unchecked Sendable {
         self.context = context
         swing = SwingController(device: device, managementPointID: managementPointID)
         fanSpeed = FanSpeedController(device: device, managementPointID: managementPointID)
-        setpoints = SetpointResolver(device: device, managementPointID: managementPointID)
-        autoSync = AutoSetpointSync(device: device, managementPointID: managementPointID, logger: context.logger, name: name)
+        let setpoints = SetpointResolver(device: device, managementPointID: managementPointID)
+        self.setpoints = setpoints
         rotationShape = Self.rotationShape(fanSpeed)
         swingAxes = swing.supportedAxes
 
         var extra: [Characteristic] = []
-        let cooling = setpoints.read(Daikin.OperationMode.cooling.rawValue)
-        let heating = setpoints.read(Daikin.OperationMode.heating.rawValue)
-        extra.append(Self.threshold(.coolingThresholdTemperature, cooling, fallback: Self.coolingClampMax, clamp: Self.homeKitMinimum...Self.coolingClampMax))
-        extra.append(Self.threshold(.heatingThresholdTemperature, heating, fallback: Self.defaultRoomTemperature, clamp: Self.heatingClampMin...Self.heatingClampMax))
         if rotationShape.present {
             extra.append(Characteristic(.rotationSpeed.with(minValue: 0, maxValue: 100, minStep: FanSpeed.percentStep(rotationShape.maxValue))))
         }
@@ -72,7 +62,9 @@ final class ClimateControlService: @unchecked Sendable {
             extra.append(Characteristic(.swingMode))
         }
         extra += swingAxes.map { Characteristic($0.characteristic) }
-        service = Service(.heaterCooler, name: name, extra: extra, isPrimary: true)
+        let link = WeakLink<ClimateControlService>()
+        climate = ClimateController(.heaterCooler, name: name, isPrimary: true, capabilities: Self.capabilities(device, managementPointID, setpoints),
+                                    extra: extra) { command in try await link.value?.apply(command) }
         features = FeatureSet(device: device, managementPointID: managementPointID, name: name, context: context, kinds: FeatureSet.climateControl)
 
         // The separate Fan: only with the option, and only when the unit has a fan speed or a swing.
@@ -92,6 +84,7 @@ final class ClimateControlService: @unchecked Sendable {
             separateFan = nil
         }
         self.separateFanShape = fanShape
+        link.value = self
         bind()
         refreshValues()
     }
@@ -103,14 +96,6 @@ final class ClimateControlService: @unchecked Sendable {
     static func rotationShape(_ fanSpeed: FanSpeedController) -> RotationShape {
         let fixed = fanSpeed.fixed()
         return RotationShape(present: fixed.value != nil, maxValue: fixed.value != nil ? fixed.maxValue : nil)
-    }
-
-    /// A threshold with the setpoint's range as props, and its value inside HomeKit's default range first.
-    private static func threshold(_ type: CharacteristicType, _ setpoint: DataPoint, fallback: Double, clamp: ClosedRange<Double>) -> Characteristic {
-        let value = min(clamp.upperBound, max(clamp.lowerBound, setpoint.number ?? fallback))
-        let characteristic = Characteristic(type.with(minValue: setpoint.minValue, maxValue: setpoint.maxValue, minStep: setpoint.stepValue))
-        setClamped(characteristic, value)
-        return characteristic
     }
 
     private func bind() {
@@ -125,10 +110,6 @@ final class ClimateControlService: @unchecked Sendable {
                 }
             }
         }
-        service.characteristic(.active).onWrite { [weak self] value in try await self?.setActive(value.intValue == 1) }
-        service.characteristic(.targetHeaterCoolerState).onWrite { [weak self] value in try await self?.setTargetState(value.intValue ?? 0) }
-        service.characteristic(.coolingThresholdTemperature).onWrite { [weak self] value in try await self?.setThreshold(.cooling, value.doubleValue ?? 0) }
-        service.characteristic(.heatingThresholdTemperature).onWrite { [weak self] value in try await self?.setThreshold(.heating, value.doubleValue ?? 0) }
         service[.rotationSpeed]?.onWrite { [weak self] value in try await self?.setRotationSpeed(value.doubleValue ?? 0) }
         service[.swingMode]?.onWrite { [weak self] value in try await self?.setSwing(value.intValue == 1) }
         if let separateFan {
@@ -150,19 +131,8 @@ final class ClimateControlService: @unchecked Sendable {
     /// lets HomeKit filter redundant scene commands, and changes made in the Onecta app show at once.
     func refreshValues() {
         let mode = operationMode
-        let on = isOn
-        service.characteristic(.active).value = .int(on ? 1 : 0)
-        separateFan?.characteristic(.active).value = .int(on ? 1 : 0)
-        let current: Int = !on ? 0 : mode == Daikin.OperationMode.cooling.rawValue ? 3 : mode == Daikin.OperationMode.heating.rawValue ? 2 : 1
-        service.characteristic(.currentHeaterCoolerState).value = .int(current)
-        service.characteristic(.targetHeaterCoolerState).value = .int(Self.targetState(mode))
-        setClamped(service.characteristic(.currentTemperature), currentTemperature)
-        if let cooling = setpoints.read(Daikin.OperationMode.cooling.rawValue).value {
-            setClamped(service.characteristic(.coolingThresholdTemperature), cooling.doubleValue.flatMap { $0.isFinite ? $0 : nil } ?? Self.defaultCoolingTemperature)
-        }
-        if let heating = setpoints.read(Daikin.OperationMode.heating.rawValue).value {
-            setClamped(service.characteristic(.heatingThresholdTemperature), heating.doubleValue.flatMap { $0.isFinite ? $0 : nil } ?? Self.defaultRoomTemperature)
-        }
+        climate.update(report)
+        separateFan?.characteristic(.active).value = .int(isOn ? 1 : 0)
         // Only in fixed fan mode: in auto or quiet the stored speed is not the actual one, and HomeKit may
         // replay a cached value as a write when another characteristic changes, leaving auto or quiet.
         if let percent = fanSpeed.percentIfFixed(mode) {
@@ -183,16 +153,38 @@ final class ClimateControlService: @unchecked Sendable {
     }
 
     /// The room temperature, or the leaving water temperature an Altherma is controlled by.
-    var currentTemperature: Double {
-        device.data(managementPointID, "sensoryData", "/" + setpoints.controlMode).number ?? Self.defaultRoomTemperature
+    var currentTemperature: Double? {
+        device.data(managementPointID, "sensoryData", "/" + setpoints.controlMode).number
     }
 
-    static func targetState(_ mode: String) -> Int {
-        switch mode {
-        case Daikin.OperationMode.cooling.rawValue: 2
-        case Daikin.OperationMode.heating.rawValue: 1
-        default: 0
+    static let climateModes: [String: ClimateMode] = [
+        Daikin.OperationMode.heating.rawValue: .heat, Daikin.OperationMode.cooling.rawValue: .cool, Daikin.OperationMode.auto.rawValue: .auto,
+    ]
+
+    /// What the unit can do: the Climate Modes among its operation modes (an Altherma may only heat), the heating and
+    /// cooling setpoints' ranges (room temperature, or leaving water offset or temperature), and an auto setpoint
+    /// when it has one. Steps of at least 0.5°, as the thresholds always were rounded.
+    static func capabilities(_ device: DaikinCloudDevice, _ managementPointID: String, _ setpoints: SetpointResolver) -> ClimateCapabilities {
+        let values = device.data(managementPointID, "operationMode").values ?? []
+        let modes = Set(values.compactMap { climateModes[$0] })
+        let heating = setpoints.read(Daikin.OperationMode.heating.rawValue)
+        let cooling = setpoints.read(Daikin.OperationMode.cooling.rawValue)
+        let hasAuto = setpoints.read(Daikin.OperationMode.auto.rawValue).value != nil
+        func range(_ setpoint: DataPoint, _ fallback: ClosedRange<Double>) -> ClosedRange<Double> {
+            guard let low = setpoint.minValue, let high = setpoint.maxValue, low <= high else { return fallback }
+            return low...high
         }
+        let step = ([0.5] + [heating.stepValue, cooling.stepValue].compactMap { $0 }).max() ?? 0.5
+        return ClimateCapabilities(modes: modes.isEmpty ? [.heat, .cool, .auto] : modes, setpoints: .separate(autoSetpoint: hasAuto),
+                                   heatingRange: range(heating, 0...25), coolingRange: range(cooling, 10...35), step: step)
+    }
+
+    /// The unit's state for the controller: dry and fan only are Other Modes.
+    var report: ClimateReport {
+        ClimateReport(power: isOn, mode: Self.climateModes[operationMode], current: currentTemperature,
+                      target: setpoints.read(Daikin.OperationMode.auto.rawValue).number,
+                      heating: setpoints.read(Daikin.OperationMode.heating.rawValue).number,
+                      cooling: setpoints.read(Daikin.OperationMode.cooling.rawValue).number)
     }
 
     // MARK: HomeKit to the device
@@ -201,45 +193,53 @@ final class ClimateControlService: @unchecked Sendable {
         try await device.setData(managementPointID, dataPoint, value, path: path)
     }
 
+    /// The separate Fan's Active: the unit's power.
     func setActive(_ desired: Bool) async throws {
         if isOn == desired {
             context.logger.debug("[\(name)] SET ActiveState skipped — already \(desired ? "on" : "off")")
             return
         }
-        context.logger.debug("[\(name)] SET ActiveState, state: \(desired ? 1 : 0)")
-        try await context.write("[\(name)] ActiveState") { try await setData("onOffMode", .string(desired ? Daikin.on : Daikin.off)) }
+        try await apply(ClimateCommand(power: desired))
+    }
+
+    /// Sends what HomeKit asked: the power, then the operation mode, then the heating and cooling setpoints, then the
+    /// auto setpoint at their middle (best effort: a missed one only leaves the Daikin app with a stale auto setpoint).
+    func apply(_ command: ClimateCommand) async throws {
+        if let power = command.power {
+            context.logger.debug("[\(name)] SET ActiveState, state: \(power ? 1 : 0)")
+            try await context.write("[\(name)] ActiveState") { try await setData("onOffMode", .string(power ? Daikin.on : Daikin.off)) }
+        }
+        if let mode = command.mode {
+            let operationMode = mode == .heat ? Daikin.OperationMode.heating : mode == .cool ? .cooling : .auto
+            context.logger.debug("[\(name)] SET TargetHeaterCoolerState, daikinOperationMode to: \(operationMode.rawValue)")
+            try await context.write("[\(name)] TargetHeaterCoolerState") { try await setData("operationMode", .string(operationMode.rawValue)) }
+        }
+        for (kind, value) in [(ThresholdKind.heating, command.heating), (.cooling, command.cooling)] {
+            guard let temperature = value else { continue }
+            let label = kind == .cooling ? "CoolingThresholdTemperature" : "HeatingThresholdTemperature"
+            context.logger.debug("[\(name)] SET \(label), temperature to: \(DaikinSettings.jsNumber(temperature))")
+            let path = try setpoints.path(kind.operationMode)
+            try await context.write("[\(name)] \(label)") { try await setData("temperatureControl", .number(temperature), path: path) }
+        }
+        // The auto setpoint follows a threshold sent, not a middle recomputed for a threshold that was already there.
+        if let target = command.target, command.heating != nil || command.cooling != nil { await setAutoSetpoint(target) }
         refreshValues()
     }
 
-    func setTargetState(_ state: Int) async throws {
-        context.logger.debug("[\(name)] SET TargetHeaterCoolerState, OperationMode to: \(state)")
-        let mode = state == 1 ? Daikin.OperationMode.heating : state == 0 ? .auto : .cooling
-        // Compared with Daikin's mode, not HomeKit's: Auto while in dry or fan only must still switch to auto.
-        if operationMode == mode.rawValue {
-            context.logger.debug("[\(name)] SET TargetHeaterCoolerState skipped — already \(mode.rawValue)")
-            return
+    private func setAutoSetpoint(_ temperature: Double) async {
+        do {
+            let path = try setpoints.path(Daikin.OperationMode.auto.rawValue)
+            let auto = device.data(managementPointID, "temperatureControl", path)
+            guard auto.value != nil else { return }
+            var value = temperature
+            if let min = auto.minValue { value = max(min, value) }
+            if let max = auto.maxValue { value = min(max, value) }
+            if let current = auto.number, abs(current - value) < 0.01 { return }
+            context.logger.debug("[\(name)] SYNC AutoSetpoint → auto=\(DaikinSettings.jsNumber(value))")
+            try await setData("temperatureControl", .number(value), path: path)
+        } catch {
+            context.logger.debug("[\(name)] AutoSetpoint sync skipped: \(message(of: error))")
         }
-        context.logger.debug("[\(name)] SET TargetHeaterCoolerState, daikinOperationMode to: \(mode.rawValue)")
-        try await context.write("[\(name)] TargetHeaterCoolerState") { try await setData("operationMode", .string(mode.rawValue)) }
-        refreshValues()
-    }
-
-    /// Writes a threshold (rounded to 0.5°), then mirrors the range's middle to the auto setpoint.
-    func setThreshold(_ kind: ThresholdKind, _ value: Double) async throws {
-        let temperature = jsRound(value * 2) / 2
-        let label = kind == .cooling ? "CoolingThresholdTemperature" : "HeatingThresholdTemperature"
-        if setpoints.read(kind.operationMode).number == temperature {
-            context.logger.debug("[\(name)] SET \(label) skipped — already \(DaikinSettings.jsNumber(temperature))")
-            return
-        }
-        context.logger.debug("[\(name)] SET \(label), temperature to: \(DaikinSettings.jsNumber(temperature))")
-        let setpoints = setpoints, device = device, managementPointID = managementPointID
-        try await context.write("[\(name)] \(label)") {
-            try await autoSync.writeThreshold(kind, temperature) {
-                try await device.setData(managementPointID, "temperatureControl", .number(temperature), path: try setpoints.path(kind.operationMode))
-            }
-        }
-        refreshValues()
     }
 
     func setRotationSpeed(_ percent: Double) async throws {
@@ -266,4 +266,9 @@ final class ClimateControlService: @unchecked Sendable {
         try await context.write("[\(name)] SwingMode") { try await swing.set(enabled) }
         refreshValues()
     }
+}
+
+/// A weak reference that a closure made before its owner is initialized can hold.
+final class WeakLink<Value: AnyObject>: @unchecked Sendable {
+    weak var value: Value?
 }
