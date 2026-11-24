@@ -37,6 +37,9 @@ All notable changes to this project are documented here. The format follows
   on. A failed command puts the tile back at once rather than after 2 s.
 - Dyson: a Hot+Cool's Thermostat no longer reads Heating just because heating is on: it shows what the heater reports,
   idle with the fan off, and a temperature set while heating is off is sent without turning it on.
+- Somfy TaHoma: a thermostat's mode and target chosen together go out as one execution (a Hitachi heat pump's as one
+  `globalControl`, built from the change rather than stale values), the target shows whatever the device is doing,
+  and a failed execution puts the tile back as the device last said.
 - Z-Wave JS: a thermostat's fan, eco or other modes keep the mode and target shown, and one with both setpoints has its
   heat-to and cool-to thresholds in Auto.
 - Zigbee2MQTT: a thermostat without a system mode no longer always shows Heating (its room's temperature tells), a mode
