@@ -72,7 +72,10 @@ class ThermostatMapper: Mapper, @unchecked Sendable {
                 optional.append(readOnly)
             }
         }
-        let climate = ClimateController(.thermostat, name: label, isPrimary: true, capabilities: capabilities, optional: optional) { [weak self] command in
+        // 500 ms of gathering: a slider's drag is one execution (6.4), at the test's time scale in tests.
+        let climate = ClimateController(
+            .thermostat, name: label, isPrimary: true, capabilities: capabilities, optional: optional, window: scaled(0.5)
+        ) { [weak self] command in
             try await self?.applyClimate(command)
         }
         self.climate = climate
