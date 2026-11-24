@@ -623,6 +623,39 @@ struct AccessoryTests {
         await host.stop()
     }
 
+    /// A climate accessory offline is No Response on its power and room, as other reads (the controller binds none),
+    /// unless offlineAsOff.
+    @Test(arguments: [false, true]) func offlineClimatesAreNoResponse(_ offlineAsOff: Bool) async throws {
+        let host = try await start([
+            device("1000aaaaaa", uiid: 151, params: ["power": "on", "mode": "cool", "temperature": 24, "indoor_temperature": 27]),
+            device("1000bbbbbb", uiid: 15, params: ["switch": "off", "currentTemperature": 18, "currentHumidity": 40]),
+            device("1000cccccc", uiid: 15, params: ["switch": "off", "currentTemperature": 21, "currentHumidity": 40]),
+        ], ["offlineAsOff": offlineAsOff, "thDevices": [["deviceId": "1000bbbbbb", "showAs": "thermostat"], ["deviceId": "1000cccccc", "showAs": "heater"]]])
+        let air = try #require(environment.accessory(host, "1000aaaaaa")?.service(.heaterCooler))
+        let thermostat = try #require(environment.accessory(host, "1000bbbbbb")?.service(.thermostat))
+        let heater = try #require(environment.accessory(host, "1000cccccc")?.service(.heaterCooler))
+        let checked = [air[.active], air[.currentTemperature], thermostat[.targetHeatingCoolingState], thermostat[.currentTemperature],
+                       heater[.active], heater[.currentTemperature]].compactMap { $0 }
+        #expect(checked.count == 6)
+        for characteristic in checked { #expect(characteristic.readHandler != nil) }
+        #expect(try await air[.active]?.read() == 1)
+        for id in ["1000aaaaaa", "1000bbbbbb", "1000cccccc"] { environment.push(id, ["online": false]) }
+        // With offlineAsOff the reads succeed whether or not the pushes have landed yet.
+        if !offlineAsOff {
+            for characteristic in [air[.active], thermostat[.currentTemperature], heater[.currentTemperature]] {
+                #expect(await eventually { (try? await characteristic?.read()) == nil })
+            }
+        }
+        for characteristic in checked {
+            if offlineAsOff {
+                #expect((try? await characteristic.read()) != nil, "\(characteristic.type.name)")
+            } else {
+                await #expect(throws: HAPStatusError(.serviceCommunicationFailure)) { _ = try await characteristic.read() }
+            }
+        }
+        await host.stop()
+    }
+
     @Test func valvesTurnThemselvesOff() async throws {
         let host = try await start([device("1000aaaaaa", uiid: 1, params: ["switch": "off"])], ["singleDevices": [["deviceId": "1000aaaaaa", "showAs": "valve"]]])
         let valve = try #require(environment.accessory(host, "1000aaaaaa")?.service(.valve))

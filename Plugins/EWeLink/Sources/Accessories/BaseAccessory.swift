@@ -128,6 +128,18 @@ class BaseAccessory {
         }
     }
 
+    /// A climate controller's power (Active, or a Thermostat's target state) and Current Temperature read through the
+    /// offline check, as `onRead`: the controller binds no reads, and an offline device is No Response unless
+    /// `offlineAsOff`.
+    func onReadChecked(_ climate: ClimateController) {
+        let service = climate.service
+        let power: CharacteristicType = climate.kind == .heaterCooler ? .active : .targetHeatingCoolingState
+        for type in [power, .currentTemperature] {
+            guard let characteristic = service[type] else { continue }
+            onRead(characteristic, type.name) { [weak characteristic] in characteristic?.value }
+        }
+    }
+
     /// Reads without the offline check.
     func onReadAlways(_ characteristic: Characteristic, _ get: @escaping @EWeLinkActor @Sendable () -> HAPValue) {
         characteristic.onRead { await get() }

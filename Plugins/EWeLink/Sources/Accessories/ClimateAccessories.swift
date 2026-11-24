@@ -212,6 +212,7 @@ final class AirConditionerAccessory: BaseAccessory {
             optional: [CharacteristicType.currentTemperature.with(minStep: 0.1), CharacteristicType.rotationSpeed.with(minValue: 0, maxValue: 100, minStep: 25)]
         ) { [weak self] command in try await self?.applyClimate(command) }
         service = addService(climate)
+        onReadChecked(climate)
         onRead(service.characteristic(.rotationSpeed), "RotationSpeed") { [weak self] in self.map { .double(Self.rotationSpeed($0.cacheWindSpeed)) } }
         onWrite(service.characteristic(.rotationSpeed)) { [weak self] value in try await self?.setRotationSpeed(value) }
         apply(deviceParams, initial: true)

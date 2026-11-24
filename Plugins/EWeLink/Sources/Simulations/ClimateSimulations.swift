@@ -117,6 +117,7 @@ class ThresholdControllerAccessory: BaseAccessory {
         }
         self.climate = climate
         service = addService(climate)
+        onReadChecked(climate)
         cacheReading = service.characteristic(mode.reading).value.doubleValue ?? 0
         cacheActive = service.characteristic(.active).value.intValue == 1
         cacheRunning = cacheActive && service.characteristic(mode.currentState).value.intValue == mode.runningCurrentState
@@ -374,6 +375,7 @@ final class THThermostatAccessory: BaseAccessory {
             optional: (hasHumidity ? [.currentRelativeHumidity] : []) + [CharacteristicType.currentTemperature.with(minStep: 0.1)]
         ) { [weak self] command in try await self?.applyClimate(command) }
         service = addService(climate)
+        onReadChecked(climate)
         cacheTemp = service.characteristic(.currentTemperature).value.doubleValue ?? 0
         let state = reset ? 0 : service.characteristic(.targetHeatingCoolingState).value.intValue ?? 0
         isOn = state != 0
