@@ -13,7 +13,7 @@ tried with a tado° account. Reports from someone with one are welcome.
 |---|---|
 | HEATING zone | Thermostat (Off, Heat, Auto = the schedule), or a Heater Cooler with `easyMode`; Battery |
 | HOT_WATER zone | Switch, or Valve (`accTypeBoiler: FAUCET`), or a Heater Cooler with its temperature (`boilerTempSupport`) |
-| AIR_CONDITIONING zone | Heater Cooler (Heat, Cool), Rotation Speed with `acFanSpeed`, Fan and Dry mode switches |
+| AIR_CONDITIONING zone | Heater Cooler (Heat, Cool; in fan, dry or auto it keeps the mode it showed), Rotation Speed with `acFanSpeed`, Fan and Dry mode switches |
 | Zone extras | Window contact sensor (`openWindowSensor`), switch for open-window detection (`openWindowSwitch`), separate temperature and humidity sensors |
 | Presence | An occupancy or motion sensor per person's phone, and "Anyone" |
 | Weather | Outside temperature; solar intensity as a lightbulb or a light sensor |
@@ -86,6 +86,12 @@ matched by name exactly (`Bath` no longer updates `Bathroom`); `boilerTempSuppor
 battery sets Status Low Battery; changing an air conditioner's mode alone sends it; CUSTOM's "on goes back to the
 schedule" works; the access token lives as long as tado's `expires_in` says. Writing Temperature Display Units no longer
 rewrites the home's `temperatureUnit`.
+
+Climate services follow the bridge's one mapping (docs/adr/0013-climate-is-mapped-once.md): a setpoint written while a
+zone is off waits for the next turn-on instead of turning it on, Active or Heat sent to a zone already on sends
+nothing, setpoints follow the zone's step, and the current state is what tado says the zone does (its heating power,
+an air conditioner's compressor) or else what the room and the setpoint make likely. An easyMode heating zone's Heater
+Cooler has a heating threshold only.
 
 Not ported: the Homebridge settings page and its legacy `user[]` auto-configuration (Setup does it), and the
 zone-state debug file `tado-states-<home>.json`.

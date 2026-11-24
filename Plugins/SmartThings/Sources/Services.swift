@@ -238,136 +238,109 @@ extension AccessoryBuilder {
         return (Convert.celsius(low, unit: rangeUnit), Convert.celsius(high, unit: rangeUnit), max(step, 0.1))
     }
 
-    static func heatingCoolingState(mode: String) -> Int {
-        switch mode.lowercased() {
-        case "off": 0
-        case "cool": 2
-        case "auto": 3
-        default: 1
+    /// A `thermostatMode` as a Climate Mode, the configured heat and cool modes included; off and the modes Apple Home has
+    /// no name for (eco, emergency heat, fan only) are nil: an Other Mode, or the power.
+    static func climateMode(_ mode: String, heatMode: String = "heat", coolMode: String = "cool") -> ClimateMode? {
+        let lowered = mode.lowercased()
+        if lowered == "heat" || lowered == heatMode.lowercased() { return .heat }
+        if lowered == "cool" || lowered == coolMode.lowercased() { return .cool }
+        return lowered == "auto" ? .auto : nil
+    }
+
+    /// `thermostatOperatingState` as an Action; nil for one that says nothing of heating or cooling.
+    static func climateAction(_ state: String) -> ClimateAction? {
+        switch state.lowercased() {
+        case "heating": .heating
+        case "cooling": .cooling
+        case "idle", "pending heat", "pending cool": .idle
+        default: nil
         }
     }
 
+    /// The thermostat's states and setpoints are the shared `ClimateController`'s (docs/adr/0013-climate-is-mapped-once.md):
+    /// this says what the device can do, sends a command in SmartThings' words and reports what the device says.
     mutating func thermostat(_ component: String, variant: ThermostatVariant, caps: Swift.Set<String>) {
         let hasMode = caps.contains("thermostatMode")
         let hasOperatingState = caps.contains("thermostatOperatingState")
         let hasSwitch = variant == .single && caps.contains("switch")
         let unitNow = status.unit(component, "temperatureMeasurement", "temperature")
-        var valid: [Int]
-        if hasMode {
-            if let supported = status.strings(component, "thermostatMode", "supportedThermostatModes"), !supported.isEmpty {
-                var set = Swift.Set(supported.map(Self.heatingCoolingState))
-                if let current = status.string(component, "thermostatMode", "thermostatMode") { set.insert(Self.heatingCoolingState(mode: current)) }
-                if variant == .heating { set = set.intersection([0, 1]) }
-                valid = set.sorted()
-            } else {
-                valid = variant == .heating ? [0, 1] : [0, 1, 2, 3]
-            }
-        } else {
-            valid = [1]
-        }
-        if valid.isEmpty { valid = [1] }
-        let allowed = valid
-        let (capability, rangeAttribute) = variant == .single
-            ? ("temperatureSetpoint", "temperatureSetpointRange")
-            : ("thermostatHeatingSetpoint", "heatingSetpointRange")
-        let range = setpointRange(component, capability, rangeAttribute, unit: unitNow, fallback: (5, 35, 0.5))
-        var optional: [CharacteristicType] = [
-            .currentTemperature.with(minValue: -50, maxValue: 100, minStep: 0.1),
-            .targetTemperature.with(minValue: range.0, maxValue: range.1, minStep: range.2),
-            .targetHeatingCoolingState.with(validValues: valid),
-        ]
+        let heatMode = options.heatMode, coolMode = options.coolMode
+        let supported = hasMode ? status.strings(component, "thermostatMode", "supportedThermostatModes") ?? [] : []
+        let listed = supported + (hasMode ? status.string(component, "thermostatMode", "thermostatMode").map { [$0] } ?? [] : [])
+        var found: Swift.Set<ClimateMode> = !hasMode ? [.heat]
+            : supported.isEmpty ? [.heat, .cool, .auto] : Swift.Set(listed.compactMap { Self.climateMode($0, heatMode: heatMode, coolMode: coolMode) })
+        if variant == .heating { found.formIntersection([.heat]) }
+        let modes: Swift.Set<ClimateMode> = found.isEmpty ? [.heat] : found
+        let canTurnOff = hasSwitch || (hasMode && (supported.isEmpty || listed.contains { $0.lowercased() == "off" }))
+        let heating = variant == .single
+            ? setpointRange(component, "temperatureSetpoint", "temperatureSetpointRange", unit: unitNow, fallback: (5, 35, 0.5))
+            : setpointRange(component, "thermostatHeatingSetpoint", "heatingSetpointRange", unit: unitNow, fallback: (5, 35, 0.5))
+        let cooling = variant == .both
+            ? setpointRange(component, "thermostatCoolingSetpoint", "coolingSetpointRange", unit: unitNow, fallback: (5, 35, 0.5)) : heating
+        let capabilities = ClimateCapabilities(modes: modes, setpoints: variant == .both ? .separate(autoSetpoint: false) : .single,
+                                               heatingRange: heating.0...heating.1, coolingRange: cooling.0...cooling.1,
+                                               step: min(heating.2, cooling.2), canTurnOff: canTurnOff)
+        var optional: [CharacteristicType] = [.currentTemperature.with(minValue: -50, maxValue: 100, minStep: 0.1)]
         if variant == .both {
-            let cooling = setpointRange(component, "thermostatCoolingSetpoint", "coolingSetpointRange", unit: unitNow, fallback: (5, 35, 0.5))
-            optional += [.heatingThresholdTemperature.with(minValue: range.0, maxValue: range.1, minStep: range.2),
+            // Both thresholds whatever the modes, as before: the heat-to and the cool-to.
+            optional += [.heatingThresholdTemperature.with(minValue: heating.0, maxValue: heating.1, minStep: heating.2),
                          .coolingThresholdTemperature.with(minValue: cooling.0, maxValue: cooling.1, minStep: cooling.2)]
         }
-        let service = makeService(.thermostat, component, "thermostat", optional: optional, kind: "thermostat", category: .thermostat)
         let writer = writer
         let box = box
-        let heatMode = options.heatMode, coolMode = options.coolMode
         @Sendable func unit(_ status: DeviceStatus) -> String? { status.unit(component, "temperatureMeasurement", "temperature") }
-        @Sendable func targetState(_ status: DeviceStatus) -> Int {
-            if hasSwitch, status.string(component, "switch", "switch") == "off" { return 0 }
-            guard hasMode else { return 1 }
-            return status.string(component, "thermostatMode", "thermostatMode").map(Self.heatingCoolingState) ?? 1
-        }
-        service.characteristic(.targetHeatingCoolingState).onWrite { value in
-            let target = value.intValue ?? 0
-            let mode = switch target { case 0: "off"; case 2: coolMode; case 3: "auto"; default: heatMode }
-            if hasSwitch {
-                if target == 0 {
-                    try await writer.send([DeviceCommand(component, "switch", "off")], set: [(component, "switch", "switch", "off")])
-                } else {
-                    try await writer.send([DeviceCommand(component, "switch", "on"), DeviceCommand(component, "thermostatMode", "setThermostatMode", [.string(mode)])],
-                                          set: [(component, "switch", "switch", "on"), (component, "thermostatMode", "thermostatMode", .string(mode))])
-                }
-            } else if hasMode {
-                try await writer.send([DeviceCommand(component, "thermostatMode", "setThermostatMode", [.string(mode)])],
-                                      set: [(component, "thermostatMode", "thermostatMode", .string(mode))])
+        let climate = makeClimate(component, "thermostat", capabilities: capabilities, optional: optional, kind: "thermostat", category: .thermostat) { command in
+            var commands: [DeviceCommand] = []
+            var values: Writer.Set = []
+            func add(_ capability: String, _ name: String, _ attribute: String, _ value: JSONValue?) {
+                commands.append(DeviceCommand(component, capability, name, value.map { [$0] } ?? []))
+                values.append((component, capability, attribute, value ?? .string(name)))
             }
-        }
-        @Sendable func setpoint(_ capability: String, _ command: String, _ attribute: String, _ celsius: Double) async throws {
-            let value = Convert.deviceTemperature(celsius, unit: box.status.unit(component, capability, attribute) ?? unit(box.status))
-            try await writer.send([DeviceCommand(component, capability, command, [value])], set: [(component, capability, attribute, value)])
-        }
-        onSlide(service, .targetTemperature) { value in
-            let celsius = value.doubleValue ?? 20
+            func setpoint(_ capability: String, _ name: String, _ attribute: String, _ celsius: Double) {
+                let status = box.status
+                add(capability, name, attribute, Convert.deviceTemperature(celsius, unit: status.unit(component, capability, attribute) ?? unit(status)))
+            }
+            // The power first, then the mode, then the setpoints, in one request.
+            if command.power == false {
+                if hasSwitch { add("switch", "off", "switch", nil) } else if hasMode { add("thermostatMode", "setThermostatMode", "thermostatMode", "off") }
+            } else {
+                if command.power == true, hasSwitch { add("switch", "on", "switch", nil) }
+                if hasMode, let mode = command.mode ?? (command.power == true && !hasSwitch ? .heat : nil) {
+                    add("thermostatMode", "setThermostatMode", "thermostatMode", .string(mode == .heat ? heatMode : mode == .cool ? coolMode : "auto"))
+                }
+            }
             switch variant {
-            case .single: try await setpoint("temperatureSetpoint", "setTemperatureSetpoint", "temperatureSetpoint", celsius)
-            case .heating: try await setpoint("thermostatHeatingSetpoint", "setHeatingSetpoint", "heatingSetpoint", celsius)
+            case .single: if let target = command.target { setpoint("temperatureSetpoint", "setTemperatureSetpoint", "temperatureSetpoint", target) }
+            case .heating: if let target = command.target { setpoint("thermostatHeatingSetpoint", "setHeatingSetpoint", "heatingSetpoint", target) }
             case .both:
-                // The setpoint of the mode HomeKit has now, not one cached before a mode change (section 7.3.4).
-                let cooling = service.characteristic(.targetHeatingCoolingState).value.intValue == 2
-                if cooling {
-                    try await setpoint("thermostatCoolingSetpoint", "setCoolingSetpoint", "coolingSetpoint", celsius)
-                } else {
-                    try await setpoint("thermostatHeatingSetpoint", "setHeatingSetpoint", "heatingSetpoint", celsius)
-                }
+                if let low = command.heating { setpoint("thermostatHeatingSetpoint", "setHeatingSetpoint", "heatingSetpoint", low) }
+                if let high = command.cooling { setpoint("thermostatCoolingSetpoint", "setCoolingSetpoint", "coolingSetpoint", high) }
             }
+            guard !commands.isEmpty else { return }
+            try await writer.send(commands, set: values)
         }
-        if variant == .both {
-            onSlide(service, .heatingThresholdTemperature) { value in
-                try await setpoint("thermostatHeatingSetpoint", "setHeatingSetpoint", "heatingSetpoint", value.doubleValue ?? 20)
-            }
-            onSlide(service, .coolingThresholdTemperature) { value in
-                try await setpoint("thermostatCoolingSetpoint", "setCoolingSetpoint", "coolingSetpoint", value.doubleValue ?? 24)
-            }
-        }
+        let service = climate.service
         service.characteristic(.temperatureDisplayUnits).onWrite { _ in }
         update { status in
             let temperatureUnit = unit(status)
-            func celsius(_ capability: String, _ attribute: String) -> HAPValue? {
-                status.number(component, capability, attribute).map { .double(Convert.celsius($0, unit: status.unit(component, capability, attribute) ?? temperatureUnit)) }
+            func celsius(_ capability: String, _ attribute: String) -> Double? {
+                status.number(component, capability, attribute).map { Convert.celsius($0, unit: status.unit(component, capability, attribute) ?? temperatureUnit) }
             }
-            service.set(.currentTemperature, celsius("temperatureMeasurement", "temperature"))
-            let target = targetState(status)
-            if allowed.contains(target) { service.set(.targetHeatingCoolingState, .int(target)) }
+            let modeName = hasMode ? status.string(component, "thermostatMode", "thermostatMode") : nil
+            let switchedOff = hasSwitch && status.string(component, "switch", "switch") == "off"
+            var mode = hasMode ? modeName.flatMap { Self.climateMode($0, heatMode: heatMode, coolMode: coolMode) } : .heat
+            if let known = mode, !modes.contains(known) { mode = nil }
+            let action = hasOperatingState ? status.string(component, "thermostatOperatingState", "thermostatOperatingState").flatMap(Self.climateAction) : nil
+            var report = ClimateReport(power: !switchedOff && modeName?.lowercased() != "off", mode: mode, action: action,
+                                       current: celsius("temperatureMeasurement", "temperature"))
             switch variant {
-            case .single: service.set(.targetTemperature, celsius("temperatureSetpoint", "temperatureSetpoint"))
-            case .heating: service.set(.targetTemperature, celsius("thermostatHeatingSetpoint", "heatingSetpoint"))
+            case .single: report.target = celsius("temperatureSetpoint", "temperatureSetpoint")
+            case .heating: report.target = celsius("thermostatHeatingSetpoint", "heatingSetpoint")
             case .both:
-                service.set(.targetTemperature, target == 2 ? celsius("thermostatCoolingSetpoint", "coolingSetpoint") : celsius("thermostatHeatingSetpoint", "heatingSetpoint"))
-                service.set(.heatingThresholdTemperature, celsius("thermostatHeatingSetpoint", "heatingSetpoint"))
-                service.set(.coolingThresholdTemperature, celsius("thermostatCoolingSetpoint", "coolingSetpoint"))
+                report.heating = celsius("thermostatHeatingSetpoint", "heatingSetpoint")
+                report.cooling = celsius("thermostatCoolingSetpoint", "coolingSetpoint")
             }
-            var current: Int?
-            if hasOperatingState, let state = status.string(component, "thermostatOperatingState", "thermostatOperatingState") {
-                switch state {
-                case "heating": current = 1
-                case "cooling": current = 2
-                case "idle", "pending heat", "pending cool": current = 0
-                default: current = nil
-                }
-            }
-            if current == nil {
-                if target == 0 { current = 0 } else if let mode = status.string(component, "thermostatMode", "thermostatMode") {
-                    current = mode == "cool" ? 2 : (mode == "off" || mode == "idle") ? 0 : 1
-                } else {
-                    current = 1
-                }
-            }
-            if hasSwitch, status.string(component, "switch", "switch") == "off" { current = 0 }
-            service.set(.currentHeatingCoolingState, current.map { .int($0) })
+            climate.update(report)
             service.set(.temperatureDisplayUnits, .int(temperatureUnit?.uppercased() == "F" ? 1 : 0))
         }
     }

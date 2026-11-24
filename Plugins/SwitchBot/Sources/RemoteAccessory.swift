@@ -4,7 +4,8 @@ import HomeswiftPlugin
 import Logging
 
 /// An IR remote behind a Hub: no status, so HomeKit shows what was last written. Commands go at once (the air
-/// conditioner's settings wait 1.5 s to go as one `setAll`).
+/// conditioner's fan speed waits 1.5 s for the slider to stop). The air conditioner's Heater Cooler is a
+/// `ClimateController`.
 final class RemoteAccessory: DeviceAccessory, @unchecked Sendable {
     let family: RemoteFamily
     let primary: Service
@@ -13,7 +14,10 @@ final class RemoteAccessory: DeviceAccessory, @unchecked Sendable {
     let others: ControlKind?
     /// The linked meter's last temperature (`meterType` and `meterId`), for an air conditioner.
     let meterTemperature: @Sendable () -> Double?
-    private var climate = (active: false, mode: 2, threshold: 24.0, speed: 4)
+    /// The air conditioner's state: the remote has none, so what was last sent.
+    private var climate = (active: false, mode: ClimateMode.cool, threshold: 24.0, speed: 4)
+    /// The air conditioner's Heater Cooler.
+    let climateController: ClimateController?
     private let settle: Duration
 
     override var category: AccessoryCategory {
@@ -41,7 +45,8 @@ final class RemoteAccessory: DeviceAccessory, @unchecked Sendable {
         self.settle = settle
         self.meterTemperature = meterTemperature
         let options = info.options, name = info.name
-        var speaker: Service?, offButton: Service?, others: ControlKind?
+        var speaker: Service?, offButton: Service?, others: ControlKind?, climateController: ClimateController?
+        let owner = WeakOwner()
         switch family {
         case .television:
             let tvSpeaker = Service(.televisionSpeaker, name: "\(name) Speaker", optional: [.active, .volumeControlType, .volumeSelector])
@@ -64,16 +69,9 @@ final class RemoteAccessory: DeviceAccessory, @unchecked Sendable {
             ])
         case .light: primary = Service(.lightbulb, name: name, isPrimary: true)
         case .airConditioner:
-            let modes = options.flag("hide_automode") ? [1, 2] : [0, 1, 2]
-            primary = Service(.heaterCooler, name: name, optional: [], extra: [
-                Characteristic(CharacteristicType.targetHeaterCoolerState.with(validValues: modes), value: .int(2)),
-                Characteristic(CharacteristicType.currentTemperature, value: .double(24)),
-                Characteristic(CharacteristicType.heatingThresholdTemperature.with(
-                    minValue: options.number("set_min_heat") ?? 0, maxValue: options.number("set_max_heat") ?? 35, minStep: 0.5), value: .double(24)),
-                Characteristic(CharacteristicType.coolingThresholdTemperature.with(
-                    minValue: options.number("set_min_cool") ?? 0, maxValue: options.number("set_max_cool") ?? 35, minStep: 0.5), value: .double(24)),
-                Characteristic(CharacteristicType.rotationSpeed.with(minValue: 1, maxValue: 4, minStep: 1), value: .int(4)),
-            ], isPrimary: true)
+            let controller = Self.airConditionerController(name: name, options: options, owner: owner)
+            climateController = controller
+            primary = controller.service
         case .airPurifier: primary = Service(.airPurifier, name: name, isPrimary: true)
         case .waterHeater: primary = Service(.valve, name: name, isPrimary: true)
         case .vacuumCleaner, .camera: primary = Service(.switch, name: name, isPrimary: true)
@@ -85,7 +83,9 @@ final class RemoteAccessory: DeviceAccessory, @unchecked Sendable {
         self.speaker = speaker
         self.offButton = offButton
         self.others = others
+        self.climateController = climateController
         super.init(info: info, link: link, debounce: .zero, logger: logger)
+        owner.accessory = self
         adopt([primary, speaker, offButton])
         wire()
     }
@@ -179,48 +179,92 @@ final class RemoteAccessory: DeviceAccessory, @unchecked Sendable {
 
     // MARK: Air conditioner
 
+    /// The accessory, for the climate controller made before it.
+    final class WeakOwner: @unchecked Sendable {
+        weak var accessory: RemoteAccessory?
+    }
+
+    /// The air conditioner's Heater Cooler: auto, heat and cool (no auto with `hide_automode`), one target in the
+    /// `set_min/max_heat/cool` ranges, sent with `setAll`.
+    static func airConditionerController(name: String, options: DeviceOptions, owner: WeakOwner) -> ClimateController {
+        let modes: Set<ClimateMode> = options.flag("hide_automode") ? [.heat, .cool] : [.auto, .heat, .cool]
+        let heating = (options.number("set_min_heat") ?? 0)...max(options.number("set_max_heat") ?? 35, options.number("set_min_heat") ?? 0)
+        let cooling = (options.number("set_min_cool") ?? 0)...max(options.number("set_max_cool") ?? 35, options.number("set_min_cool") ?? 0)
+        let capabilities = ClimateCapabilities(modes: modes, setpoints: .single, heatingRange: heating, coolingRange: cooling, step: 0.5)
+        return ClimateController(.heaterCooler, name: name, isPrimary: true, capabilities: capabilities,
+                                 optional: [CharacteristicType.rotationSpeed.with(minValue: 1, maxValue: 4, minStep: 1)]) { [owner] command in
+            try await owner.accessory?.applyClimate(command)
+        }
+    }
+
     private func wireAirConditioner() {
-        primary.characteristic(.currentHeaterCoolerState).value = .int(0)
+        primary.characteristic(.currentTemperature).value = .double(24)
         primary.characteristic(.currentTemperature).onRead { [weak self] in
             .double(self?.meterTemperature() ?? self?.primary.characteristic(.currentTemperature).value.doubleValue ?? 24)
         }
-        primary.characteristic(.active).onWrite { [weak self] value in
-            guard let self else { return }
-            let on = value.intValue == 1
-            lock.withLock { climate.active = on }
-            if on, options.flag("disablePushOn") {
-                try await setAll()
-            } else {
-                try await power(on)
-            }
-            showClimateState()
-        }
-        primary.characteristic(.targetHeaterCoolerState).onWrite { [weak self] value in
-            try await self?.settleThenSetAll { self?.climate.mode = value.intValue ?? 2 }
-        }
-        for type in [CharacteristicType.heatingThresholdTemperature, .coolingThresholdTemperature] {
-            primary.characteristic(type).onWrite { [weak self] value in
-                try await self?.settleThenSetAll { self?.climate.threshold = value.doubleValue ?? 24 }
-            }
-        }
+        primary.characteristic(.rotationSpeed).value = .int(4)
         primary.characteristic(.rotationSpeed).onWrite { [weak self] value in
             try await self?.settleThenSetAll { self?.climate.speed = min(max(value.intValue ?? 4, 1), 4) }
         }
+        showClimateState()
+    }
+
+    /// The cached values are the air conditioner's state after a restart (the remote has none): writes equal to the
+    /// defaults (Off while it runs) are sent again rather than dropped.
+    override func restored() {
+        guard family == .airConditioner else { return }
+        let service = primary
+        lock.withLock {
+            climate.active = service.characteristic(.active).value.intValue == 1
+            let state = service.characteristic(.targetHeaterCoolerState).value.intValue
+            climate.mode = state == 1 ? .heat : state == 2 ? .cool : state == 0 ? .auto : climate.mode
+            let low = service[.heatingThresholdTemperature]?.value.doubleValue, high = service[.coolingThresholdTemperature]?.value.doubleValue
+            let threshold = switch climate.mode {
+            case .heat: low
+            case .cool: high
+            case .auto: low.flatMap { low in high.map { (low + $0) / 2 } }
+            }
+            if let threshold { climate.threshold = threshold }
+            if let speed = service[.rotationSpeed]?.value.intValue { climate.speed = min(max(speed, 1), 4) }
+        }
+        showClimateState()
+    }
+
+    /// What HomeKit asked, kept here (the remote has no status): the power first, then the mode and target in one `setAll`.
+    func applyClimate(_ command: ClimateCommand) async throws {
+        var sentAll = false
+        if let on = command.power {
+            lock.withLock { climate.active = on }
+            if on, options.flag("disablePushOn") {
+                try await setAll()
+                sentAll = true
+            } else {
+                try await power(on)
+            }
+        }
+        if command.mode != nil || command.target != nil {
+            lock.withLock {
+                if let mode = command.mode { climate.mode = mode }
+                if let target = command.target { climate.threshold = target }
+            }
+            if !sentAll { try await setAll() }
+        }
+        showClimateState()
     }
 
     private let climateGuard = LatestCallGuard(delay: .zero)
 
+    /// The fan speed, after a moment: the Home app's slider sends many.
     private func settleThenSetAll(_ record: () -> Void) async throws {
         lock.withLock(record)
         let isLatest = climateGuard.claim()
         try await Task.sleep(for: settle)
         guard isLatest() else { return }
         try await setAll()
-        showClimateState()
     }
 
     /// `setAll` with `<°C>,<mode>,<fan>,<on|off>`: auto is mode 1 at 25 °C, cool 2, heat 5; HomeKit's speed 4 is the
-    /// fan's auto (1), 1 to 3 are low, medium and high (2 to 4).
+    /// fan's auto (1), 1 to 3 are low, medium and high (2 to 4). `mode` is HomeKit's: 0 auto, 1 heat, 2 cool.
     static func setAllParameter(active: Bool, mode: Int, threshold: Double, speed: Int) -> String {
         let (code, temperature): (Int, Double) = switch mode {
         case 0: (1, 25)
@@ -235,18 +279,16 @@ final class RemoteAccessory: DeviceAccessory, @unchecked Sendable {
     private func setAll() async throws {
         guard !options.flag("disablePushDetail") else { return }
         let climate = lock.withLock { self.climate }
+        let mode = climate.mode == .auto ? 0 : climate.mode == .heat ? 1 : 2
         try await send([Command(command: "setAll", parameter: Self.setAllParameter(
-            active: climate.active, mode: climate.mode, threshold: climate.threshold, speed: climate.speed))])
+            active: climate.active, mode: mode, threshold: climate.threshold, speed: climate.speed))])
     }
 
+    /// The state kept here, with the meter's temperature, for the controller.
     private func showClimateState() {
+        guard let climateController else { return }
         let climate = lock.withLock { self.climate }
         let current = meterTemperature() ?? primary.characteristic(.currentTemperature).value.doubleValue ?? 24
-        let state: Int
-        if !climate.active { state = 0 }
-        else if climate.threshold < current && climate.mode != 1 { state = 3 }
-        else if climate.threshold > current && climate.mode != 2 { state = 2 }
-        else { state = 1 }
-        primary.characteristic(.currentHeaterCoolerState).value = .int(state)
+        climateController.update(ClimateReport(power: climate.active, mode: climate.mode, current: current, target: climate.threshold))
     }
 }

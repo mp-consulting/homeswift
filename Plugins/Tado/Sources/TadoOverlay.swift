@@ -19,6 +19,10 @@ struct ZoneState: Sendable, Equatable {
     var current: Double?
     var humidity: Double?
     var windowOpen: Bool
+    /// How hard a heating zone heats, in %, when tado says (`activityDataPoints.heatingPower`).
+    var heatingPower: Double?
+    /// Whether an air conditioner's compressor runs, when tado says (`activityDataPoints.acPower`).
+    var acPower: Bool?
 
     init?(_ json: JSONValue) {
         guard let setting = json["setting"], setting.objectValue != nil else { return nil }
@@ -33,6 +37,30 @@ struct ZoneState: Sendable, Equatable {
         current = json["sensorDataPoints"]?["insideTemperature"]?["celsius"]?.doubleValue?.finite
         humidity = json["sensorDataPoints"]?["humidity"]?["percentage"]?.doubleValue?.finite
         windowOpen = (json["openWindow"].map { !$0.isNull } ?? false) || json["openWindowDetected"]?.boolValue == true
+        heatingPower = json["activityDataPoints"]?["heatingPower"]?["percentage"]?.doubleValue?.finite
+        acPower = json["activityDataPoints"]?["acPower"]?["value"]?.stringValue.map { $0 == "ON" }
+    }
+
+    /// The zone's Climate Mode: a heating zone on its schedule is in auto when its service offers it; an air
+    /// conditioner's fan, dry and auto modes are Other Modes, and an air conditioner that is off or names no mode says
+    /// none (the mode kept stays shown).
+    func climateMode(schedule: Bool) -> ClimateMode? {
+        guard settingType == ZoneType.airConditioning.rawValue else { return schedule && onSchedule ? .auto : .heat }
+        guard power, let acMode else { return nil }
+        switch acMode {
+        case "HEAT": return .heat
+        case "COOL": return .cool
+        default: return nil
+        }
+    }
+
+    /// What the zone does, when tado says: heating while it gives power, an air conditioner heating or cooling while its
+    /// compressor runs in that mode.
+    var action: ClimateAction? {
+        if let heatingPower { return power && heatingPower > 0 ? .heating : .idle }
+        guard let acPower else { return nil }
+        guard power, acPower else { return .idle }
+        return acMode == "HEAT" ? .heating : acMode == "COOL" ? .cooling : .idle
     }
 
     /// `zoneStates`' answer by zone id.

@@ -76,6 +76,9 @@ swift test --scratch-path ~/Library/Caches/homeswift-build --filter <Name>Tests
   for such a light). Keep it with the light's services (the service holds it weakly), and pass the device's reports
   of its colour to `disableIfChangedElsewhere(mireds:)` (nil for a colour): not the echo of the bridge's own write,
   nor what a fade of its own may still report (`Plugins/Dirigera`, `Plugins/PhilipsHue`).
+- **Thermostats and air conditioners:** a `ClimateController` builds the Thermostat or Heater Cooler and owns its
+  states, thresholds and Active, even where the Homebridge plugin mapped them its own way: the plugin gives the
+  device's `ClimateCapabilities`, sends `ClimateCommand`s and reports `ClimateReport`s (docs/adr/0013, `Plugins/LGThinQ`).
 - **Accessories:** the same services and props as the Homebridge plugin. Ids are `"\(platform):\(stable id)"`
   with the same stable id it used (serial, MAC, cloud device id) and never a name or an address.
 - **Crypto and byte layouts:** port them exactly from the source and test them against values the source

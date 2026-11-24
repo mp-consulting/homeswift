@@ -63,6 +63,9 @@ class DeviceAccessory: @unchecked Sendable {
     /// "Offline as Off" (`offline`): what a device without a usable transport shows.
     func showOffline() {}
 
+    /// Its services took the values cached for them: a device without a status takes them as its state.
+    func restored() {}
+
     /// Whether the device moves now and its position should be polled every `updateRate` seconds.
     var isMoving: Bool { false }
 

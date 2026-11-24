@@ -124,6 +124,31 @@ An accessory whose state the bridge derives from other accessories, such as a se
 average of several. It has no device behind it.
 _Avoid_: Virtual sensor, template, derived accessory, Dummy
 
+## Climate
+
+**Climate Mode**:
+What a thermostat or air conditioner is set to do with the room's temperature: heat, cool or auto (heat or cool as
+needed). Off is its power, not a mode.
+_Avoid_: HVAC mode, operation mode, opMode, system mode
+
+**Other Mode**:
+A mode a climate device has that Apple Home has no name for, such as dry, fan only or eco.
+_Avoid_: Extra mode, special mode
+
+**Action**:
+What a climate device is doing now: heating, cooling or idle.
+_Avoid_: Running state, operating state, hvac_action, current mode
+
+**Setpoint Kind**:
+How a climate device keeps its temperatures: Single (one target for every mode), Range (one target in heat or cool, a
+low and a high in auto) or Separate (a heat-to and a cool-to temperature kept apart, sometimes with an auto setpoint at
+their middle).
+_Avoid_: Setpoint model, two-point
+
+**Auto Band**:
+The range Apple Home shows for a Single setpoint device in auto, around its one target (2 °C wide by default).
+_Avoid_: Dead band, hysteresis
+
 ## Home
 
 **Home**:

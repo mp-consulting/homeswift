@@ -293,6 +293,16 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   colour or a white set elsewhere turns it off too. For lights that run transitions themselves, make one with
   `mode: .manual` and `context.configureController(controller, accessoryID:)`: `onUpdate` gets the schedule.
 
+- **Thermostats and air conditioners.** A climate device's Thermostat or Heater Cooler is built by a
+  `ClimateController` (docs/adr/0013-climate-is-mapped-once.md): give it the device's `ClimateCapabilities` (its Climate
+  Modes; its Setpoint Kind: `.single`, `.range` or `.separate(autoSetpoint:)`; its ranges in °C; `whileOff: .holds` when
+  it refuses setpoints while off) and a closure that sends a `ClimateCommand` (power first, then the mode, then the
+  setpoints), add `controller.service` to the accessory, and call `update(_:)` with a `ClimateReport` whenever the device
+  reports (`mode: nil` for an Other Mode such as dry, `action` when it says whether it heats or cools). The controller
+  gathers one change's writes into one command, puts the service back when it throws, shows a Single setpoint's Auto
+  Band in auto and holds setpoints written while off; the plugin binds only its own characteristics (fan speed, swing).
+  Keep the service type and subtype an accessory already has: another changes its iids.
+
 ### What a service stands for
 
 HAP has no service type for some devices: a robot vacuum or a pool robot is a Switch or a Fan v2 in HomeKit. Set

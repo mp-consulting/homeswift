@@ -158,6 +158,9 @@ class Mapper: @unchecked Sendable {
     /// New or changed values of the device's (or an attached sensor's) states.
     func apply(_ states: [String: JSONValue], from deviceURL: String) {}
 
+    /// The accessory took the values cached for it, before any state arrives.
+    func restored() {}
+
     /// Recomputes what several states decide together, after a batch of changes.
     func computeStates() {}
 

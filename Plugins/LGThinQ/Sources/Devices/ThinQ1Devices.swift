@@ -19,15 +19,18 @@ final class AirConditionerV1: AirConditioner {
         return (min, max)
     }
 
-    override func heaterCoolerCharacteristics() -> [CharacteristicType] {
-        let current = range("TempCur", Self.defaultCurrentRange)
+    /// The model's `TempCfg` range for every mode.
+    override func climateCapabilities() -> ClimateCapabilities {
+        var capabilities = super.climateCapabilities()
         let target = range("TempCfg", Self.defaultTargetRange)
-        var types = super.heaterCoolerCharacteristics().map { type -> CharacteristicType in
-            guard type.uuid == CharacteristicType.coolingThresholdTemperature.uuid || type.uuid == CharacteristicType.heatingThresholdTemperature.uuid else { return type }
-            return type.props(min: target.min, max: target.max)
-        }
-        types.append(CharacteristicType.currentTemperature.props(min: current.min, max: current.max))
-        return types
+        capabilities.heatingRange = target.min...target.max
+        capabilities.coolingRange = target.min...target.max
+        return capabilities
+    }
+
+    override func climateCharacteristics() -> [CharacteristicType] {
+        let current = range("TempCur", Self.defaultCurrentRange)
+        return super.climateCharacteristics() + [CharacteristicType.currentTemperature.props(min: current.min, max: current.max)]
     }
 
     override func startMonitor() {
@@ -50,17 +53,15 @@ final class AirConditionerV1: AirConditioner {
         }
     }
 
-    override func setActive(_ value: HAPValue) async throws {
-        let isOn = Normalize.number(value).map { $0 == 1 } ?? Normalize.boolean(value)
+    override func sendPower(_ isOn: Bool) async throws {
         let operation = device.deviceModel.enumValue("Operation", isOn ? ThinQ1.acOperationRightOn : ThinQ1.acOperationOff)
         try await thinq.thinq1DeviceControl(device, key: "Operation", value: operation.map { .string($0) } ?? .null)
+        setSnapshotValues(["airState.operation": .number(isOn ? 1 : 0)])
     }
 
-    override func setTargetTemperature(_ value: HAPValue) async throws {
-        guard status.isPowerOn, let temperature = Normalize.number(value) else { return }
-        try await thinq.thinq1DeviceControl(device, key: "TempCfg", value: .string(JS.format(temperature)))
-        setSnapshotValues(["airState.tempState.target": .number(temperature)])
-        updateAccessoryCharacteristic(device)
+    override func sendTarget(_ celsius: Double) async throws {
+        try await thinq.thinq1DeviceControl(device, key: "TempCfg", value: .string(JS.format(celsius)))
+        setSnapshotValues(["airState.tempState.target": .number(celsius)])
     }
 
     override func setFanSpeed(_ value: HAPValue) async throws {

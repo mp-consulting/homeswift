@@ -382,6 +382,22 @@ struct Zigbee2MQTTTests {
         }
     }
 
+    /// Only a mode system_mode lists is published: one that lists none HomeKit has offers Off alone.
+    @Test func aThermostatOffersOnlyTheModesItLists() async throws {
+        let offOnly = Fixtures.device("0x000000000000000a", "towel", model: "T1", [#"""
+            {"type":"climate","features":[\#(Fixtures.numeric("local_temperature", access: 5)),
+             {"type":"numeric","name":"current_heating_setpoint","property":"current_heating_setpoint","access":7,"value_min":5,"value_max":30,"value_step":0.5},
+             \#(Fixtures.enumeration("system_mode", ["off", "sleep"], access: 7)),\#(Fixtures.enumeration("running_state", ["idle", "heat"], access: 5))]}
+            """#])
+        let host = try await environment.started(devices: [offOnly])
+        defer { Task { await host.stop() } }
+        #expect(await eventually { host.accessory("0x000000000000000a") != nil })
+        let thermostat = try #require(host.accessory("0x000000000000000a")?.service(.thermostat))
+        #expect(thermostat[.targetHeatingCoolingState]?.type.validValues == [0])
+        await #expect(throws: HAPStatusError(.invalidValueInRequest)) { try await thermostat.characteristic(.targetHeatingCoolingState).write(.int(1)) }
+        #expect(environment.published("0x000000000000000a/set").isEmpty)
+    }
+
     @Test func lockThermostatAndSwitches() async throws {
         let host = try await environment.started(devices: [Fixtures.lock, Fixtures.thermostat, Fixtures.plug])
         defer { Task { await host.stop() } }
@@ -405,6 +421,18 @@ struct Zigbee2MQTTTests {
         #expect(await eventually { environment.published("0x0000000000000007/set").last == #"{"current_heating_setpoint":19}"# })
         try await thermostat.characteristic(.targetHeatingCoolingState).write(.int(0))
         #expect(await eventually { environment.published("0x0000000000000007/set").last == #"{"system_mode":"off"}"# })
+        // Heat turns it on in heat.
+        environment.send("radiator", #"{"system_mode":"off","current_heating_setpoint":19}"#)
+        #expect(await eventually { thermostat.characteristic(.targetHeatingCoolingState).value == .int(0) })
+        try await thermostat.characteristic(.targetHeatingCoolingState).write(.int(1))
+        #expect(await eventually { environment.published("0x0000000000000007/set").last == #"{"system_mode":"heat"}"# })
+        // A mode HomeKit has no name for keeps the last one shown: Auto here, not the Heat shown before any.
+        environment.send("radiator", #"{"system_mode":"auto"}"#)
+        #expect(await eventually { thermostat.characteristic(.targetHeatingCoolingState).value == .int(3) })
+        environment.send("radiator", #"{"system_mode":"sleep","local_temperature":20}"#)
+        #expect(await eventually { thermostat.characteristic(.currentTemperature).value == .double(20) })
+        #expect(thermostat.characteristic(.targetHeatingCoolingState).value == .int(3))
+        #expect(thermostat.characteristic(.targetTemperature).value == .double(19))
 
         let plug = try #require(host.accessory("0x0000000000000008"))
         let switches = plug.services.filter { $0.type.uuid == ServiceType.switch.uuid }

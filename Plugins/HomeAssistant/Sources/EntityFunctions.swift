@@ -485,15 +485,16 @@ final class LockFunction: EntityFunction, @unchecked Sendable {
 
 final class ClimateFunction: EntityFunction, @unchecked Sendable {
     static let targetTemperatureFeature = 1, rangeFeature = 2, targetHumidityFeature = 4
-    static let gap = 5.0
 
     let fahrenheit: Bool
     let hasTarget: Bool
     let hasRange: Bool
     let hasTargetHumidity: Bool
-    /// HomeKit's Target Heating Cooling State → HA's hvac mode.
-    let modes: [Int: String]
+    /// A Climate Mode → HA's hvac mode.
+    let modes: [ClimateMode: String]
+    let canTurnOff: Bool
     let range: ClosedRange<Double>
+    let climate: ClimateController
     private let link: EntityLink
     override var category: AccessoryCategory { .thermostat }
 
@@ -502,18 +503,26 @@ final class ClimateFunction: EntityFunction, @unchecked Sendable {
             + "\(state.features)|\(state.attributes["current_humidity"] != nil)"
     }
 
-    /// The reverse mode map (7.6): `auto` left out when `heat_cool` is there, `dry` and `fan_only` when `cool` is.
-    static func modes(_ hvacModes: [String]) -> [Int: String] {
-        let list = hvacModes.isEmpty ? ["heat", "cool", "heat_cool", "off"] : hvacModes
-        let toHomeKit = ["off": 0, "heat": 1, "cool": 2, "auto": 3, "heat_cool": 3, "dry": 2, "fan_only": 2]
-        var map: [Int: String] = [:]
-        for mode in list {
-            if mode == "auto", list.contains("heat_cool") { continue }
-            if mode == "dry" || mode == "fan_only", list.contains("cool") { continue }
-            guard let value = toHomeKit[mode], map[value] == nil else { continue }
-            map[value] = mode
-        }
+    /// The hvac modes an entity lists, its own when it lists none.
+    static func hvacModes(_ state: EntityState) -> [String] {
+        let list = state.strings("hvac_modes")
+        return list.isEmpty ? ["heat", "cool", "heat_cool", "off"] : list
+    }
+
+    /// The Climate Modes and the hvac modes they send (7.6): auto is `heat_cool`, else `auto`. `dry` and `fan_only` are
+    /// Other Modes; an entity with nothing else has its first one as its only mode, auto.
+    static func modes(_ hvacModes: [String]) -> [ClimateMode: String] {
+        var map: [ClimateMode: String] = [:]
+        if hvacModes.contains("heat") { map[.heat] = "heat" }
+        if hvacModes.contains("cool") { map[.cool] = "cool" }
+        if hvacModes.contains("heat_cool") { map[.auto] = "heat_cool" } else if hvacModes.contains("auto") { map[.auto] = "auto" }
+        if map.isEmpty, let only = hvacModes.first(where: { $0 != "off" }) { map[.auto] = only }
         return map
+    }
+
+    /// HA's hvac mode as a Climate Mode: nil for off and Other Modes (`dry`, `fan_only`, and `auto` beside `heat_cool`).
+    func climateMode(_ hvacMode: String) -> ClimateMode? {
+        modes.first { $0.value == hvacMode }?.key
     }
 
     init(state: EntityState, key: String, isPrimary: Bool, link: EntityLink) {
@@ -521,7 +530,10 @@ final class ClimateFunction: EntityFunction, @unchecked Sendable {
         hasTarget = state.supports(Self.targetTemperatureFeature)
         hasRange = state.supports(Self.rangeFeature)
         hasTargetHumidity = state.supports(Self.targetHumidityFeature)
-        modes = Self.modes(state.strings("hvac_modes"))
+        let hvacModes = Self.hvacModes(state)
+        let modes = Self.modes(hvacModes)
+        self.modes = modes
+        canTurnOff = hvacModes.contains("off")
         let fahrenheit = link.fahrenheit
         let low = state.double("min_temp").map { Temperature.celsius($0, fahrenheit: fahrenheit) } ?? 7
         let high = state.double("max_temp").map { Temperature.celsius($0, fahrenheit: fahrenheit) } ?? 35
@@ -530,61 +542,49 @@ final class ClimateFunction: EntityFunction, @unchecked Sendable {
         if maximum < minimum { maximum = minimum }
         range = minimum...maximum
         self.link = link
-        let validModes = modes.keys.sorted()
-        var optional: [CharacteristicType] = [
-            .targetHeatingCoolingState.with(validValues: validModes.isEmpty ? [0] : validModes),
-            .targetTemperature.with(minValue: minimum, maxValue: maximum),
-            .currentTemperature.with(minValue: -100, maxValue: 200),
-        ]
-        if hasRange {
-            optional += [.coolingThresholdTemperature.with(minValue: minimum, maxValue: maximum), .heatingThresholdTemperature.with(minValue: minimum, maxValue: maximum)]
-        }
+        // A target and a range: the target in heat or cool, the range in auto. A range alone: its low in heat, its high
+        // in cool, both in auto.
+        let setpoints: ClimateSetpoints = hasRange ? (hasTarget ? .range : .separate(autoSetpoint: false)) : .single
+        let capabilities = ClimateCapabilities(
+            modes: modes.isEmpty ? [.heat] : Set(modes.keys), setpoints: setpoints, range: range, step: 0.1, canTurnOff: canTurnOff)
+        var optional: [CharacteristicType] = [.currentTemperature.with(minValue: -100, maxValue: 200)]
         if state.attributes["current_humidity"] != nil || hasTargetHumidity { optional.append(.currentRelativeHumidity) }
         if hasTargetHumidity {
             let minHumidity = state.double("min_humidity") ?? 30, maxHumidity = state.double("max_humidity") ?? 99
             optional.append(.targetRelativeHumidity.with(minValue: min(minHumidity, maxHumidity), maxValue: max(minHumidity, maxHumidity)))
         }
-        let service = Service(.thermostat, name: state.friendlyName, subtype: key, optional: optional, isPrimary: isPrimary)
-        super.init(entityID: state.entityID, service: service)
+        let apply = ClimateApply()
+        climate = ClimateController(.thermostat, name: state.friendlyName, subtype: key, isPrimary: isPrimary, capabilities: capabilities,
+                                    optional: optional, window: link.batchWindow) { command in try await apply.run(command) }
+        super.init(entityID: state.entityID, service: climate.service)
+        apply.set { [weak self] command in try await self?.apply(command) }
         service.characteristic(.temperatureDisplayUnits).value = .int(fahrenheit ? 1 : 0)
-        service.characteristic(.targetTemperature).value = .double(min(maximum, max(minimum, 20)))
-        let batch = WriteBatch(window: link.batchWindow) { [weak self] entries in try await self?.commit(entries) }
-        service.characteristic(.targetHeatingCoolingState).onWrite { try await batch.set("mode", $0) }
-        service.characteristic(.targetTemperature).onWrite { try await batch.set("target", $0) }
-        service[.coolingThresholdTemperature]?.onWrite { try await batch.set("cool", $0) }
-        service[.heatingThresholdTemperature]?.onWrite { try await batch.set("heat", $0) }
-        service[.targetRelativeHumidity]?.onWrite { try await batch.set("humidity", $0) }
+        service[.targetRelativeHumidity]?.onWrite { [link] value in
+            guard let humidity = value.doubleValue ?? value.intValue.map(Double.init) else { return }
+            try await link.call("climate", "set_humidity", ["humidity": .number(humidity.rounded())])
+        }
     }
 
     private func temperature(_ state: EntityState, _ key: String) -> Double? {
         state.double(key).map { Temperature.tenth(Temperature.celsius($0, fahrenheit: fahrenheit)) }
     }
 
-    private func inRange(_ value: Double) -> Double { min(range.upperBound, max(range.lowerBound, value)) }
+    /// The entity's state for the controller: off is the power, `dry` and `fan_only` Other Modes, whose drying and fan
+    /// are idle (docs/adr/0013-climate-is-mapped-once.md, rule 3).
+    func report(_ state: EntityState) -> ClimateReport {
+        let action: ClimateAction? = switch state.string("hvac_action") {
+        case nil: nil
+        case "heating", "preheating", "defrosting": .heating
+        case "cooling": .cooling
+        default: .idle
+        }
+        return ClimateReport(power: state.state != "off", mode: climateMode(state.state), action: action,
+                             current: temperature(state, "current_temperature"), target: temperature(state, "temperature"),
+                             heating: temperature(state, "target_temp_low"), cooling: temperature(state, "target_temp_high"))
+    }
 
     override func update(_ state: EntityState) {
-        let toHomeKit = ["off": 0, "heat": 1, "cool": 2, "auto": 3, "heat_cool": 3, "dry": 2, "fan_only": 2]
-        if let mode = toHomeKit[state.state] { service.characteristic(.targetHeatingCoolingState).show(.int(mode)) }
-        if let action = state.string("hvac_action") {
-            let current: Int
-            switch action {
-            case "heating", "preheating", "defrosting": current = 1
-            case "cooling", "drying", "fan": current = 2
-            default: current = 0
-            }
-            service.characteristic(.currentHeatingCoolingState).show(.int(current))
-        }
-        if let current = temperature(state, "current_temperature") {
-            service.characteristic(.currentTemperature).show(.double(clamp(current, .currentTemperature.with(minValue: -100, maxValue: 200))))
-        }
-        let mode = service.characteristic(.targetHeatingCoolingState).value.intValue
-        var target = temperature(state, "temperature")
-        if target == nil, hasRange { target = mode == 1 ? temperature(state, "target_temp_low") : mode == 2 ? temperature(state, "target_temp_high") : nil }
-        if let target { service.characteristic(.targetTemperature).show(.double(inRange(target))) }
-        if hasRange {
-            if let high = temperature(state, "target_temp_high") { service[.coolingThresholdTemperature]?.show(.double(inRange(high))) }
-            if let low = temperature(state, "target_temp_low") { service[.heatingThresholdTemperature]?.show(.double(inRange(low))) }
-        }
+        climate.update(report(state))
         if let humidity = state.double("current_humidity") { service[.currentRelativeHumidity]?.show(.double(min(100, max(0, humidity)))) }
         if let humidity = state.double("humidity"), let characteristic = service[.targetRelativeHumidity] {
             characteristic.show(.double(clamp(humidity, characteristic.type)))
@@ -595,65 +595,32 @@ final class ClimateFunction: EntityFunction, @unchecked Sendable {
         .number(Temperature.tenth(Temperature.fromCelsius(celsius, fahrenheit: fahrenheit)))
     }
 
-    func commit(_ entries: [(String, HAPValue)]) async throws {
-        var written: [String: Double] = [:]
-        var order: [String] = []
-        for (key, value) in entries {
-            if written[key] == nil { order.append(key) }
-            written[key] = value.doubleValue ?? value.intValue.map(Double.init)
+    /// Sends a command (7.6): off or the hvac mode first, then the temperatures, the range's two ends together (the one
+    /// not changed from the entity's state).
+    func apply(_ command: ClimateCommand) async throws {
+        if command.power == false { try await link.call("climate", "set_hvac_mode", ["hvac_mode": "off"]) }
+        if let mode = command.mode, let hvacMode = modes[mode] {
+            try await link.call("climate", "set_hvac_mode", ["hvac_mode": .string(hvacMode)])
         }
-        for key in order {
-            switch key {
-            case "mode":
-                guard let value = written["mode"].map({ Int($0) }) else { continue }
-                var mode = modes[value]
-                if mode == nil {
-                    // A mode the device lacks (Siri's Auto on a heater): heat first, cool first when the target is below now.
-                    let current = service.characteristic(.currentTemperature).value.doubleValue ?? 0
-                    let fallback = (written["target"].map { $0 < current } ?? false) ? [3, 2, 1, 0] : [3, 1, 2, 0]
-                    if let first = fallback.first(where: { modes[$0] != nil }) {
-                        mode = modes[first]
-                        service.characteristic(.targetHeatingCoolingState).revert(to: .int(first), after: .zero)
-                    }
-                }
-                if let mode { try await link.call("climate", "set_hvac_mode", ["hvac_mode": .string(mode)]) }
-            case "target":
-                guard let value = written["target"] else { continue }
-                let mode = modes[Int(written["mode"] ?? Double(service.characteristic(.targetHeatingCoolingState).value.intValue ?? 0))]
-                if hasTarget {
-                    try await link.call("climate", "set_temperature", ["temperature": toServer(value)])
-                } else if hasRange, mode == "heat" {
-                    try await setThresholds(heat: value, cool: nil)
-                } else if hasRange, mode == "cool" {
-                    try await setThresholds(heat: nil, cool: value)
-                }
-            case "cool", "heat":
-                guard written["cool"] != nil || written["heat"] != nil, order.firstIndex(of: key) == order.firstIndex(where: { $0 == "cool" || $0 == "heat" }) else { continue }
-                try await setThresholds(heat: written["heat"], cool: written["cool"])
-            case "humidity":
-                guard let value = written["humidity"] else { continue }
-                try await link.call("climate", "set_humidity", ["humidity": .number(value.rounded())])
-            default:
-                break
+        var data: [String: JSONValue] = [:]
+        if hasTarget, let target = command.target { data["temperature"] = toServer(target) }
+        if hasRange, command.heating != nil || command.cooling != nil {
+            let report = climate.report
+            if let low = command.heating ?? report?.heating, let high = command.cooling ?? report?.cooling {
+                data["target_temp_low"] = toServer(min(low, high))
+                data["target_temp_high"] = toServer(max(low, high))
             }
         }
+        if !data.isEmpty { try await link.call("climate", "set_temperature", data) }
     }
+}
 
-    /// Both thresholds go together (7.6): the one not written from the characteristic, a 5 °C gap kept on the side not at a
-    /// bound.
-    private func setThresholds(heat: Double?, cool: Double?) async throws {
-        var low = heat ?? service[.heatingThresholdTemperature]?.value.doubleValue ?? range.lowerBound
-        var high = cool ?? service[.coolingThresholdTemperature]?.value.doubleValue ?? range.upperBound
-        if high < low {
-            if cool != nil { low = high - Self.gap } else { high = low + Self.gap }
-        }
-        low = inRange(low)
-        high = inRange(high)
-        if high - low < Self.gap {
-            if high >= range.upperBound { low = inRange(high - Self.gap) } else { high = inRange(low + Self.gap) }
-        }
-        try await link.call("climate", "set_temperature", ["target_temp_high": toServer(high), "target_temp_low": toServer(low)])
-    }
+/// The controller's send, set once the Function that sends it exists.
+private final class ClimateApply: @unchecked Sendable {
+    private let lock = NSLock()
+    private var apply: (@Sendable (ClimateCommand) async throws -> Void)?
+    func set(_ apply: @escaping @Sendable (ClimateCommand) async throws -> Void) { lock.withLock { self.apply = apply } }
+    func run(_ command: ClimateCommand) async throws { try await lock.withLock { apply }?(command) }
 }
 
 // MARK: - 7.7 sensor

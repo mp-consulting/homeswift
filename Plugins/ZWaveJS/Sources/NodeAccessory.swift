@@ -484,87 +484,128 @@ struct NodeBuilder {
 
     // MARK: Thermostat
 
-    /// Thermostat Mode's modes HomeKit has: Off, Heat, Cool and Auto keep their numbers.
-    static let homeKitModes: Set<Int> = [0, 1, 2, 3]
+    /// A Thermostat Mode as a Climate Mode: Heat, Cool and Auto keep their numbers (1, 2, 3); Off (0) is the power, and
+    /// the modes HomeKit has no name for (energy save heat, fan only, dry) are Other Modes (nil).
+    static func climateMode(_ mode: Int) -> ClimateMode? {
+        switch mode {
+        case 1: .heat
+        case 2: .cool
+        case 3: .auto
+        default: nil
+        }
+    }
 
+    static func thermostatMode(_ mode: ClimateMode) -> Int { mode == .heat ? 1 : mode == .cool ? 2 : 3 }
+
+    /// What a thermostat's values say, gathered as they arrive.
+    struct ThermostatReading: Sendable {
+        var mode: Int?
+        var heating: Double?
+        var cooling: Double?
+        var current: Double?
+        var operating: Int?
+    }
+
+    /// The thermostat's states and setpoints are the shared `ClimateController`'s (docs/adr/0013-climate-is-mapped-once.md):
+    /// one setpoint is the target in every mode; a heating and a cooling setpoint are kept apart, each used in its mode
+    /// and both in Auto.
     private mutating func buildThermostat(endpoint: Int, label: String) {
         let mode = node.value(CommandClass.thermostatMode, endpoint: endpoint, property: "mode")
         let setpoints = node.values(CommandClass.thermostatSetpoint, endpoint: endpoint).filter { $0.id.propertyText == "setpoint" }
         let heating = setpoints.first { $0.id.propertyKey?.intValue == 1 }, cooling = setpoints.first { $0.id.propertyKey?.intValue == 2 }
         guard mode != nil || heating != nil || cooling != nil else { return }
-        let supported = mode.map { Self.homeKitModes.intersection($0.states.keys).sorted() } ?? []
-        let modes = supported.isEmpty ? (cooling != nil && heating == nil ? [0, 2] : [0, 1]) : supported
-        let fahrenheit = (heating ?? cooling)?.unit == "°F"
-        let service = make(.thermostat, name: label, subtype: "\(endpoint):thermostat", optional: [
-            .targetHeatingCoolingState.with(minValue: Double(modes.min() ?? 0), maxValue: Double(modes.max() ?? 3), validValues: modes),
-            .targetTemperature.with(minValue: 5, maxValue: 35, minStep: 0.5),
-            .currentTemperature.with(minValue: -50, maxValue: 100),
-        ])
-        let targetMode = service.characteristic(.targetHeatingCoolingState), currentMode = service.characteristic(.currentHeatingCoolingState)
-        let targetTemperature = service.characteristic(.targetTemperature), currentTemperature = service.characteristic(.currentTemperature)
-        service.characteristic(.temperatureDisplayUnits).value = .int(fahrenheit ? 1 : 0)
-        targetMode.value = .int(modes.first ?? 0)
-        let hasOperatingState = node.value(CommandClass.thermostatOperatingState, endpoint: endpoint, property: "state") != nil
-        // The setpoint shown and written: cooling's in Cool, heating's otherwise (cooling's when there is no heating).
-        let celsiusSetpoints = NIOLockedValueBox<[Int: Double]>([:])
-        let shownKey: @Sendable () -> Int = {
-            let mode = targetMode.value.intValue ?? 1
-            if mode == 2, cooling != nil { return 2 }
-            return heating != nil ? 1 : 2
+        let states = mode.map { Set($0.states.keys) } ?? []
+        let listed = Set(states.compactMap(Self.climateMode))
+        let modes: Set<ClimateMode> = !listed.isEmpty ? listed : cooling != nil && heating == nil ? [.cool] : [.heat]
+        // Off when the device lists it, or lists nothing.
+        let canTurnOff = mode != nil && (states.isEmpty || states.contains(0))
+        let separate = heating != nil && cooling != nil
+        let capabilities = ClimateCapabilities(modes: modes, setpoints: separate ? .separate(autoSetpoint: false) : .single,
+                                               range: 5...35, step: 0.5, canTurnOff: canTurnOff)
+        let modeTarget = mode.map { writer($0.id) }
+        let heatingTarget = heating.map { (writer($0.id), $0) }, coolingTarget = cooling.map { (writer($0.id), $0) }
+        // A thermostat without Thermostat Mode is always in its one mode.
+        let fixedMode: ClimateMode = modes.contains(.heat) ? .heat : modes.contains(.cool) ? .cool : .auto
+        let climate = ClimateController(.thermostat, name: label, subtype: "\(endpoint):thermostat",
+                                        isPrimary: !services.contains(where: \.isPrimary) && primaryTypes.contains(ServiceType.thermostat.uuid),
+                                        capabilities: capabilities, optional: [.currentTemperature.with(minValue: -50, maxValue: 100)]) { command in
+            // The mode first (Off is mode 0), then the setpoints.
+            if let modeTarget {
+                if command.power == false {
+                    try await modeTarget(.number(0))
+                } else if let mode = command.mode ?? (command.power == true ? fixedMode : nil) {
+                    try await modeTarget(.number(Double(Self.thermostatMode(mode))))
+                }
+            }
+            func send(_ target: (@Sendable (JSONValue) async throws -> Void, ZValue)?, _ celsius: Double?) async throws {
+                guard let (write, setpoint) = target, let celsius else { return }
+                try await write(.number(setpoint.reading(celsius: celsius)))
+            }
+            if separate {
+                try await send(heatingTarget, command.heating)
+                try await send(coolingTarget, command.cooling)
+            } else {
+                try await send(heatingTarget ?? coolingTarget, command.target)
+            }
         }
-        let showSetpoint: @Sendable () -> Void = {
-            guard let celsius = celsiusSetpoints.withLockedValue({ $0[shownKey()] }) else { return }
-            targetTemperature.value = .double(min(35, max(5, (celsius * 2).rounded() / 2)))
+        let service = climate.service
+        service.characteristic(.temperatureDisplayUnits).value = .int((heating ?? cooling)?.unit == "°F" ? 1 : 0)
+        let hasOperatingState = node.value(CommandClass.thermostatOperatingState, endpoint: endpoint, property: "state") != nil
+        let reading = NIOLockedValueBox(ThermostatReading())
+        let report: @Sendable ((inout ThermostatReading) -> Void) -> Void = { change in
+            let now = reading.withLockedValue { reading in
+                change(&reading)
+                return reading
+            }
+            var climateMode = mode == nil ? fixedMode : now.mode.flatMap(Self.climateMode)
+            if let known = climateMode, !modes.contains(known) { climateMode = nil }
+            let action = hasOperatingState ? now.operating.flatMap(Self.climateAction) : nil
+            climate.update(ClimateReport(power: now.mode.map { $0 != 0 } ?? true, mode: climateMode, action: action, current: now.current,
+                                         target: separate ? nil : now.heating ?? now.cooling,
+                                         heating: separate ? now.heating : nil, cooling: separate ? now.cooling : nil))
         }
         if let mode {
-            let target = writer(mode.id)
-            targetMode.onWrite { value in
-                guard let mode = value.intValue else { return }
-                try await target(.number(Double(mode)))
-                // Kept before the handler returns, so the setpoint shown is the new mode's at once.
-                targetMode.value = .int(mode)
-                showSetpoint()
-            }
             on(mode.id) { value in
-                guard let mode = value.intValue else { return }
-                if Self.homeKitModes.contains(mode) { targetMode.value = .int(mode) }
-                if !hasOperatingState { currentMode.value = .int(mode == 1 ? 1 : mode == 2 ? 2 : 0) }
-                showSetpoint()
+                guard let number = value.intValue else { return }
+                report { $0.mode = number }
             }
         }
         for setpoint in [heating, cooling].compactMap({ $0 }) {
-            guard let key = setpoint.id.propertyKey?.intValue else { continue }
+            let isHeating = setpoint.id.propertyKey?.intValue == 1
             on(setpoint.id) { value in
-                guard let reading = value.numberValue else { return }
-                celsiusSetpoints.withLockedValue { $0[key] = setpoint.celsius(reading) }
-                showSetpoint()
+                guard let number = value.numberValue else { return }
+                let celsius = setpoint.celsius(number)
+                report { if isHeating { $0.heating = celsius } else { $0.cooling = celsius } }
             }
-        }
-        let heatingTarget = heating.map { (writer($0.id), $0) }, coolingTarget = cooling.map { (writer($0.id), $0) }
-        let guardian = coalesce, key = "\(deviceID):\(endpoint):setpoint"
-        targetTemperature.onWrite { value in
-            guard let celsius = value.doubleValue, await guardian(key) else { return }
-            let cool = shownKey() == 2
-            guard let (target, setpoint) = cool ? coolingTarget : heatingTarget else { return }
-            try await target(.number(setpoint.reading(celsius: celsius)))
-            celsiusSetpoints.withLockedValue { $0[cool ? 2 : 1] = celsius }
         }
         if let operating = node.value(CommandClass.thermostatOperatingState, endpoint: endpoint, property: "state") {
             on(operating.id) { value in
                 guard let state = value.intValue else { return }
-                // 1 Heating, 2 Cooling; the fan-only and pending states are neither.
-                currentMode.value = .int(state == 1 ? 1 : state == 2 ? 2 : 0)
+                report { $0.operating = state }
             }
         }
         // The room's temperature: the endpoint's air temperature, else the device's.
         if let air = node.value(CommandClass.multilevelSensor, endpoint: endpoint, property: "Air temperature")
             ?? node.value(CommandClass.multilevelSensor, endpoint: 0, property: "Air temperature") {
             on(air.id) { value in
-                guard let reading = value.numberValue else { return }
-                currentTemperature.value = .double(min(100, max(-50, air.celsius(reading))))
+                guard let number = value.numberValue else { return }
+                let celsius = min(100, max(-50, air.celsius(number)))
+                report { $0.current = celsius }
             }
         }
         add(service)
+    }
+
+    /// What a Thermostat Operating State says the unit does: idle (0), heating (1, and 7, 8, 10, 11: auxiliary and
+    /// later stages), cooling (2, and 9: the second stage); nil for its fan alone, a pending stage or venting (3 to 6),
+    /// which leave the controller to judge from the room.
+    static func climateAction(_ operatingState: Int) -> ClimateAction? {
+        switch operatingState {
+        case 0: .idle
+        case 1, 7, 8, 10, 11: .heating
+        case 2, 9: .cooling
+        default: nil
+        }
     }
 
     // MARK: Meters

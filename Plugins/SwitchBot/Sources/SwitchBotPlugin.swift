@@ -386,7 +386,10 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
             firmwareRevision: info.firmware, category: accessory.category, services: accessory.services)
         hap.information.characteristic(adding: .hardwareRevision).value = .string(info.firmware)
         hap.information.characteristic(adding: .appMatchingIdentifier).value = .string("id1087374760")
-        if let cached = context.accessory(id: id) { hap.takeValues(from: cached) }
+        if let cached = context.accessory(id: id) {
+            hap.takeValues(from: cached)
+            accessory.restored()
+        }
         if !usable.usable {
             logger.debug("\(info.type) \(info.name): \(usable.reason); no requests are sent")
             if info.options.flag("offline") { accessory.showOffline() }
