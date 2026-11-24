@@ -5,11 +5,13 @@ import HomeswiftPlugin
 /// A single-mode climate controller (heater, cooler, humidifier, dehumidifier) that switches a relay so a
 /// reading reaches a target. With hysteresis h and `runWhen: below`: run under target − h, stop at the
 /// target, keep the state in between; `above` mirrors it. A command that fails leaves the state as it was:
-/// writes from HomeKit report "No Response", background decisions retry on the next reading.
+/// writes from HomeKit report "No Response", background decisions retry on the next reading. A heater's or
+/// cooler's Heater Cooler is a `ClimateController`; a humidifier's service is the accessory's own.
 class ThresholdControllerAccessory: BaseAccessory {
     enum Kind: Sendable { case heat, cool, humidify, dehumidify }
 
     struct Mode {
+        var kind: Kind
         var name: String
         var activity: String
         var unit: String
@@ -23,6 +25,7 @@ class ThresholdControllerAccessory: BaseAccessory {
         var threshold: CharacteristicType
 
         init(_ kind: Kind) {
+            self.kind = kind
             switch kind {
             case .heat, .cool:
                 let heat = kind == .heat
@@ -61,6 +64,8 @@ class ThresholdControllerAccessory: BaseAccessory {
     var cacheTarget: Double
     var hysteresis = 0.0
     private var evaluation: Task<Void, Never>?
+    /// A heater's or cooler's Heater Cooler; nil for a humidifier or dehumidifier.
+    private var climate: ClimateController?
 
     /// `overrides` adjust the reading and threshold (steps, bounds); `cacheType` resets the saved target when
     /// the simulation changes.
@@ -78,6 +83,10 @@ class ThresholdControllerAccessory: BaseAccessory {
             setContext("cacheTarget", .number(defaultTarget))
         }
         cacheTarget = contextValue("cacheTarget")?.jsNumber ?? defaultTarget
+        if mode.kind == .heat || mode.kind == .cool {
+            makeClimateService(overrides: overrides)
+            return
+        }
         let value = mode.targetStateValue
         service = addService(
             mode.serviceType,
@@ -96,6 +105,37 @@ class ThresholdControllerAccessory: BaseAccessory {
         cacheRunning = cacheActive && service.characteristic(mode.currentState).value.intValue == mode.runningCurrentState
     }
 
+    /// The Heater Cooler of a heater (heat only) or a cooler (cool only), its range the threshold override's, else
+    /// the threshold's own; power and running start from the cached service.
+    private func makeClimateService(overrides: [CharacteristicType]) {
+        let threshold = overrides.first { $0.uuid == mode.threshold.uuid } ?? mode.threshold
+        let range = (threshold.minValue ?? 10)...(threshold.maxValue ?? 30)
+        let capabilities = ClimateCapabilities(modes: [mode.kind == .heat ? .heat : .cool], range: range, step: threshold.minStep ?? 0.5)
+        let climate = ClimateController(.heaterCooler, isPrimary: true, capabilities: capabilities,
+                                        optional: overrides.filter { $0.uuid != mode.threshold.uuid }) { [weak self] command in
+            try await self?.applyClimate(command)
+        }
+        self.climate = climate
+        service = addService(climate)
+        cacheReading = service.characteristic(mode.reading).value.doubleValue ?? 0
+        cacheActive = service.characteristic(.active).value.intValue == 1
+        cacheRunning = cacheActive && service.characteristic(mode.currentState).value.intValue == mode.runningCurrentState
+        publishState()
+    }
+
+    /// The simulation's state for the controller.
+    private func climateReport() -> ClimateReport {
+        let action: ClimateAction = cacheActive && cacheRunning ? (mode.kind == .heat ? .heating : .cooling) : .idle
+        return ClimateReport(power: cacheActive, mode: mode.kind == .heat ? .heat : .cool, action: action, current: cacheReading, target: cacheTarget)
+    }
+
+    /// What HomeKit asked of a heater or cooler: its power, then its target.
+    private func applyClimate(_ command: ClimateCommand) async throws {
+        if let power = command.power { try await setActive(.int(power ? 1 : 0)) }
+        if let target = command.target { try await setTarget(.double(target)) }
+        publishState()
+    }
+
     /// The parameters that switch the relay.
     func runParams(_ run: Bool) -> DeviceParams { [:] }
 
@@ -105,6 +145,7 @@ class ThresholdControllerAccessory: BaseAccessory {
     }
 
     func publishState() {
+        if let climate { return climate.update(climateReport()) }
         update(service.characteristic(.active), cacheActive ? 1 : 0)
         update(service.characteristic(mode.currentState), currentStateValue)
     }
@@ -125,7 +166,7 @@ class ThresholdControllerAccessory: BaseAccessory {
     func setReading(_ value: Double) {
         if value != cacheReading {
             cacheReading = value
-            update(service.characteristic(mode.reading), value)
+            if climate != nil { publishState() } else { update(service.characteristic(mode.reading), value) }
             logDebug("Reading: \(value.jsDescription)\(mode.unit)")
         }
         evaluate()
@@ -287,7 +328,8 @@ final class THClimateAccessory: ThresholdControllerAccessory {
 }
 
 /// The TH10/TH16 `thermostat` simulation: off or auto (heat while under the target), or off, heat and cool
-/// with `showHeatCool`; the relay follows the sensor's temperature.
+/// with `showHeatCool`; the relay follows the sensor's temperature. Its Thermostat is a `ClimateController`, its
+/// power, mode and target the simulation's own, kept across restarts.
 final class THThermostatAccessory: BaseAccessory {
     let entry: EWeLinkPlugin.Configuration.ThermostatDevice?
     let tempOffset: Double
@@ -297,12 +339,14 @@ final class THThermostatAccessory: BaseAccessory {
     let minTarget: Double
     let maxTarget: Double
     let showHeatCool: Bool
+    private var climate: ClimateController!
     private var cacheTemp = 0.0
     private var cacheHumidity: Double?
     private var cacheTarget = 20.0
-    private var cacheState = "off"
-    private var cacheHeat: String?
-    private var cacheCool: String?
+    private var isOn = false
+    private var mode = ClimateMode.auto
+    /// The relay as last switched, nil before the simulation knows.
+    private var relayOn: Bool?
 
     override init(platform: EWeLinkPlatform, record: AccessoryRecord, box: DeviceBox) {
         let entry = platform.configuration.thermostat(record.deviceID)
@@ -317,145 +361,69 @@ final class THThermostatAccessory: BaseAccessory {
         super.init(platform: platform, record: record, box: box)
         category = .thermostat
         if (contextValue("cacheTarget")?.jsNumber ?? 0) == 0 { setContext("cacheTarget", 20) }
-        cacheTarget = contextValue("cacheTarget")?.jsNumber ?? 20
-        // A change of showHeatCool resets the service (its valid states change).
+        cacheTarget = clamp(contextValue("cacheTarget")?.jsNumber ?? 20, minTarget, maxTarget)
+        // A change of showHeatCool turns it off (its modes change).
         let previousHeatCool = contextValue("showHeatCool")?.boolValue ?? false
         let reset = previousHeatCool != showHeatCool
         setContext("showHeatCool", .bool(showHeatCool))
 
         let hasHumidity = box.device.model != "DS18B20"
-        service = addService(
-            .thermostat,
-            optional: (hasHumidity ? [.currentRelativeHumidity] : []) + [
-                CharacteristicType.currentTemperature.with(minStep: 0.1),
-                CharacteristicType.targetHeatingCoolingState.with(validValues: showHeatCool ? [0, 1, 2] : [0, 3]),
-                CharacteristicType.targetTemperature.with(minValue: minTarget, maxValue: maxTarget, minStep: 0.5),
-            ],
-            primary: true)
-        if reset {
-            service.characteristic(.targetHeatingCoolingState).value = 0
-            service.characteristic(.currentHeatingCoolingState).value = 0
-        }
-        if hasHumidity {
-            onRead(service.characteristic(.currentRelativeHumidity), "CurrentRelativeHumidity") { [weak self] in .double(self?.cacheHumidity ?? 0) }
-        }
-        onRead(service.characteristic(.currentTemperature), "CurrentTemperature") { [weak self] in self.map { .double($0.cacheTemp) } }
+        let capabilities = ClimateCapabilities(modes: showHeatCool ? [.heat, .cool] : [.auto], range: minTarget...maxTarget, step: 0.5)
+        climate = ClimateController(
+            .thermostat, isPrimary: true, capabilities: capabilities,
+            optional: (hasHumidity ? [.currentRelativeHumidity] : []) + [CharacteristicType.currentTemperature.with(minStep: 0.1)]
+        ) { [weak self] command in try await self?.applyClimate(command) }
+        service = addService(climate)
         cacheTemp = service.characteristic(.currentTemperature).value.doubleValue ?? 0
-        onRead(service.characteristic(.targetHeatingCoolingState), "TargetHeatingCoolingState") { [weak self] in self?.service.characteristic(.targetHeatingCoolingState).value }
-        onWrite(service.characteristic(.targetHeatingCoolingState)) { [weak self] value in try await self?.setTargetState(value) }
-        onRead(service.characteristic(.currentHeatingCoolingState), "CurrentHeatingCoolingState") { [weak self] in self?.service.characteristic(.currentHeatingCoolingState).value }
-        update(service.characteristic(.targetTemperature), cacheTarget)
-        onWrite(service.characteristic(.targetTemperature)) { [weak self] value in try await self?.setTargetTemperature(value) }
-
-        let state = service.characteristic(.targetHeatingCoolingState).value.intValue ?? 0
-        cacheState = state > 0 ? "on" : "off"
-        let target = service.characteristic(.targetTemperature).value.doubleValue ?? cacheTarget
-        let current = service.characteristic(.currentTemperature).value.doubleValue ?? 0
-        cacheHeat = cacheState == "on" && [1, 3].contains(state) ? (target > current ? "on" : "off") : nil
-        cacheCool = cacheState == "on" && state == 2 ? (target < current ? "on" : "off") : nil
+        let state = reset ? 0 : service.characteristic(.targetHeatingCoolingState).value.intValue ?? 0
+        isOn = state != 0
+        mode = showHeatCool ? (state == 2 ? .cool : .heat) : .auto
+        relayOn = deviceParams["switch"].map { $0 == "on" }
         if platform.configuration.connectionMode != .lan { setupUIActivePolling() }
         applyInitialState()
+        climate.update(climateReport())
     }
 
     private func relay(_ on: Bool) -> DeviceParams {
         ["deviceType": "normal", "mainSwitch": onOff(on), "switch": onOff(on)]
     }
 
-    private func setTargetState(_ value: HAPValue) async throws {
-        let targetState = value.intValue ?? 0
-        try await handleSet("TargetHeatingCoolingState", value) {
-            var params: DeviceParams
-            let newState: String, newHeat: String?, newCool: String?
-            switch targetState {
-            case 0:
-                params = relay(false)
-                (newState, newHeat, newCool) = ("off", "off", "off")
-            case 1:
-                guard showHeatCool else { return true }
-                let heat = cacheTemp < cacheTarget
-                params = relay(heat)
-                (newState, newHeat, newCool) = ("on", heat ? "on" : "off", "off")
-            case 2:
-                guard showHeatCool else { return true }
-                let cool = cacheTemp > cacheTarget
-                params = relay(cool)
-                (newState, newHeat, newCool) = ("on", "off", cool ? "on" : "off")
-            case 3:
-                guard !showHeatCool else { return true }
-                let heat = cacheTemp < cacheTarget
-                params = relay(heat)
-                (newState, newHeat, newCool) = ("on", heat ? "on" : "off", "off")
-            default:
-                return true
-            }
-            let needsCommand = (targetState == 0 && (cacheHeat == "on" || cacheCool == "on"))
-                || ([1, 3].contains(targetState) && newHeat != cacheHeat) || (targetState == 2 && newCool != cacheCool)
-            if needsCommand, !(await sendCommand(params)) { return false }
-            if newState != cacheState {
-                cacheState = newState
-                cacheHeat = nil
-                cacheCool = nil
-                logDebug("Thermostat state: \(cacheState)")
-            }
-            if [1, 3].contains(targetState), newHeat != cacheHeat {
-                cacheHeat = newHeat
-                cacheCool = nil
-                logDebug("Heating: \(cacheHeat ?? "")")
-            }
-            if targetState == 2, newCool != cacheCool {
-                cacheCool = newCool
-                cacheHeat = nil
-                logDebug("Cooling: \(cacheCool ?? "")")
-            }
-            update(service.characteristic(.currentHeatingCoolingState), cacheCool == "on" ? 2 : cacheHeat == "on" ? 1 : 0)
-            return true
-        }
+    /// The simulation's state for the controller: heating or cooling while the relay runs.
+    private func climateReport() -> ClimateReport {
+        let action: ClimateAction = isOn && relayOn == true ? (mode == .cool ? .cooling : .heating) : .idle
+        return ClimateReport(power: isOn, mode: mode, action: action, current: cacheTemp, target: cacheTarget)
     }
 
-    private func setTargetTemperature(_ value: HAPValue) async throws {
-        let target = value.doubleValue ?? cacheTarget
-        guard target != cacheTarget else { return }
-        cacheTarget = target
-        setContext("cacheTarget", .number(target))
-        logDebug("Target temperature: \(target.jsDescription)°C")
-        guard cacheState != "off" else { return }
-        await updateThermostatState()
+    /// What HomeKit asked: the new power, mode and target, kept only once the relay follows them.
+    private func applyClimate(_ command: ClimateCommand) async throws {
+        let before = (isOn, mode, cacheTarget)
+        if let power = command.power { isOn = power }
+        if let mode = command.mode { self.mode = mode }
+        if let target = command.target { cacheTarget = target }
+        guard await regulate() else {
+            (isOn, mode, cacheTarget) = before
+            climate.update(climateReport())
+            throw communicationError
+        }
+        if command.power != nil { logDebug("Thermostat state: \(isOn ? "on" : "off")") }
+        if let target = command.target {
+            setContext("cacheTarget", .number(target))
+            logDebug("Target temperature: \(target.jsDescription)°C")
+        }
+        climate.update(climateReport())
     }
 
-    private func updateThermostatState() async {
-        guard cacheState != "off" else { return }
-        let mode = service.characteristic(.targetHeatingCoolingState).value.intValue ?? 0
-        let params: DeviceParams, newHeat: String, newCool: String
-        switch mode {
-        case 1, 3:
-            let heat = cacheTemp < cacheTarget
-            params = relay(heat)
-            (newHeat, newCool) = (heat ? "on" : "off", "off")
-        case 2:
-            let cool = cacheTemp > cacheTarget
-            params = relay(cool)
-            (newHeat, newCool) = ("off", cool ? "on" : "off")
-        default:
-            return
-        }
-        if ([1, 3].contains(mode) && newHeat != cacheHeat) || (mode == 2 && newCool != cacheCool) {
-            guard await sendCommand(params) else {
-                // The next update retries.
-                logError("Failed to update thermostat state, will retry on next update")
-                return
-            }
-        }
-        if [1, 3].contains(mode), newHeat != cacheHeat {
-            cacheHeat = newHeat
-            cacheCool = nil
-            logDebug("Heating: \(newHeat)")
-        }
-        if mode == 2, newCool != cacheCool {
-            cacheCool = newCool
-            cacheHeat = nil
-            logDebug("Cooling: \(newCool)")
-        }
-        update(service.characteristic(.currentHeatingCoolingState), cacheCool == "on" ? 2 : cacheHeat == "on" ? 1 : 0)
+    /// Switches the relay to what the power, mode, target and room ask: off while off, heating under the target in
+    /// heat and auto, cooling over it in cool. False when the command failed.
+    @discardableResult
+    private func regulate() async -> Bool {
+        let run = isOn && (mode == .cool ? cacheTemp > cacheTarget : cacheTemp < cacheTarget)
+        guard run != relayOn else { return true }
+        guard await sendCommand(relay(run)) else { return false }
+        relayOn = run
+        logDebug("\(mode == .cool ? "Cooling" : "Heating"): \(onOff(run).jsString ?? "")")
+        climate.update(climateReport())
+        return true
     }
 
     override func updateState(_ params: DeviceParams) {
@@ -465,11 +433,14 @@ final class THThermostatAccessory: BaseAccessory {
             temperature = tempOffsetFactor ? temperature * tempOffset : temperature + tempOffset
             if temperature != cacheTemp {
                 cacheTemp = temperature
-                update(service.characteristic(.currentTemperature), cacheTemp)
                 logDebug("Temperature: \(cacheTemp.jsDescription)°C")
             }
+            climate.update(climateReport())
             // Every report re-evaluates, so a failed command is retried.
-            Task { [weak self] in await self?.updateThermostatState() }
+            Task { [weak self] in
+                guard let self, !(await self.regulate()) else { return }
+                self.logError("Failed to update thermostat state, will retry on next update")
+            }
         }
         if let raw = params["currentHumidity"], raw != "unavailable" {
             var humidity = DeviceValueParser.humidity(deviceParams)
