@@ -159,7 +159,9 @@ public final class ClimateController: Sendable {
     public let kind: ClimateServiceKind
     public let capabilities: ClimateCapabilities
 
-    /// How long writes are gathered: the Home app's writes of one change arrive within a few milliseconds.
+    /// How long writes are gathered: the Home app's writes of one change arrive within a few milliseconds. The window
+    /// closes once no write came for that long (a slider dragged is one command when it stops), and after 20 windows (at
+    /// least 2 s) of writes at the latest.
     public static let defaultWindow = Duration.milliseconds(30)
 
     private let window: Duration
@@ -188,6 +190,9 @@ public final class ClimateController: Sendable {
         var held = ClimateCommand()
         var pending = Pending()
         var batch: Task<Void, any Error>?
+        /// When the last write and the gathering's first came.
+        var lastWrite = ContinuousClock.now
+        var batchStart = ContinuousClock.now
     }
 
     /// Builds the service. `optional` and `extra` add the plugin's own characteristics (Rotation Speed, Swing Mode, Name,
@@ -422,15 +427,29 @@ public final class ClimateController: Sendable {
     private func write(_ change: (inout Pending) -> Void) async throws {
         let task: Task<Void, any Error> = state.withLockedValue { state in
             change(&state.pending)
+            state.lastWrite = .now
             if let batch = state.batch { return batch }
+            state.batchStart = .now
             let batch = Task { [weak self, window] in
                 try await Task.sleep(for: window)
+                // Trailing: wait until the writes stop, as a slider's do when it is let go.
+                while let self, let wait = quietIn(window) { try await Task.sleep(for: wait) }
                 try await self?.flush()
             }
             state.batch = batch
             return batch
         }
         try await task.value
+    }
+
+    /// How long until `window` passes with no write, nil when it has (or the gathering has gone on long enough).
+    private func quietIn(_ window: Duration) -> Duration? {
+        state.withLockedValue { state in
+            let now = ContinuousClock.now
+            guard now - state.batchStart < max(window * 20, .seconds(2)) else { return nil }
+            let quiet = now - state.lastWrite
+            return quiet >= window ? nil : window - quiet
+        }
     }
 
     private func flush() async throws {

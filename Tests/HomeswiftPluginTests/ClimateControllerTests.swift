@@ -216,6 +216,20 @@ struct ClimateControllerTests {
         #expect(!unit.overlapped.withLockedValue { $0 })
     }
 
+    /// A slider dragged for longer than the window is one command, when it stops.
+    @Test func aDragIsOneCommandWhenItStops() async throws {
+        let unit = Unit()
+        let climate = unit.controller(.heaterCooler, Self.airConditioner)
+        climate.update(ClimateReport(power: true, mode: .cool, current: 28, target: 24))
+        var writes: [Task<Void, any Error>] = []
+        for value in stride(from: 23.0, through: 20.0, by: -0.5) {
+            writes.append(Task { try await climate.service.characteristic(.coolingThresholdTemperature).write(.double(value)) })
+            try await Task.sleep(for: .milliseconds(3))
+        }
+        for write in writes { try await write.value }
+        #expect(unit.sent == [ClimateCommand(target: 20)])
+    }
+
     /// A turn-on that fails keeps the setpoints held for it; a failed range leaves the Auto Band as it was.
     @Test func aFailureKeepsWhatWasHeldAndTheBand() async throws {
         let unit = Unit()
