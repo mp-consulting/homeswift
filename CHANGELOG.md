@@ -37,6 +37,16 @@ All notable changes to this project are documented here. The format follows
   on. A failed command puts the tile back at once rather than after 2 s.
 - Dyson: a Hot+Cool's Thermostat no longer reads Heating just because heating is on: it shows what the heater reports,
   idle with the fan off, and a temperature set while heating is off is sent without turning it on.
+- Daikin: an air conditioner in dry or fan only keeps its mode shown rather than passing for Auto, a unit offers only
+  the modes it has, its state is idle once the room has reached the setpoint, and both thresholds of one change are one
+  command, the auto setpoint moved to their middle only when one changed. A hot water tank whose setpoint cannot be set
+  refuses it rather than taking it silently.
+- tado°: a temperature set while a zone or an air conditioner is off waits for its next turn-on rather than turning it
+  on, an air conditioner in fan, dry or tado's auto keeps its mode shown rather than passing for Cool, its heating
+  power tells whether it heats, and an overlay tado refuses fails the write and puts the tile back (it kept the value
+  written until the next poll). One change within 400 ms is still one request.
+- Ring: a thermostat's mode and set point chosen together are one request to the hub, a failed one shows No Response
+  rather than failing unseen, and Ring's auto or eco keep the thermostat on with its last mode rather than Off.
 - Somfy TaHoma: a thermostat's mode and target chosen together go out as one execution (a Hitachi heat pump's as one
   `globalControl`, built from the change rather than stale values), the target shows whatever the device is doing,
   and a failed execution puts the tile back as the device last said.
