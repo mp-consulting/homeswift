@@ -215,6 +215,28 @@ struct PluginTests {
         await host.stop()
     }
 
+    /// A heater (ADR 0013): choosing Heat while it is off no longer switches it on, and a target written while off is sent.
+    @Test func heaterModeNeverPowersOn() async throws {
+        let heater = FakeMiioDevice(ip: "192.168.1.56", did: 7070, token: Self.token, model: "zhimi.heater.mc2", spec: Fixture.spec("zhimi.heater.mc2"))
+        heater["2.1"] = false
+        heater["2.5"] = 20
+        heater["4.7"] = 18
+        environment.network.add(heater)
+        let host = try await environment.start(settings: block([entry(ip: "192.168.1.56", did: "7070", model: "zhimi.heater.mc2")]))
+        #expect(await eventually { environment.accessory(host, did: "7070")?.service(.heaterCooler)?[.heatingThresholdTemperature]?.value == .double(20) })
+        let service = try #require(environment.accessory(host, did: "7070")?.service(.heaterCooler))
+        #expect(service[.currentHeaterCoolerState]?.value == .int(0))
+        try await service.characteristic(.targetHeaterCoolerState).write(.int(1))
+        try await service.characteristic(.heatingThresholdTemperature).write(.double(23))
+        let writes = heater.calls("set_properties").map { ($0[0]?["siid"]?.intValue, $0[0]?["piid"]?.intValue, $0[0]?["value"]) }
+        #expect(writes.count == 1 && writes.first?.0 == 2 && writes.first?.1 == 5 && writes.first?.2 == .number(23))
+        #expect(heater["2.1"] == .bool(false))
+        try await service.characteristic(.active).write(.int(1))
+        #expect(heater["2.1"] == .bool(true))
+        #expect(await eventually { service[.currentHeaterCoolerState]?.value == .int(2) })
+        await host.stop()
+    }
+
     /// A write-only property (a curtain's motor command) is sent each time; the target position is written as a range.
     @Test func curtainCommands() async throws {
         let curtain = FakeMiioDevice(ip: "192.168.1.55", did: 6060, token: Self.token, model: "lumi.curtain.hagl08", spec: Fixture.spec("lumi.curtain.hagl08"))
