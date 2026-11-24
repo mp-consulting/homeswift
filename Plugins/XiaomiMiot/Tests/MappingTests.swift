@@ -349,6 +349,31 @@ import Testing
         #expect(device.writes.map(\.key) == [PropertyKey("2.4")!, PropertyKey("2.2")!] && device.writes.last?.value == .number(1))
     }
 
+    /// A mode property listing none of Auto, Heat and Cool offers no mode it cannot send: Auto alone, a write of it
+    /// refused with nothing sent.
+    @Test func anAirConditionerOfOtherModesOffersNoneItCannotSend() async throws {
+        let spec = try MiotSpec(json: ["type": "urn:miot-spec-v2:device:air-conditioner:0:test:1", "services": [
+            ["iid": 2, "type": "urn:miot-spec-v2:service:air-conditioner:0:test:1", "description": "AC", "properties": [
+                ["iid": 1, "type": "urn:miot-spec-v2:property:on:0:test:1", "description": "on", "format": "bool", "access": ["read", "write", "notify"]],
+                ["iid": 2, "type": "urn:miot-spec-v2:property:mode:0:test:1", "description": "mode", "format": "uint8", "access": ["read", "write", "notify"],
+                 "value-list": [["value": 0, "description": "Dry"], ["value": 1, "description": "Fan"]]],
+                ["iid": 4, "type": "urn:miot-spec-v2:property:target-temperature:0:test:1", "description": "target", "format": "float",
+                 "access": ["read", "write", "notify"], "unit": "celsius", "value-range": [16, 31, 0.5]],
+            ]],
+        ]])
+        let device = RecordingDevice()
+        let handle = DeviceHandle()
+        handle.attach(device)
+        let built = try #require(MiotAccessoryBuilder(spec: spec, model: "test.ac", name: "Test", accessoryID: "miot:1",
+            serialNumber: "1", firmware: "1", options: DeviceOptions([:]), defaults: MappingDefaults(), handle: handle,
+            timings: fastTimings.accessory, logger: testLogger, makeAdaptiveLighting: { _ in nil }).build())
+        let service = try #require(built.accessory.service(.heaterCooler))
+        #expect(service[.targetHeaterCoolerState]?.type.validValues == [0])
+        show(built, ["2.1": true, "2.2": 1, "2.4": 24])
+        await #expect(throws: HAPStatusError(.invalidValueInRequest)) { try await service.characteristic(.targetHeaterCoolerState).write(.int(0)) }
+        #expect(device.writes.isEmpty)
+    }
+
     @Test func curtain() throws {
         let built = try #require(buildFixture("lumi.curtain.hagl08", options: ["motorControl": true]))
         let accessory = built.accessory

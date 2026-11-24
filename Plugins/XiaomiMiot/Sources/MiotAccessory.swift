@@ -713,14 +713,17 @@ final class MiotAccessoryBuilder {
         let handle = handle
         let controller = ClimateController(.heaterCooler, name: name, isPrimary: true, capabilities: capabilities,
                                            optional: [.temperatureDisplayUnits]) { command in
+            // A mode the mode property has no value for is refused, before anything is sent.
+            let modeValue = command.mode.flatMap { wanted in modes.first { $0.mode == wanted }?.value }
+            if command.mode != nil, mode != nil, modeValue == nil { throw HAPStatusError(.invalidValueInRequest) }
             // The power first, then the mode, then the target, in the device's unit.
             if let power = command.power {
                 guard let on, on.isWritable else { throw HAPStatusError(.readOnlyCharacteristic) }
                 try await handle.write(on, .bool(power))
             }
-            if let wanted = command.mode, let mode, let value = modes.first(where: { $0.mode == wanted })?.value {
+            if let mode, let modeValue {
                 guard mode.isWritable else { throw HAPStatusError(.readOnlyCharacteristic) }
-                try await handle.write(mode, value)
+                try await handle.write(mode, modeValue)
             }
             if let celsius = command.target, let target {
                 guard target.isWritable else { throw HAPStatusError(.readOnlyCharacteristic) }
@@ -748,12 +751,14 @@ final class MiotAccessoryBuilder {
         category = .airConditioner
         guard let conditioner = spec.service("air-conditioner") else { return buildGeneric() }
         let on = conditioner.property("on"), mode = conditioner.property("mode"), target = conditioner.property("target-temperature")
-        // Auto, Heat and Cool: only those the mode lists (all three when it lists none).
+        // Auto, Heat and Cool: only those the mode lists, all three without a mode property. A mode property that lists
+        // none of them has only Other Modes: Auto stands for whichever the unit is in, and writing a mode is refused.
         let modes: [(mode: ClimateMode, value: JSONValue)] = [(ClimateMode.auto, "Auto"), (.heat, "Heat"), (.cool, "Cool")]
             .compactMap { climateMode, description in mode?.value(described: description).map { (climateMode, $0) } }
+        let offered: Set<ClimateMode> = mode == nil ? [.auto, .heat, .cool] : modes.isEmpty ? [.auto] : Set(modes.map(\.mode))
         let temperatures = Self.climateRange(target)
         let climate = climateController(on: on, mode: mode, modes: modes, target: target, capabilities: ClimateCapabilities(
-            modes: modes.isEmpty ? [.auto, .heat, .cool] : Set(modes.map(\.mode)), setpoints: .single,
+            modes: offered, setpoints: .single,
             range: temperatures.range, step: temperatures.step))
         let service = climate.service
         let handle = handle
