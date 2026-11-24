@@ -142,7 +142,8 @@ struct MessageTests {
         // AUTO beside HEAT_COOL, DRY and FAN_ONLY are Other Modes.
         let all = ClimateModes(supported: [0, 1, 2, 3, 4, 5, 6])
         #expect(all.climateMode(1) == .auto && all.climateMode(6) == nil && all.climateMode(5) == nil && all.climateMode(0) == nil)
-        #expect(ClimateModes(supported: [4]).modes == [.auto: 4] && !ClimateModes(supported: [4]).canTurnOff)
+        // FAN_ONLY alone is no Climate Mode.
+        #expect(ClimateModes(supported: [4]).modes.isEmpty && !ClimateModes(supported: [4]).canTurnOff)
         #expect(Temperature.celsius(212, unit: 1) == 100)
         #expect(abs(Temperature.device(20, unit: 1) - 68) < 0.001)
         #expect(abs(Temperature.celsius(293.15, unit: 2) - 20) < 0.001)

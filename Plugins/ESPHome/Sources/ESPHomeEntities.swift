@@ -432,6 +432,8 @@ final class EntityBinding: Sendable {
         let capabilities = ClimateCapabilities(
             modes: modes.isEmpty ? [.heat] : Set(modes.keys), setpoints: setpoints, range: bounds, step: step, canTurnOff: mapping.canTurnOff)
         var optional: [CharacteristicType] = [.currentTemperature.with(minValue: -100, maxValue: 200)]
+        // Only Other Modes (FAN_ONLY, DRY): Off alone is offered, and no mode is shown while on.
+        if modes.isEmpty { optional.append(.targetHeatingCoolingState.with(validValues: [0])) }
         if features & ClimateFeature.currentHumidity != 0 { optional.append(.currentRelativeHumidity) }
         if features & ClimateFeature.targetHumidity != 0 { optional.append(.targetRelativeHumidity) }
         let key = info.key
@@ -528,7 +530,7 @@ extension EntityInfo {
 
 /// The Climate Modes against ESPHome's climate modes (0 OFF, 1 HEAT_COOL, 2 COOL, 3 HEAT, 4 FAN_ONLY, 5 DRY, 6 AUTO): heat
 /// is HEAT, cool COOL, auto HEAT_COOL, or AUTO when only that is supported. FAN_ONLY, DRY and AUTO beside HEAT_COOL are
-/// Other Modes; a device with nothing else has its first one as its only mode, auto. OFF is the power.
+/// Other Modes, never a Climate Mode: a device with nothing else has none, and offers Off alone. OFF is the power.
 struct ClimateModes: Sendable {
     let supported: Set<Int>
 
@@ -542,7 +544,6 @@ struct ClimateModes: Sendable {
         if has(3) { map[.heat] = 3 }
         if has(2) { map[.cool] = 2 }
         if let auto = autoMode { map[.auto] = auto }
-        if map.isEmpty, let other = supported.sorted().first(where: { $0 != 0 }) { map[.auto] = other }
         return map
     }
 

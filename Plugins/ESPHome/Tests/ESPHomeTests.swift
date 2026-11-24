@@ -595,13 +595,14 @@ struct ESPHomePluginTests {
 }
 
 struct ESPHomeClimateTests {
-    /// A two-point thermostat (HEAT, COOL, HEAT_COOL, DRY) built straight from its entity, with the commands it sends.
-    func thermostat() throws -> (EntityBinding, Service, NIOLockedValueBox<[ProtobufMessage]>) {
+    /// A two-point thermostat (HEAT, COOL, HEAT_COOL, DRY unless `modes` says otherwise) built straight from its entity,
+    /// with the commands it sends.
+    func thermostat(modes: [UInt8] = [0, 1, 2, 3, 5]) throws -> (EntityBinding, Service, NIOLockedValueBox<[ProtobufMessage]>) {
         var entity = ProtobufWriter()
         entity.string(1, "thermostat")
         entity.fixed32(2, 7)
         entity.string(3, "Thermostat")
-        entity.bytes(7, [0, 1, 2, 3, 5])  // packed, as ESPHome sends them (OFF is 0)
+        entity.bytes(7, modes)  // packed, as ESPHome sends them (OFF is 0)
         entity.float(8, 10)
         entity.float(9, 30)
         entity.float(10, 0.5)
@@ -626,19 +627,32 @@ struct ESPHomeClimateTests {
         return ProtobufMessage(state.bytes)!
     }
 
-    /// DRY is an Other Mode: the target state stays the mode before it. In heat, Target Temperature is the low.
+    /// DRY is an Other Mode: the target state stays the mode before it (Cool, not the Heat shown before any). In heat,
+    /// Target Temperature is the low.
     @Test func dryKeepsTheModeAndHeatSendsTheLow() async throws {
         let (binding, service, sent) = try thermostat()
+        binding.apply(state(mode: 2, action: 2))
+        #expect(service[.targetHeatingCoolingState]?.value == .int(2))
+        binding.apply(state(mode: 5, current: 22, action: 5))
+        #expect(service[.targetHeatingCoolingState]?.value == .int(2))
+        #expect(service[.currentHeatingCoolingState]?.value == .int(0))
         binding.apply(state(mode: 3, action: 3))
         #expect(service[.targetHeatingCoolingState]?.value == .int(1))
         #expect(service[.currentHeatingCoolingState]?.value == .int(1))
         #expect(service[.targetTemperature]?.value == .double(19))
-        binding.apply(state(mode: 5, current: 22))
-        #expect(service[.targetHeatingCoolingState]?.value == .int(1))
         binding.apply(state(mode: 3))
         try await service.characteristic(.targetTemperature).write(.double(20.5))
         let command = try #require(sent.withLockedValue { $0.last })
         #expect(command.fixed32(1) == 7 && command.bool(6) && command.float(7) == 20.5 && !command.bool(8) && !command.bool(2))
+    }
+
+    /// A climate with only FAN_ONLY and DRY has no Climate Mode: Off alone is offered, and its fan running shows no mode.
+    @Test func onlyOtherModesOfferOffAlone() throws {
+        let (binding, service, _) = try thermostat(modes: [0, 4, 5])
+        #expect(service[.targetHeatingCoolingState]?.type.validValues == [0])
+        binding.apply(state(mode: 4, action: 6))
+        #expect(service[.targetHeatingCoolingState]?.value == .int(0))
+        #expect(service[.currentHeatingCoolingState]?.value == .int(0))
     }
 
     /// Auto with its range in one command; Off is mode OFF.
