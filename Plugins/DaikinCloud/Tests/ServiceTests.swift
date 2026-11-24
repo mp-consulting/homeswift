@@ -346,17 +346,18 @@ struct ServiceTests {
         #expect(service.characteristic(.currentHeatingCoolingState).value == .int(heating ? 1 : 0))
         #expect(service.characteristic(.targetHeatingCoolingState).value == .int(test.on ? 1 : 0))
 
-        // The rounded setpoint; refused when the unit does not let anyone set it; nothing when unchanged.
+        // The rounded setpoint; read-only when the unit does not let anyone set it; nothing when unchanged.
         if unit.device.data(test.tank, "temperatureControl", HotWaterTankService.targetTemperaturePath).settable == false {
             await #expect(throws: HAPStatusError(.readOnlyCharacteristic)) { try await Self.write(tank(test), .targetTemperature, .double(test.target - 1.2)) }
             #expect(api.recorded.isEmpty)
         } else {
             try await Self.write(tank(test), .targetTemperature, .double(test.target - 1.2))
             #expect(api.recorded == [Write(test.tank, "temperatureControl", .number(jsRound((test.target - 1.2) * 2) / 2), HotWaterTankService.targetTemperaturePath)])
+            api.reset()
+            try await Self.write(tank(test), .targetTemperature, .double(test.target))
+            #expect(api.recorded.isEmpty)
         }
         api.reset()
-        try await Self.write(tank(test), .targetTemperature, .double(test.target))
-        #expect(api.recorded.isEmpty)
 
         // Off: only when on.
         try await Self.write(tank(test), .targetHeatingCoolingState, 0)
@@ -383,6 +384,31 @@ struct ServiceTests {
         try await powerful.set(true)
         try await powerful.set(false)
         #expect(api.recorded == [Write(test.tank, "powerfulMode", "on"), Write(test.tank, "powerfulMode", "off")])
+    }
+
+    /// A setpoint nobody may set is read-only, and a command that still carries one sends its power and mode first.
+    @Test func aTankSetpointNobodyMaySetIsReadOnly() async throws {
+        let test = try #require(Self.tanks.first { $0.name == "althermaMiladcerkicOff" })
+        let unit = tank(test)
+        #expect(!unit.service.characteristic(.targetTemperature).type.permissions.contains(.pairedWrite))
+        await #expect(throws: HAPStatusError(.readOnlyCharacteristic)) { try await unit.apply(ClimateCommand(power: true, target: 45)) }
+        #expect(api.recorded == [Write(test.tank, "onOffMode", "on")])
+        let settable = tank(Self.tanks[0])
+        #expect(settable.service.characteristic(.targetTemperature).type.permissions.contains(.pairedWrite))
+    }
+
+    /// A turn-on carries the mode: a tank's own fixed mode is no warning.
+    @Test func turningOnATankOfFixedModeLogsNoWarning() async throws {
+        let test = try #require(Self.tanks.first { $0.name == "althermaMiladcerkicOff" })
+        let log = LogRecorder()
+        let unit = HotWaterTankService(device: DaikinCloudDevice(Fixture.json(test.name), api: api), managementPointID: test.tank,
+                                       accessoryName: "TANK", context: serviceContext(logger: log.logger))
+        api.reset()
+        try await unit.apply(ClimateCommand(power: true, mode: .heat))
+        #expect(api.recorded == [Write(test.tank, "onOffMode", "on")])
+        #expect(!log.contains("operationMode isn't settable"))
+        try await unit.apply(ClimateCommand(mode: .cool))
+        #expect(log.contains("operationMode isn't settable", level: .warning))
     }
 
     @Test func tankModesAndTargetStates() {
