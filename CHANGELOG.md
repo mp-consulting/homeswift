@@ -45,6 +45,14 @@ All notable changes to this project are documented here. The format follows
   on, an air conditioner in fan, dry or tado's auto keeps its mode shown rather than passing for Cool, its heating
   power tells whether it heats, and an overlay tado refuses fails the write and puts the tile back (it kept the value
   written until the next poll). One change within 400 ms is still one request.
+- eWeLink: an air conditioner (UIID 151) keeps Auto, and its dry and fan modes keep its mode shown; a thermostat (UIID
+  127) tells whether it heats from its work state and no longer adds its temperature offset twice when the device sends
+  no temperature; a simulated thermostat puts its state back and fails the write when its relay cannot follow.
+- Tuya: an air conditioner in dehumidify or fan keeps its mode shown and its range around the target in auto (fixed
+  thresholds that refused writes before), a thermostat's eco is a mode of its own rather than Cool, Off is offered only
+  with a switch, and an infrared air conditioner's tile follows each change at once.
+- SwitchBot: an infrared air conditioner's mode and temperature of one change go as one command, at once (the 1.5 s
+  wait stays for its fan speed).
 - Ring: a thermostat's mode and set point chosen together are one request to the hub, a failed one shows No Response
   rather than failing unseen, and Ring's auto or eco keep the thermostat on with its last mode rather than Off.
 - Somfy TaHoma: a thermostat's mode and target chosen together go out as one execution (a Hitachi heat pump's as one
