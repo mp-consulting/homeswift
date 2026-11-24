@@ -334,6 +334,23 @@ struct ZWaveJSTests {
         await host.stop()
     }
 
+    @Test func anOtherModeKeepsTheThermostatsModeAndTarget() async throws {
+        let host = try await started()
+        let thermostat = try #require(host.accessory(id(6))?.service(.thermostat))
+        // 11, Energy Save Heat: on, still shown as Heat with the heating setpoint.
+        environment.server.valueUpdated(node: 6, commandClass: 64, property: "mode", value: 11)
+        environment.server.valueUpdated(node: 6, commandClass: 67, property: "setpoint", propertyKey: 1, value: 19)
+        #expect(await eventually { thermostat[.targetTemperature]?.value == .double(19) })
+        #expect(thermostat[.targetHeatingCoolingState]?.value == 1)
+        // Off is mode 0; Heat turns it on again.
+        try await thermostat[.targetHeatingCoolingState]!.write(.int(0), origin: nil)
+        #expect(environment.server.setValues.last?["value"] == 0)
+        try await thermostat[.targetHeatingCoolingState]!.write(.int(1), origin: nil)
+        #expect(environment.server.setValues.last?["valueId"] == ["commandClass": 64, "endpoint": 0, "property": "mode"])
+        #expect(environment.server.setValues.last?["value"] == 1)
+        await host.stop()
+    }
+
     @Test func aRefusedWriteIsACommunicationFailure() async throws {
         let host = try await started()
         environment.server.set(setValueStatus: 2)
