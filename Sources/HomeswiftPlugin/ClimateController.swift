@@ -557,7 +557,9 @@ public final class ClimateController: Sendable {
                 command.target = rounded(Self.middle(range.0, range.1), in: capabilities.targetRange)
                 newBand = (min(range.0, range.1), max(range.0, range.1))
             } else if let value = target ?? (mode == .cool ? high ?? low : low ?? high) {
-                command.target = value
+                // In heat or cool, the target stays in that mode's range: the thresholds take both.
+                command.target = mode == .heat ? rounded(value, in: capabilities.heatingRange)
+                    : mode == .cool ? rounded(value, in: capabilities.coolingRange) : value
             }
         case .range:
             if mode == .auto, low != nil || high != nil {

@@ -258,6 +258,14 @@ struct ClimateControllerTests {
         #expect(unit.sent == [ClimateCommand(heating: 30)])
     }
 
+    @Test func aSingleTargetStaysInItsModesRange() async throws {
+        let unit = Unit()
+        let climate = unit.controller(.heaterCooler, ClimateCapabilities(modes: [.heat, .cool], heatingRange: 16...28, coolingRange: 18...32))
+        climate.update(ClimateReport(power: true, mode: .heat, current: 20, target: 22))
+        try await climate.service.characteristic(.heatingThresholdTemperature).write(.double(31))
+        #expect(unit.sent == [ClimateCommand(target: 28)])
+    }
+
     @Test func aWriteOfTheModeTheDeviceHasSendsNothing() async throws {
         let unit = Unit()
         let climate = unit.controller(.heaterCooler, Self.airConditioner)
