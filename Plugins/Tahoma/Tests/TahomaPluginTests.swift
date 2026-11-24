@@ -192,6 +192,47 @@ struct TahomaPluginTests {
         await host.stop()
     }
 
+    @Test func thermostatsAreMappedByTheClimateController() async throws {
+        let radiatorURL = "io://1234-5678-9012/400", heatPumpURL = "io://1234-5678-9012/401"
+        let server = FakeOverkiz(devices: [
+            FakeOverkiz.device(
+                radiatorURL, label: "Radiator", uiClass: "HeatingSystem", widget: "AtlanticElectricalHeater", commands: ["setHeatingLevel"],
+                states: [("io:TargetHeatingLevelState", 3, "comfort")]),
+            FakeOverkiz.device(
+                heatPumpURL, label: "Heat pump", uiClass: "HitachiHeatingSystem", widget: "HitachiAirToAirHeatPump", commands: ["globalControl"],
+                states: [("ovp:MainOperationState", 3, "on"), ("ovp:ModeChangeState", 3, "heating"), ("core:TargetTemperatureState", 2, 21),
+                         ("ovp:RoomTemperatureState", 2, 19)]),
+        ])
+        let environment = TestEnvironment(server: server)
+        let host = try await environment.start()
+        #expect(await eventually { host.accessory(heatPumpURL) != nil })
+
+        // A pilot wire heater's target snaps to a level, shown with the level's mode.
+        let radiator = try #require(host.accessory(radiatorURL)?.service(.thermostat))
+        #expect(radiator.characteristic(.targetHeatingCoolingState).value == .int(HAP.heat))
+        #expect(radiator.characteristic(.targetTemperature).value.doubleValue == 19)
+        try await radiator.characteristic(.targetTemperature).writeFromHomeKit(.double(16))
+        #expect(server.applies.last?.body?["actions"]?[0]?["commands"] == [["type": 1, "name": "setHeatingLevel", "parameters": ["eco"]]])
+        #expect(await eventually {
+            radiator.characteristic(.targetTemperature).value.doubleValue == 17 && radiator.characteristic(.targetHeatingCoolingState).value == .int(HAP.cool)
+        })
+        try await radiator.characteristic(.targetHeatingCoolingState).writeFromHomeKit(.int(HAP.off))
+        #expect(server.applies.last?.body?["actions"]?[0]?["commands"] == [["type": 1, "name": "setHeatingLevel", "parameters": ["off"]]])
+        #expect(radiator.characteristic(.targetHeatingCoolingState).value == .int(HAP.off))
+
+        // A Hitachi heat pump sends a mode and a target written together as one globalControl.
+        let heatPump = try #require(host.accessory(heatPumpURL)?.service(.thermostat))
+        #expect(heatPump.characteristic(.targetHeatingCoolingState).value == .int(HAP.heat))
+        #expect(heatPump.characteristic(.currentHeatingCoolingState).value == .int(HAP.heat))
+        let applies = server.applies.count
+        await writeInOrder([(heatPump.characteristic(.targetHeatingCoolingState), .int(HAP.cool)),
+                            (heatPump.characteristic(.targetTemperature), .double(24))], spacing: .milliseconds(1))
+        #expect(await eventually { server.applies.count == applies + 1 })
+        #expect(server.applies.last?.body?["actions"]?[0]?["commands"]
+            == [["type": 1, "name": "globalControl", "parameters": ["on", 24, "auto", "cooling", "manu"]]])
+        await host.stop()
+    }
+
     @Test func exclusionsAndUnsupportedDevicesAreLeftOut() async throws {
         let server = FakeOverkiz(devices: .array((FakeOverkiz.setupExcerpt.arrayValue ?? []) + [
             FakeOverkiz.device("internal://1234-5678-9012/pod/0", label: "Box", uiClass: "Pod", widget: "Pod"),
