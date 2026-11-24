@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Every thermostat and air conditioner is mapped to Apple Home the same way, by one `ClimateController`
+  (docs/adr/0013-climate-is-mapped-once.md): a unit in auto stays Auto, a mode Apple Home has no name for (dry, fan
+  only, eco) keeps the mode shown and an idle state rather than passing for Auto, Cool or Heat, a Heater Cooler's mode
+  never turns it on, a temperature set while a unit is off is sent, or kept for its next turn-on when it refuses one
+  then, and a unit with one target shows a range around it in auto (2 °C wide), the range written while its middle is
+  still the target. The Home app's writes of one change reach the device as one command, one command at a time, and a
+  failed one puts the tile back as the device last said. Plugin authors: CONTRIBUTING.md and docs/plugins.md.
+
+### Fixed
+
+- LG ThinQ: an air conditioner in auto shows as Auto, where it showed Heat or Cool by its room's temperature, with its
+  range around the target; a temperature set while it is off goes out when it is turned on (it was dropped), and a mode
+  button switched off goes back to the unit's last mode, chosen in Apple Home or on the unit.
+
 ## [0.37.2] - 2026-11-16
 
 ### Fixed
