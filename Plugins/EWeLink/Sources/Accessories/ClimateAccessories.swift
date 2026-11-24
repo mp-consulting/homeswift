@@ -87,87 +87,65 @@ final class FanAccessory: BaseAccessory {
 }
 
 /// A thermostat (UIID 127): off or heat, a target of 5-45 °C in half degrees, the current temperature with
-/// `tempOffset`; shares its temperature with heater and cooler simulations.
+/// `tempOffset`; shares its temperature with heater and cooler simulations. Its Thermostat is a `ClimateController`.
 final class ThermostatAccessory: BaseAccessory {
     let tempOffset: Double
     private var cacheTemp = DeviceLimits.defaultTemperature
+    private var climate: ClimateController!
 
     override init(platform: EWeLinkPlatform, record: AccessoryRecord, box: DeviceBox) {
         tempOffset = platform.configuration.thermostat(record.deviceID)?.tempOffset ?? 0
         super.init(platform: platform, record: record, box: box)
         category = .thermostat
-        service = addService(
-            .thermostat,
-            optional: [
-                CharacteristicType.currentTemperature.with(minStep: 0.1),
-                CharacteristicType.targetHeatingCoolingState.with(minValue: 0, maxValue: 1, validValues: [0, 1]),
-            ],
-            // An extra, so the target starts at the new minimum until the device reports one.
-            extra: [
-                Characteristic(
-                    .targetTemperature.with(
-                        minValue: DeviceLimits.thermostatTemperature.lowerBound, maxValue: DeviceLimits.thermostatTemperature.upperBound,
-                        minStep: DeviceLimits.thermostatStep))
-            ],
-            primary: true)
+        let capabilities = ClimateCapabilities(modes: [.heat], range: DeviceLimits.thermostatTemperature, step: DeviceLimits.thermostatStep)
+        climate = ClimateController(.thermostat, isPrimary: true, capabilities: capabilities,
+                                    optional: [CharacteristicType.currentTemperature.with(minStep: 0.1)]) { [weak self] command in
+            try await self?.applyClimate(command)
+        }
+        service = addService(climate)
         onRead(service.characteristic(.currentTemperature), "CurrentTemperature") { [weak self] in
             guard let self else { return nil }
-            var temperature = DeviceValueParser.temperature(self.deviceParams, default: self.cacheTemp)
-            if self.tempOffset != 0 { temperature += self.tempOffset }
-            self.cacheTemp = temperature
-            return .double(clamp(temperature, DeviceLimits.temperature))
+            return .double(self.readTemperature())
         }
-        onWrite(service.characteristic(.targetHeatingCoolingState)) { [weak self] value in try await self?.setHeatingState(value) }
-        onWrite(service.characteristic(.targetTemperature)) { [weak self] value in try await self?.setTargetTemperature(value) }
         applyInitialState()
     }
 
-    private func setHeatingState(_ value: HAPValue) async throws {
-        try await handleSet("TargetHeatingCoolingState", value) {
-            let state = value.intValue == 1 ? "on" : "off"
-            // TH10/16 need deviceType and mainSwitch.
-            let success = await sendCommand(["switch": .string(state), "mainSwitch": .string(state), "deviceType": "normal"])
-            if success { logInfo("Set heating state: \(state)") }
-            return success
-        }
+    /// The room's temperature with `tempOffset`, the last one while the device does not say.
+    private func readTemperature() -> Double {
+        cacheTemp = DeviceValueParser.temperature(deviceParams, default: cacheTemp)
+        return clamp(cacheTemp + tempOffset, DeviceLimits.temperature)
     }
 
-    private func setTargetTemperature(_ value: HAPValue) async throws {
-        try await handleSet("TargetTemperature", value) {
-            let target = clamp(value.doubleValue ?? 0, DeviceLimits.thermostatTemperature)
-            let success = await sendCommand(["targetTemp": .number(target), "tempScale": "c"])
-            if success { logInfo("Set target temperature: \(target.jsDescription)°C") }
-            return success
+    /// The device's state for the controller: on when `switch` is, heating while `workState` is 1 (2 is auto).
+    private func climateReport() -> ClimateReport {
+        let params = deviceParams
+        let action = params["workState"].map { $0.jsNumber == 1 ? ClimateAction.heating : .idle }
+        return ClimateReport(power: params["switch"] == "on", mode: .heat, action: action, current: readTemperature(),
+                             target: params["targetTemp"]?.jsParseFloat.map { clamp($0, DeviceLimits.thermostatTemperature) })
+    }
+
+    /// Sends what HomeKit asked: the power (TH10/16 need deviceType and mainSwitch), then the target.
+    private func applyClimate(_ command: ClimateCommand) async throws {
+        if let power = command.power {
+            let state = onOff(power)
+            try await sendCommandOrThrow(["switch": state, "mainSwitch": state, "deviceType": "normal"])
+            logInfo("Set heating state: \(state.jsString ?? "")")
         }
+        if let target = command.target {
+            try await sendCommandOrThrow(["targetTemp": .number(target), "tempScale": "c"])
+            logInfo("Set target temperature: \(target.jsDescription)°C")
+        }
+        climate.update(climateReport())
     }
 
     override func updateState(_ params: DeviceParams) {
         mergeDeviceParams(params)
         if params["temperature"] != nil || params["currentTemperature"] != nil {
-            var temperature = DeviceValueParser.temperature(deviceParams, default: cacheTemp)
-            if tempOffset != 0 { temperature += tempOffset }
-            temperature = clamp(temperature, DeviceLimits.temperature)
-            update(service.characteristic(.currentTemperature), temperature)
+            let temperature = readTemperature()
             logDebug("Current temperature updated: \(temperature.jsDescription)°C")
             platform.setDeviceTemperature(deviceID, temperature)
         }
-        if let target = params["targetTemp"]?.jsParseFloat {
-            let clamped = clamp(target, DeviceLimits.thermostatTemperature)
-            update(service.characteristic(.targetTemperature), clamped)
-            logDebug("Target temperature updated: \(clamped.jsDescription)°C")
-        }
-        if let state = params["switch"] {
-            let value = state == "on" ? 1 : 0
-            update(service.characteristic(.targetHeatingCoolingState), value)
-            update(service.characteristic(.currentHeatingCoolingState), value)
-            logDebug("Heating state updated: \(state.jsString ?? "")")
-        }
-        if let workState = params["workState"] {
-            // 1 heating, 2 auto.
-            let current = workState.jsNumber == 1 ? 1 : 0
-            update(service.characteristic(.currentHeatingCoolingState), current)
-            logDebug("Work state updated: \(workState.jsString ?? "") (current state: \(current))")
-        }
+        climate.update(climateReport())
     }
 }
 
@@ -212,13 +190,13 @@ final class THSensorAccessory: BaseAccessory {
 }
 
 /// Air conditioners (UIID 151) as a HeaterCooler: power, auto/heat/cool, a target of 16-32 °C, the indoor
-/// temperature (with `offset` and `offsetFactor`), and the fan speed in 25 % steps.
+/// temperature (with `offset` and `offsetFactor`), and the fan speed in 25 % steps. The Heater Cooler is a
+/// `ClimateController`; its other modes (dry, fan) are Other Modes.
 final class AirConditionerAccessory: BaseAccessory {
     static let targetRange = 16.0...32.0
-    private var cacheMode = "cool"
-    private var cacheTargetTemp = 24.0
     private var cacheCurrentTemp = 20.0
     private var cacheWindSpeed = DeviceLimits.AirConditionerWind.medium
+    private var climate: ClimateController!
     let tempOffset: Double
     let tempOffsetFactor: Double?
 
@@ -228,33 +206,25 @@ final class AirConditionerAccessory: BaseAccessory {
         tempOffsetFactor = entry?.offsetFactor
         super.init(platform: platform, record: record, box: box)
         category = .airConditioner
-        let range = Self.targetRange
-        service = addService(
-            .heaterCooler,
-            optional: [
-                CharacteristicType.currentTemperature.with(minStep: 0.1),
-                CharacteristicType.targetHeaterCoolerState.with(minValue: 0, maxValue: 2, validValues: [0, 1, 2]),
-                CharacteristicType.coolingThresholdTemperature.with(minValue: range.lowerBound, maxValue: range.upperBound, minStep: 1),
-                CharacteristicType.heatingThresholdTemperature.with(minValue: range.lowerBound, maxValue: range.upperBound, minStep: 1),
-                CharacteristicType.rotationSpeed.with(minValue: 0, maxValue: 100, minStep: 25),
-            ],
-            primary: true)
-        onRead(service.characteristic(.currentTemperature), "CurrentTemperature") { [weak self] in self.map { .double($0.cacheCurrentTemp) } }
-        onRead(service.characteristic(.active), "Active") { [weak self] in self?.service.characteristic(.active).value }
-        onWrite(service.characteristic(.active)) { [weak self] value in try await self?.setActive(value) }
-        onRead(service.characteristic(.targetHeaterCoolerState), "TargetHeaterCoolerState") { [weak self] in self.map { .int(Self.targetState($0.cacheMode)) } }
-        onWrite(service.characteristic(.targetHeaterCoolerState)) { [weak self] value in try await self?.setMode(value) }
-        onReadAlways(service.characteristic(.currentHeaterCoolerState)) { [weak self] in .int(self?.currentStateValue ?? 0) }
-        onRead(service.characteristic(.coolingThresholdTemperature), "TargetTemperature") { [weak self] in self.map { .double($0.cacheTargetTemp) } }
-        onWrite(service.characteristic(.coolingThresholdTemperature)) { [weak self] value in try await self?.setTarget(value, mode: "cool") }
-        onRead(service.characteristic(.heatingThresholdTemperature), "TargetTemperature") { [weak self] in self.map { .double($0.cacheTargetTemp) } }
-        onWrite(service.characteristic(.heatingThresholdTemperature)) { [weak self] value in try await self?.setTarget(value, mode: "heat") }
+        let capabilities = ClimateCapabilities(modes: [.auto, .heat, .cool], range: Self.targetRange, step: 1)
+        climate = ClimateController(
+            .heaterCooler, isPrimary: true, capabilities: capabilities,
+            optional: [CharacteristicType.currentTemperature.with(minStep: 0.1), CharacteristicType.rotationSpeed.with(minValue: 0, maxValue: 100, minStep: 25)]
+        ) { [weak self] command in try await self?.applyClimate(command) }
+        service = addService(climate)
         onRead(service.characteristic(.rotationSpeed), "RotationSpeed") { [weak self] in self.map { .double(Self.rotationSpeed($0.cacheWindSpeed)) } }
         onWrite(service.characteristic(.rotationSpeed)) { [weak self] value in try await self?.setRotationSpeed(value) }
         apply(deviceParams, initial: true)
     }
 
-    static func targetState(_ mode: String) -> Int { mode == "auto" ? 0 : mode == "heat" ? 1 : 2 }
+    static func climateMode(_ mode: String?) -> ClimateMode? {
+        switch mode {
+        case "auto": .auto
+        case "heat": .heat
+        case "cool": .cool
+        default: nil
+        }
+    }
 
     static func rotationSpeed(_ wind: Int) -> Double {
         switch wind {
@@ -265,48 +235,28 @@ final class AirConditionerAccessory: BaseAccessory {
         }
     }
 
-    private var isActive: Bool { service.characteristic(.active).value.intValue == 1 }
-
-    private var currentStateValue: Int {
-        guard isActive else { return 0 }
-        return cacheMode == "heat" ? 2 : cacheMode == "cool" ? 3 : 1
+    /// The unit's state for the controller, the target clamped to the unit's range.
+    private func climateReport() -> ClimateReport {
+        let params = deviceParams
+        return ClimateReport(power: params["power"] == "on", mode: Self.climateMode(params["mode"]?.jsString), current: cacheCurrentTemp,
+                             target: params["temperature"]?.jsNumber.map { clamp($0, Self.targetRange) })
     }
 
-    private func updateCurrentState() { update(service.characteristic(.currentHeaterCoolerState), currentStateValue) }
-
-    private func clampTarget(_ value: JSONValue) -> Double {
-        guard let temperature = value.jsNumber else { return cacheTargetTemp }
-        return clamp(temperature, Self.targetRange)
-    }
-
-    private func setActive(_ value: HAPValue) async throws {
-        let state = value.intValue == 1 ? "on" : "off"
-        guard state != (isActive ? "on" : "off") else { return }
-        logInfo("Setting power state to \(state)")
-        guard await sendCommand(["power": .string(state)]) else { throw communicationError }
-        // HomeKit stores the written value after this returns; the current state follows it.
-        let active = state == "on"
-        let mode = cacheMode
-        update(service.characteristic(.currentHeaterCoolerState), active ? (mode == "heat" ? 2 : mode == "cool" ? 3 : 1) : 0)
-    }
-
-    private func setMode(_ value: HAPValue) async throws {
-        let modes = [0: "auto", 1: "heat", 2: "cool"]
-        guard let mode = value.intValue.flatMap({ modes[$0] }), mode != cacheMode else { return }
-        logInfo("Setting mode to \(mode)")
-        guard await sendCommand(["mode": .string(mode)]) else { throw communicationError }
-        cacheMode = mode
-        updateCurrentState()
-    }
-
-    private func setTarget(_ value: HAPValue, mode: String) async throws {
-        let temperature = value.doubleValue ?? cacheTargetTemp
-        guard cacheMode == mode || cacheMode == "auto", temperature != cacheTargetTemp else { return }
-        logInfo("Setting target temperature to \(temperature.jsDescription)°C")
-        guard await sendCommand(["temperature": .number(temperature)]) else { throw communicationError }
-        cacheTargetTemp = temperature
-        update(service.characteristic(.coolingThresholdTemperature), temperature)
-        update(service.characteristic(.heatingThresholdTemperature), temperature)
+    /// Sends what HomeKit asked, one command after the other: the power, the mode, then the target.
+    private func applyClimate(_ command: ClimateCommand) async throws {
+        if let power = command.power {
+            logInfo("Setting power state to \(power ? "on" : "off")")
+            try await sendCommandOrThrow(["power": onOff(power)])
+        }
+        if let mode = command.mode {
+            logInfo("Setting mode to \(mode.rawValue)")
+            try await sendCommandOrThrow(["mode": .string(mode.rawValue)])
+        }
+        if let target = command.target {
+            logInfo("Setting target temperature to \(target.jsDescription)°C")
+            try await sendCommandOrThrow(["temperature": .number(target)])
+        }
+        climate.update(climateReport())
     }
 
     private func setRotationSpeed(_ value: HAPValue) async throws {
@@ -322,26 +272,13 @@ final class AirConditionerAccessory: BaseAccessory {
     }
 
     private func apply(_ params: DeviceParams, initial: Bool) {
-        if let power = params["power"] {
-            update(service.characteristic(.active), power == "on" ? 1 : 0)
-            updateCurrentState()
-            if !initial { logDebug("Power state updated to \(power.jsString ?? "")") }
-        }
-        if let mode = params["mode"]?.jsString {
-            cacheMode = mode
-            update(service.characteristic(.targetHeaterCoolerState), Self.targetState(mode))
-            updateCurrentState()
-            if !initial { logDebug("Mode updated to \(mode)") }
-        }
-        if let temperature = params["temperature"] {
-            cacheTargetTemp = clampTarget(temperature)
-            update(service.characteristic(.coolingThresholdTemperature), cacheTargetTemp)
-            update(service.characteristic(.heatingThresholdTemperature), cacheTargetTemp)
-            if !initial { logDebug("Target temperature updated to \(cacheTargetTemp.jsDescription)°C") }
+        if !initial {
+            if let power = params["power"] { logDebug("Power state updated to \(power.jsString ?? "")") }
+            if let mode = params["mode"]?.jsString { logDebug("Mode updated to \(mode)") }
+            if let temperature = params["temperature"]?.jsNumber { logDebug("Target temperature updated to \(temperature.jsDescription)°C") }
         }
         if let indoor = params["indoor_temperature"] {
             cacheCurrentTemp = applyTemperatureOffset(indoor.jsNumber ?? .nan, offset: tempOffset, factor: tempOffsetFactor)
-            update(service.characteristic(.currentTemperature), cacheCurrentTemp)
             if !initial {
                 logDebug("Current temperature updated to \(cacheCurrentTemp.jsDescription)°C")
                 platform.setDeviceTemperature(deviceID, cacheCurrentTemp)
@@ -352,7 +289,7 @@ final class AirConditionerAccessory: BaseAccessory {
             update(service.characteristic(.rotationSpeed), Self.rotationSpeed(cacheWindSpeed))
             if !initial { logDebug("Wind speed updated to \(Self.rotationSpeed(cacheWindSpeed).jsDescription)%") }
         }
-        if initial { updateCurrentState() }
+        climate.update(climateReport())
     }
 
     override func updateState(_ params: DeviceParams) {

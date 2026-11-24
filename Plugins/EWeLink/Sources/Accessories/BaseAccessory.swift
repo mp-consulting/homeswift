@@ -111,6 +111,15 @@ class BaseAccessory {
         return service
     }
 
+    /// Adds a climate controller's service; values start from the previous accessory's until the device reports.
+    @discardableResult
+    func addService(_ controller: ClimateController) -> Service {
+        let service = controller.service
+        if let old = previous?.services.first(where: { $0.type.uuid == service.type.uuid && $0.subtype == service.subtype }) { service.takeValues(from: old) }
+        services.append(service)
+        return service
+    }
+
     /// Reads that throw "No Response" while the device is offline (unless `offlineAsOff`) or the value is unknown.
     func onRead(_ characteristic: Characteristic, _ label: String, _ get: @escaping @EWeLinkActor @Sendable () -> HAPValue?) {
         characteristic.onRead { [weak self] in

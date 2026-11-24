@@ -482,6 +482,67 @@ struct AccessoryTests {
         await host.stop()
     }
 
+    /// Auto stays Auto with its band around the target; dry is an Other Mode that keeps the last mode and target;
+    /// a turn-on and a mode written together go out power first.
+    @Test func airConditionersKeepAutoAndOtherModes() async throws {
+        let host = try await start([device("1000aaaaaa", uiid: 151, params: ["power": "on", "mode": "auto", "temperature": 24, "indoor_temperature": 27])])
+        let service = try #require(environment.accessory(host, "1000aaaaaa")?.service(.heaterCooler))
+        #expect(service[.targetHeaterCoolerState]?.value == 0)
+        #expect(service[.heatingThresholdTemperature]?.value == 23.0 && service[.coolingThresholdTemperature]?.value == 25.0)
+        // The unit does not say what it does: a room above the band is cooling.
+        #expect(service[.currentHeaterCoolerState]?.value == 3)
+        environment.push("1000aaaaaa", ["mode": "dry", "temperature": 26])
+        #expect(await eventually { service[.heatingThresholdTemperature]?.value == 25.0 })
+        #expect(service[.targetHeaterCoolerState]?.value == 0)
+        environment.push("1000aaaaaa", ["power": "off"])
+        #expect(await eventually { service[.active]?.value == 0 })
+        let commands = environment.socket.commands.count
+        async let active: Void = service.characteristic(.active).homeKitWrite(1)
+        async let mode: Void = service.characteristic(.targetHeaterCoolerState).homeKitWrite(2)
+        _ = try await (active, mode)
+        #expect(Array(environment.socket.commands.dropFirst(commands)).filter { $0["uiActive"] == nil } == [["power": "on"], ["mode": "cool"]])
+        await host.stop()
+    }
+
+    /// UIID 127: heat is its power, the target goes out as `targetTemp`, and `workState` says when it heats.
+    @Test func thermostatsTurnOnWithHeat() async throws {
+        let host = try await start([device("1000aaaaaa", uiid: 127, params: ["switch": "off", "targetTemp": 21, "temperature": 18])])
+        let service = try #require(environment.accessory(host, "1000aaaaaa")?.service(.thermostat))
+        #expect(service[.targetHeatingCoolingState]?.type.validValues == [0, 1])
+        #expect(service[.targetHeatingCoolingState]?.value == 0 && service[.targetTemperature]?.value == 21.0)
+        try await service.characteristic(.targetHeatingCoolingState).homeKitWrite(1)
+        #expect(environment.socket.commands.last == ["switch": "on", "mainSwitch": "on", "deviceType": "normal"])
+        try await service.characteristic(.targetTemperature).homeKitWrite(22.5)
+        #expect(environment.socket.commands.last == ["targetTemp": 22.5, "tempScale": "c"])
+        environment.push("1000aaaaaa", ["workState": 1])
+        #expect(await eventually { service[.currentHeatingCoolingState]?.value == 1 })
+        environment.push("1000aaaaaa", ["workState": 2])
+        #expect(await eventually { service[.currentHeatingCoolingState]?.value == 0 })
+        try await service.characteristic(.targetHeatingCoolingState).homeKitWrite(0)
+        #expect(environment.socket.commands.last == ["switch": "off", "mainSwitch": "off", "deviceType": "normal"])
+        await host.stop()
+    }
+
+    /// The TH10/16 thermostat simulation: auto heats under the target; a target written while it runs switches the relay.
+    @Test func thThermostatsRegulateTheRelay() async throws {
+        let host = try await start(
+            [device("1000aaaaaa", uiid: 15, params: ["switch": "off", "currentTemperature": 18, "currentHumidity": 40])],
+            ["thDevices": [["deviceId": "1000aaaaaa", "showAs": "thermostat"]]])
+        let service = try #require(environment.accessory(host, "1000aaaaaa")?.service(.thermostat))
+        #expect(service[.targetHeatingCoolingState]?.type.validValues == [0, 3])
+        try await service.characteristic(.targetHeatingCoolingState).homeKitWrite(3)
+        #expect(environment.socket.commands.last == ["deviceType": "normal", "mainSwitch": "on", "switch": "on"])
+        #expect(service[.currentHeatingCoolingState]?.value == 1)
+        try await service.characteristic(.targetTemperature).homeKitWrite(17)
+        #expect(environment.socket.commands.last == ["deviceType": "normal", "mainSwitch": "off", "switch": "off"])
+        #expect(service[.currentHeatingCoolingState]?.value == 0)
+        environment.socket.update { $0.commandError = 500 }
+        // A target the relay could not follow is not kept.
+        await #expect(throws: HAPStatusError(.serviceCommunicationFailure)) { try await service.characteristic(.targetTemperature).homeKitWrite(25) }
+        #expect(service[.targetTemperature]?.value == 17.0)
+        await host.stop()
+    }
+
     @Test func curtainsMoveAndRevertWhenACommandFails() async throws {
         let host = try await start([device("1000aaaaaa", uiid: 11, params: ["setclose": 100])])
         let covering = try #require(environment.accessory(host, "1000aaaaaa")?.service(.windowCovering))

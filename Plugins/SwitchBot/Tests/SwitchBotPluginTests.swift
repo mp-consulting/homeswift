@@ -256,6 +256,31 @@ extension SwitchBotPluginTests {
         }
     }
 
+    /// The IR air conditioner through ClimateController: a turn-on goes alone, a mode and target go as one `setAll`, auto
+    /// stays Auto with its range around the target, and the meter gives the room.
+    @Test func anIRAirConditionerSendsWhatHomeKitAsks() async throws {
+        let sent = SentCommands()
+        let info = DeviceInfo(id: "02-1", deviceID: "02-1-Air Conditioner", type: "Air Conditioner", name: "AC", options: DeviceOptions(), isRemote: true, firmware: "1")
+        let remote = RemoteAccessory(info: info, family: .airConditioner, link: DeviceLink { sent.append($0); return true }, settle: .milliseconds(10),
+                                     meterTemperature: { 27 }, logger: testLogger)
+        let service = remote.primary
+        #expect(service[.targetHeaterCoolerState]?.type.validValues == [0, 1, 2])
+        #expect(service[.active]?.value == .int(0) && service[.currentTemperature]?.value.near(27) == true)
+        try await service.characteristic(.active).write(.int(1))
+        #expect(sent.all == [Command(command: "turnOn")])
+        async let mode: Void = service.characteristic(.targetHeaterCoolerState).write(.int(0))
+        async let low: Void = service.characteristic(.heatingThresholdTemperature).write(.double(21))
+        async let high: Void = service.characteristic(.coolingThresholdTemperature).write(.double(25))
+        _ = try await (mode, low, high)
+        #expect(sent.all.last == Command(command: "setAll", parameter: "25,1,1,on"))
+        #expect(sent.all.count == 2)
+        #expect(service[.targetHeaterCoolerState]?.value == .int(0))
+        #expect(service[.heatingThresholdTemperature]?.value.near(21) == true && service[.coolingThresholdTemperature]?.value.near(25) == true)
+        try await service.characteristic(.targetHeaterCoolerState).write(.int(1))
+        #expect(sent.all.last == Command(command: "setAll", parameter: "23,5,1,on"))
+        #expect(service[.currentHeaterCoolerState]?.value == .int(1))
+    }
+
     @Test func aBotInPressModePressesAndReturnsToOff() async throws {
         let sent = SentCommands()
         let info = DeviceInfo(id: "D1A2B3C4D5E6", deviceID: "D1A2B3C4D5E6-Bot", type: "Bot", name: "Bot", options: DeviceOptions(["mode": "press"]), isRemote: false, firmware: "1")
