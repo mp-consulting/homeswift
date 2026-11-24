@@ -202,8 +202,10 @@ final class Heater1bDevice: Heater1aDevice {
 
     private func codes(_ mode: String) -> [Int: String] { mode == "auto" ? Catalog.heaterH7130TempCodesAuto : Catalog.heaterH7130TempCodesHeat }
 
-    /// The power, then the mode and the target together: one code says both.
+    /// The power, then the mode and the target together: one code says both. A failure after the power was sent puts
+    /// the power kept back, as the controller shows it: the next report of it is then not taken for no change.
     private func apply(_ command: ClimateCommand) async throws {
+        let previousState = cacheState
         do {
             if let power = command.power {
                 let state = power ? "on" : "off"
@@ -223,6 +225,10 @@ final class Heater1bDevice: Heater1aDevice {
             cacheMode = mode
             cacheTarget = target
         } catch {
+            if cacheState != previousState {
+                cacheState = previousState
+                stateChanged(previousState)
+            }
             throw climateFailed(error)
         }
     }
