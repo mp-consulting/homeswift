@@ -181,6 +181,7 @@ class AirConditioner: BaseDevice {
     nonisolated static let energySaveModeModels = ["WINF_056905", "RAC_056905"]
 
     var service: Service!
+    var climate: ClimateController!
     var serviceAirQuality: Service?
     var serviceSensor: Service?
     var serviceHumiditySensor: Service?
@@ -192,8 +193,8 @@ class AirConditioner: BaseDevice {
     var serviceAirClean: Service?
     var serviceLabelButtons: Service?
     var buttonServices: [(service: Service, opMode: Double)] = []
-    /// The last target state HomeKit chose, restored when a button is switched off.
-    var currentTargetState = 2.0
+    /// The last Climate Mode HomeKit chose, restored when a button is switched off.
+    var lastClimateMode = ClimateMode.cool
     private var monitorTask: Task<Void, Never>?
 
     struct ModeSwitch {
@@ -211,8 +212,13 @@ class AirConditioner: BaseDevice {
 
         // Its power as Current Consumption (watts), which the bridge follows as the unit's Meter. Never Total
         // Consumption: the bridge reads that as a kWh counter, and onCurrent is a power that rises and falls.
-        service = addService(.heaterCooler, name: name, optional: heaterCoolerCharacteristics() + [.swingMode],
-            extra: reportsPower ? [Characteristic(EveCharacteristic.currentConsumption)] : [])
+        var extra = [Characteristic(.configuredName, value: .string(name))]
+        if reportsPower { extra.append(Characteristic(EveCharacteristic.currentConsumption)) }
+        climate = ClimateController(.heaterCooler, name: name, subtype: name, capabilities: climateCapabilities(),
+                                    optional: climateCharacteristics() + [.swingMode], extra: extra) { [weak self] command in
+            try await self?.applyClimate(command)
+        }
+        service = append(climate.service)
         for axis in supportedSwingAxes {
             service.characteristic(adding: axis.characteristic).onSet { [weak self] value in
                 try await self?.setSwingAxis(axis, enabled: Normalize.boolean(value))
@@ -264,45 +270,36 @@ class AirConditioner: BaseDevice {
 
     // MARK: Building
 
-    /// The HeaterCooler's target states `ac_mode` allows and the threshold ranges of the model.
-    func heaterCoolerCharacteristics() -> [CharacteristicType] {
-        let status = status
-        let validStates: [String: [Int]] = ["BOTH": [0, 1, 2], "COOLING": [2], "HEATING": [1]]
-        var types: [CharacteristicType] = []
-        if let valid = config.mode("ac_mode").flatMap({ validStates[$0] }) { types.append(CharacteristicType.targetHeaterCoolerState.valid(valid)) }
-        if let heat = status.temperatureRange(status.heatingLimits()) {
-            types.append(temperatureProps(.heatingThresholdTemperature, status: status, range: heat))
-        } else {
-            types.append(.heatingThresholdTemperature)
-        }
-        if let cool = status.temperatureRange(status.coolingLimits()) {
-            types.append(temperatureProps(.coolingThresholdTemperature, status: status, range: cool))
-        } else {
-            types.append(.coolingThresholdTemperature)
-        }
-        types.append(CharacteristicType.rotationSpeed.props(min: 0, max: 100, step: 1))
-        return types
+    /// What the unit can do: the modes `ac_mode` allows, the model's heating and cooling ranges, and setpoints held
+    /// while it is off (LG refuses them then). One target behind both thresholds.
+    func climateCapabilities() -> ClimateCapabilities {
+        let modes: [String: Set<ClimateMode>] = ["BOTH": [.auto, .heat, .cool], "COOLING": [.cool], "HEATING": [.heat]]
+        let heating = climateRange(status.heatingLimits())
+        let cooling = climateRange(status.coolingLimits())
+        return ClimateCapabilities(modes: config.mode("ac_mode").flatMap { modes[$0] } ?? [.auto, .heat, .cool], setpoints: .single,
+                                   heatingRange: heating.range, coolingRange: cooling.range, step: heating.step ?? cooling.step ?? 0.5, whileOff: .holds)
     }
 
-    private func temperatureProps(_ type: CharacteristicType, status: ACStatus, range: ACStatus.Range) -> CharacteristicType {
+    /// A model range in HomeKit's Celsius, within HomeKit's bounds; its step when the model has one.
+    func climateRange(_ limits: (ModelValue?, ModelValue?)) -> (range: ClosedRange<Double>, step: Double?) {
+        let fallback = Self.homeKitTemperatureMin...Self.homeKitTemperatureMax
+        guard let range = status.temperatureRange(limits) else { return (fallback, nil) }
         let low = status.converter.toHomeKit(range.min)
         let high = status.converter.toHomeKit(range.max)
         let minimum = max(Self.homeKitTemperatureMin, low.isNaN || low == 0 ? Self.homeKitTemperatureMin : low)
         let maximum = min(Self.homeKitTemperatureMax, high.isNaN || high == 0 ? Self.homeKitTemperatureMax : high)
-        return type.props(min: minimum, max: maximum, step: range.step.isNaN || range.step == 0 ? 0.01 : range.step)
+        let step = range.step.isNaN || range.step <= 0 || range.step < 0.5 ? nil : range.step
+        return (minimum <= maximum ? minimum...maximum : fallback, step)
+    }
+
+    /// The unit's own characteristics on the Heater Cooler: its fan speed.
+    func climateCharacteristics() -> [CharacteristicType] {
+        [CharacteristicType.rotationSpeed.props(min: 0, max: 100, step: 1)]
     }
 
     func configureHeaterCooler() {
         service.set(.name, device.name)
-        service.characteristic(.active).onSet { [weak self] value in try await self?.setActive(value) }
-        if let mode = config.mode("ac_mode"), ["BOTH", "COOLING", "HEATING"].contains(mode) {
-            service.set(.targetHeaterCoolerState, mode == "HEATING" ? 1 : 2)
-        }
-        service.characteristic(.targetHeaterCoolerState).onSet { [weak self] value in try await self?.setTargetState(value) }
-        let current = status.currentTemperature
-        if !current.isNaN, current != 0 { service.set(.currentTemperature, current) }
-        service.characteristic(.coolingThresholdTemperature).onSet { [weak self] value in try await self?.setTargetTemperature(value) }
-        service.characteristic(.heatingThresholdTemperature).onSet { [weak self] value in try await self?.setTargetTemperature(value) }
+        climate.update(climateReport())
         if !config.flag("ac_fan_control") {
             service.characteristic(.rotationSpeed).onSet { [weak self] value in try await self?.setFanSpeed(value) }
         }
@@ -469,10 +466,7 @@ class AirConditioner: BaseDevice {
 
     override func updateAccessoryCharacteristic(_ device: ThinQDevice) {
         super.updateAccessoryCharacteristic(device)
-        updateAccessoryActiveCharacteristic()
-        updateAccessoryCurrentTemperatureCharacteristic()
-        updateAccessoryStateCharacteristics()
-        updateAccessoryTemperatureCharacteristics()
+        climate.update(climateReport())
         updateAccessoryFanStateCharacteristics()
         updateAccessoryCurrentConsumptionCharacteristic()
         updateAccessoryAirQualityCharacteristic()
@@ -482,43 +476,13 @@ class AirConditioner: BaseDevice {
         for modeSwitch in modeSwitches { updateModeSwitch(modeSwitch) }
     }
 
-    func updateAccessoryActiveCharacteristic() {
-        service.set(.active, status.isPowerOn ? 1 : 0)
-    }
-
-    func updateAccessoryCurrentTemperatureCharacteristic() {
-        service.set(.currentTemperature, status.currentTemperature)
-    }
-
-    /// Current and target states from power and mode; AUTO (or unknown) compares the temperatures.
-    func updateAccessoryStateCharacteristics() {
+    /// The unit's state for the controller: dry, fan, air clean and unknown modes are Other Modes.
+    func climateReport() -> ClimateReport {
         let status = status
-        let setState = { (current: Int, target: Int) in
-            self.service.set(.currentHeaterCoolerState, current)
-            self.service.set(.targetHeaterCoolerState, target)
-        }
-        if !status.isPowerOn {
-            service.set(.currentHeaterCoolerState, 0)
-        } else if status.opMode == ACOpMode.cool {
-            setState(3, 2)
-        } else if status.opMode == ACOpMode.heat {
-            setState(2, 1)
-        } else if let mode = status.opMode, mode == ACOpMode.auto || mode == ACOpMode.undefined {
-            if status.currentTemperature < status.targetTemperature { setState(2, 1) } else { setState(3, 2) }
-        }
-    }
-
-    /// The threshold of the current state takes the target temperature, clamped to its range.
-    func updateAccessoryTemperatureCharacteristics() {
-        let temperature = status.targetTemperature
-        let state = service.value(.currentHeaterCoolerState)?.intValue
-        func update(_ type: CharacteristicType) {
-            guard let characteristic = service[type] else { return }
-            let clamped = max(characteristic.type.minValue ?? Self.homeKitTemperatureMin, min(characteristic.type.maxValue ?? Self.homeKitTemperatureMax, temperature))
-            service.set(type, clamped)
-        }
-        if state == 2 { update(.heatingThresholdTemperature) }
-        if state == 3 { update(.coolingThresholdTemperature) }
+        let modes: [Double: ClimateMode] = [ACOpMode.cool: .cool, ACOpMode.heat: .heat, ACOpMode.auto: .auto]
+        let current = status.currentTemperature, target = status.targetTemperature
+        return ClimateReport(power: status.isPowerOn, mode: status.opMode.flatMap { modes[$0] },
+                             current: current.isNaN || current == 0 ? nil : current, target: target.isNaN ? nil : target)
     }
 
     static func swingKey(_ axis: ClimateSwing) -> String {
@@ -602,51 +566,36 @@ class AirConditioner: BaseDevice {
 
     // MARK: Commands
 
-    /// HomeKit's target state as LG's mode.
-    func setTargetState(_ value: HAPValue) async throws {
-        logger.debug("Set target AC mode = \(value)")
-        guard let target = Normalize.number(value) else { return }
-        currentTargetState = target
-        let modes: [Double: Double] = [0: ACOpMode.auto, 1: ACOpMode.heat, 2: ACOpMode.cool]
-        guard let opMode = modes[target] ?? status.opMode, opMode != status.opMode else { return }
-        guard try await setOpMode(opMode) else { throw Self.communicationFailure() }
-        setSnapshotValues(["airState.opMode": .number(opMode)])
+    /// Sends what HomeKit asked: the power first, as LG takes no setpoint while off, then the mode, then the target.
+    func applyClimate(_ command: ClimateCommand) async throws {
+        if let power = command.power { try await sendPower(power) }
+        if let mode = command.mode {
+            lastClimateMode = mode
+            let opModes: [ClimateMode: Double] = [.auto: ACOpMode.auto, .heat: ACOpMode.heat, .cool: ACOpMode.cool]
+            if let opMode = opModes[mode], opMode != status.opMode {
+                guard try await setOpMode(opMode) else { throw Self.communicationFailure() }
+                setSnapshotValues(["airState.opMode": .number(opMode)])
+            }
+        }
+        if let target = command.target { try await sendTarget(target) }
+        updateAccessoryCharacteristic(device)
     }
 
-    func setActive(_ value: HAPValue) async throws {
-        let isOn = Normalize.boolean(value)
+    func sendPower(_ isOn: Bool) async throws {
         logger.debug("Set power on = \(isOn ? 1 : 0)  current status = \(status.isPowerOn)")
-        if status.isPowerOn == isOn {
-            logger.debug("Power state already matches incoming value; skipping deviceControl.")
-            return
-        }
         try await sendCommand(["dataKey": "airState.operation", "dataValue": .number(isOn ? 1 : 0)], label: "active state", command: "Operation")
         setSnapshotValues(["airState.operation": .number(isOn ? 1 : 0)])
-        updateAccessoryActiveCharacteristic()
     }
 
-    func setTargetTemperature(_ value: HAPValue) async throws {
-        let status = status
-        guard status.isPowerOn else {
-            logger.error("Power is off, cannot set target temperature")
-            return
-        }
-        guard let celsius = Normalize.number(value) else {
-            logger.error("Invalid temperature value: \(value)")
-            return
-        }
+    /// A target in HomeKit's Celsius.
+    func sendTarget(_ celsius: Double) async throws {
         let temperature = status.converter.fromHomeKit(celsius)
         guard !temperature.isNaN else {
             logger.error("Converted temperature is not a valid number: \(temperature)")
             return
         }
-        if temperature == status.targetTemperatureLG {
-            logger.debug("Target temperature is identical to current setting; skipping.")
-            return
-        }
         try await sendCommand(["dataKey": "airState.tempState.target", "dataValue": .number(temperature)], label: "target temperature")
         setSnapshotValues(["airState.tempState.target": .number(temperature)])
-        updateAccessoryTemperatureCharacteristics()
     }
 
     func setFanSpeed(_ value: HAPValue) async throws {
@@ -693,7 +642,7 @@ class AirConditioner: BaseDevice {
         }
     }
 
-    /// On: the button's mode. Off: back to COOL and the target state HomeKit last chose.
+    /// On: the button's mode. Off: back to the Climate Mode HomeKit last chose (cool before it chose one).
     func handleButtonOpMode(_ value: HAPValue, opMode: Double) async throws {
         if Normalize.boolean(value) {
             if status.opMode != opMode {
@@ -701,9 +650,11 @@ class AirConditioner: BaseDevice {
                 setSnapshotValues(["airState.opMode": .number(opMode)])
             }
         } else {
-            guard try await setOpMode(ACOpMode.cool) else { throw Self.communicationFailure() }
-            setSnapshotValues(["airState.opMode": .number(ACOpMode.cool)])
-            try await setTargetState(.double(currentTargetState))
+            let opModes: [ClimateMode: Double] = [.auto: ACOpMode.auto, .heat: ACOpMode.heat, .cool: ACOpMode.cool]
+            let opMode = opModes[lastClimateMode] ?? ACOpMode.cool
+            guard try await setOpMode(opMode) else { throw Self.communicationFailure() }
+            setSnapshotValues(["airState.opMode": .number(opMode)])
+            updateAccessoryCharacteristic(device)
         }
     }
 }

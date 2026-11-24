@@ -360,7 +360,7 @@ public final class ClimateController: Sendable {
         }
     }
 
-    /// What the device does: what it says, else what its mode, setpoints and room make likely (half a degree away).
+    /// What the device does: what it says, else what its mode, setpoints and room make likely (at least half a degree away).
     func action(_ report: ClimateReport, mode: ClimateMode?, low: Double?, high: Double?, target: Double?) -> ClimateAction {
         guard report.power else { return .idle }
         if let action = report.action { return action }
@@ -368,12 +368,12 @@ public final class ClimateController: Sendable {
         let tolerance = 0.5
         switch mode {
         case .heat:
-            return (low ?? target).map { current < $0 - tolerance ? .heating : .idle } ?? .idle
+            return (low ?? target).map { current <= $0 - tolerance ? .heating : .idle } ?? .idle
         case .cool:
-            return (high ?? target).map { current > $0 + tolerance ? .cooling : .idle } ?? .idle
+            return (high ?? target).map { current >= $0 + tolerance ? .cooling : .idle } ?? .idle
         case .auto:
-            if let low, current < low - tolerance { return .heating }
-            if let high, current > high + tolerance { return .cooling }
+            if let low, current <= low - tolerance { return .heating }
+            if let high, current >= high + tolerance { return .cooling }
             return .idle
         }
     }

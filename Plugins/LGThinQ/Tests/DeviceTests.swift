@@ -116,6 +116,25 @@ struct AirConditionerTests {
         #expect(DeviceSettings(type: "AC", block: ["ac_swing_mode": "Horizontal"]).mode("ac_swing_mode") == "HORIZONTAL")
     }
 
+    /// Auto stays Auto with its Auto Band around the target (it showed Heat or Cool before), and a setpoint written while
+    /// the unit is off, which LG refuses then, goes out right after the turn-on.
+    @Test func autoStaysAutoAndSetpointsWaitForTheTurnOn() async throws {
+        let (environment, host, accessory) = try await start()
+        defer { Task { await host.stop() } }
+        let heater = try #require(accessory.service(.heaterCooler))
+        try await heater.characteristic(.targetHeaterCoolerState).write(.int(0))
+        #expect(environment.lg.commands.last?["dataKey"] == "airState.opMode" && environment.lg.commands.last?["dataValue"] == 6)
+        #expect(heater[.targetHeaterCoolerState]?.value == .int(0))
+        #expect(heater.number(.heatingThresholdTemperature) == 25 && heater.number(.coolingThresholdTemperature) == 27)
+        try await heater.characteristic(.active).write(.int(0))
+        let sent = environment.lg.commands.count
+        try await heater.characteristic(.coolingThresholdTemperature).write(.double(29))
+        #expect(environment.lg.commands.count == sent && heater.number(.coolingThresholdTemperature) == 29)
+        try await heater.characteristic(.active).write(.int(1))
+        #expect(environment.lg.commands.suffix(2).map { $0["dataKey"] } == ["airState.operation", "airState.tempState.target"])
+        #expect(environment.lg.commands.last?["dataValue"] == 27)
+    }
+
     @Test func followsMQTTPushes() async throws {
         let (environment, host, accessory) = try await start()
         defer { Task { await host.stop() } }
