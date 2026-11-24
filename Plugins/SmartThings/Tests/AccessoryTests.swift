@@ -50,6 +50,10 @@ struct AccessoryTests {
         #expect(thermostat[.currentHeatingCoolingState]?.value.intValue == 1)
         #expect(thermostat[.temperatureDisplayUnits]?.value.intValue == 1)
 
+        // Heat while in heat sends nothing: Off, then Heat again in the configured mode.
+        try await write(thermostat[.targetHeatingCoolingState], .int(0))
+        let offBody = try #require(environment.cloud.sent("POST", "/v1/devices/\(Fixture.thermostat)/commands").last?.body)
+        #expect(offBody == ["commands": [["component": "main", "capability": "thermostatMode", "command": "setThermostatMode", "arguments": ["off"]]]])
         try await write(thermostat[.targetHeatingCoolingState], .int(1))
         let modeBody = try #require(environment.cloud.sent("POST", "/v1/devices/\(Fixture.thermostat)/commands").last?.body)
         #expect(modeBody == ["commands": [["component": "main", "capability": "thermostatMode", "command": "setThermostatMode", "arguments": ["radiatingfloor"]]]])

@@ -81,11 +81,29 @@ struct AccessoryBuilder {
                               extra: [Characteristic] = [], kind: String? = nil, category: AccessoryCategory? = nil) -> Service {
         let isPrimary = primary == nil && component == "main" && type != .battery
         let service = Service(type, name: name ?? serviceName(component), subtype: "\(component)/\(role)", optional: optional, extra: extra, isPrimary: isPrimary)
+        register(service, kind: kind, category: category)
+        return service
+    }
+
+    /// A Thermostat the shared `ClimateController` builds and maps (docs/adr/0013-climate-is-mapped-once.md), with the
+    /// subtype and name `makeService` gives; `apply` sends a command in SmartThings' words. A drag's writes are gathered
+    /// into one command: a device has 12 requests a minute (section 6.1).
+    mutating func makeClimate(_ component: String, _ role: String, capabilities: ClimateCapabilities, optional: [CharacteristicType] = [],
+                              kind: String, category: AccessoryCategory,
+                              apply: @escaping @Sendable (ClimateCommand) async throws -> Void) -> ClimateController {
+        let climate = ClimateController(.thermostat, name: serviceName(component), subtype: "\(component)/\(role)",
+                                        isPrimary: primary == nil && component == "main", capabilities: capabilities, optional: optional,
+                                        window: env.timing.seconds(0.3), apply: apply)
+        register(climate.service, kind: kind, category: category)
+        return climate
+    }
+
+    private mutating func register(_ service: Service, kind: String?, category: AccessoryCategory?) {
+        let isPrimary = service.isPrimary
         if isPrimary { primary = service }
         services.append(service)
         if let kind, self.kind == nil || isPrimary { self.kind = kind }
         if let category, self.category == .other || isPrimary { self.category = category }
-        return service
     }
 
     mutating func consume(_ component: String, _ capabilities: [String]) {

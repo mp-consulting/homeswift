@@ -35,60 +35,63 @@ struct FanModes: Sendable, Equatable {
 extension AccessoryBuilder {
     // MARK: Air conditioner (7.3.10)
 
-    static func airConditionerState(mode: String) -> Int {
+    /// An `airConditionerMode` as a Climate Mode; dry, wind (fan) and the others are Other Modes (nil).
+    static func climateMode(acMode mode: String) -> ClimateMode? {
         switch mode.lowercased() {
-        case "cool", "dry": 2
-        case "heat": 1
-        case "auto", "aicomfort": 3
-        default: 0
+        case "cool": .cool
+        case "heat": .heat
+        case "auto", "aicomfort": .auto
+        default: nil
         }
     }
 
+    /// The air conditioner's Thermostat is the shared `ClimateController`'s (docs/adr/0013-climate-is-mapped-once.md): one
+    /// cooling setpoint for every mode; a mode is sent with `switch on` in one request, Off is `switch off`.
     mutating func airConditioner(_ component: String, caps: Swift.Set<String>) {
         kind = "airConditioner"
         category = .airConditioner
         let unitNow = status.unit(component, "temperatureMeasurement", "temperature")
         let range = setpointRange(component, "thermostatCoolingSetpoint", "coolingSetpointRange", unit: unitNow, fallback: (16, 30, 1))
-        var valid: [Int] = [0, 1, 2, 3]
         let available = status.strings(component, "airConditionerMode", "availableAcModes") ?? []
-        let modes = available.isEmpty ? (status.strings(component, "airConditionerMode", "supportedAcModes") ?? []) : available
-        if !modes.isEmpty { valid = Swift.Set([0] + modes.map(Self.airConditionerState)).sorted() }
-        let allowed = valid
-        let thermostat = makeService(.thermostat, component, "thermostat", optional: [
-            .currentTemperature.with(minValue: -50, maxValue: 100, minStep: 0.1),
-            .targetTemperature.with(minValue: range.0, maxValue: range.1, minStep: range.2),
-            .targetHeatingCoolingState.with(validValues: valid),
-        ], kind: "airConditioner", category: .airConditioner)
+        let acModes = available.isEmpty ? (status.strings(component, "airConditionerMode", "supportedAcModes") ?? []) : available
+        let found = Swift.Set(acModes.compactMap(Self.climateMode(acMode:)))
+        let modes: Swift.Set<ClimateMode> = acModes.isEmpty ? [.heat, .cool, .auto] : found.isEmpty ? [.cool] : found
+        // The unit's own name for auto (aiComfort on some models).
+        let autoName = acModes.first { $0.lowercased() == "auto" } ?? acModes.first { $0.lowercased() == "aicomfort" } ?? "auto"
+        let writer = writer
+        let box = box
+        @Sendable func unit(_ status: DeviceStatus) -> String? { status.unit(component, "temperatureMeasurement", "temperature") }
+        let capabilities = ClimateCapabilities(modes: modes, range: range.0...range.1, step: range.2)
+        let climate = makeClimate(component, "thermostat", capabilities: capabilities,
+                                  optional: [.currentTemperature.with(minValue: -50, maxValue: 100, minStep: 0.1)],
+                                  kind: "airConditioner", category: .airConditioner) { command in
+            var commands: [DeviceCommand] = []
+            var values: Writer.Set = []
+            if command.power == false {
+                commands.append(DeviceCommand(component, "switch", "off"))
+                values.append((component, "switch", "switch", "off"))
+            } else if command.power == true || command.mode != nil {
+                let name = command.mode.map { $0 == .heat ? "heat" : $0 == .cool ? "cool" : autoName }
+                    ?? box.status.string(component, "airConditionerMode", "airConditionerMode") ?? "cool"
+                commands += [DeviceCommand(component, "switch", "on"), DeviceCommand(component, "airConditionerMode", "setAirConditionerMode", [.string(name)])]
+                values += [(component, "switch", "switch", "on"), (component, "airConditionerMode", "airConditionerMode", .string(name))]
+            }
+            if let target = command.target {
+                let status = box.status
+                let setpoint = Convert.deviceTemperature(target, unit: status.unit(component, "thermostatCoolingSetpoint", "coolingSetpoint") ?? unit(status))
+                commands.append(DeviceCommand(component, "thermostatCoolingSetpoint", "setCoolingSetpoint", [setpoint]))
+                values.append((component, "thermostatCoolingSetpoint", "coolingSetpoint", setpoint))
+            }
+            guard !commands.isEmpty else { return }
+            try await writer.send(commands, set: values)
+        }
+        let thermostat = climate.service
         let fanList = status.strings(component, "airConditionerFanMode", "availableAcFanModes").flatMap { $0.isEmpty ? nil : $0 }
             ?? status.strings(component, "airConditionerFanMode", "supportedAcFanModes").flatMap { $0.isEmpty ? nil : $0 }
             ?? ["auto", "low", "medium", "high", "turbo"]
         let fanModes = FanModes(fanList, autoNames: ["auto"], ranks: FanModes.airConditionerRanks)
         let swing = caps.contains("fanOscillationMode")
         let fan = makeService(.fanv2, component, "fan", name: serviceName(component, "Fan"), optional: [.rotationSpeed] + (swing ? [.swingMode] : []))
-        let writer = writer
-        let box = box
-        @Sendable func unit(_ status: DeviceStatus) -> String? { status.unit(component, "temperatureMeasurement", "temperature") }
-        @Sendable func target(_ status: DeviceStatus) -> Int {
-            guard status.string(component, "switch", "switch") != "off" else { return 0 }
-            return status.string(component, "airConditionerMode", "airConditionerMode").map(Self.airConditionerState) ?? 0
-        }
-        @Sendable func turnOn(mode: String) async throws {
-            try await writer.send([DeviceCommand(component, "switch", "on"), DeviceCommand(component, "airConditionerMode", "setAirConditionerMode", [.string(mode)])],
-                                  set: [(component, "switch", "switch", "on"), (component, "airConditionerMode", "airConditionerMode", .string(mode))])
-        }
-        thermostat.characteristic(.targetHeatingCoolingState).onWrite { value in
-            let state = value.intValue ?? 0
-            if state == 0 {
-                try await writer.send([DeviceCommand(component, "switch", "off")], set: [(component, "switch", "switch", "off")])
-                return
-            }
-            try await turnOn(mode: state == 1 ? "heat" : state == 2 ? "cool" : "auto")
-        }
-        onSlide(thermostat, .targetTemperature) { value in
-            let setpoint = Convert.deviceTemperature(value.doubleValue ?? 24, unit: box.status.unit(component, "thermostatCoolingSetpoint", "coolingSetpoint") ?? unit(box.status))
-            try await writer.send([DeviceCommand(component, "thermostatCoolingSetpoint", "setCoolingSetpoint", [setpoint])],
-                                  set: [(component, "thermostatCoolingSetpoint", "coolingSetpoint", setpoint)])
-        }
         thermostat.characteristic(.temperatureDisplayUnits).onWrite { _ in }
         // HomeKit sends Active 0 with a speed of 0: that off is ignored for 1.5 s (section 7.3.10).
         let zeroSpeedAt = NIOLockedValueBox<Date?>(nil)
@@ -96,8 +99,11 @@ extension AccessoryBuilder {
         let window = env.timing.timeInterval(1.5)
         fan.characteristic(.active).onWrite { value in
             if value.intValue == 1 {
-                let state = target(box.status)
-                try await turnOn(mode: state == 1 ? "heat" : state == 2 ? "cool" : state == 3 ? "auto" : "wind")
+                // The fan turns the unit on in its mode, or in wind (fan only) when it was off.
+                let status = box.status
+                let mode = status.string(component, "switch", "switch") == "off" ? "wind" : status.string(component, "airConditionerMode", "airConditionerMode") ?? "wind"
+                try await writer.send([DeviceCommand(component, "switch", "on"), DeviceCommand(component, "airConditionerMode", "setAirConditionerMode", [.string(mode)])],
+                                      set: [(component, "switch", "switch", "on"), (component, "airConditionerMode", "airConditionerMode", .string(mode))])
             } else {
                 let recent = zeroSpeedAt.withLockedValue { $0.map { now().timeIntervalSince($0) < window } ?? false }
                 let auto = box.status.string(component, "airConditionerFanMode", "fanMode") == fanModes.auto && fanModes.auto != nil
@@ -132,20 +138,12 @@ extension AccessoryBuilder {
         update { status in
             let temperatureUnit = unit(status)
             let current = status.number(component, "temperatureMeasurement", "temperature").map { Convert.celsius($0, unit: temperatureUnit) }
-            thermostat.set(.currentTemperature, current.map { .double($0) })
             let setpoint = status.number(component, "thermostatCoolingSetpoint", "coolingSetpoint").map {
                 Convert.celsius($0, unit: status.unit(component, "thermostatCoolingSetpoint", "coolingSetpoint") ?? temperatureUnit)
             }
-            thermostat.set(.targetTemperature, setpoint.map { .double($0) })
-            let state = target(status)
-            if allowed.contains(state) { thermostat.set(.targetHeatingCoolingState, .int(state)) }
-            let currentState: Int = switch state {
-            case 0: 0
-            case 2: 2
-            case 1: 1
-            default: (current ?? 0) > (setpoint ?? 0) ? 2 : 1
-            }
-            thermostat.set(.currentHeatingCoolingState, .int(currentState))
+            var mode = status.string(component, "airConditionerMode", "airConditionerMode").flatMap(Self.climateMode(acMode:))
+            if let known = mode, !modes.contains(known) { mode = nil }
+            climate.update(ClimateReport(power: status.string(component, "switch", "switch") != "off", mode: mode, current: current, target: setpoint))
             thermostat.set(.temperatureDisplayUnits, .int(temperatureUnit?.uppercased() == "F" ? 1 : 0))
             fan.set(.active, status.string(component, "switch", "switch").map { .int($0 == "on" ? 1 : 0) })
             if let mode = status.string(component, "airConditionerFanMode", "fanMode"), let speed = fanModes.speed(of: mode) { fan.set(.rotationSpeed, .int(speed)) }
