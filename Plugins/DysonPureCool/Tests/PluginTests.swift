@@ -152,6 +152,29 @@ struct PluginTests {
         #expect(environment.dyson.commands.last == ["hmod": "HEAT", "fpwr": "ON", "auto": "OFF", "fnsp": "0004"])
     }
 
+    /// ADR 0013: a temperature set while heating is off is sent and does not switch it on; Heat on the Thermostat does,
+    /// and both services follow the one device.
+    @Test func heatingWhileOff() async throws {
+        var state = FakeStates.hp04
+        state["hmod"] = "OFF"
+        let environment = DysonTestEnvironment(productState: state)
+        let host = try await environment.start(settings: ["devices": [deviceBlock("527", extra: ["heatingServiceType": "both"])]])
+        defer { Task { await host.stop() } }
+        let accessory = try accessory(host)
+        let thermostat = try #require(accessory.service(.thermostat))
+        let heater = try #require(accessory.service(.heaterCooler))
+        #expect(await eventually { thermostat[.targetTemperature]?.value == .double(22) })
+        #expect(thermostat[.targetHeatingCoolingState]?.value == .int(0) && thermostat[.currentHeatingCoolingState]?.value == .int(0))
+        #expect(heater[.active]?.value == .int(0) && heater[.currentHeaterCoolerState]?.value == .int(0))
+        environment.dyson.clearPublished()
+        try await heater.characteristic(.heatingThresholdTemperature).write(.double(25))
+        #expect(environment.dyson.commands == [["hmax": "2982"]])
+        try await thermostat.characteristic(.targetHeatingCoolingState).write(.int(1))
+        #expect(environment.dyson.commands == [["hmax": "2982"], ["hmod": "HEAT"]])
+        #expect(await eventually { heater[.active]?.value == .int(1) && thermostat[.targetTemperature]?.value == .double(25) })
+        #expect(thermostat[.targetHeatingCoolingState]?.value == .int(1))
+    }
+
     @Test func heatingServiceChoices() async throws {
         let thermostatOnly = DysonTestEnvironment(productState: FakeStates.hp04)
         var host = try await thermostatOnly.start(settings: ["devices": [deviceBlock("527")]])
@@ -349,12 +372,15 @@ struct PluginTests {
         state.hepaFilterLife = 8
         state.carbonFilterLife = 50
         #expect(DysonAccessory.filterLife(state) == 8)
-        state.isOn = true
+        // Heating with the fan off is idle; `hsta` says what the heater does.
         state.heatingEnabled = true
-        #expect(DysonAccessory.heaterCoolerState(state) == 2)
-        state.temperature = 2951
+        #expect(DysonAccessory.climateReport(state, heaterCooler: true) == ClimateReport(power: false, mode: .heat, action: .idle))
+        #expect(DysonAccessory.climateReport(state, heaterCooler: false).power)
+        state.isOn = true
+        #expect(DysonAccessory.climateReport(state, heaterCooler: true).action == nil)
+        state.heatingActive = true
         state.targetTemperature = 2951
-        #expect(DysonAccessory.heaterCoolerState(state) == 1)
+        #expect(DysonAccessory.climateReport(state, heaterCooler: true) == ClimateReport(power: true, mode: .heat, action: .heating, target: 22))
     }
 }
 

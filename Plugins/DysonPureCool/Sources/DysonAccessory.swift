@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftPlugin
 import Logging
 import NIOConcurrencyHelpers
 
@@ -14,7 +15,9 @@ import NIOConcurrencyHelpers
 final class DysonAccessory: @unchecked Sendable {
     static let speedDebounce: Duration = .milliseconds(300)
     static let filterChangeThreshold = 10
-    static let heatingTolerance = 0.5
+    /// The heater cooler's target range; the thermostat's is the device's, 1-37 °C.
+    static let heaterCoolerRange = 10.0...38.0
+    static let thermostatRange = MessageCodec.HeatingTemperature.minCelsius...MessageCodec.HeatingTemperature.maxCelsius
 
     let accessory: Accessory
     let device: DysonDevice
@@ -33,6 +36,9 @@ final class DysonAccessory: @unchecked Sendable {
     let jetFocus: Service?
     let thermostat: Service?
     let heaterCooler: Service?
+    /// The Thermostat's and the Heater Cooler's controllers (ADR 0013), each fed the same state.
+    private let thermostatClimate: ClimateController?
+    private let heaterCoolerClimate: ClimateController?
     let humidifier: Service?
 
     /// The last manual speed (1-10): the slider shows it in auto mode, where the device reports none.
@@ -75,26 +81,34 @@ final class DysonAccessory: @unchecked Sendable {
         filter = (features.hepaFilter || features.carbonFilter) && !options.isFilterStatusDisabled
             ? named(.filterMaintenance, "Filter", "filter-maintenance", optional: [.filterLifeLevel]) : nil
 
-        var heaterCooler: Service?
-        var thermostat: Service?
+        // Heating only, one target (`hmax`). The Heater Cooler's power is Active, heating with the fan; the Thermostat's is
+        // heating on or off (`hmod`).
+        var heaterCoolerClimate: ClimateController?
+        var thermostatClimate: ClimateController?
         if features.heating && !options.isHeatingDisabled {
             if options.heatingServiceType != .thermostat {
-                heaterCooler = named(
-                    .heaterCooler, "Heater", "heater-cooler",
-                    extra: [
-                        Characteristic(.targetHeaterCoolerState.with(minValue: 1, maxValue: 1, validValues: [1])), Characteristic(Self.currentTemperature),
-                        Characteristic(.heatingThresholdTemperature.with(minValue: 10, maxValue: 38, minStep: 1), value: .double(20)),
-                    ])
+                heaterCoolerClimate = ClimateController(
+                    .heaterCooler, name: "Heater", subtype: "heater-cooler",
+                    capabilities: ClimateCapabilities(modes: [.heat], range: Self.heaterCoolerRange, step: 1),
+                    extra: [Characteristic(Self.currentTemperature), Characteristic(.configuredName, value: .string("Heater"))]
+                ) { [device, logger, name] command in
+                    try await Self.send(command, to: device, heaterCooler: true, logger: logger, name: name)
+                }
             }
             if options.heatingServiceType != .heaterCooler {
-                thermostat = named(
-                    .thermostat, "Thermostat", "thermostat",
-                    extra: [
-                        Characteristic(.targetHeatingCoolingState.with(validValues: [0, 1])), Characteristic(Self.currentTemperature),
-                        Characteristic(.targetTemperature.with(minValue: MessageCodec.HeatingTemperature.minCelsius, maxValue: MessageCodec.HeatingTemperature.maxCelsius, minStep: 1)),
-                    ])
+                thermostatClimate = ClimateController(
+                    .thermostat, name: "Thermostat", subtype: "thermostat",
+                    capabilities: ClimateCapabilities(modes: [.heat], range: Self.thermostatRange, step: 1),
+                    extra: [Characteristic(Self.currentTemperature), Characteristic(.configuredName, value: .string("Thermostat"))]
+                ) { [device, logger, name] command in
+                    try await Self.send(command, to: device, heaterCooler: false, logger: logger, name: name)
+                }
             }
         }
+        self.heaterCoolerClimate = heaterCoolerClimate
+        self.thermostatClimate = thermostatClimate
+        let heaterCooler = heaterCoolerClimate?.service
+        let thermostat = thermostatClimate?.service
         self.heaterCooler = heaterCooler
         self.thermostat = thermostat
         if features.humidifier && !options.isHumidifierDisabled {
@@ -126,7 +140,6 @@ final class DysonAccessory: @unchecked Sendable {
             firmwareRevision: firmwareVersion?.nonEmpty ?? "1.0.0", category: .airPurifier, services: [purifier] + secondary)
         if let cached { accessory.takeValues(from: cached) }
         thermostat?.characteristic(.temperatureDisplayUnits).value = .int(0)
-        heaterCooler?.characteristic(.targetHeaterCoolerState).value = .int(1)
 
         bind()
         let state = await device.state
@@ -174,24 +187,8 @@ final class DysonAccessory: @unchecked Sendable {
         continuousMonitoring?.characteristic(.on).value = .bool(state.continuousMonitoring ?? true)
         jetFocus?.characteristic(.on).value = .bool(state.frontAirflow ?? false)
 
-        let current = MessageCodec.decodeCelsius(state.temperature)
-        if let thermostat {
-            let heating = state.heatingEnabled == true ? 1 : 0
-            thermostat.characteristic(.currentHeatingCoolingState).value = .int(heating)
-            thermostat.characteristic(.targetHeatingCoolingState).value = .int(heating)
-            if let current { thermostat.characteristic(.currentTemperature).value = .double(current) }
-            if let target = Self.target(state.targetTemperature, in: MessageCodec.HeatingTemperature.minCelsius...MessageCodec.HeatingTemperature.maxCelsius) {
-                thermostat.characteristic(.targetTemperature).value = .double(target)
-            }
-        }
-        if let heaterCooler {
-            heaterCooler.characteristic(.active).value = .int(state.isOn && state.heatingEnabled == true ? 1 : 0)
-            heaterCooler.characteristic(.currentHeaterCoolerState).value = .int(Self.heaterCoolerState(state))
-            if let current { heaterCooler.characteristic(.currentTemperature).value = .double(current) }
-            if let target = Self.target(state.targetTemperature, in: 10...38) {
-                heaterCooler.characteristic(.heatingThresholdTemperature).value = .double(target)
-            }
-        }
+        thermostatClimate?.update(Self.climateReport(state, heaterCooler: false))
+        heaterCoolerClimate?.update(Self.climateReport(state, heaterCooler: true))
         if let humidifier {
             humidifier.characteristic(.active).value = .int(state.humidifierEnabled == true ? 1 : 0)
             humidifier.characteristic(.currentHumidifierDehumidifierState).value = .int(Self.humidifierState(state))
@@ -291,12 +288,30 @@ final class DysonAccessory: @unchecked Sendable {
         return min(max((celsius + 0.5).rounded(.down), range.lowerBound), range.upperBound)
     }
 
-    /// Heating while the room is below the target by more than half a degree, idle otherwise; heating
-    /// without readings.
-    static func heaterCoolerState(_ state: DeviceState) -> Int {
-        guard state.isOn, state.heatingEnabled == true else { return 0 }
-        guard let current = MessageCodec.decodeCelsius(state.temperature), let target = target(state.targetTemperature, in: 10...38) else { return 2 }
-        return current < target - heatingTolerance ? 2 : 1
+    /// The heating as a Climate Report: on is heating on (`hmod`), with the fan for the Heater Cooler; what it does is
+    /// `hsta` when the device says, idle while the fan is off, else the controller's guess from the room and the target.
+    static func climateReport(_ state: DeviceState, heaterCooler: Bool) -> ClimateReport {
+        let heating = state.heatingEnabled == true
+        let action: ClimateAction? = !state.isOn ? .idle : state.heatingActive.map { $0 ? .heating : .idle }
+        return ClimateReport(
+            power: heaterCooler ? state.isOn && heating : heating, mode: .heat, action: action,
+            current: MessageCodec.decodeCelsius(state.temperature),
+            target: target(state.targetTemperature, in: heaterCooler ? heaterCoolerRange : thermostatRange))
+    }
+
+    /// A Climate Command to the device: the power, then the target. The Heater Cooler's Active on starts heating and the
+    /// fan in one command; the Thermostat's Heat turns heating on.
+    static func send(_ command: ClimateCommand, to device: DysonDevice, heaterCooler: Bool, logger: Logger, name: String) async throws {
+        do {
+            if let power = command.power {
+                logger.debug("Set \(heaterCooler ? "Heater Active" : "Heating") -> \(power)")
+                if power && heaterCooler { try await device.startHeating() } else { try await device.setHeating(power) }
+            }
+            if let target = command.target { try await device.setTargetTemperature(target) }
+        } catch {
+            logger.error("Failed to set heating: \(error)", metadata: ["device": "\(name)"])
+            throw HAPStatusError(.serviceCommunicationFailure)
+        }
     }
 
     static func humidifierState(_ state: DeviceState) -> Int {
@@ -378,30 +393,6 @@ final class DysonAccessory: @unchecked Sendable {
             try await run("set jet focus") { try await device.setJetFocus(on) }
         }
 
-        if let thermostat {
-            thermostat.characteristic(.targetHeatingCoolingState).onWrite { value in
-                let heat = value.intValue == 1
-                logger.debug("Set TargetHeatingCoolingState -> \(heat ? "HEAT" : "OFF")")
-                try await run("set heating mode") { try await device.setHeating(heat) }
-            }
-            thermostat.characteristic(.targetTemperature).onWrite { value in
-                let celsius = value.doubleValue ?? MessageCodec.HeatingTemperature.minCelsius
-                try await run("set target temperature") { try await device.setTargetTemperature(celsius) }
-            }
-        }
-        if let heaterCooler {
-            heaterCooler.characteristic(.active).onWrite { value in
-                let active = value.intValue == 1
-                logger.debug("Set Heater Active -> \(active)")
-                try await run("set heater active") {
-                    if active { try await device.startHeating() } else { try await device.setHeating(false) }
-                }
-            }
-            heaterCooler.characteristic(.heatingThresholdTemperature).onWrite { value in
-                let celsius = value.doubleValue ?? 20
-                try await run("set target temperature") { try await device.setTargetTemperature(celsius) }
-            }
-        }
         if let humidifier {
             humidifier.characteristic(.active).onWrite { value in
                 let active = value.intValue == 1

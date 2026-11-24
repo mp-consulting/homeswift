@@ -21,7 +21,7 @@ real device. Reports from someone with Mi Home devices are welcome.
 | Humidifier, dehumidifier | Humidifier-Dehumidifier with its target humidity, Rotation Speed and Water Level; Temperature sensor |
 | Fan | Fan v2 (Active, Rotation Speed, Swing Mode); Temperature and Humidity sensors |
 | Heater | Heater-Cooler in Heat with its target temperature, or a Switch without one |
-| Air conditioner | Heater-Cooler (Auto, Heat, Cool as the device lists them) |
+| Air conditioner | Heater-Cooler (Auto, Heat, Cool as the device lists them; in dry or fan it keeps the mode shown, idle) |
 | Curtain | Window Covering: positions, Position State, Hold Position, Obstruction Detected |
 | Temperature and humidity sensor | Temperature sensor, Humidity sensor, Battery |
 | Robot vacuum | Fan v2 that cleans (on starts a clean, off sends it to the dock), Battery, a Filter Maintenance per filter and brush — the Roborock plugin's shape |
