@@ -477,13 +477,20 @@ final class ThermostatHandler: ServiceHandler, @unchecked Sendable {
         let setpointProperty = setpoint.property ?? "current_heating_setpoint"
         let modeProperty = systemMode?.property
         let units = Characteristic(CharacteristicType.temperatureDisplayUnits.with(minValue: 0, maxValue: 0, validValues: [0]), value: .int(0))
+        // Only a mode system_mode lists is published: one that lists no heat, cool or auto offers Off alone.
+        let listed = Set(systemMode?.valueStrings ?? [])
+        var optional = [ranged(.currentTemperature, localTemperature)]
+        if systemMode != nil, !ClimateMode.allCases.contains(where: { listed.contains($0.rawValue) }) {
+            optional.append(.targetHeatingCoolingState.with(validValues: [0]))
+        }
         climate = ClimateController(.thermostat, name: name, subtype: subtype, capabilities: capabilities,
-                                    optional: [ranged(.currentTemperature, localTemperature)], extra: [units]) { command in
+                                    optional: optional, extra: [units]) { command in
             var partial: [String: JSONValue] = [:]
             if let modeProperty {
                 if command.power == false {
                     partial[modeProperty] = .string("off")
                 } else if let mode = command.mode {
+                    guard listed.contains(mode.rawValue) else { throw HAPStatusError(.invalidValueInRequest) }
                     partial[modeProperty] = .string(mode.rawValue)
                 }
             }
