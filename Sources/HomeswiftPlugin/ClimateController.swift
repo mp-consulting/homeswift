@@ -165,6 +165,8 @@ public final class ClimateController: Sendable {
     private let window: Duration
     private let apply: @Sendable (ClimateCommand) async throws -> Void
     private let state = NIOLockedValueBox(State())
+    /// One command at a time, each built from the device's state after the one before it.
+    private let commands = SerialTasks()
 
     /// What a write asks, gathered until the window closes.
     struct Pending: Equatable {
@@ -291,20 +293,44 @@ public final class ClimateController: Sendable {
 
     /// Shows the device's state. Call it with every state the device reports; held setpoints go out when it turns on.
     public func update(_ report: ClimateReport) {
-        let heldToSend: ClimateCommand? = state.withLockedValue { state in
+        let turnedOnWithHeld = state.withLockedValue { state in
             let wasOff = state.report.map { !$0.power } ?? false
             state.report = report
             if let mode = report.mode { state.shownMode = mode }
             if let band = state.band, report.mode != .auto || !(abs(Self.middle(band.low, band.high) - (report.target ?? .nan)) <= capabilities.step / 2) {
                 state.band = nil
             }
-            guard wasOff, report.power, !state.held.isEmpty else { return nil }
+            return wasOff && report.power && !state.held.isEmpty
+        }
+        show()
+        // Turned on elsewhere (its remote, its app): the setpoints held for it go out now, kept again if that fails.
+        if turnedOnWithHeld {
+            Task { [weak self] in
+                guard let self else { return }
+                try? await commands.run { [self] in
+                    let held = takeHeld()
+                    guard self.report?.power == true, !held.isEmpty else { return restoreHeld(held) }
+                    do { try await send(held) } catch { restoreHeld(held) }
+                }
+                show()
+            }
+        }
+    }
+
+    /// The held setpoints, no longer held: sending them.
+    private func takeHeld() -> ClimateCommand {
+        state.withLockedValue { state in
             defer { state.held = ClimateCommand() }
             return state.held
         }
-        show()
-        if let heldToSend {
-            Task { [weak self] in try? await self?.send(heldToSend) }
+    }
+
+    /// Holds setpoints again after their send failed, under any written since.
+    private func restoreHeld(_ held: ClimateCommand) {
+        state.withLockedValue { state in
+            state.held.target = state.held.target ?? held.target
+            state.held.heating = state.held.heating ?? held.heating
+            state.held.cooling = state.held.cooling ?? held.cooling
         }
     }
 
@@ -408,45 +434,51 @@ public final class ClimateController: Sendable {
     }
 
     private func flush() async throws {
-        let (pending, report, shownMode, band) = state.withLockedValue { state in
+        let pending = state.withLockedValue { state in
             defer {
                 state.pending = Pending()
                 state.batch = nil
             }
-            return (state.pending, state.report, state.shownMode ?? .heat, state.band)
+            return state.pending
         }
+        try await commands.run { [self] in try await process(pending) }
+    }
+
+    /// Builds the command a moment's writes make from the device's state now, and sends it.
+    private func process(_ pending: Pending) async throws {
+        let (report, shownMode, band) = state.withLockedValue { ($0.report, $0.shownMode ?? .heat, $0.band) }
         let (command, newBand) = command(for: pending, report: report, shownMode: shownMode, band: band)
         var toSend = command
-        let holds = state.withLockedValue { state -> Bool in
-            if let newBand { state.band = newBand }
-            let isOff = !(command.power ?? report?.power ?? true)
-            if capabilities.whileOff == .holds, isOff, command.hasSetpoints {
-                state.held.target = command.target ?? state.held.target
-                state.held.heating = command.heating ?? state.held.heating
-                state.held.cooling = command.cooling ?? state.held.cooling
-                return true
-            }
-            if command.power == true, !state.held.isEmpty {
-                toSend.target = toSend.target ?? state.held.target
-                toSend.heating = toSend.heating ?? state.held.heating
-                toSend.cooling = toSend.cooling ?? state.held.cooling
-                state.held = ClimateCommand()
-            }
-            return false
-        }
+        let isOff = !(command.power ?? report?.power ?? true)
+        let holds = capabilities.whileOff == .holds && isOff && command.hasSetpoints
+        var taken = ClimateCommand()
         if holds {
             toSend.target = nil
             toSend.heating = nil
             toSend.cooling = nil
+        } else if command.power == true {
+            taken = takeHeld()
+            toSend.target = toSend.target ?? taken.target
+            toSend.heating = toSend.heating ?? taken.heating
+            toSend.cooling = toSend.cooling ?? taken.cooling
         }
         do {
             try await send(toSend)
         } catch {
+            restoreHeld(taken)
             show()
             throw error
         }
-        // The mode Apple Home asked for, sent (or already the device's).
-        if let mode = pending.mode { state.withLockedValue { $0.shownMode = mode } }
+        state.withLockedValue { state in
+            if holds {
+                state.held.target = command.target ?? state.held.target
+                state.held.heating = command.heating ?? state.held.heating
+                state.held.cooling = command.cooling ?? state.held.cooling
+            }
+            if let newBand { state.band = newBand }
+            // The mode Apple Home asked for, sent (or already the device's).
+            if let mode = pending.mode { state.shownMode = mode }
+        }
         show()
     }
 
@@ -482,8 +514,9 @@ public final class ClimateController: Sendable {
                 command.power = true
             }
         }
-        // Compared with the device's mode, not Apple Home's: auto while in dry must still be sent.
-        if let mode = pending.mode, mode != report?.mode || report == nil { command.mode = mode }
+        // Compared with the device's mode, not Apple Home's: auto while in dry must still be sent. A turn-on carries the
+        // mode chosen, whatever the device last said while off.
+        if let mode = pending.mode, mode != report?.mode || report == nil || command.power == true { command.mode = mode }
         let mode = pending.mode ?? shownMode
         let report = report ?? ClimateReport(power: isOn, mode: nil)
         let shown = setpoints(report, mode: mode, band: band)
@@ -515,7 +548,10 @@ public final class ClimateController: Sendable {
                 command.target = value
             }
         case .separate(let autoSetpoint):
-            if let target { if mode == .cool { high = target } else { low = target } }
+            // Each end in its own range: Target Temperature takes both ranges.
+            if let target {
+                if mode == .cool { high = rounded(target, in: capabilities.coolingRange) } else { low = rounded(target, in: capabilities.heatingRange) }
+            }
             command.heating = low
             command.cooling = high
             if autoSetpoint, low != nil || high != nil, let middleLow = low ?? report.heating, let middleHigh = high ?? report.cooling {

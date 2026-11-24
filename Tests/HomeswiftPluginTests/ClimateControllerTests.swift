@@ -12,10 +12,22 @@ struct ClimateControllerTests {
     final class Unit: Sendable {
         let commands = NIOLockedValueBox<[ClimateCommand]>([])
         let failure = NIOLockedValueBox<(any Error)?>(nil)
+        /// How long the device takes to answer: commands overlap with writes that come meanwhile.
+        let delay = NIOLockedValueBox<Duration>(.zero)
+        /// Commands being sent now: never more than one.
+        let inFlight = NIOLockedValueBox(0)
+        let overlapped = NIOLockedValueBox(false)
         var sent: [ClimateCommand] { commands.withLockedValue { $0 } }
 
         func controller(_ kind: ClimateServiceKind, _ capabilities: ClimateCapabilities) -> ClimateController {
             ClimateController(kind, name: "Living room", capabilities: capabilities, window: .milliseconds(5)) { [self] command in
+                inFlight.withLockedValue { count in
+                    count += 1
+                    if count > 1 { overlapped.withLockedValue { $0 = true } }
+                }
+                defer { inFlight.withLockedValue { $0 -= 1 } }
+                let delay = delay.withLockedValue { $0 }
+                if delay > .zero { try await Task.sleep(for: delay) }
                 if let error = failure.withLockedValue({ $0 }) { throw error }
                 commands.withLockedValue { $0.append(command) }
             }
@@ -107,7 +119,8 @@ struct ClimateControllerTests {
         thermostat.update(ClimateReport(power: false, mode: .heat, current: 18, target: 20, heating: 19, cooling: 24))
         #expect(thermostat.service[.targetHeatingCoolingState]?.value == .int(0))
         try await thermostat.service.characteristic(.targetHeatingCoolingState).write(.int(1))
-        #expect(thermostatUnit.sent == [ClimateCommand(power: true)])
+        // The turn-on carries the mode chosen, whatever the device said while off.
+        #expect(thermostatUnit.sent == [ClimateCommand(power: true, mode: .heat)])
         try await thermostat.service.characteristic(.targetHeatingCoolingState).write(.int(0))
         #expect(thermostatUnit.sent.last == ClimateCommand(power: false))
     }
@@ -183,6 +196,49 @@ struct ClimateControllerTests {
         }
         #expect(climate.service[.targetHeaterCoolerState]?.value == .int(2))
         #expect(climate.report?.mode == .cool)
+    }
+
+    /// A write that comes while the device is still answering waits for it, and is built from what it sent.
+    @Test func commandsGoOneAtATime() async throws {
+        let unit = Unit()
+        unit.delay.withLockedValue { $0 = .milliseconds(50) }
+        let climate = unit.controller(.heaterCooler, Self.airConditioner)
+        climate.update(ClimateReport(power: true, mode: .cool, current: 28, target: 24))
+        let first = Task { try await climate.service.characteristic(.coolingThresholdTemperature).write(.double(22)) }
+        #expect(await eventually { unit.inFlight.withLockedValue { $0 } == 1 })
+        try await climate.service.characteristic(.coolingThresholdTemperature).write(.double(26))
+        try await first.value
+        try await climate.service.characteristic(.coolingThresholdTemperature).write(.double(26))
+        #expect(unit.sent == [ClimateCommand(target: 22), ClimateCommand(target: 26)])
+        #expect(!unit.overlapped.withLockedValue { $0 })
+    }
+
+    /// A turn-on that fails keeps the setpoints held for it; a failed range leaves the Auto Band as it was.
+    @Test func aFailureKeepsWhatWasHeldAndTheBand() async throws {
+        let unit = Unit()
+        let capabilities = ClimateCapabilities(modes: [.heat, .cool, .auto], range: 16...30, whileOff: .holds)
+        let climate = unit.controller(.heaterCooler, capabilities)
+        climate.update(ClimateReport(power: false, mode: .auto, current: 20, target: 22))
+        try await climate.service.characteristic(.heatingThresholdTemperature).write(.double(19))
+        unit.failure.withLockedValue { $0 = HAPStatusError(.serviceCommunicationFailure) }
+        await #expect(throws: HAPStatusError.self) { try await climate.service.characteristic(.active).write(.int(1)) }
+        unit.failure.withLockedValue { $0 = nil }
+        try await climate.service.characteristic(.active).write(.int(1))
+        #expect(unit.sent == [ClimateCommand(power: true, target: 21)])
+
+        climate.update(ClimateReport(power: true, mode: .auto, current: 20, target: 22))
+        unit.failure.withLockedValue { $0 = HAPStatusError(.serviceCommunicationFailure) }
+        await #expect(throws: HAPStatusError.self) { try await climate.service.characteristic(.coolingThresholdTemperature).write(.double(28)) }
+        #expect(climate.service[.heatingThresholdTemperature]?.value == .double(21) && climate.service[.coolingThresholdTemperature]?.value == .double(23))
+    }
+
+    @Test func aSeparateTargetStaysInItsModesRange() async throws {
+        let unit = Unit()
+        let climate = unit.controller(.thermostat, ClimateCapabilities(modes: [.heat, .cool], setpoints: .separate(autoSetpoint: false),
+                                                                      heatingRange: 10...30, coolingRange: 18...32))
+        climate.update(ClimateReport(power: true, mode: .heat, current: 20, heating: 21, cooling: 25))
+        try await climate.service.characteristic(.targetTemperature).write(.double(31))
+        #expect(unit.sent == [ClimateCommand(heating: 30)])
     }
 
     @Test func aWriteOfTheModeTheDeviceHasSendsNothing() async throws {

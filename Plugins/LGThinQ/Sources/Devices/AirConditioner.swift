@@ -193,7 +193,7 @@ class AirConditioner: BaseDevice {
     var serviceAirClean: Service?
     var serviceLabelButtons: Service?
     var buttonServices: [(service: Service, opMode: Double)] = []
-    /// The last Climate Mode HomeKit chose, restored when a button is switched off.
+    /// The last Climate Mode the unit was in, restored when a button is switched off.
     var lastClimateMode = ClimateMode.cool
     private var monitorTask: Task<Void, Never>?
 
@@ -466,7 +466,10 @@ class AirConditioner: BaseDevice {
 
     override func updateAccessoryCharacteristic(_ device: ThinQDevice) {
         super.updateAccessoryCharacteristic(device)
-        climate.update(climateReport())
+        let report = climateReport()
+        // The Climate Mode a button switched off goes back to: the last one, chosen here or on the unit.
+        if let mode = report.mode { lastClimateMode = mode }
+        climate.update(report)
         updateAccessoryFanStateCharacteristics()
         updateAccessoryCurrentConsumptionCharacteristic()
         updateAccessoryAirQualityCharacteristic()
@@ -570,7 +573,6 @@ class AirConditioner: BaseDevice {
     func applyClimate(_ command: ClimateCommand) async throws {
         if let power = command.power { try await sendPower(power) }
         if let mode = command.mode {
-            lastClimateMode = mode
             let opModes: [ClimateMode: Double] = [.auto: ACOpMode.auto, .heat: ACOpMode.heat, .cool: ACOpMode.cool]
             if let opMode = opModes[mode], opMode != status.opMode {
                 guard try await setOpMode(opMode) else { throw Self.communicationFailure() }
@@ -642,7 +644,7 @@ class AirConditioner: BaseDevice {
         }
     }
 
-    /// On: the button's mode. Off: back to the Climate Mode HomeKit last chose (cool before it chose one).
+    /// On: the button's mode. Off: back to the last Climate Mode the unit was in (cool before it was in one).
     func handleButtonOpMode(_ value: HAPValue, opMode: Double) async throws {
         if Normalize.boolean(value) {
             if status.opMode != opMode {
