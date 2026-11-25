@@ -28,8 +28,12 @@ struct Mirror {
     /// The accessory's shape (`signature(of:)`): a read of the homes keeps a mirror whose shape did not change.
     let signature: String
 
-    /// nil when nothing of the accessory is usable (only HomeKit's own services).
-    init?(_ source: WingmanAPI.Accessory, write: @escaping @Sendable (_ accessoryID: String, _ characteristicID: String, JSONValue) async throws -> Void) {
+    /// The accessory's id in Homeswift, from its Device Id.
+    static func accessoryID(_ deviceID: String) -> String { "\(WingmanPlugin.platform):\(deviceID)" }
+
+    /// nil when nothing of the accessory is usable (only HomeKit's own services). `deviceID`: the Device Id its accessory
+    /// goes by, its HomeKit id unless Apple Home gave it a new one (AccessoryIDs.swift); writes go by its HomeKit id.
+    init?(_ source: WingmanAPI.Accessory, deviceID: String? = nil, write: @escaping @Sendable (_ accessoryID: String, _ characteristicID: String, JSONValue) async throws -> Void) {
         var services: [Service] = []
         var characteristics: [String: Characteristic] = [:]
         let usable = source.services.filter { !Self.skippedServices.contains(HAPUUID($0.type)) }
@@ -80,9 +84,9 @@ struct Mirror {
             }
         } else { onIdentify = nil }
         // The device's own serial number when HomeKit has one, else its HomeKit id.
-        let serialNumber = source.serialNumber.flatMap { $0.isEmpty ? nil : $0 } ?? source.id
+        let serialNumber = source.serialNumber.flatMap { $0.isEmpty ? nil : $0 } ?? deviceID ?? source.id
         let accessory = Accessory(
-            id: "\(WingmanPlugin.platform):\(source.id)", name: source.name, manufacturer: source.manufacturer ?? Self.source,
+            id: Self.accessoryID(deviceID ?? source.id), name: source.name, manufacturer: source.manufacturer ?? Self.source,
             model: source.model ?? "Accessory", serialNumber: serialNumber, firmwareRevision: source.firmware ?? "1.0.0",
             category: Functions.category(of: (services.first(where: \.isPrimary) ?? services[0]).type), services: services, onIdentify: onIdentify)
         accessory.mirroredFrom = Self.source

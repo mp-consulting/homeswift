@@ -55,6 +55,8 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         var deletedRooms: Set<String> = []
         var zones: [[String: Any]] = [["id": "zone-bas", "name": "Rez-de-chaussée", "roomIDs": ["room-salon", "room-entree"]]]
         var groups: [[String: Any]] = []
+        /// Prefixed to every id of the accessories, their services and characteristics: HomeKit on the Mac re-issued them.
+        var idPrefix = ""
     }
 
     /// A structural edit Wingman took (or refused), with its body.
@@ -69,6 +71,15 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
     var edits: [Edit] { state.withLockedValue { $0.edits } }
     var scenes: [[String: Any]] { state.withLockedValue { $0.scenes } }
     var automations: [[String: Any]] { state.withLockedValue { $0.automations } }
+
+    /// HomeKit on Wingman's Mac gives every accessory, service and characteristic a new id (`v2-light-1`): a "homes" event.
+    func reissueIDs(_ prefix: String = "v2-") {
+        state.withLockedValue { state in
+            state.idPrefix = prefix
+            state.seq += 1
+            state.events.append(["seq": state.seq, "kind": "homes", "home": "Maison"])
+        }
+    }
 
     /// An older Wingman, without the structure endpoints.
     func withoutStructure() { state.withLockedValue { $0.servesStructure = false } }
@@ -275,6 +286,7 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
              $0.servesHomeLink, $0.zones, $0.groups)
         }
         let missingSerials = state.withLockedValue { $0.missingSerials }
+        let prefix = state.withLockedValue { $0.idPrefix }
         var home = Self.home
         let rooms = (Self.rooms + added).filter { !deleted.contains($0.0) }.map { id, name in (id: id, original: name, name: roomNames[id] ?? name) }
         let deletedNames = Set((Self.rooms + added).filter { deleted.contains($0.0) }.map(\.1))
@@ -299,6 +311,19 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
             if let room = rooms.first(where: { $0.original == accessory["room"] as? String }) { accessory["room"] = room.name }
             if let original = accessory["room"] as? String, deletedNames.contains(original) { accessory["room"] = Self.defaultRoom.1 }
             if let room = moved[id] { accessory["room"] = room }
+            if !prefix.isEmpty {
+                accessory["id"] = prefix + id
+                accessory["services"] = (accessory["services"] as? [[String: Any]] ?? []).map { service in
+                    var service = service
+                    if let id = service["id"] as? String { service["id"] = prefix + id }
+                    service["characteristics"] = (service["characteristics"] as? [[String: Any]] ?? []).map { characteristic in
+                        var characteristic = characteristic
+                        if let id = characteristic["id"] as? String { characteristic["id"] = prefix + id }
+                        return characteristic
+                    }
+                    return service
+                }
+            }
             if homeLink {
                 accessory["roomID"] = rooms.first { $0.name == accessory["room"] as? String }?.id ?? NSNull()
                 if accessory["room"] == nil { accessory["room"] = Self.defaultRoom.1 }

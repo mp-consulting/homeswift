@@ -58,6 +58,8 @@ struct Structure: Sendable {
     private(set) var incompleteIdentityReason: String? = nil
     /// The accessories Homeswift mirrors, by HomeKit id.
     var mirrored: Set<String>
+    /// The mirrors' Device Ids where Apple Home gave them new HomeKit ids: Homeswift's ids go by the Device Id.
+    var ids = AccessoryIDs()
     var scenes: [WingmanAPI.Scene] = []
     var automations: [WingmanAPI.Automation] = []
     /// The Buttons of the homes' remotes, by the HomeKit id of their Programmable Switch Event: an automation's trigger
@@ -73,9 +75,10 @@ struct Structure: Sendable {
     /// accessories Homeswift publishes on their own servers (`PluginContext.ownAccessories`).
     /// `bridgeHome` when the caller worked it out already (`bridgeHome(of:bridges:)`).
     init(allowed: Bool, homes: [WingmanAPI.Home], mirrored: Set<String>, bridges: Set<String> = [], bridgeHome: String?? = nil,
-         own: Set<PluginContext.OwnAccessory> = [], homeLink: Bool = false) {
+         own: Set<PluginContext.OwnAccessory> = [], homeLink: Bool = false, ids: AccessoryIDs = AccessoryIDs()) {
         self.allowed = allowed
         self.mirrored = mirrored
+        self.ids = ids
         servesHomeLink = homeLink
         self.homes = homes.compactMap { home in
             home.id.map {
@@ -226,7 +229,7 @@ struct Structure: Sendable {
     /// published (`place`): its Serial Number behind that bridge, or among the accessories on their own. Never a home's
     /// own accessory of the same serial number, such as the light a hub also brings to Apple Home.
     func homeKitID(of accessoryID: String, place: PluginContext.PublishedPlace?) -> String? {
-        if let id = Self.homeKitID(accessoryID), devices[id] != nil { return id }
+        if let id = homeKitID(accessoryID), devices[id] != nil { return id }
         guard let place else { return nil }
         let wanted: Homeswift = place.bridge.map(Homeswift.bridge) ?? .own
         var matches = devices.filter { $0.value.homeswift == wanted && $0.value.serialNumber == place.serialNumber }.map(\.key)
@@ -245,7 +248,7 @@ struct Structure: Sendable {
 
     /// `homeswiftID(of:in:)` with Homeswift's accessories by where they are published, read once for many lookups.
     func homeswiftID(of id: String, in context: PluginContext, index: [PluginContext.PublishedPlace: String]) -> String? {
-        if mirrored.contains(id) { return Self.homeswiftID(id) }
+        if mirrored.contains(id) { return homeswiftID(id) }
         guard let device = devices[id], let serialNumber = device.serialNumber, let homeswift = device.homeswift else { return nil }
         let bridge: String?
         switch homeswift {
@@ -261,11 +264,13 @@ struct Structure: Sendable {
 
     // MARK: Names
 
-    static func homeswiftID(_ accessory: String) -> String { "\(WingmanPlugin.platform):\(accessory)" }
+    /// Homeswift's id of an accessory of the homes by its HomeKit id: `Wingman:` and its Device Id.
+    func homeswiftID(_ accessory: String) -> String { Mirror.accessoryID(ids.deviceID(of: accessory)) }
 
-    static func homeKitID(_ accessoryID: String) -> String? {
+    /// The HomeKit id Wingman knows a `Wingman:` accessory by now.
+    func homeKitID(_ accessoryID: String) -> String? {
         let prefix = "\(WingmanPlugin.platform):"
-        return accessoryID.hasPrefix(prefix) ? String(accessoryID.dropFirst(prefix.count)) : nil
+        return accessoryID.hasPrefix(prefix) ? ids.homeKitID(of: String(accessoryID.dropFirst(prefix.count))) : nil
     }
 
     /// Homeswift's name for a characteristic type, or its UUID when Homeswift does not know it.
@@ -286,7 +291,7 @@ struct Structure: Sendable {
         }
         return PluginScene(
             id: scene.id, name: scene.name, room: rooms.count == 1 ? rooms.first : nil,
-            accessoryIDs: accessories.filter(mirrored.contains).map(Self.homeswiftID), colours: Self.colours(scene.actions),
+            accessoryIDs: accessories.filter(mirrored.contains).map { homeswiftID($0) }, colours: Self.colours(scene.actions),
             capabilities: capabilities)
     }
 
@@ -344,7 +349,7 @@ struct Structure: Sendable {
     func actions(for lights: [PluginSceneLight]) throws -> [WingmanAPI.Action] {
         var actions: [WingmanAPI.Action] = []
         for light in lights {
-            guard let id = Self.homeKitID(light.accessoryID), let device = devices[id] else {
+            guard let id = homeKitID(light.accessoryID), let device = devices[id] else {
                 throw PluginSceneError("\(light.accessoryID) is not an Apple Home accessory")
             }
             func add(_ type: CharacteristicType, _ value: JSONValue) {
@@ -365,7 +370,7 @@ struct Structure: Sendable {
 
     /// The scene's actions with these lights' replaced: its other actions (a plug, a blind) stay.
     func replacingLights(_ lights: [PluginSceneLight], in scene: WingmanAPI.Scene) throws -> [WingmanAPI.Action] {
-        let replaced = Set(lights.compactMap { Self.homeKitID($0.accessoryID) })
+        let replaced = Set(lights.compactMap { homeKitID($0.accessoryID) })
         let lightCharacteristics = Set(replaced.flatMap { id in Self.lightTypes.compactMap { devices[id]?.writable[$0] } })
         let kept = scene.actions.filter { !(replaced.contains($0.accessory) && lightCharacteristics.contains($0.characteristic)) }
         return kept.map(\.sent) + (try actions(for: lights))
@@ -373,7 +378,7 @@ struct Structure: Sendable {
 
     /// The home every one of these lights is in, when they share one.
     func home(of accessoryIDs: [String]) -> Home? {
-        let homes = Set(accessoryIDs.map { Self.homeKitID($0).flatMap { devices[$0]?.home } })
+        let homes = Set(accessoryIDs.map { homeKitID($0).flatMap { devices[$0]?.home } })
         guard homes.count == 1, let id = homes.first ?? nil else { return nil }
         return home(id)
     }
@@ -385,18 +390,18 @@ struct Structure: Sendable {
     func pluginAutomation(_ automation: WingmanAPI.Automation, place: String?, context: PluginContext? = nil) -> PluginAutomation {
         let index = context?.publishedIndex()
         let remoteID = { (accessory: String) in
-            context.flatMap { homeswiftID(of: accessory, in: $0, index: index ?? [:]) } ?? Self.homeswiftID(accessory)
+            context.flatMap { homeswiftID(of: accessory, in: $0, index: index ?? [:]) } ?? homeswiftID(accessory)
         }
         let triggers: [PluginAutomationTrigger] = switch automation.trigger.kind {
         case "time": automation.trigger.time.map { [.time(Self.time($0))] } ?? [.other("time")]
-        default: (automation.trigger.events ?? []).map { press($0, remoteID: remoteID) ?? Self.trigger($0) }
+        default: (automation.trigger.events ?? []).map { press($0, remoteID: remoteID) ?? trigger($0) }
         }
         var mentioned = (automation.trigger.events ?? []).compactMap(\.accessory) + (automation.endEvents ?? []).compactMap(\.accessory)
         mentioned += (automation.conditions ?? []).compactMap(\.accessory) + (automation.actions ?? []).map(\.accessory)
         var names: [String: String] = [:]
         for id in mentioned {
             guard let device = devices[id] else { continue }
-            names[Self.homeswiftID(id)] = device.name
+            names[homeswiftID(id)] = device.name
             names[remoteID(id)] = device.name
         }
         var capabilities: Set<PluginAutomation.Capability> = []
@@ -407,8 +412,8 @@ struct Structure: Sendable {
         }
         return PluginAutomation(
             id: automation.id, name: automation.name, enabled: automation.enabled, place: place, triggers: triggers,
-            endTriggers: (automation.endEvents ?? []).map(Self.trigger), conditions: (automation.conditions ?? []).map(Self.condition),
-            sceneIDs: automation.scenes ?? [], actions: (automation.actions ?? []).map(Self.action), names: names,
+            endTriggers: (automation.endEvents ?? []).map { trigger($0) }, conditions: (automation.conditions ?? []).map { condition($0) },
+            sceneIDs: automation.scenes ?? [], actions: (automation.actions ?? []).map { action($0) }, names: names,
             lastRun: automation.lastFired.flatMap { ISO8601DateFormatter().date(from: $0) }, capabilities: capabilities)
     }
 
@@ -431,39 +436,39 @@ struct Structure: Sendable {
         return .press(accessoryID: remoteID(accessory), button: button.number, press: press)
     }
 
-    static func trigger(_ event: WingmanAPI.TriggerEvent) -> PluginAutomationTrigger {
+    func trigger(_ event: WingmanAPI.TriggerEvent) -> PluginAutomationTrigger {
         switch event.kind {
         case "characteristic", "threshold":
             guard let accessory = event.accessory else { return .other(event.text ?? event.kind) }
-            return .accessory(accessoryID: homeswiftID(accessory), characteristic: characteristicName(event.type), value: event.value,
+            return .accessory(accessoryID: homeswiftID(accessory), characteristic: Self.characteristicName(event.type), value: event.value,
                               minimum: event.min, maximum: event.max)
         case "presence": return .presence(who: event.who ?? "anyone", arriving: event.arriving ?? true)
         case "duration": return event.seconds.map { .duration(seconds: $0) } ?? .other(event.text ?? "duration")
-        case "time": return event.time.map { .time(time($0)) } ?? .other(event.text ?? "time")
+        case "time": return event.time.map { .time(Self.time($0)) } ?? .other(event.text ?? "time")
         default: return .other(event.text ?? event.kind)
         }
     }
 
-    static func condition(_ condition: WingmanAPI.Condition) -> PluginAutomationCondition {
+    func condition(_ condition: WingmanAPI.Condition) -> PluginAutomationCondition {
         switch condition.kind {
-        case "time": return .time(after: condition.after.map(time), before: condition.before.map(time))
+        case "time": return .time(after: condition.after.map(Self.time), before: condition.before.map(Self.time))
         case "characteristic":
             guard let accessory = condition.accessory, let value = condition.value else { return .other(condition.text ?? condition.kind) }
-            return .accessory(accessoryID: homeswiftID(accessory), characteristic: characteristicName(condition.type),
+            return .accessory(accessoryID: homeswiftID(accessory), characteristic: Self.characteristicName(condition.type),
                               comparison: condition.comparison ?? "==", value: value)
         case "presence": return .presence(who: condition.who ?? "anyone", home: condition.home ?? true)
         default: return .other(condition.text ?? condition.kind)
         }
     }
 
-    static func action(_ action: WingmanAPI.Action) -> PluginAutomationAction {
-        PluginAutomationAction(accessoryID: homeswiftID(action.accessory), characteristic: characteristicName(action.type), value: action.value)
+    func action(_ action: WingmanAPI.Action) -> PluginAutomationAction {
+        PluginAutomationAction(accessoryID: homeswiftID(action.accessory), characteristic: Self.characteristicName(action.type), value: action.value)
     }
 
     /// Homeswift's action as Wingman's: the accessory by HomeKit id, the characteristic by its id there, found by type
     /// name or UUID among the accessory's writable ones.
     func resolve(_ action: PluginAutomationAction) throws -> WingmanAPI.Action {
-        guard let id = Self.homeKitID(action.accessoryID), let device = devices[id] else {
+        guard let id = homeKitID(action.accessoryID), let device = devices[id] else {
             throw PluginAutomationError("\(action.accessoryID) is not an Apple Home accessory")
         }
         let match = device.writable.first { type, _ in

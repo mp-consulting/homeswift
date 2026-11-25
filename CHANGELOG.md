@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Govee no longer disables itself when the bridge starts before its network: when neither the LAN nor Govee's cloud
+  answers, it sets up again 30 s later, then later and later up to every 5 minutes. When only the cloud does not answer,
+  the devices on the LAN and Bluetooth run, the account's others keep their accessories (they were removed before), and
+  the whole setup runs again once Govee answers. A login Govee refuses is not tried again (its new-device check emails a
+  code each time), and a LAN-only block whose devices do not answer gives up after 10 setups, about 37 minutes.
+- Wingman: an Apple Home accessory keeps its id in Homeswift when HomeKit on the Wingman Mac gives it a new one (all of
+  them changed once when a Mac moved to another network). It is recognised by its Serial Number, else by its home, room,
+  name and model, so its Automations, Groups and Accessory Settings keep working; it was removed and added as a new
+  accessory before. The Home Link likewise keeps Rooms, Zones and Groups that Apple Home gives new ids. Accessories that
+  changed id before this release are not recovered.
+
 ## [0.37.2] - 2026-11-16
 
 ### Fixed
