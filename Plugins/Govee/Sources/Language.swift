@@ -20,6 +20,10 @@ enum Lang {
     static let bleNoPackage = "required hardware/packages not available"
     static let bleWrongState = "BLE adapter not in correct state"
     static let complete = "✓ Setup complete"
+    // Homeswift's own: the Homebridge plugin disables itself instead of retrying.
+    static let cloudUnreachable = "Govee's cloud cannot be reached: the devices on the LAN and Bluetooth run, the account's others stay as they were until it answers"
+    static let cloudBack = "Govee's cloud answers again, setting up again"
+    static func setupRetry(_ seconds: Int) -> String { "setting up again in \(seconds) seconds" }
     static let curAirQual = "current air quality"
     static let curAmp = "current amperage"
     static let curBatt = "current battery"

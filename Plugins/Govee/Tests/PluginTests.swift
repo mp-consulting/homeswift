@@ -26,6 +26,8 @@ final class GoveeEnvironment: @unchecked Sendable {
     var homebridgeStorage: URL?
     /// How long a LAN scan waits after the last reply.
     var lanScanSettleTime: Duration = .milliseconds(50)
+    /// Between two setups when nothing answered.
+    var setupRetry = Backoff(initial: .milliseconds(5), maximum: .milliseconds(20))
     private let plugins = NIOLockedValueBox<[GoveePlugin]>([])
 
     var plugin: GoveePlugin? { plugins.withLockedValue { $0.last } }
@@ -73,7 +75,7 @@ final class GoveeEnvironment: @unchecked Sendable {
             dependencies.http = self.govee
             dependencies.icons = self.icons
             let lan = self.lan
-            dependencies.lanSocket = { _ in lan }
+            dependencies.lanSocket = { _ in lan.reopen() }
             let central = self.central
             let available = self.bleAvailable
             dependencies.bleCentral = { _ in available ? central : nil }
@@ -83,6 +85,7 @@ final class GoveeEnvironment: @unchecked Sendable {
             dependencies.homebridgeStorage = self.homebridgeStorage
             dependencies.retryDelay = .milliseconds(1)
             dependencies.lanScanSettleTime = self.lanScanSettleTime
+            dependencies.setupRetry = self.setupRetry
             dependencies.awsPublishTimeout = .milliseconds(200)
             dependencies.bleQueueInterval = .milliseconds(20)
             let plugin = GoveePlugin(configuration: try JSONDecoder().decode(GoveePlugin.Configuration.self, from: json), context: context, dependencies: dependencies)
@@ -519,6 +522,7 @@ extension PluginHost {
 
     static let loginPath = "app2.govee.com/account/rest/account/v2/login"
     static let listPath = "app2.govee.com/device/rest/devices/v1/list"
+    static let verificationPath = "app2.govee.com/account/rest/account/v1/verification"
 
     /// A Homebridge storage path with the plugin's kept login: node-persist's file for `Govee_All_Devices_temp`
     /// (named by its SHA-256) and the AWS IoT certificate.
@@ -555,6 +559,126 @@ extension PluginHost {
         let again = try await environment.start(settings)
         defer { Task { await again.stop() } }
         #expect(environment.govee.requests(to: Self.loginPath).count == 1)
+    }
+
+    /// A bridge that starts before its network: neither the LAN nor Govee answers. The plugin sets up again rather than
+    /// disable itself until the next restart.
+    @Test func aStartWithoutTheNetworkSetsUpAgain() async throws {
+        let environment = GoveeEnvironment()
+        environment.lan.scanReplies = []
+        // The first setup's login and its three retries.
+        environment.govee.fail(Self.loginPath, times: GoveeAccount.maximumRetries + 1)
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.started)
+        #expect(await !plugin.stopped)
+        #expect(environment.govee.requests(to: Self.loginPath).count == GoveeAccount.maximumRetries + 2)
+        #expect(host.accessory(lightID)?.name == "Desk Light")
+        #expect(host.accessory(thermoID) != nil)
+    }
+
+    /// Govee's cloud does not answer at a start: the LAN's devices run, the account's others keep their accessories, and
+    /// once Govee answers the whole setup runs again.
+    @Test func theAccountsDevicesStayWhileGoveeDoesNotAnswer() async throws {
+        let environment = GoveeEnvironment()
+        let first = try await environment.start()
+        #expect(first.accessory(thermoID) != nil)
+        await first.stop()
+
+        // The kept token's list fails, then the first look whether Govee answers again.
+        environment.govee.fail(Self.listPath, times: 2)
+        environment.setupRetry = Backoff(initial: .milliseconds(300), maximum: .milliseconds(300))
+        let host = try environment.host(settings: ["username": "user@example.com", "password": "pw", "httpRefreshTime": 30])
+        try await host.start()
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually {
+            let (started, unreachable) = (await plugin.started, await plugin.cloudUnreachable)
+            return started && unreachable
+        })
+        #expect(await plugin.devices[lightID] != nil)
+        #expect(await plugin.devices[thermoID] == nil)
+        #expect(host.accessory(thermoID) != nil)
+        #expect(host.accessory(leakID) != nil)
+
+        await plugin.settle()
+        #expect(await plugin.started)
+        #expect(await !plugin.cloudUnreachable)
+        #expect(await plugin.devices[thermoID] != nil)
+        #expect(host.accessory(thermoID) != nil)
+        #expect(environment.govee.requests(to: Self.loginPath).count == 1)
+    }
+
+    /// Govee refuses the login (its new-device check) while the cache holds the account's devices: disabled, as Homebridge's,
+    /// rather than logging in again and again, which would email the user a code each time.
+    @Test func aLoginGoveeRefusesIsNotTriedAgain() async throws {
+        let environment = GoveeEnvironment()
+        let first = try await environment.start()
+        #expect(first.accessory(thermoID) != nil)
+        await first.stop()
+        first.context(platform: GoveePlugin.platform, name: GoveePlugin.name)?.removeCredentials()
+
+        environment.lan.scanReplies = []
+        environment.govee.answer(Self.loginPath, ["status": 454, "message": "new device"])
+        environment.govee.answer(Self.verificationPath, ["status": 200])
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.stopped)
+        #expect(environment.govee.requests(to: Self.loginPath).count == 2)
+        #expect(environment.govee.requests(to: Self.verificationPath).count == 1)
+    }
+
+    /// Without the cloud to wait for (a LAN-only block whose devices do not answer), the setup runs again a few times,
+    /// then the plugin disables itself rather than warn for ever.
+    @Test func aLANOnlyBlockStopsTryingInTheEnd() async throws {
+        let environment = GoveeEnvironment()
+        environment.lan.scanReplies = [(lightID, "H6008", "192.168.1.20")]
+        let settings: [String: Any] = ["lightDevices": [["deviceId": lightID, "label": "Desk"]]]
+        let first = try await environment.start(settings)
+        #expect(first.accessory(lightID) != nil)
+        await first.stop()
+
+        environment.lan.scanReplies = []
+        let scans = environment.lan.sent.filter { $0.port == LANClient.scanPort }.count
+        let host = try await environment.start(settings)
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.stopped)
+        #expect(await !plugin.started)
+        #expect(environment.lan.sent.filter { $0.port == LANClient.scanPort }.count - scans >= GoveePlugin.setupAttemptsWithoutCloud)
+        // Its accessory stays, as it did when the plugin disabled itself at once.
+        #expect(host.accessory(lightID) != nil)
+    }
+
+    /// No login kept yet and Govee does not answer: the LAN's devices run, and Govee is asked whether it answers without a
+    /// login, so they are not set up again until it does.
+    @Test func withoutAKeptLoginGoveeIsAskedWithoutLoggingIn() async throws {
+        let environment = GoveeEnvironment()
+        environment.govee.fail(Self.loginPath, times: GoveeAccount.maximumRetries + 1)
+        // The first two looks whether Govee answers.
+        environment.govee.fail(Self.listPath, times: 2)
+        let host = try await environment.start(["username": "user@example.com", "password": "pw", "httpRefreshTime": 30, "lightDevices": [["deviceId": lightID]]])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.started)
+        #expect(await !plugin.cloudUnreachable)
+        #expect(environment.govee.requests(to: Self.loginPath).count == GoveeAccount.maximumRetries + 2)
+        // Three looks, then the setup's list (and the sensors' refresh, which starts with it).
+        #expect(environment.govee.requests(to: Self.listPath).count >= 4)
+        #expect(host.accessory(thermoID) != nil)
+    }
+
+    /// Nothing to wait for (no account, nothing found on the LAN, nothing in the cache): disabled, as Homebridge's.
+    @Test func withNothingToWaitForThePluginDisablesItself() async throws {
+        let environment = GoveeEnvironment()
+        environment.lan.scanReplies = []
+        let host = try await environment.start([:])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.stopped)
+        #expect(await !plugin.started)
     }
 
     @Test func anotherAccountsLoginIsNotImported() async throws {
