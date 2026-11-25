@@ -92,6 +92,8 @@ public actor WingmanPlugin: HomeswiftPlugin {
     /// The home Homeswift's bridge is in, by name, as each link (by Wingman id) last read it: the accessories mirrored
     /// are theirs.
     nonisolated let bridgeHomes = NIOLockedValueBox<[String: String]>([:])
+    /// Each mirrored accessory's Device Id, kept when Apple Home gives it a new HomeKit id (AccessoryIDs.swift).
+    nonisolated let identities: AccessoryIdentities
     nonisolated var logger: Logger { context.logger }
     nonisolated var refreshInterval: Duration { .seconds(60 * max(configuration.refreshMinutes ?? 10, 1)) }
 
@@ -106,6 +108,7 @@ public actor WingmanPlugin: HomeswiftPlugin {
         self.configuration = configuration
         self.context = context
         self.dependencies = dependencies
+        identities = AccessoryIdentities(file: context.jsonFile("accessory-ids.json"))
         Self.moveLegacyCredentials(configuration, context)
     }
 
@@ -177,9 +180,9 @@ public actor WingmanPlugin: HomeswiftPlugin {
 
     /// Whether an Apple Home accessory comes to Homeswift: not Homeswift's own (on its bridges, or published on its own
     /// like a TV or a camera, by serial number: `homeswift` is `context.publishedSerialNumbers`), not excluded, in a
-    /// chosen home.
-    nonisolated func includes(_ accessory: WingmanAPI.Accessory, home: WingmanAPI.Home, homeswift: Set<String>) -> Bool {
-        isCandidate(accessory, home: home, homeswift: homeswift) && !isLeftOut(accessory)
+    /// chosen home. `deviceID`: its Device Id, when it is not its HomeKit id.
+    nonisolated func includes(_ accessory: WingmanAPI.Accessory, home: WingmanAPI.Home, homeswift: Set<String>, deviceID: String? = nil) -> Bool {
+        isCandidate(accessory, home: home, homeswift: homeswift) && !isLeftOut(accessory, deviceID: deviceID)
     }
 
     /// Whether an Apple Home accessory is one Homeswift may mirror at all: not Homeswift's own, in a chosen home. What
@@ -191,10 +194,10 @@ public actor WingmanPlugin: HomeswiftPlugin {
         return true
     }
 
-    /// Excluded, it or its bridge (by their Accessory Settings), or left out by a Homebridge-shaped list (`exclude`,
-    /// `excludeBridges`).
-    nonisolated func isLeftOut(_ accessory: WingmanAPI.Accessory) -> Bool {
-        if context.isExcluded(accessory.id) || isExcludedBySettings(accessory) { return true }
+    /// Excluded, it or its bridge (by their Accessory Settings: the accessory's by its Device Id, `deviceID` when it is not
+    /// its HomeKit id), or left out by a Homebridge-shaped list (`exclude`, `excludeBridges`).
+    nonisolated func isLeftOut(_ accessory: WingmanAPI.Accessory, deviceID: String? = nil) -> Bool {
+        if context.isExcluded(deviceID ?? accessory.id) || isExcludedBySettings(accessory, deviceID: deviceID) { return true }
         guard let bridge = accessory.bridge else { return false }
         let id = Self.bridgeID(bridge.name).lowercased()
         return context.excludedDeviceIDs.contains { $0.lowercased() == id }
@@ -261,7 +264,7 @@ actor Link {
         var mirrors: [String: Mirror]
         var homes: [String]
         var leftOut: Int
-        /// Every accessory Homeswift may mirror, Excluded or not: the Discovered Devices.
+        /// Every accessory Homeswift may mirror, Excluded or not: the Discovered Devices, each by its Device Id.
         var candidates: [WingmanAPI.Accessory]
     }
 
@@ -374,21 +377,38 @@ actor Link {
                 }
             }
         }
+        // Each accessory's Device Id first: Apple Home may have given it a new HomeKit id since the last read.
+        var found: [(accessory: WingmanAPI.Accessory, home: String)] = []
+        for home in homes {
+            for accessory in home.accessories where plugin.isCandidate(accessory, home: home, homeswift: homeswift) { found.append((accessory, home.name)) }
+        }
+        let (ids, renamed) = plugin.identities.resolve(wingman: device.id, accessories: found, present: Set(homes.flatMap(\.accessories).map(\.id)))
+        for change in renamed {
+            logger.info("Apple Home gave an accessory a new id: it keeps its own", metadata: [
+                "accessory": "\(change.name)", "id": "\(WingmanPlugin.platform):\(change.deviceID)", "homekit": "\(change.from) → \(change.to)",
+            ])
+        }
         var mirrors: [String: Mirror] = [:]
         var changed: [Mirror] = []
         var leftOut = 0
         var candidates: [WingmanAPI.Accessory] = []
         for home in homes {
             for accessory in home.accessories {
-                if plugin.isCandidate(accessory, home: home, homeswift: homeswift) { candidates.append(accessory) }
-                guard plugin.includes(accessory, home: home, homeswift: homeswift) else {
+                let deviceID = ids.deviceID(of: accessory.id)
+                if plugin.isCandidate(accessory, home: home, homeswift: homeswift) {
+                    var candidate = accessory
+                    candidate.id = deviceID
+                    candidates.append(candidate)
+                }
+                guard plugin.includes(accessory, home: home, homeswift: homeswift, deviceID: deviceID) else {
                     leftOut += 1
                     continue
                 }
-                if let kept = snapshot?.mirrors[accessory.id], kept.signature == Mirror.signature(of: accessory) {
+                if let kept = snapshot?.mirrors[accessory.id], kept.signature == Mirror.signature(of: accessory),
+                   kept.accessory.id == Mirror.accessoryID(deviceID) {
                     kept.update(from: accessory)
                     mirrors[accessory.id] = kept
-                } else if let mirror = Mirror(accessory, write: write) {
+                } else if let mirror = Mirror(accessory, deviceID: deviceID, write: write) {
                     mirrors[accessory.id] = mirror
                     changed.append(mirror)
                 }
@@ -404,7 +424,7 @@ actor Link {
         if info.servesStructure {
             var structure = Structure(
                 allowed: info.structure == true, homes: homes, mirrored: Set(mirrors.keys),
-                bridges: bridges, bridgeHome: bridgeHome, own: plugin.context.ownAccessories, homeLink: info.servesHomeLink)
+                bridges: bridges, bridgeHome: bridgeHome, own: plugin.context.ownAccessories, homeLink: info.servesHomeLink, ids: ids)
             // What the last read gave, until this one's scenes and automations come.
             structure.scenes = self.structure?.scenes ?? []
             structure.automations = self.structure?.automations ?? []

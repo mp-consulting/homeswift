@@ -296,10 +296,19 @@ extension HomeswiftCatalog {
         let linked = Dictionary(home.layout.value.roomEntries.compactMap { room in room.homeKitID.map { (room.name, $0) } }, uniquingKeysWith: { first, _ in first })
         var links = linked
         let homeRooms = Dictionary(snapshot.rooms.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        // Linked Rooms renamed in the Home, one by one (a rename is one change of the layout), and those gone, at once.
+        // Linked Rooms renamed in the Home, one by one (a rename is one change of the layout), and those gone, at once. A
+        // Room whose id the Home no longer has but that it has under another one, by its name, linked to no other, is the
+        // same Room: HomeKit's ids are the Mac's own and can all change at once (docs/adr/0014-mirrors-keep-their-device-id.md).
         var gone: [String] = []
         for (name, id) in linked.sorted(by: { $0.key < $1.key }) {
-            guard let room = homeRooms[id] else { gone.append(name); continue }
+            guard let room = homeRooms[id] else {
+                if let again = snapshot.rooms.first(where: { Self.sameRoomName($0.name, name) && !links.values.contains($0.id) }) {
+                    links[name] = again.id
+                } else {
+                    gone.append(name)
+                }
+                continue
+            }
             guard room.name != name,
                   await step("rename the room \(name) \(room.name)", ["renameRoom": ["from": .string(name), "to": .string(room.name)]]) else { continue }
             links.removeValue(forKey: name)
@@ -355,11 +364,16 @@ extension HomeswiftCatalog {
         let names = { (ids: [String]) in ids.compactMap { layout.room(homeKitID: $0)?.id } }
         let current = home.homeLink.value.zones
         var zones: [HomeLinkFile.Zone] = []
+        let linkedZones = Set(current.compactMap(\.homeKitID))
         for zone in current {
             // One never linked keeps its place: a Pending Change creates it.
             guard let id = zone.homeKitID else { zones.append(zone); continue }
-            guard let there = snapshot.zones.first(where: { $0.id == id }) else { continue }
-            zones.append(.init(id: zone.id, homeKitID: id, name: there.name, rooms: names(there.rooms)))
+            // Under a new id (HomeKit gave its ids again): the only one of its name not linked, the same Zone.
+            let again = snapshot.zones.filter { there in
+                there.name == zone.name && !linkedZones.contains(there.id) && !zones.contains(where: { $0.homeKitID == there.id })
+            }
+            guard let there = snapshot.zones.first(where: { $0.id == id }) ?? (again.count == 1 ? again[0] : nil) else { continue }
+            zones.append(.init(id: zone.id, homeKitID: there.id, name: there.name, rooms: names(there.rooms)))
         }
         for zone in snapshot.zones where !zones.contains(where: { $0.homeKitID == zone.id }) {
             zones.append(.init(id: "zone:\(UUID().uuidString.lowercased())", homeKitID: zone.id, name: zone.name, rooms: names(zone.rooms)))
@@ -383,11 +397,17 @@ extension HomeswiftCatalog {
         })
         var groups: [WallGroup] = []
         var taken = Set<String>()
+        let linkedGroups = Set(current.compactMap(\.homeKitID))
         for group in current {
             if edited.contains(group.id) { groups.append(group); continue }
             guard let id = group.homeKitID else { groups.append(group); continue }
-            guard let there = snapshot.groups.first(where: { $0.id == id }), there.members.count >= 2 else { continue }
-            groups.append(WallGroup(id: group.id, name: there.name, members: there.members, homeKitID: id))
+            // Under a new id (HomeKit gave its ids again): the only one of its name and members not linked, the same Group.
+            let again = snapshot.groups.filter { there in
+                there.name == group.name && Set(there.members) == Set(group.members) && !linkedGroups.contains(there.id)
+                    && !groups.contains(where: { $0.homeKitID == there.id })
+            }
+            guard let there = snapshot.groups.first(where: { $0.id == id }) ?? (again.count == 1 ? again[0] : nil), there.members.count >= 2 else { continue }
+            groups.append(WallGroup(id: group.id, name: there.name, members: there.members, homeKitID: there.id))
         }
         for group in snapshot.groups where group.members.count >= 2 && !deleted.contains(group.id) && !groups.contains(where: { $0.homeKitID == group.id }) {
             groups.append(WallGroup(id: "group:\(UUID().uuidString.lowercased())", name: group.name, members: group.members, homeKitID: group.id))

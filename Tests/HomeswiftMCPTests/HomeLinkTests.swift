@@ -360,6 +360,39 @@ import Testing
         #expect(environment.catalog.wallGroups.map(\.name) == ["Lampes"])
     }
 
+    /// HomeKit's ids are the Mac's own and can all change at once (docs/adr/0014-mirrors-keep-their-device-id.md): Rooms,
+    /// Zones and Groups the Home has under new ids, by their names (and a Group's members), stay what they were here, so
+    /// an Automation that turns a Group on keeps it.
+    @Test func roomsZonesAndGroupsUnderNewIdsStayTheSame() async throws {
+        let environment = try await environment(bulbs: 2)
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(rooms: [("hk-salon", "Salon"), ("hk-bed", "Bedroom")], placements: ["Devices:bulb1": "hk-salon", "Devices:bulb2": "hk-salon", "Devices:lamp": "hk-bed"])
+        environment.homeLink.set { state in
+            state.home.zones = [.init(id: "hk-zone", name: "Rez-de-chaussée", rooms: ["hk-salon"])]
+            state.home.groups = [.init(id: "hk-group", name: "Spots", members: ["Devices:bulb1", "Devices:bulb2"])]
+        }
+        await environment.catalog.followHome()
+        let group = try #require(environment.catalog.wallGroups.first)
+        let zone = try #require(environment.catalog.home.homeLink.value.zones.first)
+        #expect(group.homeKitID == "hk-group" && zone.homeKitID == "hk-zone" && zone.rooms.count == 1)
+
+        environment.homeLink.set { state in
+            state.home.rooms = [.init(id: "hk2-salon", name: "Salon"), .init(id: "hk2-bed", name: "Bedroom")]
+            state.home.placements = ["Devices:bulb1": "hk2-salon", "Devices:bulb2": "hk2-salon", "Devices:lamp": "hk2-bed"]
+            state.home.zones = [.init(id: "hk2-zone", name: "Rez-de-chaussée", rooms: ["hk2-salon"])]
+            state.home.groups = [.init(id: "hk2-group", name: "Spots", members: ["Devices:bulb1", "Devices:bulb2"])]
+        }
+        await environment.catalog.followHome()
+        #expect(environment.catalog.wallGroups.map(\.id) == [group.id])
+        #expect(environment.catalog.wallGroups.first?.homeKitID == "hk2-group")
+        #expect(environment.catalog.home.homeLink.value.zones.map(\.id) == [zone.id])
+        #expect(environment.catalog.home.homeLink.value.zones.first?.homeKitID == "hk2-zone")
+        #expect(environment.catalog.home.homeLink.value.zones.first?.rooms == zone.rooms)
+        #expect(environment.catalog.home.layout.value.roomEntries.map(\.homeKitID) == ["hk2-salon", "hk2-bed"])
+        #expect(lampRoom(environment) == "Bedroom")
+        #expect(environment.homeLink.applied.isEmpty)
+    }
+
     /// A group Apple Home already has by that name, which the Home app hides with fewer than two accessories (an earlier
     /// attempt can leave one), becomes the wall's group with its members, rather than a second one Apple Home refuses.
     @Test func aHiddenGroupOfTheSameNameIsReused() async throws {

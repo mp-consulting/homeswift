@@ -11,9 +11,11 @@ import Testing
 
 /// The LAN sockets in memory: what was sent, and datagrams the test delivers.
 final class FakeLANSocket: LANSocket, @unchecked Sendable {
-    let datagrams: AsyncStream<(data: Data, address: String)>
-    private let continuation: AsyncStream<(data: Data, address: String)>.Continuation
+    private var stream: AsyncStream<(data: Data, address: String)>
+    private var continuation: AsyncStream<(data: Data, address: String)>.Continuation
+    private var closed = false
     private let lock = NIOLock()
+    var datagrams: AsyncStream<(data: Data, address: String)> { lock.withLock { stream } }
     private var _sent: [(data: Data, host: String, port: Int)] = []
     var failing = false
     /// Holds a scan in flight until the test releases it.
@@ -21,13 +23,22 @@ final class FakeLANSocket: LANSocket, @unchecked Sendable {
     /// Answers a scan, as devices on the network would.
     var scanReplies: [(device: String, sku: String, address: String)] = []
 
-    init() { (datagrams, continuation) = AsyncStream.makeStream() }
+    init() { (stream, continuation) = AsyncStream.makeStream() }
+
+    /// Bound again after a close, as a new socket would be: a setup that runs again, a second host.
+    func reopen() -> FakeLANSocket {
+        lock.withLock {
+            if closed { (stream, continuation) = AsyncStream.makeStream() }
+            closed = false
+        }
+        return self
+    }
 
     var sent: [(json: JSONValue, host: String, port: Int)] {
         lock.withLock { _sent.map { ((try? JSONValue(data: $0.data)) ?? .null, $0.host, $0.port) } }
     }
 
-    func deliver(_ json: JSONValue, from address: String) { continuation.yield((json.encoded(), address)) }
+    func deliver(_ json: JSONValue, from address: String) { _ = lock.withLock { continuation }.yield((json.encoded(), address)) }
 
     func send(_ data: Data, to host: String, port: Int) async throws {
         if failing { throw GoveeAPIError.unreachable("unreachable") }
@@ -42,7 +53,11 @@ final class FakeLANSocket: LANSocket, @unchecked Sendable {
     var closes: Int { lock.withLock { _closes } }
 
     func close() async {
-        lock.withLock { _closes += 1 }
+        let continuation = lock.withLock {
+            _closes += 1
+            closed = true
+            return self.continuation
+        }
         continuation.finish()
     }
 }

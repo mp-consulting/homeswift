@@ -29,6 +29,11 @@ public actor GoveePlugin: HomeswiftPlugin {
     /// While a leak alert is active, whether it was read in the app is checked this often at most.
     static let leakRecheckInterval: TimeInterval = 5 * 60
     static let awsSyncInterval: Duration = .seconds(60)
+    /// 30 s, then twice as long each time up to 5 minutes.
+    static let setupRetry = Backoff(initial: .seconds(30), maximum: .seconds(300), jitter: .proportional(0.2))
+    /// Setups that found nothing while Govee's cloud was not the reason (a LAN-only block, or one whose LAN socket
+    /// cannot bind because another process holds port 4002) before the plugin disables itself: about 37 minutes.
+    static let setupAttemptsWithoutCloud = 10
 
     /// What the plugin uses to reach Govee and the devices; tests swap them for fakes.
     struct Dependencies: Sendable {
@@ -46,6 +51,8 @@ public actor GoveePlugin: HomeswiftPlugin {
         /// Whether devices keep their Eve history (fakegato's files, in the storage directory).
         var history = true
         var retryDelay: Duration = GoveeAccount.retryDelay
+        /// Between two setups when the network or Govee's cloud did not answer (`setUp()`).
+        var setupRetry = GoveePlugin.setupRetry
         /// How long a LAN scan waits after the last reply.
         var lanScanSettleTime: Duration = LANClient.scanSettleTime
         /// How long an AWS command waits for its publish before the next transport is tried.
@@ -104,6 +111,16 @@ public actor GoveePlugin: HomeswiftPlugin {
     var pageSession: (key: String, token: String)?
     var iconCache: [String: String] = [:]
     private(set) var started = false
+    /// The account's device list could not be had because the network or Govee's cloud did not answer: the devices it
+    /// lists are not known, so none is taken for gone, and the setup runs again once Govee answers.
+    private(set) var cloudUnreachable = false
+    /// The account's device list came: what it leaves out is gone.
+    private var cloudListed = false
+    /// Govee answered and refused (a new-device code, a wrong password): setting up again would only ask again, and a
+    /// login Govee challenges emails the user a code each time.
+    private var cloudRefused = false
+    /// The account whose list did not come, for asking Govee whether it answers again.
+    private var waitingAccount: GoveeAccount?
     /// Set by `stop()`: a setup still running stops at its next step and closes what it opened since.
     private(set) var stopped = false
 
@@ -165,24 +182,110 @@ public actor GoveePlugin: HomeswiftPlugin {
 
     /// Each step can await for a while (a LAN scan, logins): after each one, a `stop()` that came meanwhile ends
     /// the setup, and what the step opened after it is closed.
+    ///
+    /// A bridge often starts before its network is up: then neither the LAN nor Govee's cloud answers. The Homebridge
+    /// plugin disables itself until the next restart; this one sets up again, later and later (`setupRetry`), while the
+    /// devices it expects (the account's, when Govee did not answer, or those it left in the cache) stay as they were.
+    /// When only the cloud did not answer, the devices the LAN and Bluetooth reach run meanwhile, and the whole setup runs
+    /// again once Govee answers. Without any of those (no account, nothing in the cache, nothing found), or when Govee
+    /// refused the login, it disables itself as the Homebridge plugin does.
     private func setUp() async {
-        await setUpLAN()
-        guard !stopped else { return await tearDown() }
-        await setUpHTTPAndAWS()
-        guard !stopped else { return await tearDown() }
-        setUpBLE()
-        do {
-            try await initializeDevices()
+        var attempt = 0
+        // Kept across the rounds of an outage: Govee is asked later and later however often the setup runs again.
+        var cloudAttempt = 0
+        while true {
+            await setUpLAN()
             guard !stopped else { return await tearDown() }
-            started = true
-            logger.info("\(Lang.complete).")
-        } catch {
+            await setUpHTTPAndAWS()
             guard !stopped else { return await tearDown() }
-            logger.warning("***** \(Lang.disabling). *****")
-            logger.warning("***** \(error). *****")
-            await stop()
+            setUpBLE()
+            do {
+                try await initializeDevices()
+                guard !stopped else { return await tearDown() }
+                started = true
+                guard cloudUnreachable else {
+                    logger.info("\(Lang.complete).")
+                    return
+                }
+                logger.warning("[HTTP] \(Lang.cloudUnreachable)")
+                guard await waitForCloud(attempt: &cloudAttempt) else { return }
+                logger.info("[HTTP] \(Lang.cloudBack)")
+            } catch {
+                guard !stopped else { return await tearDown() }
+                let expected = context.accessories.contains { $0.id.hasPrefix("\(Self.platform):") }
+                let lanAgain = expected && !cloudListed && !cloudRefused && attempt < Self.setupAttemptsWithoutCloud - 1
+                guard cloudUnreachable || lanAgain else {
+                    logger.warning("***** \(Lang.disabling). *****")
+                    logger.warning("***** \(error). *****")
+                    await stop()
+                    return
+                }
+                let delay = dependencies.setupRetry.delay(attempt: attempt)
+                attempt += 1
+                logger.warning("\(error): \(Lang.setupRetry(Self.seconds(delay))).")
+                await tearDown()
+                reset()
+                guard await pause(delay) else { return }
+                continue
+            }
+            await tearDown()
+            reset()
         }
     }
+
+    /// Forgets what a setup found, for the next one; the accessories stay.
+    private func reset() {
+        devices = [:]
+        httpDevices = []
+        lanDevices = []
+        account = nil
+        credentialStore = nil
+        credentials = nil
+        cloudUnreachable = false
+        cloudListed = false
+        cloudRefused = false
+        waitingAccount = nil
+        started = false
+    }
+
+    /// Asks Govee whether it answers, later and later, until it does: false when `stop()` came first. With a token, for
+    /// the device list; without, any answer at all, so the devices on the LAN keep running until a login can work.
+    private func waitForCloud(attempt: inout Int) async -> Bool {
+        while true {
+            guard await pause(dependencies.setupRetry.delay(attempt: attempt)) else { return false }
+            attempt += 1
+            guard let account = waitingAccount else { return !stopped }
+            do {
+                if await account.token != nil {
+                    _ = try await account.devices()
+                } else {
+                    _ = try await account.api.send("GET", GoveeAPI.devicesURL, token: nil)
+                }
+                return !stopped && !Task.isCancelled
+            } catch {
+                // A refused token is an answer too: the setup logs in again.
+                guard Self.isUnreachable(error) else { return !stopped && !Task.isCancelled }
+                debug("[HTTP] Govee still does not answer: \(error)")
+            }
+        }
+    }
+
+    /// Sleeps; false when `stop()` came meanwhile.
+    private func pause(_ delay: Duration) async -> Bool {
+        try? await Task.sleep(for: delay)
+        return !stopped && !Task.isCancelled
+    }
+
+    /// The network or Govee's cloud did not answer, rather than Govee refusing.
+    static func isUnreachable(_ error: any Error) -> Bool {
+        switch error as? GoveeAPIError {
+        case .unreachable: true
+        case .httpStatus(let status, _): status >= 500
+        default: false
+        }
+    }
+
+    static func seconds(_ delay: Duration) -> Int { Int(max(1, min(delay.components.seconds, Int64(Int32.max)))) }
 
     public func stop() async {
         stopped = true
@@ -265,10 +368,18 @@ public actor GoveePlugin: HomeswiftPlugin {
                 devices = try await account.devices()
             }
             httpDevices = devices
+            cloudListed = true
             logger.info("[HTTP] \(Lang.availableWithDevices(devices.count)).")
             try await setUpAWS(api: api, store: store)
         } catch {
             logger.warning("[HTTP] \(Lang.disableClient) \(error).")
+            if !cloudListed, Self.isUnreachable(error) {
+                cloudUnreachable = true
+                waitingAccount = account
+            } else if !cloudListed, error is GoveeAPIError {
+                // Govee's own answer; a failure of this bridge's (a full disk) is set up again like the network's.
+                cloudRefused = true
+            }
             self.account = nil
             awsClient = nil
         }
@@ -391,7 +502,8 @@ public actor GoveePlugin: HomeswiftPlugin {
     private func initializeDevices() async throws {
         var initialised = false
         var skipped = Set<String>()
-        storeDiscoveredDevices()
+        // Nothing answered: the list of the last start stays for Setup.
+        if cloudListed || !lanDevices.isEmpty { storeDiscoveredDevices() }
 
         var lanUsed = Set<String>()
         for httpDevice in httpDevices {
@@ -408,8 +520,8 @@ public actor GoveePlugin: HomeswiftPlugin {
             guard !stopped else { return }
             let id = lanDevice.device
             guard !isIgnored(id, model: lanDevice.sku) else { continue }
-            // LAN discovery is unauthenticated: with the account's list, only its devices and the configured ones.
-            if account != nil, !isConfigured(id) {
+            // LAN discovery is unauthenticated: with an account, only its devices and the configured ones.
+            if account != nil || cloudUnreachable, !isConfigured(id) {
                 logger.info("[LAN] \(Lang.lanUnknownSkipped) [\(id)].")
                 skipped.insert(id)
                 continue
@@ -421,13 +533,15 @@ public actor GoveePlugin: HomeswiftPlugin {
         guard initialised else { throw GoveeAPIError.message(Lang.noDevs) }
         guard !stopped else { return }
 
-        // Accessories of devices no longer listed, ignored or skipped leave HomeKit.
+        // Accessories of devices no longer listed, ignored or skipped leave HomeKit. Without the account's list (Govee did
+        // not answer), one the LAN did not find may be one of the account's: it stays.
         let known = Set(httpDevices.map { Govee.colonDeviceId($0["device"]?.stringValue ?? "") }).union(lanDevices.map(\.device))
         let prefix = "\(Self.platform):"
         for accessory in context.accessories where accessory.id.hasPrefix(prefix) {
             let id = String(accessory.id.dropFirst(prefix.count))
             let model = devices[id]?.model ?? accessory.information[.model]?.value.stringValue
-            guard !known.contains(id) || isIgnored(id, model: model) || skipped.contains(id) else { continue }
+            let gone = !known.contains(id) && !cloudUnreachable
+            guard gone || isIgnored(id, model: model) || skipped.contains(id) else { continue }
             await removeDevice(id: id, accessoryID: accessory.id, name: accessory.name)
         }
 

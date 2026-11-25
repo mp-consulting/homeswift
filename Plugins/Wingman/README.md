@@ -60,8 +60,8 @@ The plugin's devices, each with its Accessory Settings in `_accessories` and lis
 
 - **Wingmen** (Device Kind `wingman`), by Wingman's id: their `host` and `port` (Bonjour moves them); the token and
   the pinned certificate are in the vault.
-- **Mirrored accessories** (`mirroredAccessory`), by their HomeKit id (the accessory is `Wingman:<HomeKit id>`):
-  Excluded, one is not mirrored.
+- **Mirrored accessories** (`mirroredAccessory`), by their Device Id (the accessory is `Wingman:<Device Id>`): the HomeKit
+  id it had when Homeswift first saw it (see "Ids"). Excluded, one is not mirrored.
 - **Apple Home's bridges** (`bridge`), as `bridge:<name>`: Excluded, none of their accessories is mirrored.
   Homeswift's own bridges are always left out.
 
@@ -73,7 +73,7 @@ Wingmen see), leaving what no device answers to.
 ## How it works
 
 `GET /homes` gives the homes, rooms, accessories, services and characteristics with their ids and HomeKit's ranges;
-each accessory becomes `Wingman:<HomeKit id>` with Homeswift's own types (`ServiceType.known(uuid:)`), so the widgets
+each accessory becomes `Wingman:<Device Id>` with Homeswift's own types (`ServiceType.known(uuid:)`), so the widgets
 and scenes recognise it. `GET /events?since=&wait=25` is a long-poll: a value change reaches Homeswift as HomeKit
 pushes it; a `homes` event (an accessory added or removed, a room or name changed, reachability) and events Wingman
 no longer keeps (it keeps 500) make the plugin read the homes again. Homeswift's own
@@ -83,6 +83,18 @@ and an entry without a pinned certificate is never sent its token. A write goes 
 on in its settings (off by default). An accessory Apple Home says is not reachable shows No Response until it reports
 again or takes a write; it is still written, as the Home app still tries it (`Accessory.isUnreachable`): HomeKit's
 reachability lags for Matter devices on a Mac, and HomeKit answers a write the device misses with an error. A Wingman that forgot the bridge shows **Pair again**, which opens Add accessories.
+
+### Ids
+
+HomeKit's ids belong to the Mac, not to the home, and HomeKit can give every accessory a new one at once (a Mac that
+moved to another network did). So an accessory keeps its Device Id, the HomeKit id it first had, and with it its
+Automations, Groups and Accessory Settings. After each read of the homes, an accessory that went and one that came are
+the same accessory when each is the only one of its identity: its Serial Number with its manufacturer and model, else its
+home, room, name, manufacturer and model. Two different Serial Numbers are never the same device. One that went can
+come back that way for 30 days, and a tie keeps the new id. `accessory-ids.json`, in the plugin's storage directory,
+keeps what each Wingman gave; the log says "Apple Home gave an accessory a new id: it keeps its own". The Home Link keeps
+Rooms and Zones by name, and Groups by name and members, in the same way
+(docs/adr/0014-mirrors-keep-their-device-id.md).
 
 The plugin's MCP tool is `Wingman_list_wingmen`; Setup's `discover_devices` and `start_setup` find and pair a Wingman.
 
@@ -95,7 +107,7 @@ also gives Homeswift:
   are those of its home in Apple Home (the one whose accessories include Homeswift's bridge). A room renamed, created
   or removed, an accessory moved, a zone or a group changed on either side is so on the other, by HomeKit id; while
   Wingman is not reachable Homeswift's changes wait for it, and while **Let bridges edit rooms, scenes and automations**
-  is off they are refused. Mirrored accessories are known by their HomeKit id, Homeswift's own by their serial number
+  is off they are refused. Mirrored accessories are known by their Device Id, Homeswift's own by their serial number
   behind Homeswift's bridge (so a hub's light Apple Home also has is never taken for Homeswift's), or among the
   accessories it publishes on their own. When HomeKit has not supplied the bridge's accessory serial numbers yet,
   the Home Link waits for Wingman to read them: changes stay pending and existing groups are kept until the identities

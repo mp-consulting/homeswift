@@ -149,6 +149,15 @@ as Excluded) and drops the lists, and moves `username` and `password` into the v
   own (launchd, `brew services`) is responsible for itself, but started from a shell it is the app that opened
   that shell (an IDE, an agent's app). When that app declares no Bluetooth use, macOS would abort the whole
   bridge at the first Bluetooth call, so the plugin turns Bluetooth off and logs which app is responsible.
+- **A start without the network** does not disable the plugin until the next restart. When neither the LAN nor Govee's
+  cloud answers, it sets up again 30 seconds later, then later and later up to every 5 minutes; the accessories it
+  expects stay as they were meanwhile. When only the cloud does not answer, the devices on the LAN and Bluetooth run,
+  the account's others keep their accessories (the Homebridge plugin removed them), and the whole setup runs again once
+  Govee answers; without a kept login, Govee is only asked whether it answers until it does, so those devices are not
+  set up again meanwhile. With no account, nothing in the cache and nothing found, or when Govee refuses the login (its
+  new-device check would email a code at each try), it disables itself as the Homebridge plugin does; and with the cloud
+  out of it (a LAN-only block whose devices do not answer, or another process holding port 4002) it does so after 10
+  setups, about 37 minutes.
 - `label` names every device in HomeKit, not only LAN-only ones, as the page's help always said; it is the
   device's Name once the block is written again.
 - The page writes no settings: its device editor, scene picker and Settings tab are the Settings page's fields

@@ -17,16 +17,18 @@ extension WingmanPlugin {
     /// A bridge of Apple Home's Device Id: `bridge:<name>`, the only thing Apple Home tells of it.
     static func bridgeID(_ name: String) -> String { "bridge:\(name)" }
 
-    /// Left out by `exclude`, by HomeKit id or name, or `excludeBridges`, by its bridge's name.
-    nonisolated func isExcludedBySettings(_ accessory: WingmanAPI.Accessory) -> Bool {
-        if let exclude = configuration.exclude, exclude.contains(where: { $0 == accessory.id || $0.caseInsensitiveCompare(accessory.name) == .orderedSame }) { return true }
+    /// Left out by `exclude`, by HomeKit id (or Device Id) or name, or `excludeBridges`, by its bridge's name.
+    nonisolated func isExcludedBySettings(_ accessory: WingmanAPI.Accessory, deviceID: String? = nil) -> Bool {
+        if let exclude = configuration.exclude, exclude.contains(where: {
+            $0 == accessory.id || $0 == deviceID || $0.caseInsensitiveCompare(accessory.name) == .orderedSame
+        }) { return true }
         if let bridge = accessory.bridge, let names = configuration.excludeBridges, names.contains(where: { $0.caseInsensitiveCompare(bridge.name) == .orderedSame }) {
             return true
         }
         return false
     }
 
-    /// Every accessory the paired Wingmen's last reads gave, Excluded ones included.
+    /// Every accessory the paired Wingmen's last reads gave, Excluded ones included, each by its Device Id.
     func candidates() async -> [WingmanAPI.Accessory] {
         var all: [String: WingmanAPI.Accessory] = [:]
         for link in links.values {
@@ -35,13 +37,27 @@ extension WingmanPlugin {
         return all.values.sorted { ($0.name, $0.id) < ($1.name, $1.id) }
     }
 
+    /// The HomeKit id Wingman gives each accessory now, by Device Id, where they differ (AccessoryIDs.swift).
+    func homeKitIDsByDeviceID() -> [String: String] {
+        var homeKitIDs: [String: String] = [:]
+        for wingman in links.keys {
+            for (homeKitID, deviceID) in identities.ids(wingman: wingman).deviceIDs { homeKitIDs[deviceID] = homeKitID }
+        }
+        return homeKitIDs
+    }
+
     /// The mirrored accessories and the bridges, as Discovered Devices: set up unless a Homebridge-shaped list leaves them out.
     func mirroredDevices() async -> [DiscoveredDevice] {
         let accessories = await candidates()
+        let homeKitIDs = homeKitIDsByDeviceID()
         var devices = accessories.map { accessory in
-            DiscoveredDevice(
-                deviceID: accessory.id, name: accessory.name, model: accessory.model ?? accessory.manufacturer, isSetUp: !isExcludedBySettings(accessory),
-                excludedBySettings: isExcludedBySettings(accessory), kind: Self.mirroredKind)
+            // `exclude` may name it by either id.
+            var current = accessory
+            current.id = homeKitIDs[accessory.id] ?? accessory.id
+            let excluded = isExcludedBySettings(current, deviceID: accessory.id)
+            return DiscoveredDevice(
+                deviceID: accessory.id, name: accessory.name, model: accessory.model ?? accessory.manufacturer, isSetUp: !excluded,
+                excludedBySettings: excluded, kind: Self.mirroredKind)
         }
         var bridges: [String: String] = [:]
         for accessory in accessories { if let bridge = accessory.bridge { bridges[bridge.name.lowercased()] = bridges[bridge.name.lowercased()] ?? bridge.name } }
@@ -73,16 +89,23 @@ extension WingmanPlugin {
         }
         let ids = (block["devices"]?.arrayValue ?? []).compactMap { $0["id"]?.stringValue }.filter { !$0.isEmpty }
         let paired = Set(context.haveCredentials(ids.map(Optional.some)).compactMap(\.self))
-        return Self.canonical(block, accessories: accessories.map { ($0.id, $0.name) }, bridges: accessories.compactMap(\.bridge?.name), paired: paired)
+        // An `exclude` entry may name an accessory by the HomeKit id Wingman gives it now, which is not its Device Id once
+        // Apple Home gave it a new one.
+        return Self.canonical(
+            block, accessories: accessories.map { ($0.id, $0.name) }, bridges: accessories.compactMap(\.bridge?.name), paired: paired,
+            homeKitIDs: homeKitIDsByDeviceID())
     }
 
-    /// `accessories`: the mirrored accessories' HomeKit ids and names; `bridges`: Apple Home's bridges' names; `paired`:
-    /// the Wingmen whose token and certificate the vault keeps.
-    static func canonical(_ block: JSONValue, accessories: [(id: String, name: String)], bridges: [String], paired: Set<String>) -> JSONValue {
+    /// `accessories`: the mirrored accessories' Device Ids and names; `bridges`: Apple Home's bridges' names; `paired`:
+    /// the Wingmen whose token and certificate the vault keeps; `homeKitIDs`: the HomeKit id of each accessory whose Device
+    /// Id is another, by Device Id.
+    static func canonical(
+        _ block: JSONValue, accessories: [(id: String, name: String)], bridges: [String], paired: Set<String>, homeKitIDs: [String: String] = [:]
+    ) -> JSONValue {
         guard var fields = block.objectValue else { return block }
         var entries = AccessoryEntries(fields)
         entries.excludeList("exclude", in: &fields) { text in
-            accessories.filter { $0.id == text || $0.name.caseInsensitiveCompare(text) == .orderedSame }.map(\.id)
+            accessories.filter { $0.id == text || homeKitIDs[$0.id] == text || $0.name.caseInsensitiveCompare(text) == .orderedSame }.map(\.id)
         }
         entries.excludeList("excludeBridges", in: &fields) { name in
             let text = name.trimmingCharacters(in: .whitespaces)

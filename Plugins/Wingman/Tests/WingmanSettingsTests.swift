@@ -84,6 +84,13 @@ struct WingmanSettingsTests {
         #expect(WingmanPlugin.canonical(block, accessories: [], bridges: [], paired: [])["devices"] == block["devices"])
     }
 
+    /// An `exclude` entry naming the HomeKit id Wingman gives an accessory now moves to the accessory's Device Id.
+    @Test func anExcludedHomeKitIdMovesToItsDeviceId() throws {
+        let block = try JSONValue(any: ["platform": "Wingman", "name": "Wingman", "exclude": ["v2-light-1"]] as [String: Any])
+        let canonical = WingmanPlugin.canonical(block, accessories: [("light-1", "Plafonnier")], bridges: [], paired: [], homeKitIDs: ["light-1": "v2-light-1"])
+        #expect(canonical == (try JSONValue(any: ["platform": "Wingman", "name": "Wingman", "_accessories": ["light-1": ["excluded": true]]] as [String: Any])))
+    }
+
     /// What canonicalSettings wrote runs the same Wingman, from the vault.
     @Test func theMovedWingmanRuns() async throws {
         let first = try await environment.start()
