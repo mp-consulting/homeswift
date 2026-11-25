@@ -209,6 +209,23 @@ final class EntityBinding: Sendable {
         let controller = adaptiveLighting
         return EntityBinding(info: info, services: [lightbulb] + switches.map(\.service), category: .lightbulb, adaptiveLighting: controller) { state in
             // LightStateResponse: state 2, brightness 3, red 4, green 5, blue 6, color_temperature 8, effect 9, color_mode 11.
+            // For Adaptive Lighting, the report as it came, before its values are shown: a light coming on keeps it and
+            // takes the white for now; a colour, or a white, set elsewhere stops it. Not the echo of the bridge's own
+            // write.
+            if let controller {
+                let mode = state.enumeration(11)
+                let showsColor = rgb && (mode & ColorMode.rgb != 0 || (mode == 0 && (state.has(4) || state.has(5) || state.has(6))))
+                var colour: AdaptiveLightingController.ReportedColour?
+                if showsColor {
+                    let ours = writes.sentColor.withLockedValue { sent in defer { sent = false }; return sent }
+                    colour = ours ? nil : .colour
+                } else if temperature, state.has(8) {
+                    let mireds = Int(saturating: Double(state.float(8)).rounded(), in: range) ?? range.lowerBound
+                    let sent = writes.sentMireds.withLockedValue { $0 }
+                    colour = sent.map({ abs($0 - mireds) > 1 }) ?? true ? .white(mireds) : nil
+                }
+                controller.lightReported(on: state.bool(2), colour: colour)
+            }
             lightbulb.characteristic(.on).value = .bool(state.bool(2))
             if brightness, state.has(3) {
                 lightbulb.characteristic(.brightness).value = .int(Int(saturating: (Double(state.float(3)) * 100).rounded(), in: 0...100) ?? 0)
@@ -219,13 +236,9 @@ final class EntityBinding: Sendable {
                 let (hue, saturation) = Color.hueSaturation(red: Double(state.float(4)), green: Double(state.float(5)), blue: Double(state.float(6)))
                 lightbulb.characteristic(.hue).value = .int(Int(saturating: hue.rounded(), in: 0...360) ?? 0)
                 lightbulb.characteristic(.saturation).value = .int(Int(saturating: saturation.rounded(), in: 0...100) ?? 0)
-                let ours = writes.sentColor.withLockedValue { sent in defer { sent = false }; return sent }
-                if !ours { _ = controller?.disableIfChangedElsewhere(mireds: nil) }
+                if controller == nil { writes.sentColor.withLockedValue { $0 = false } }
             } else if temperature, state.has(8) {
                 let mireds = Int(saturating: Double(state.float(8)).rounded(), in: range) ?? range.lowerBound
-                // Before the value moves: the controller compares the report with what is shown.
-                let sent = writes.sentMireds.withLockedValue { $0 }
-                if sent.map({ abs($0 - mireds) > 1 }) ?? true { _ = controller?.disableIfChangedElsewhere(mireds: mireds) }
                 lightbulb.characteristic(.colorTemperature).value = .int(mireds)
             }
             let effect = state.string(9)

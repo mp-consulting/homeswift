@@ -98,8 +98,8 @@ says why).
   in `_accessories` by Device Id.
 - **Adaptive Lighting on every light that can have it:** a Lightbulb with Brightness and Color Temperature gets an
   `AdaptiveLightingController` from `context.adaptiveLighting(for:accessoryID:)` before the accessory is added, and the
-  plugin passes the device's reports of its colour to `disableIfChangedElsewhere(mireds:)`, which turns it off for a
-  colour or a white set elsewhere (its app, a remote). `Scripts/new-plugin.swift` writes the controller; [docs/plugins.md](docs/plugins.md) has the details, and
+  plugin passes each device report to `lightReported(on:reachable:colour:)`, which keeps it for a light coming on (back
+  from a power cut, or turned on in a white) and turns it off for a colour or a white set elsewhere (its app, a remote). `Scripts/new-plugin.swift` writes the controller; [docs/plugins.md](docs/plugins.md) has the details, and
   `Plugins/Dirigera` and `Plugins/PhilipsHue` are examples. The bridge's debug log names a light without one, which
   the skill's `check-on-bridge.sh` shows. A light mirrored from another controller (Wingman) keeps that controller's.
 - **One climate mapping:** a thermostat or an air conditioner's Thermostat or Heater Cooler is a `ClimateController`

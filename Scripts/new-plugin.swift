@@ -611,8 +611,8 @@ var serviceFields = chosen.map { "let \($0.property): Service" }
 var serviceArguments = chosen.map { "\($0.definition.name): \($0.property)" }
 if let light = chosen.first(where: { $0.definition.name == "lightbulb" && Set($0.characteristics.map(\.name)).isSuperset(of: ["brightness", "colorTemperature"]) }) {
     serviceFields += [
-        "/// Adaptive Lighting on `\(light.definition.name)`, which holds it weakly. TODO: pass the device's reports of its",
-        "/// colour to `adaptiveLighting?.disableIfChangedElsewhere(mireds:)` (nil for a colour).",
+        "/// Adaptive Lighting on `\(light.definition.name)`, which holds it weakly. TODO: pass each device report, before it is",
+        "/// shown, to `adaptiveLighting?.lightReported(on:reachable:colour:)` (`.white(mireds)`, `.colour`, nil for an echo).",
         "let adaptiveLighting: AdaptiveLightingController?",
     ]
     serviceArguments.append("adaptiveLighting: context.adaptiveLighting(for: \(light.property), accessoryID: Self.accessoryID(deviceID: device.id))")

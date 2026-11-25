@@ -392,7 +392,7 @@ import Testing
         #expect(environment.camera?.bodies(289).count == 2)
 
         // Adaptive Lighting: its own write's echo leaves it on; a colour set in the Reolink app turns it off.
-        try adaptive.activateForTesting(mireds: 300)
+        try await adaptive.activateForTesting(mireds: 300)
         #expect(await eventually { environment.camera?.bodies(290).count == 3 })
         #expect(await eventually { temperature.value == .int(300) })
         colour.withLockedValue { $0 = 89 }

@@ -93,7 +93,7 @@ struct PluginTests {
         let light = try #require(environment.accessory(host, did: Self.did)?.service(.lightbulb))
         let controller = try #require(light.adaptiveLighting)
         // Turned on in the Home app at 250 mireds: its write reaches the device in kelvin.
-        try controller.activateForTesting(mireds: 250)
+        try await controller.activateForTesting(mireds: 250)
         #expect(controller.isAdaptiveLightingActive)
         #expect(await eventually { device["2.3"] == .number(4000) })
         // The device reports what the bridge wrote: still on.

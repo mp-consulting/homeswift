@@ -691,7 +691,7 @@ struct ZWaveJSTests {
         #expect(server.setValues.last?["value"] == ["warmWhite": 128, "coldWhite": 127, "red": 0, "green": 0, "blue": 0])
 
         // The device's own report near what Adaptive Lighting set keeps it on; a white set elsewhere turns it off.
-        try adaptive.activateForTesting(mireds: 300)
+        try await adaptive.activateForTesting(mireds: 300)
         #expect(await eventually { server.setValues.last?["value"] == ["warmWhite": 172, "coldWhite": 83] && light[.colorTemperature]?.value == .int(300) })
         server.valueUpdated(node: 11, commandClass: 51, property: "currentColor", value: ["warmWhite": 174, "coldWhite": 81])
         // Events are handled in order: once the level shows, the white near Adaptive Lighting's was handled too.

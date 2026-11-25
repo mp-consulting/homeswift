@@ -453,6 +453,7 @@ public actor TuyaPlugin: HomeswiftPlugin {
         case "online", "offline":
             guard let runtime = runtimes[deviceID] else { return }
             runtime.device.online = code == "online"
+            for light in runtime.lights { light.reachable(code == "online") }
             runtime.refresh()
         case "nameUpdate":
             guard let runtime = runtimes[deviceID], let name = data["name"]?.stringValue else { return }

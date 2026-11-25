@@ -303,7 +303,11 @@ final class ReolinkCamera: @unchecked Sendable {
             if new.visitor { ring() }
         }
         if let floodlight {
-            if let on = new.floodlightOn, previous?.floodlightOn != on { floodlight.characteristic(.on).value = .bool(on) }
+            if let on = new.floodlightOn, previous?.floodlightOn != on {
+                // A floodlight turned on keeps Adaptive Lighting and takes the white for now.
+                adaptiveLighting?.lightReported(on: on, colour: nil)
+                floodlight.characteristic(.on).value = .bool(on)
+            }
             if let level = new.floodlightBrightness, previous?.floodlightBrightness != level, let brightness = floodlight[.brightness], level > 0 {
                 brightness.value = .int(level)
             }
@@ -356,7 +360,7 @@ final class ReolinkCamera: @unchecked Sendable {
     private func reportColour(_ mireds: Int, to colour: Characteristic) {
         if isColourEchoWindowOpen { return }
         let adaptive = state.withLockedValue { $0.adaptiveLighting }
-        adaptive?.disableIfChangedElsewhere(mireds: mireds)
+        adaptive?.lightReported(on: nil, colour: .white(mireds))
         colour.value = .int(mireds)
     }
 

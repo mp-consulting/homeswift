@@ -270,7 +270,7 @@ struct TapoTests {
         let bulb = try #require(try await accessory(host, kitchenID).service(.lightbulb))
         #expect(await eventually { bulb[.colorTemperature]?.value == .int(370) })
         let controller = try #require(bulb.adaptiveLighting)
-        try controller.activateForTesting()
+        try await controller.activateForTesting()
         #expect(await eventually { environment.network.device().sets.contains { $0["params"]?["color_temp"]?.intValue.map { $0 > 0 } == true } })
         // The device reporting the bridge's own white keeps it on.
         let polls = environment.network.device().methods.count

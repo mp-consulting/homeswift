@@ -184,6 +184,12 @@ extension Thing {
             logger.info("\(config.name): enabling adaptive lighting")
             adaptiveLighting.append(controller)
             lightStates[ObjectIdentifier(service)]?.adaptiveLighting = controller
+            // The light's On, from its topic or HomeKit: a light coming on keeps Adaptive Lighting and takes the white
+            // for now. Its colour comes on other topics, checked as they come.
+            built.characteristic(.on).observe { [weak controller] change in
+                guard change.newValue != change.oldValue else { return }
+                controller?.lightReported(on: change.newValue.boolValue, colour: nil)
+            }
         }
         return [built]
     }
@@ -398,7 +404,7 @@ extension Thing {
             let temperature = service.add(CharacteristicType.colorTemperature.with(minValue: minimum.map(Double.init), maxValue: maximum.map(Double.init)), .int(minimum ?? 140))
             bind(
                 temperature, config, .int, get: "getColorTemperature", set: "setColorTemperature", property: "colorTemperature", online: entry.online,
-                received: { value, changed in if changed { _ = light.adaptiveLighting?.disableIfChangedElsewhere(mireds: value.intValue) } })
+                received: { value, changed in if changed { light.adaptiveLighting?.lightReported(on: nil, colour: value.intValue.map { .white($0) }) } })
         } else if adaptiveLighting, let hue, let saturation {
             let temperature = service.add(.colorTemperature, .int(140))
             serveReads(temperature, entry.online)

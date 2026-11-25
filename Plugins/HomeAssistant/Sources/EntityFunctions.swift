@@ -221,20 +221,18 @@ final class LightFunction: EntityFunction, @unchecked Sendable {
                 characteristic.show(.int(min(mireds.upperBound, max(mireds.lowerBound, value))))
             }
         }
-        // A colour or white set elsewhere (HA's own UI, a remote) ends Adaptive Lighting; this bridge's echo does not.
-        if let adaptiveLighting, on {
-            let changed: Int??
+        // A colour or white set elsewhere (HA's own UI, a remote) ends Adaptive Lighting; this bridge's echo does not. A
+        // light turned on keeps it and takes the white for now (`lightReported`).
+        if let adaptiveLighting {
+            var colour: AdaptiveLightingController.ReportedColour?
             if let mode, Self.colorModes.contains(mode) {
-                changed = .some(nil)
+                colour = .colour
             } else if mode == "color_temp", let kelvin = state.double("color_temp_kelvin"), kelvin > 0 {
-                changed = Int((1_000_000 / kelvin).rounded(.down))
-            } else {
-                changed = nil
+                colour = .white(Int((1_000_000 / kelvin).rounded(.down)))
             }
             // In order, as the reports come: our own change's echo within 2 s is no change made elsewhere.
-            if let changed, !writer.settling(within: .seconds(2)) {
-                adaptiveLighting.disableIfChangedElsewhere(mireds: changed)
-            }
+            if writer.settling(within: .seconds(2)) { colour = nil }
+            adaptiveLighting.lightReported(on: on, colour: colour)
         }
     }
 

@@ -152,7 +152,7 @@ struct SwitchBotPluginTests {
         let light = try #require(host.accessory(id)?.service(.lightbulb))
         #expect(light[.hue] == nil)
         let controller = try #require(light.adaptiveLighting)
-        try controller.activateForTesting()
+        try await controller.activateForTesting()
         #expect(controller.isAdaptiveLightingActive)
         environment.cloud.setStatus("C0FFEE000001", #"{"power":"on","brightness":60,"colorTemperature":2700}"#)
         #expect(await eventually { !controller.isAdaptiveLightingActive })

@@ -393,16 +393,19 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     func show(_ light: HueLight) async {
         let shape = shape(of: light)
         if let services = lights[light.id], services.shape == shape {
+            // What the light shows, for Adaptive Lighting: a light coming on (back from No Response after a power cut,
+            // its On as it was) keeps it and takes the white for now; a colour or another white set elsewhere (the Hue
+            // app, a switch, a scene) stops it. Not the colour of a report that may still be a fade of the bridge's own.
+            // No mirek is a colour, off the white curve. Before the settle check: a light coming on says so once.
+            if let adaptive = services.adaptiveLighting {
+                let settling = await services.writer.isSettling(within: .milliseconds(transitionMs) + dependencies.settleTime)
+                let colour: AdaptiveLightingController.ReportedColour? = settling ? nil : light.mirek.map { .white($0) } ?? .colour
+                if adaptive.lightReported(on: light.on, reachable: light.reachable, colour: colour) {
+                    logger.info("\(light.name): colour changed outside HomeKit, Adaptive Lighting off")
+                }
+            }
             services.accessory.isUnavailable = !light.reachable
             if await services.writer.isSettling(within: dependencies.settleTime) { return }
-            // A colour, or another white, set elsewhere (the Hue app, a switch, a scene) stops Adaptive Lighting, as
-            // the Home app does when it sets one; not while a fade of the bridge's own may still report its steps.
-            // No mirek is a colour, off the white curve.
-            if let adaptive = services.adaptiveLighting, adaptive.isAdaptiveLightingActive,
-               await !services.writer.isSettling(within: .milliseconds(transitionMs) + dependencies.settleTime),
-               adaptive.disableIfChangedElsewhere(mireds: light.mirek) {
-                logger.info("\(light.name): colour changed outside HomeKit, Adaptive Lighting off")
-            }
             Self.showValues(light, on: services, keeping: services.command.lastColour)
             return
         }

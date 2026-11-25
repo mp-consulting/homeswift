@@ -399,7 +399,10 @@ struct PhilipsHueTests {
         let host = try await environment.start(settings: ["host": "192.0.2.10", "transitionMs": 0, "pollingInterval": 60])
         let bulb = try #require(try await accessory(host, deskID).service(.lightbulb))
         let controller = try #require(bulb.adaptiveLighting)
-        try controller.activateForTesting()
+        // On: a light that is off decides nothing.
+        environment.bridge.change("light-2") { $0["on"] = ["on": true] }
+        await environment.plugin?.refresh()
+        try await controller.activateForTesting()
         #expect(await eventually { environment.bridge.puts.contains { $0.path == "/clip/v2/resource/light/light-2" && $0.body["color_temperature"]?["mirek"] == 300 } })
         // The bridge takes the white at once, as a real one does: a refresh that comes meanwhile reads it.
         environment.bridge.change("light-2") { $0["color_temperature"] = ["mirek": 300, "mirek_valid": true, "mirek_schema": ["mirek_minimum": 153, "mirek_maximum": 454]] }
@@ -407,6 +410,49 @@ struct PhilipsHueTests {
         await environment.plugin?.refresh()
         #expect(controller.isAdaptiveLightingActive)
         environment.bridge.change("light-2") { $0["color_temperature"] = ["mirek": .null, "mirek_valid": false, "mirek_schema": ["mirek_minimum": 153, "mirek_maximum": 454]] }
+        await environment.plugin?.refresh()
+        #expect(!controller.isAdaptiveLightingActive)
+        await host.stop()
+    }
+
+    /// A bulb behind a wall switch: it goes No Response when the switch cuts its power, and comes back in its power-up
+    /// white with its On never shown off. Adaptive Lighting keeps on and sets the white for now at once. A light turned on
+    /// in a colour (a scene from a switch) is a colour set elsewhere, as before.
+    @Test func adaptiveLightingOutlivesAPowerCut() async throws {
+        let host = try await environment.start(settings: ["host": "192.0.2.10", "transitionMs": 0, "pollingInterval": 60])
+        let accessory = try await accessory(host, deskID)
+        let bulb = try #require(accessory.service(.lightbulb))
+        let controller = try #require(bulb.adaptiveLighting)
+        environment.bridge.change("light-2") { $0["on"] = ["on": true] }
+        await environment.plugin?.refresh()
+        try await controller.activateForTesting()
+        let puts: @Sendable () -> Int = { [environment] in environment.bridge.puts.filter { $0.path == "/clip/v2/resource/light/light-2" && $0.body["color_temperature"]?["mirek"] == 300 }.count }
+        #expect(await eventually { puts() == 1 })
+        environment.bridge.change("light-2") { $0["color_temperature"] = ["mirek": 300, "mirek_valid": true, "mirek_schema": ["mirek_minimum": 153, "mirek_maximum": 454]] }
+        try await Task.sleep(for: hueSettleTime + .milliseconds(100))
+
+        // The wall switch cuts the power: No Response, On as it was.
+        environment.bridge.change("zc-2") { $0["status"] = "connectivity_issue" }
+        await environment.plugin?.refresh()
+        #expect(accessory.isUnavailable)
+        // The power comes back: the bulb in its power-up white.
+        environment.bridge.change("zc-2") { $0["status"] = "connected" }
+        environment.bridge.change("light-2") { $0["color_temperature"] = ["mirek": 454, "mirek_valid": true, "mirek_schema": ["mirek_minimum": 153, "mirek_maximum": 454]] }
+        await environment.plugin?.refresh()
+        #expect(controller.isAdaptiveLightingActive)
+        #expect(await eventually { puts() == 2 })
+        environment.bridge.change("light-2") { $0["color_temperature"] = ["mirek": 300, "mirek_valid": true, "mirek_schema": ["mirek_minimum": 153, "mirek_maximum": 454]] }
+        try await Task.sleep(for: hueSettleTime + .milliseconds(100))
+        await environment.plugin?.refresh()
+        #expect(controller.isAdaptiveLightingActive)
+
+        // Turned off, then on in a colour from a switch's scene: a colour set elsewhere.
+        environment.bridge.change("light-2") { $0["on"] = ["on": false] }
+        await environment.plugin?.refresh()
+        environment.bridge.change("light-2") { light in
+            light["on"] = ["on": true]
+            light["color_temperature"] = ["mirek": .null, "mirek_valid": false, "mirek_schema": ["mirek_minimum": 153, "mirek_maximum": 454]]
+        }
         await environment.plugin?.refresh()
         #expect(!controller.isAdaptiveLightingActive)
         await host.stop()

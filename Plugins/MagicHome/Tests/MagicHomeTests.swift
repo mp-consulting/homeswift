@@ -183,7 +183,7 @@ struct MagicHomeTests {
         #expect(await eventually { light[.colorTemperature]?.value == .int(274) })
         let controller = try #require(await environment.plugin?.adaptiveLighting[Fixtures.bulbMAC])
         // Turned on, it writes its white through the characteristic's handler, as HomeKit would.
-        try controller.activateForTesting(mireds: 300)
+        try await controller.activateForTesting(mireds: 300)
         // The frames go out before the write returns, and the characteristic takes the white once it has.
         #expect(await eventually {
             environment.lan.commands(to: Self.bulbHost).count >= 2 && light[.colorTemperature]?.value.intValue.map { abs($0 - 300) <= 2 } == true
@@ -455,7 +455,7 @@ struct MagicHomeTests {
         #expect(await eventually { host.accessory(Fixtures.bulbMAC)?.service(.lightbulb)?[.on]?.value == .bool(false) })
         let light = try #require(host.accessory(Fixtures.bulbMAC)?.service(.lightbulb))
         let controller = try #require(await environment.plugin?.adaptiveLighting[Fixtures.bulbMAC])
-        try controller.activateForTesting(mireds: 300)
+        try await controller.activateForTesting(mireds: 300)
         #expect(await eventually { light[.colorTemperature]?.value.intValue.map { abs($0 - 300) <= 2 } == true })
         try await Task.sleep(for: .milliseconds(100))
         #expect(environment.lan.commands(to: Self.bulbHost).isEmpty)

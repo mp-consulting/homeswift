@@ -206,7 +206,7 @@ struct ESPHomePluginTests {
         let command = try #require(device.lastMessage)
         #expect(command.bool(12) && command.float(13) == 250 && command.enumeration(23) == 11)
 
-        try controller.activateForTesting(mireds: 250)
+        try await controller.activateForTesting(mireds: 250)
         #expect(controller.isAdaptiveLightingActive)
         // A white set elsewhere turns it off.
         device.push(frame(24) {

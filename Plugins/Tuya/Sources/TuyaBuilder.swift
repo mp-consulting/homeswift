@@ -97,29 +97,43 @@ final class TuyaAdaptiveLight: Sendable {
     /// The light's service, once built.
     private let serviceBox = NIOLockedValueBox<Service?>(nil)
     let temperatureCode: String
+    /// The light's On DP.
+    let onCode: String?
     /// The colour and work mode DPs, as the device reports them.
     let colourCodes: Set<String>
     let mireds: @Sendable () -> Int?
     let isColour: @Sendable () -> Bool
     private let box = NIOLockedValueBox<AdaptiveLightingController?>(nil)
 
-    init(draft: TuyaServiceDraft, temperatureCode: String, colourCodes: Set<String>, mireds: @escaping @Sendable () -> Int?, isColour: @escaping @Sendable () -> Bool) {
+    init(
+        draft: TuyaServiceDraft, onCode: String? = nil, temperatureCode: String, colourCodes: Set<String>, mireds: @escaping @Sendable () -> Int?,
+        isColour: @escaping @Sendable () -> Bool
+    ) {
         draft.onBuild = { [serviceBox] service in serviceBox.withLockedValue { $0 = service } }
+        self.onCode = onCode
         self.temperatureCode = temperatureCode
         self.colourCodes = colourCodes
         self.mireds = mireds
         self.isColour = isColour
     }
 
-    /// A push's values that say the light was set elsewhere turn Adaptive Lighting off: a white far from the one shown,
-    /// or a colour. Called before the characteristics show the push.
+    /// A push, for Adaptive Lighting (`lightReported`): a light turned on keeps it and takes the white for now; a white
+    /// far from the one shown, or a colour, set elsewhere turns it off. Called before the characteristics show the push.
     func check(_ items: [TuyaPushMessage.StatusItem]) {
-        guard let controller, controller.isAdaptiveLightingActive else { return }
+        guard let controller else { return }
+        let on = onCode.flatMap { code in items.first { $0.code == code }?.value.boolValue }
+        var colour: AdaptiveLightingController.ReportedColour?
         if items.contains(where: { colourCodes.contains($0.code) }), isColour() {
-            controller.disableIfChangedElsewhere(mireds: nil)
+            colour = .colour
         } else if items.contains(where: { $0.code == temperatureCode }), let mireds = mireds() {
-            controller.disableIfChangedElsewhere(mireds: mireds)
+            colour = .white(mireds)
         }
+        controller.lightReported(on: on, colour: colour)
+    }
+
+    /// The device went online or offline: a light whose power came back keeps Adaptive Lighting.
+    func reachable(_ online: Bool) {
+        controller?.lightReported(on: nil, reachable: online, colour: nil)
     }
 
     var service: Service? { serviceBox.withLockedValue { $0 } }

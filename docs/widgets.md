@@ -281,10 +281,12 @@ let adaptiveLighting = context.adaptiveLighting(for: lightbulb, accessoryID: acc
 self.adaptiveLighting[device.id] = adaptiveLighting   // kept as long as the light is on the bridge
 try context.add(accessory)
 
-// The light was set from its own app: Adaptive Lighting stops, as when the Home app sets a white.
-await device.onTemperatureChange { mireds in
-    adaptiveLighting?.disableIfChangedElsewhere(mireds: mireds)
-    lightbulb.characteristic(.colorTemperature).value = .int(mireds)
+// The device's report, before it is shown: a light turned on (or back from a power cut) keeps Adaptive Lighting and
+// takes the white for now; a white set from its own app stops it, as when the Home app sets one.
+await device.onReport { report in
+    adaptiveLighting?.lightReported(on: report.on, reachable: report.reachable, colour: report.mireds.map { .white($0) })
+    lightbulb.characteristic(.on).value = .bool(report.on)
+    if let mireds = report.mireds { lightbulb.characteristic(.colorTemperature).value = .int(mireds) }
 }
 ```
 

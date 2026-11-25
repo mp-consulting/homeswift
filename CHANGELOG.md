@@ -18,6 +18,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Adaptive Lighting, on every light: a light that comes on keeps it and takes the white for now at once, rather than at
+  the next minute. A light behind a wall switch came back from its power cut in its power-up white (a colour bulb in a
+  colour), which every plugin took for a change made outside HomeKit and turned Adaptive Lighting off until it was turned
+  off and on again; a light turned on in a white from its own app or a switch did the same. One turned on in a scene's
+  colour still stops it. Until the white it has just sent reaches the light (just turned on, resumed from the web UI, or
+  the light just came on), what the light reports is not taken for a change made elsewhere either. Plugin authors: each
+  report goes to `lightReported(on:reachable:colour:)`, which decides for every plugin alike
+  (docs/adr/0015-one-report-decides-adaptive-lighting.md).
 - LG ThinQ: an air conditioner in auto shows as Auto, where it showed Heat or Cool by its room's temperature, with its
   range around the target; a temperature set while it is off goes out when it is turned on (it was dropped), and a mode
   button switched off goes back to the unit's last mode, chosen in Apple Home or on the unit.

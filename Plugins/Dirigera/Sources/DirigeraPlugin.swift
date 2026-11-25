@@ -278,17 +278,27 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             hub.devices[id] = device
             if !device.isStandalone { return showGroupChange(device, reachabilityChanged: event["data"]?["isReachable"] != nil, on: hub) }
             if let services = accessories[id] {
-                if let writer = services.writer, await writer.isSettling(within: dependencies.settleTime) { return }
-                // A white or a colour set elsewhere (the IKEA app, a remote) stops Adaptive Lighting, as the Home app
-                // does when it sets one; not while a fade of the bridge's own may still report its steps.
+                // For Adaptive Lighting, the event as it came: a light coming on (or back from No Response) keeps it and
+                // takes the white for now; a white or a colour set elsewhere (the IKEA app, a remote) stops it. Not the
+                // colour of an event that may still be a fade of the bridge's own. Before the settle check: a light
+                // coming on says so once.
                 let attributes = event["data"]?["attributes"]
-                let colour = attributes?["colorMode"]?.stringValue == "color"
-                if let adaptive = services.adaptiveLighting, adaptive.isAdaptiveLightingActive,
-                   colour || (attributes?["colorTemperature"] != nil && device.mirek != nil),
-                   await services.writer?.isSettling(within: .milliseconds(transitionMs) + dependencies.settleTime) != true,
-                   adaptive.disableIfChangedElsewhere(mireds: colour ? nil : device.mirek) {
-                    logger.info("\(device.name): colour changed outside HomeKit, Adaptive Lighting off")
+                if let adaptive = services.adaptiveLighting {
+                    let settling = await services.writer?.isSettling(within: .milliseconds(transitionMs) + dependencies.settleTime) == true
+                    var colour: AdaptiveLightingController.ReportedColour?
+                    if settling {
+                        colour = nil
+                    } else if attributes?["colorMode"]?.stringValue == "color" {
+                        colour = .colour
+                    } else if attributes?["colorTemperature"] != nil, let mirek = device.mirek {
+                        colour = .white(mirek)
+                    }
+                    let on = attributes?["isOn"] != nil ? device.on : nil
+                    if adaptive.lightReported(on: on, reachable: event["data"]?["isReachable"]?.boolValue, colour: colour) {
+                        logger.info("\(device.name): colour changed outside HomeKit, Adaptive Lighting off")
+                    }
                 }
+                if let writer = services.writer, await writer.isSettling(within: dependencies.settleTime) { return }
                 Self.showValues(device, on: services)
             }
         case "remotePressEvent":
@@ -334,6 +344,8 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             shown.insert(Self.accessoryID(deviceID: device.id))
             let shape = Self.shape(of: device)
             if let services = accessories[device.id], services.shape == shape {
+                // A read: whether the light is on and answers, for Adaptive Lighting (a light back from a power cut).
+                services.adaptiveLighting?.lightReported(on: device.on, reachable: device.reachable, colour: nil)
                 services.accessory.isUnavailable = !device.reachable
                 if let writer = services.writer, await writer.isSettling(within: dependencies.settleTime) { continue }
                 Self.showValues(device, on: services)
