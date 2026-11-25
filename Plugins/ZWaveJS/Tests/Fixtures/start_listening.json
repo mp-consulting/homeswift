@@ -665,6 +665,20 @@
      },
      {
       "endpoint": 0,
+      "commandClass": 66,
+      "commandClassName": "Thermostat Operating State",
+      "property": "state",
+      "propertyName": "state",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 1
+     },
+     {
+      "endpoint": 0,
       "commandClass": 67,
       "commandClassName": "Thermostat Setpoint",
       "property": "setpoint",

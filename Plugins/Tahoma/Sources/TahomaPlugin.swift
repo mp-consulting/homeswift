@@ -241,7 +241,10 @@ public actor TahomaPlugin: HomeswiftPlugin {
                 id: id, name: device.label, manufacturer: device.states["core:ManufacturerNameState"]?.stringValue ?? "Somfy",
                 model: device.states["core:ModelState"]?.stringValue ?? device.uiClass, serialNumber: device.serialNumber,
                 category: type.category, services: services)
-            if let cached { accessory.takeValues(from: cached) }
+            if let cached {
+                accessory.takeValues(from: cached)
+                if !services.isEmpty { mapper.restored() }
+            }
             do {
                 try context.add(accessory)
             } catch {

@@ -511,6 +511,7 @@ final class TuyaRuntime: Sendable {
         var bindings: [(characteristic: Characteristic, onlineCheck: Bool, get: TuyaGetter)] = []
         var events: [TuyaEventHandler] = []
         var lights: [TuyaAdaptiveLight] = []
+        var climates: [(controller: ClimateController, report: @Sendable () -> ClimateReport?)] = []
     }
 
     private let state = NIOLockedValueBox(State())
@@ -539,7 +540,16 @@ final class TuyaRuntime: Sendable {
         return drafts.enumerated().map { index, draft in
             var optional = draft.specs.map(\.type)
             if draft.configuredName != nil { optional.append(.configuredName) }
-            let service = Service(draft.type, name: draft.name, subtype: draft.subtype, optional: optional, isPrimary: index == 0)
+            let service: Service
+            if let climate = draft.climate {
+                let controller = ClimateController(climate.kind, name: draft.name, subtype: draft.subtype, isPrimary: index == 0,
+                                                   capabilities: climate.capabilities, optional: optional, apply: climate.apply)
+                state.withLockedValue { $0.climates.append((controller, climate.report)) }
+                service = controller.service
+                if let report = climate.report() { controller.update(report) }
+            } else {
+                service = Service(draft.type, name: draft.name, subtype: draft.subtype, optional: optional, isPrimary: index == 0)
+            }
             if let name = draft.configuredName { service.characteristic(.configuredName).value = .string(name) }
             for spec in draft.specs {
                 guard let characteristic = service[spec.type] else { continue }
@@ -557,6 +567,16 @@ final class TuyaRuntime: Sendable {
                 }
                 if let set = spec.set { characteristic.onWrite(set) }
             }
+            if let climate = draft.climate, climate.onlineCheck {
+                let power: CharacteristicType = climate.kind == .heaterCooler ? .active : .targetHeatingCoolingState
+                for type in [power, .currentTemperature] {
+                    guard let characteristic = service[type] else { continue }
+                    characteristic.onRead { [weak characteristic] in
+                        guard device.online else { throw HAPStatusError(.serviceCommunicationFailure) }
+                        return characteristic?.value ?? .null
+                    }
+                }
+            }
             draft.onBuild?(service)
             return service
         }
@@ -567,6 +587,9 @@ final class TuyaRuntime: Sendable {
         let online = device.online
         for binding in state.withLockedValue({ $0.bindings }) where online || !binding.onlineCheck {
             if let value = binding.get() { binding.characteristic.value = value }
+        }
+        for climate in state.withLockedValue({ $0.climates }) {
+            if let report = climate.report() { climate.controller.update(report) }
         }
     }
 

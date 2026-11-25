@@ -4,7 +4,7 @@ import NIOConcurrencyHelpers
 
 /// Homeswift's Device Ids for one Wingman's Apple Home accessories. A Device Id is the HomeKit id the accessory had when
 /// Homeswift first saw it, and it stays when Apple Home gives the same accessory a new one: HomeKit's ids are the Mac's
-/// own and can all change at once (docs/adr/0013-mirrors-keep-their-device-id.md). Only the ids that differ are kept.
+/// own and can all change at once (docs/adr/0014-mirrors-keep-their-device-id.md). Only the ids that differ are kept.
 struct AccessoryIDs: Sendable, Equatable {
     /// Device Id by current HomeKit id, where they differ.
     private(set) var deviceIDs: [String: String] = [:]

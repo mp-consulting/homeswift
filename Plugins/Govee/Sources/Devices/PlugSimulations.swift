@@ -4,12 +4,12 @@ import Homeswift
 
 /// A plug shown as a heater or a cooler (`device/heater-single.ts`, `device/cooler-single.ts`): a thermostat
 /// in the plugin, switching the plug on and off around the target from the temperature another Govee sensor
-/// reports (`temperatureSource`).
+/// reports (`temperatureSource`). Its Heater Cooler is a `ClimateController`'s (ADR 0013), in auto with one target.
 final class ThermostatPlugDevice: GoveeDevice {
     enum Mode: String { case heater, cooler }
 
     let mode: Mode
-    private var service: Service!
+    private var climate: ClimateController!
     private let temperatureSource: String
     private var cacheTemp = 20.0
     /// Heating or cooling: the plug is on.
@@ -25,10 +25,6 @@ final class ThermostatPlugDevice: GoveeDevice {
 
     override var category: AccessoryCategory { mode == .heater ? .heater : .airConditioner }
 
-    private var threshold: CharacteristicType { mode == .heater ? .heatingThresholdTemperature : .coolingThresholdTemperature }
-    /// HomeKit's current state while the plug runs: 2 heating, 3 cooling.
-    private var runningState: Int { mode == .heater ? 2 : 3 }
-
     override func configure() {
         // A plug switched from heater to cooler, or back, starts again from 20°C.
         let store = environment.store
@@ -37,17 +33,19 @@ final class ThermostatPlugDevice: GoveeDevice {
             store.set(info.id, "cacheTarget", 20)
         }
         cacheTarget = store.value(info.id, "cacheTarget")?.doubleValue ?? 20
-        service = addService(.heaterCooler, characteristics: [
-            .currentTemperature.with(minStep: 0.1), .targetHeaterCoolerState.with(minValue: 0, maxValue: 0, validValues: [0]), threshold.with(minStep: 0.5),
-        ], primary: true)
+        // The bounds HomeKit gave the heating or the cooling threshold before.
+        let range: ClosedRange<Double> = mode == .heater ? 0...25 : 10...35
+        climate = addClimate(capabilities: ClimateCapabilities(modes: [.auto], setpoints: .single, range: range, step: 0.5),
+                             characteristics: [.currentTemperature.with(minStep: 0.1)], primary: true) { [weak self] command in
+            try await self?.apply(command)
+        }
         // Until the source sensor reports, 20°C (the Homebridge plugin's starting value).
-        if environment.cached?.service(.heaterCooler) == nil { update(service[.currentTemperature], 20.0) }
-        cacheTemp = double(service[.currentTemperature])
-        service.characteristic(.active).onWrite { [weak self] value in try await self?.internalStateUpdate(value.intValue ?? 0) }
-        update(service[threshold], cacheTarget)
-        service.characteristic(threshold).onWrite { [weak self] value in try await self?.internalTargetUpdate(value.doubleValue ?? 20) }
-        cacheState = int(service[.active]) == 1 ? "on" : "off"
-        cacheActive = cacheState == "on" && int(service[mode == .heater ? .targetHeaterCoolerState : .currentHeaterCoolerState]) == runningState ? "on" : "off"
+        let cached = cachedService(.heaterCooler)
+        cacheTemp = cached?[.currentTemperature]?.value.doubleValue ?? 20
+        cacheState = cached?[.active]?.value.intValue == 1 ? "on" : "off"
+        let running = mode == .heater ? 2 : 3
+        cacheActive = cacheState == "on" && cached?[.currentHeaterCoolerState]?.value.intValue == running ? "on" : "off"
+        showClimate()
         startCustomHistory()
         // Temperatures from the source sensor, five seconds in and then every two minutes.
         let firstRead = environment.temperatureSourceFirstRead
@@ -68,6 +66,12 @@ final class ThermostatPlugDevice: GoveeDevice {
         poller = nil
     }
 
+    /// The plug's state: running is heating or cooling.
+    private func showClimate() {
+        let action: ClimateAction = cacheState == "on" && cacheActive == "on" ? (mode == .heater ? .heating : .cooling) : .idle
+        climate.update(ClimateReport(power: cacheState == "on", mode: .auto, action: action, current: cacheTemp, target: cacheTarget))
+    }
+
     /// Whether the plug should run at this temperature.
     private func shouldRun(_ temperature: Double, target: Double) -> Bool {
         mode == .heater ? temperature < target : temperature > target
@@ -77,53 +81,32 @@ final class ThermostatPlugDevice: GoveeDevice {
         log("\(mode == .heater ? Lang.curHeat : Lang.curCool) [\(cacheActive)]")
     }
 
-    private func internalStateUpdate(_ value: Int) async throws {
-        let newState: String
-        let newActive: String
-        if value == 0 {
-            (newState, newActive) = ("off", "off")
-        } else if shouldRun(cacheTemp, target: cacheTarget) {
-            (newState, newActive) = ("on", "on")
-        } else {
-            (newState, newActive) = ("on", "off")
+    /// The target, then the power: the plug is switched once, when it has to run or stop.
+    private func apply(_ command: ClimateCommand) async throws {
+        if let target = command.target, target != cacheTarget {
+            cacheTarget = target
+            environment.store.set(info.id, "cacheTarget", .number(target))
+            log("\(Lang.curTarg) [\(DeviceUpdate.format(target))°C]")
         }
+        let state = command.power.map { $0 ? "on" : "off" } ?? cacheState
+        let active = state == "on" && shouldRun(cacheTemp, target: cacheTarget) ? "on" : "off"
         do {
-            // Only when switching off a running plug, or switching on one that has to run.
-            if (value == 0 && cacheActive == "on") || (value == 1 && newActive == "on") {
+            if active != cacheActive {
                 holdReports()
-                try await send(.stateOutlet(newActive == "on"))
+                try await send(.stateOutlet(active == "on"))
             }
-            if newState != cacheState {
-                cacheState = newState
-                log("\(Lang.curState) [\(cacheState)]")
-            }
-            if newActive != cacheActive {
-                cacheActive = newActive
-                logActive()
-            }
-            update(service[.currentHeaterCoolerState], value == 1 ? (cacheActive == "on" ? runningState : 1) : 0)
         } catch {
-            throw failed(error, service[.active], revert: .int(cacheState == "on" ? 1 : 0))
+            throw climateFailed(error)
         }
-    }
-
-    private func internalTargetUpdate(_ value: Double) async throws {
-        guard value != cacheTarget else { return }
-        cacheTarget = value
-        environment.store.set(info.id, "cacheTarget", .number(value))
-        log("\(Lang.curTarg) [\(DeviceUpdate.format(value))°C]")
-        guard cacheState != "off" else { return }
-        let newActive = shouldRun(cacheTemp, target: value) ? "on" : "off"
-        guard newActive != cacheActive else { return }
-        do {
-            holdReports()
-            try await send(.stateOutlet(newActive == "on"))
-            cacheActive = newActive
+        if state != cacheState {
+            cacheState = state
+            log("\(Lang.curState) [\(cacheState)]")
+        }
+        if active != cacheActive {
+            cacheActive = active
             logActive()
-            update(service[.currentHeaterCoolerState], cacheActive == "on" ? runningState : 1)
-        } catch {
-            throw failed(error, service[threshold], revert: .double(cacheTarget))
         }
+        showClimate()
     }
 
     private func currentTemperatureChanged() async {
@@ -135,7 +118,7 @@ final class ThermostatPlugDevice: GoveeDevice {
             try await send(.stateOutlet(newActive == "on"))
             cacheActive = newActive
             logActive()
-            update(service[.currentHeaterCoolerState], cacheActive == "on" ? runningState : 1)
+            showClimate()
         } catch {
             logWarn("\(error)")
         }
@@ -144,7 +127,7 @@ final class ThermostatPlugDevice: GoveeDevice {
     private func readTemperature() async {
         guard let temperature = environment.store.temperature(of: temperatureSource), temperature != 0, temperature != cacheTemp else { return }
         cacheTemp = temperature
-        update(service[.currentTemperature], cacheTemp)
+        showClimate()
         addHistory(temp: cacheTemp)
         log("\(Lang.curTemp) [\(DeviceUpdate.format(cacheTemp))°C]")
         await currentTemperatureChanged()

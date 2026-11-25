@@ -6,8 +6,64 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Every thermostat and air conditioner is mapped to Apple Home the same way, by one `ClimateController`
+  (docs/adr/0013-climate-is-mapped-once.md): a unit in auto stays Auto, a mode Apple Home has no name for (dry, fan
+  only, eco) keeps the mode shown and an idle state rather than passing for Auto, Cool or Heat, a Heater Cooler's mode
+  never turns it on, a temperature set while a unit is off is sent, or kept for its next turn-on when it refuses one
+  then, and a unit with one target shows a range around it in auto (2 °C wide), the range written while its middle is
+  still the target. The Home app's writes of one change reach the device as one command, one command at a time, and a
+  failed one puts the tile back as the device last said. Plugin authors: CONTRIBUTING.md and docs/plugins.md.
+
 ### Fixed
 
+- LG ThinQ: an air conditioner in auto shows as Auto, where it showed Heat or Cool by its room's temperature, with its
+  range around the target; a temperature set while it is off goes out when it is turned on (it was dropped), and a mode
+  button switched off goes back to the unit's last mode, chosen in Apple Home or on the unit.
+- SmartThings: an air conditioner's dry and wind modes keep its mode shown (dry showed as Cool, wind as Off), its own
+  auto (`aiComfort`) counts as Auto, and a thermostat's configured heat and cool modes count as Heat and Cool; one
+  change goes out as one request, 0.3 s after the last write, within SmartThings' 12 requests a minute.
+- Google Nest: eco keeps the thermostat's mode shown, with eco's range, and a temperature set in eco is refused rather
+  than sent; one set while it is off goes out with its turn-on, and one change is one command (SetMode, then SetHeat,
+  SetCool or SetRange), gathered for 0.6 s within Google's 5 commands a minute.
+- Home Assistant: a climate entity in dry or fan only keeps its mode shown (they showed as Cool), its low and high go
+  out together in one `set_temperature`, and the thresholds no longer have to be 5 °C apart.
+- ESPHome: dry and fan only keep a thermostat's mode shown, and one change goes out as one climate command.
+- Xiaomi MIoT: an air conditioner in dry or fan keeps its mode shown and reads idle, a heater no longer turns on when
+  Heat is chosen (Active does), and a unit that is off reads Inactive rather than Idle.
+- Govee: the H7130, H7131 and H7132 heaters show whether they heat (it was never set), Inactive when off; fan only
+  keeps the mode shown rather than passing for Heat, Heat chosen from it heats at low, and a mode never turns a heater
+  on. A failed command puts the tile back at once rather than after 2 s.
+- Dyson: a Hot+Cool's Thermostat no longer reads Heating just because heating is on: it shows what the heater reports,
+  idle with the fan off, and a temperature set while heating is off is sent without turning it on.
+- Daikin: an air conditioner in dry or fan only keeps its mode shown rather than passing for Auto, a unit offers only
+  the modes it has, its state is idle once the room has reached the setpoint, and both thresholds of one change are one
+  command, the auto setpoint moved to their middle only when one changed. A hot water tank whose setpoint cannot be set
+  refuses it rather than taking it silently.
+- tado°: a temperature set while a zone or an air conditioner is off waits for its next turn-on rather than turning it
+  on, an air conditioner in fan, dry or tado's auto keeps its mode shown rather than passing for Cool, its heating
+  power tells whether it heats, and an overlay tado refuses fails the write and puts the tile back (it kept the value
+  written until the next poll). One change within 400 ms is still one request.
+- eWeLink: an air conditioner (UIID 151) keeps Auto, and its dry and fan modes keep its mode shown; a thermostat (UIID
+  127) tells whether it heats from its work state and no longer adds its temperature offset twice when the device sends
+  no temperature; a simulated thermostat puts its state back and fails the write when its relay cannot follow.
+- Tuya: an air conditioner in dehumidify or fan keeps its mode shown and its range around the target in auto (fixed
+  thresholds that refused writes before), a thermostat's eco is a mode of its own rather than Cool, Off is offered only
+  with a switch, and an infrared air conditioner's tile follows each change at once. A heater (qn) shows as Heat rather
+  than Auto: an automation that set it to Auto sets it to Heat again.
+- SwitchBot: an infrared air conditioner's mode and temperature of one change go as one command, at once (the 1.5 s
+  wait stays for its fan speed).
+- Ring: a thermostat's mode and set point chosen together are one request to the hub, a failed one shows No Response
+  rather than failing unseen, and Ring's auto or eco keep the thermostat on with its last mode rather than Off.
+- Somfy TaHoma: a thermostat's mode and target chosen together go out as one execution (a Hitachi heat pump's as one
+  `globalControl`, built from the change rather than stale values), the target shows whatever the device is doing,
+  and a failed execution puts the tile back as the device last said.
+- Z-Wave JS: a thermostat's fan, eco or other modes keep the mode and target shown, and one with both setpoints has its
+  heat-to and cool-to thresholds in Auto.
+- Zigbee2MQTT: a thermostat without a system mode no longer always shows Heating (its room's temperature tells), a mode
+  such as sleep keeps Heat and the setpoint shown, Off is offered only when the device lists it, and one change goes
+  out as one `/set` message.
 - Govee no longer disables itself when the bridge starts before its network: when neither the LAN nor Govee's cloud
   answers, it sets up again 30 s later, then later and later up to every 5 minutes. When only the cloud does not answer,
   the devices on the LAN and Bluetooth run, the account's others keep their accessories (they were removed before), and

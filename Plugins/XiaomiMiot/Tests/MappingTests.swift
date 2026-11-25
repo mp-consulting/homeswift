@@ -299,8 +299,79 @@ import Testing
         #expect(heater[.currentTemperature]?.value == .double(19.5))
         #expect(heater[.heatingThresholdTemperature]?.value == .double(22))
         #expect(delay[.brightness]?.value == .int(50))
+        // Off is Inactive (it showed Idle before).
         show(built, ["2.1": false])
-        #expect(heater[.currentHeaterCoolerState]?.value == .int(1))
+        #expect(heater[.currentHeaterCoolerState]?.value == .int(0))
+    }
+
+    /// An air conditioner (ADR 0013): auto stays Auto, Dry is an Other Mode that keeps the target state, and the two
+    /// thresholds of one change make one write of the single target, at their middle.
+    @Test func airConditionerModesAndOneTarget() async throws {
+        let spec = try MiotSpec(json: ["type": "urn:miot-spec-v2:device:air-conditioner:0:test:1", "services": [
+            ["iid": 2, "type": "urn:miot-spec-v2:service:air-conditioner:0:test:1", "description": "AC", "properties": [
+                ["iid": 1, "type": "urn:miot-spec-v2:property:on:0:test:1", "description": "on", "format": "bool", "access": ["read", "write", "notify"]],
+                ["iid": 2, "type": "urn:miot-spec-v2:property:mode:0:test:1", "description": "mode", "format": "uint8", "access": ["read", "write", "notify"],
+                 "value-list": [["value": 0, "description": "Auto"], ["value": 1, "description": "Cool"], ["value": 2, "description": "Dry"],
+                                ["value": 4, "description": "Heat"]]],
+                ["iid": 4, "type": "urn:miot-spec-v2:property:target-temperature:0:test:1", "description": "target", "format": "float",
+                 "access": ["read", "write", "notify"], "unit": "celsius", "value-range": [16, 31, 0.5]],
+            ]],
+            ["iid": 3, "type": "urn:miot-spec-v2:service:environment:0:test:1", "description": "Environment", "properties": [
+                ["iid": 1, "type": "urn:miot-spec-v2:property:temperature:0:test:1", "description": "temperature", "format": "float",
+                 "access": ["read", "notify"], "unit": "celsius"],
+            ]],
+        ]])
+        let device = RecordingDevice()
+        let handle = DeviceHandle()
+        handle.attach(device)
+        let built = try #require(MiotAccessoryBuilder(spec: spec, model: "test.ac", name: "Test", accessoryID: "miot:1",
+            serialNumber: "1", firmware: "1", options: DeviceOptions([:]), defaults: MappingDefaults(), handle: handle,
+            timings: fastTimings.accessory, logger: testLogger, makeAdaptiveLighting: { _ in nil }).build())
+        let service = try #require(built.accessory.service(.heaterCooler))
+        #expect(service[.targetHeaterCoolerState]?.type.validValues == [0, 1, 2])
+        #expect(service[.coolingThresholdTemperature]?.type.minValue == 16 && service[.coolingThresholdTemperature]?.type.maxValue == 31)
+        show(built, ["2.1": true, "2.2": 0, "2.4": 24, "3.1": 23])
+        #expect(service[.targetHeaterCoolerState]?.value == .int(0))
+        #expect(service[.heatingThresholdTemperature]?.value.doubleValue == 23 && service[.coolingThresholdTemperature]?.value.doubleValue == 25)
+        show(built, ["2.2": 2])
+        #expect(service[.targetHeaterCoolerState]?.value == .int(0))
+        #expect(service[.currentHeaterCoolerState]?.value == .int(1))
+        show(built, ["2.2": 0])
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { try await service.characteristic(.heatingThresholdTemperature).write(.double(22)) }
+            group.addTask { try await service.characteristic(.coolingThresholdTemperature).write(.double(28)) }
+            try await group.waitForAll()
+        }
+        #expect(device.writes.map(\.key) == [PropertyKey("2.4")!] && device.writes.last?.value == .number(25))
+        // A mode written while off sends the mode, never the power.
+        show(built, ["2.1": false])
+        try await service.characteristic(.targetHeaterCoolerState).write(.int(2))
+        #expect(device.writes.map(\.key) == [PropertyKey("2.4")!, PropertyKey("2.2")!] && device.writes.last?.value == .number(1))
+    }
+
+    /// A mode property listing none of Auto, Heat and Cool offers no mode it cannot send: Auto alone, a write of it
+    /// refused with nothing sent.
+    @Test func anAirConditionerOfOtherModesOffersNoneItCannotSend() async throws {
+        let spec = try MiotSpec(json: ["type": "urn:miot-spec-v2:device:air-conditioner:0:test:1", "services": [
+            ["iid": 2, "type": "urn:miot-spec-v2:service:air-conditioner:0:test:1", "description": "AC", "properties": [
+                ["iid": 1, "type": "urn:miot-spec-v2:property:on:0:test:1", "description": "on", "format": "bool", "access": ["read", "write", "notify"]],
+                ["iid": 2, "type": "urn:miot-spec-v2:property:mode:0:test:1", "description": "mode", "format": "uint8", "access": ["read", "write", "notify"],
+                 "value-list": [["value": 0, "description": "Dry"], ["value": 1, "description": "Fan"]]],
+                ["iid": 4, "type": "urn:miot-spec-v2:property:target-temperature:0:test:1", "description": "target", "format": "float",
+                 "access": ["read", "write", "notify"], "unit": "celsius", "value-range": [16, 31, 0.5]],
+            ]],
+        ]])
+        let device = RecordingDevice()
+        let handle = DeviceHandle()
+        handle.attach(device)
+        let built = try #require(MiotAccessoryBuilder(spec: spec, model: "test.ac", name: "Test", accessoryID: "miot:1",
+            serialNumber: "1", firmware: "1", options: DeviceOptions([:]), defaults: MappingDefaults(), handle: handle,
+            timings: fastTimings.accessory, logger: testLogger, makeAdaptiveLighting: { _ in nil }).build())
+        let service = try #require(built.accessory.service(.heaterCooler))
+        #expect(service[.targetHeaterCoolerState]?.type.validValues == [0])
+        show(built, ["2.1": true, "2.2": 1, "2.4": 24])
+        await #expect(throws: HAPStatusError(.invalidValueInRequest)) { try await service.characteristic(.targetHeaterCoolerState).write(.int(0)) }
+        #expect(device.writes.isEmpty)
     }
 
     @Test func curtain() throws {
@@ -401,4 +472,18 @@ import Testing
         #expect(built.accessory.services(.switch).count == 1)
         #expect(buildFixture("zhimi.fan.za5", options: ["customAccessory": true]) == nil)
     }
+}
+
+/// A device that records the properties written to it.
+final class RecordingDevice: MiotDeviceIO, @unchecked Sendable {
+    private let box = NIOLockedValueBox<[(key: PropertyKey, value: JSONValue)]>([])
+    var writes: [(key: PropertyKey, value: JSONValue)] { box.withLockedValue { $0 } }
+
+    func write(_ property: MiotSpec.Property, _ value: JSONValue, debounce: Bool) async throws {
+        box.withLockedValue { $0.append((property.key, property.coerce(value))) }
+    }
+
+    func run(_ action: MiotSpec.Action, inputs: [JSONValue]) async throws {}
+    func raw(_ method: String, _ params: JSONValue) async throws -> JSONValue { .null }
+    func value(_ key: PropertyKey) async -> JSONValue? { nil }
 }

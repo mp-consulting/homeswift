@@ -298,7 +298,7 @@ extension HomeswiftCatalog {
         let homeRooms = Dictionary(snapshot.rooms.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         // Linked Rooms renamed in the Home, one by one (a rename is one change of the layout), and those gone, at once. A
         // Room whose id the Home no longer has but that it has under another one, by its name, linked to no other, is the
-        // same Room: HomeKit's ids are the Mac's own and can all change at once (docs/adr/0013-mirrors-keep-their-device-id.md).
+        // same Room: HomeKit's ids are the Mac's own and can all change at once (docs/adr/0014-mirrors-keep-their-device-id.md).
         var gone: [String] = []
         for (name, id) in linked.sorted(by: { $0.key < $1.key }) {
             guard let room = homeRooms[id] else {

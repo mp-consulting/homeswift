@@ -37,6 +37,8 @@ struct ZoneServices: Sendable {
     let deviceID: String
     let limits: (min: Double, max: Double, step: Double)
     let primary: Service
+    /// The zone's Thermostat or Heater Cooler, mapped by the shared controller (docs/adr/0013-climate-is-mapped-once.md).
+    let climate: ClimateController?
     let battery: Service?
     let fanSwitch: Service?
     let drySwitch: Service?
@@ -62,8 +64,31 @@ enum TadoAccessories {
         return battery
     }
 
-    /// The zone's accessories: its own, then the window contact and the separate sensors it asks for.
-    static func zone(_ zone: ZoneSettings, home: String, unit: TemperatureUnit, firmware: String) -> (services: ZoneServices, accessories: [Accessory]) {
+    /// What a zone's climate service offers (section 6.1): a heating zone heats, its Auto going back to the schedule on
+    /// a Thermostat; hot water heats; an air conditioner heats and cools, its fan, dry and auto modes being Other Modes.
+    /// tado keeps no temperature while a zone is off: setpoints written then wait for the next turn-on.
+    ///
+    /// With `preferSiriTemperature`, a Thermostat's Auto Band is empty: tado's schedule has no range, and a Target
+    /// Temperature written in auto then reaches `apply` as it was written rather than as the middle of a moved band, so
+    /// 5 degrees (the heating minimum, clamped at the band's low end otherwise) still means the schedule.
+    static func capabilities(_ kind: ZoneKind, limits: (min: Double, max: Double, step: Double), preferSiriTemperature: Bool = false) -> ClimateCapabilities {
+        let range = limits.min...limits.max
+        switch kind {
+        case .thermostat:
+            return ClimateCapabilities(modes: [.heat, .auto], range: range, step: limits.step, whileOff: .holds,
+                                       autoBand: preferSiriTemperature ? 0 : 2)
+        case .airConditioner:
+            return ClimateCapabilities(modes: [.heat, .cool], heatingRange: range, coolingRange: 10...35, step: limits.step, whileOff: .holds)
+        default: return ClimateCapabilities(modes: [.heat], range: range, step: limits.step, whileOff: .holds)
+        }
+    }
+
+    /// The zone's accessories: its own, then the window contact and the separate sensors it asks for. `apply` sends
+    /// what Apple Home asks of its climate service, the writes of `window` gathered into one command: a slider drag is
+    /// one overlay, each request counting against the account's day.
+    static func zone(_ zone: ZoneSettings, home: String, unit: TemperatureUnit, firmware: String, window: Duration = .milliseconds(400),
+                     preferSiriTemperature: Bool = false,
+                     apply: @escaping @Sendable (ClimateCommand) async throws -> Void = { _ in }) -> (services: ZoneServices, accessories: [Accessory]) {
         let display = HomeSettings.zoneDeviceID(home: home, zone: zone.name, type: zone.type)
         let kind = zone.kind
         let limits = zone.limits(unit: unit, heaterCoolerRule: kind != .thermostat)
@@ -76,35 +101,32 @@ enum TadoAccessories {
             extra.append(Characteristic(.tadoDelayTimer, value: .int(0)))
         }
         let primary: Service
+        var climate: ClimateController?
         var fanSwitch: Service?, drySwitch: Service?
         var category = AccessoryCategory.thermostat
         switch kind {
         case .thermostat:
-            optional = [
-                .currentTemperature.with(minValue: -255, maxValue: 255),
-                .targetTemperature.with(minValue: limits.min, maxValue: limits.max, minStep: limits.step),
-                .targetHeatingCoolingState.with(validValues: [0, 1, 3]),
-                .currentHeatingCoolingState.with(minValue: 0, maxValue: 1, validValues: [0, 1]),
-            ] + (humidity ? [.currentRelativeHumidity] : [])
+            optional = [.currentTemperature.with(minValue: -255, maxValue: 255)] + (humidity ? [.currentRelativeHumidity] : [])
             extra.append(Characteristic(.eveValvePosition, value: .int(0)))
-            primary = Service(.thermostat, name: display, subtype: kind.rawValue, optional: optional, extra: extra, isPrimary: true)
+            let controller = ClimateController(.thermostat, name: display, subtype: kind.rawValue, isPrimary: true,
+                                               capabilities: capabilities(kind, limits: limits, preferSiriTemperature: preferSiriTemperature), optional: optional, extra: extra,
+                                               window: window, apply: apply)
+            climate = controller
+            primary = controller.service
             primary.characteristic(.targetTemperature).value = .double(min(max(20, limits.min), limits.max))
             primary.characteristic(.temperatureDisplayUnits).value = .int(unit == .fahrenheit ? 1 : 0)
         case .heaterCooler, .boiler, .airConditioner:
             category = kind == .airConditioner ? .airConditioner : (kind == .boiler ? .heater : .thermostat)
             let currentStates = kind == .boiler ? [0, 1, 2] : [0, 1, 2, 3]
-            optional = [
-                .currentTemperature.with(minValue: -255, maxValue: 255),
-                .heatingThresholdTemperature.with(minValue: limits.min, maxValue: limits.max, minStep: limits.step),
-                .currentHeaterCoolerState.with(validValues: currentStates),
-                .targetHeaterCoolerState.with(minValue: 1, maxValue: kind == .airConditioner ? 2 : 1, validValues: kind == .airConditioner ? [1, 2] : [1]),
-            ]
-            if kind == .heaterCooler { optional.append(.coolingThresholdTemperature.with(minValue: limits.min, maxValue: limits.max, minStep: limits.step)) }
-            if kind == .airConditioner { optional.append(.coolingThresholdTemperature) }
+            optional = [.currentTemperature.with(minValue: -255, maxValue: 255), .currentHeaterCoolerState.with(validValues: currentStates)]
             if humidity && kind != .boiler { optional.append(.currentRelativeHumidity) }
             if kind == .airConditioner && zone.acFanSpeed { optional.append(.rotationSpeed) }
             extra.append(Characteristic(.eveValvePosition, value: .int(0)))
-            primary = Service(.heaterCooler, name: display, subtype: kind.rawValue, optional: optional, extra: extra, isPrimary: true)
+            let controller = ClimateController(.heaterCooler, name: display, subtype: kind.rawValue, isPrimary: true,
+                                               capabilities: capabilities(kind, limits: limits), optional: optional, extra: extra,
+                                               window: window, apply: apply)
+            climate = controller
+            primary = controller.service
             primary.characteristic(.targetHeaterCoolerState).value = .int(1)
             primary.characteristic(.heatingThresholdTemperature).value = .double(kind == .boiler ? limits.min : min(max(20, limits.min), limits.max))
             if kind == .airConditioner {
@@ -152,7 +174,7 @@ enum TadoAccessories {
         // Until the first poll (or the cache) says: 0 rather than the range's lowest.
         for service in [primary, temperature?.0].compactMap({ $0 }) { service[.currentTemperature]?.value = .double(0) }
         let services = ZoneServices(
-            zone: zone, kind: kind, deviceID: display, limits: limits, primary: primary, battery: battery, fanSwitch: fanSwitch, drySwitch: drySwitch,
+            zone: zone, kind: kind, deviceID: display, limits: limits, primary: primary, climate: climate, battery: battery, fanSwitch: fanSwitch, drySwitch: drySwitch,
             window: window?.0, windowBattery: window?.1, temperature: temperature?.0, temperatureBattery: temperature?.1,
             humidity: humiditySensor?.0, humidityBattery: humiditySensor?.1, windowSwitch: nil)
         return (services, accessories)

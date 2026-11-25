@@ -1,6 +1,7 @@
 import Foundation
 import Homeswift
 import HomeswiftAI
+import HomeswiftPlugin
 
 /// IR control hubs and their remotes (developer.tuya.com, "IR control hub open service"), and the camera's events.
 extension TuyaAccessoryBuilder {
@@ -53,16 +54,15 @@ extension TuyaAccessoryBuilder {
                 logger.warning("Could not send the state of \(device.name): \(error)")
             }
         }
+        let link = link
+        /// Stored at once, shown on every service (one mode at a time), sent with the next state.
         @Sendable func change(_ values: [String: Int]) async {
             device.store(values.map { TuyaCommand(code: $0.key, value: .number(Double($0.value))) })
+            link.refresh()
             await queue.enqueue([TuyaCommand(code: "state", value: .null)])
         }
         let supported = Set(remote.modes.keys)
         let isOn: @Sendable () -> Bool = { value("power") == 1 }
-        let mainActive = TuyaCharacteristicRef(), dryActive = TuyaCharacteristicRef(), fanActive = TuyaCharacteristicRef()
-        @Sendable func showInactive(except: TuyaCharacteristicRef) {
-            for ref in [mainActive, dryActive, fanActive] where ref !== except { ref.characteristic?.value = .int(0) }
-        }
         @Sendable func speedValue() -> HAPValue { .double(Double(value("wind") == 0 ? 3 : value("wind"))) }
         let speedType = CharacteristicType.rotationSpeed.with(minValue: 0, maxValue: 3, minStep: 1)
         @Sendable func setSpeed(_ speed: HAPValue) async {
@@ -70,49 +70,42 @@ extension TuyaAccessoryBuilder {
             if wind != 0 { await change(["wind": wind]) }
         }
 
+        // The remote's modes: 0 cool, 1 heat, 2 auto; 3 (fan) and 4 (dry) are Other Modes.
+        let numbers: [ClimateMode: Int] = [.cool: 0, .heat: 1, .auto: 2]
+        var modes = Set(numbers.filter { supported.contains($0.value) }.keys)
+        if modes.isEmpty {
+            logger.warning("\(device.name) has none of auto, heat and cool: it is shown as a cooler")
+            modes = [.cool]
+        }
+        func temperatures(_ mode: Int) -> ClosedRange<Double>? {
+            guard let temperatures = remote.modes[mode], let low = temperatures.min(), let high = temperatures.max() else { return nil }
+            return Double(low)...Double(high > low ? high : low + 1)
+        }
+        let heating = temperatures(1) ?? temperatures(0) ?? 16...30, cooling = temperatures(0) ?? heating
         let main = service(.heaterCooler)
-        main.add(.active, ref: mainActive, get: { .int([0, 1, 2].contains(value("mode")) && isOn() ? 1 : 0) }) { active in
-            if active.intValue == 1 {
-                showInactive(except: mainActive)
-                var values = ["power": 1]
-                if ![0, 1, 2].contains(value("mode")) { values["mode"] = 2 }
+        main.climate = TuyaServiceDraft.Climate(
+            kind: .heaterCooler,
+            capabilities: ClimateCapabilities(modes: modes, heatingRange: heating, coolingRange: cooling, step: 1),
+            report: {
+                let room: Double? = if let parent, let item = hubTemperature, let reading = parent.number(item) { reading / item.multiple } else { nil }
+                let target = Double(value("temp"))
+                return ClimateReport(power: isOn(), mode: numbers.first { $0.value == value("mode") }?.key, current: room ?? target, target: target)
+            },
+            apply: { command in
+                var values: [String: Int] = [:]
+                if let on = command.power {
+                    values["power"] = on ? 1 : 0
+                    // Turned on in fan or dry: back to auto, as the remote's own app does.
+                    if on, command.mode == nil, ![0, 1, 2].contains(value("mode")) { values["mode"] = 2 }
+                }
+                if let mode = command.mode, let number = numbers[mode] { values["mode"] = number }
+                if let target = command.target { values["temp"] = Int(saturating: target.rounded()) ?? 0 }
                 await change(values)
-            } else {
-                await change(["power": 0])
-            }
-        }
-        main.add(.currentHeaterCoolerState, value: .int(1))
-        let valid = [supported.contains(2) ? 0 : nil, supported.contains(1) ? 1 : nil, supported.contains(0) ? 2 : nil].compactMap { $0 }
-        if valid.isEmpty {
-            logger.warning("\(device.name) has none of auto, heat and cool: Target Heater Cooler State is not configured")
-        } else {
-            main.add(.targetHeaterCoolerState.with(minValue: Double(valid.first!), maxValue: Double(valid.last!), validValues: valid), get: {
-                .int(value("mode") == 1 ? 1 : value("mode") == 0 ? 2 : 0)
-            }) { target in
-                await change(["mode": target.intValue == 1 ? 1 : target.intValue == 2 ? 0 : 2])
-            }
-        }
-        main.add(.currentTemperature, get: {
-            if let parent, let item = hubTemperature, let reading = parent.number(item) { return .double(reading / item.multiple) }
-            return .double(Double(value("temp")))
-        })
-        for (mode, type) in [(1, CharacteristicType.heatingThresholdTemperature), (0, .coolingThresholdTemperature)] {
-            guard let temperatures = remote.modes[mode], let low = temperatures.min(), let high = temperatures.max() else { continue }
-            let upper = high > low ? high : low + 1
-            main.add(type.with(minValue: Double(low), maxValue: Double(upper), minStep: 1), get: {
-                if mode == 1, value("mode") == 2 { return .double(Double(low)) }
-                return .double(Self.clamp(Double(value("temp")), Double(low), Double(upper)))
-            }) { temperature in
-                if mode == 1, value("mode") == 2 { return }
-                await change(["temp": Int(saturating: (temperature.doubleValue ?? 0).rounded()) ?? low])
-            }
-        }
+            })
         main.add(speedType, get: speedValue) { await setSpeed($0) }
-
         if supported.contains(4) {
             let dry = service(.humidifierDehumidifier, name: "\(device.name) Dehumidifier")
-            dry.add(.active, ref: dryActive, get: { .int(value("mode") == 4 && isOn() ? 1 : 0) }) { active in
-                showInactive(except: dryActive)
+            dry.add(.active, get: { .int(value("mode") == 4 && isOn() ? 1 : 0) }) { active in
                 await change(["mode": 4, "power": active.intValue == 1 ? 1 : 0])
             }
             dry.add(.currentHumidifierDehumidifierState, value: .int(3))
@@ -125,8 +118,7 @@ extension TuyaAccessoryBuilder {
         }
         if supported.contains(3) {
             let fan = service(.fanv2, name: "\(device.name) Fan")
-            fan.add(.active, ref: fanActive, get: { .int(value("mode") == 3 && isOn() ? 1 : 0) }) { active in
-                showInactive(except: fanActive)
+            fan.add(.active, get: { .int(value("mode") == 3 && isOn() ? 1 : 0) }) { active in
                 await change(["mode": 3, "power": active.intValue == 1 ? 1 : 0])
             }
             fan.add(.targetFanState, get: { .int(value("wind") == 0 ? 1 : 0) }) { state in

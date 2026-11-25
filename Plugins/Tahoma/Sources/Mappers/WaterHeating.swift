@@ -33,7 +33,7 @@ final class PassAPCDHWMapper: WaterHeaterMapper, @unchecked Sendable {
 
     override func apply(_ states: [String: JSONValue], from deviceURL: String) {
         guard deviceURL == device.deviceURL else { return }
-        if let value = states["core:TargetDHWTemperatureState"]?.number { thermostat.characteristic(.currentTemperature).setClamped(value) }
+        if let value = states["core:TargetDHWTemperatureState"]?.number { showCurrent(temperature: value) }
         if let boost = states["core:BoostOnOffState"]?.stringValue { switchServices["boost"]?.characteristic(.on).value = .bool(boost == "on") }
     }
 
@@ -135,10 +135,10 @@ class HotWaterProductionMapper: WaterHeaterMapper, @unchecked Sendable {
             if let boost = states[name]?.scalarText { switchServices["boost"]?.characteristic(.on).value = .bool(boost != "off") }
         }
         if !hasState("io:MiddleWaterTemperatureState"), let value = states["core:WaterTemperatureState"]?.number {
-            thermostat.characteristic(.currentTemperature).setClamped(value)
+            showCurrent(temperature: value)
         }
         for name in ["io:MiddleWaterTemperatureState", "modbuslink:MiddleWaterTemperatureState"] {
-            if let value = states[name]?.number { thermostat.characteristic(.currentTemperature).setClamped(value) }
+            if let value = states[name]?.number { showCurrent(temperature: value) }
         }
         for name in ["core:TargetTemperatureState", "core:WaterTargetTemperatureState"] {
             if let value = states[name]?.number { showTarget(temperature: value) }
@@ -186,7 +186,7 @@ final class HotWaterSplitMapper: HotWaterProductionMapper, @unchecked Sendable {
 
     override func apply(_ states: [String: JSONValue], from deviceURL: String) {
         guard deviceURL == device.deviceURL else { return }
-        if let value = states["io:MiddleWaterTemperatureState"]?.number { thermostat.characteristic(.currentTemperature).setClamped(value) }
+        if let value = states["io:MiddleWaterTemperatureState"]?.number { showCurrent(temperature: value) }
         if let value = states["core:TargetTemperatureState"]?.number { showTarget(temperature: value) }
     }
 

@@ -664,24 +664,12 @@ final class MiotAccessoryBuilder {
             primary = service
             return
         }
-        let service = Service(.heaterCooler, name: name, optional: [
-            Self.bounded(.heatingThresholdTemperature, target, defaultRange: 10...35, step: target.isRange ? target.step : 1), .temperatureDisplayUnits,
-        ], extra: [
-            Characteristic(.targetHeaterCoolerState.with(validValues: [1]), value: .int(1)),
-        ], isPrimary: true)
-        bindActive(service, on: on)
-        let current = service.characteristic(.currentHeaterCoolerState)
-        bind([on]) { values, _ in
-            guard let on, let isOn = Self.bool(values[on.key]) else { return }
-            Self.set(current, .int(isOn ? 2 : 1))
-        }
+        // Heating only, one target.
+        let temperatures = Self.climateRange(target, step: target.isRange ? nil : 1)
+        let climate = climateController(on: on, mode: nil, target: target, capabilities: ClimateCapabilities(
+            modes: [.heat], setpoints: .single, range: temperatures.range, step: temperatures.step))
+        let service = climate.service
         let handle = handle
-        if let on, on.isWritable {
-            service.characteristic(.targetHeaterCoolerState).onWrite { _ in try await handle.write(on, .bool(true)) }
-        }
-        service.characteristic(.temperatureDisplayUnits).value = .int(0)
-        bindThreshold(service.characteristic(.heatingThresholdTemperature), target)
-        bindCurrentTemperature(service, fallback: target)
         if let mode = heater.property("mode"), let swing = mode.value(described: "Fan swing"), let still = mode.value(described: "Fan not swing") {
             let characteristic = service.characteristic(adding: .swingMode)
             bind([mode]) { values, _ in
@@ -705,78 +693,75 @@ final class MiotAccessoryBuilder {
         }
     }
 
-    func bindThreshold(_ characteristic: Characteristic, _ property: MiotSpec.Property) {
-        bind([property]) { values, _ in
-            guard let value = Self.celsius(values[property.key], property) else { return }
-            Self.set(characteristic, .double(value))
+    /// A target temperature property's range and step in HomeKit's Celsius (10–35 °C when it has none); `step` overrides
+    /// the property's.
+    static func climateRange(_ property: MiotSpec.Property?, step: Double? = nil) -> (range: ClosedRange<Double>, step: Double) {
+        guard let property, property.isRange, let lower = property.lower, let upper = property.upper, lower <= upper else {
+            return (10...35, step ?? 0.5)
         }
-        guard property.isWritable else { return }
-        let handle = handle
-        characteristic.onWrite { value in
-            guard let celsius = value.doubleValue else { return }
-            let written = property.unit == "fahrenheit" ? celsius * 9 / 5 + 32 : celsius
-            try await handle.write(property, .number(written), debounce: true)
-        }
+        guard property.unit == "fahrenheit" else { return (lower...upper, step ?? property.step) }
+        let low = (MiotConversions.celsius(fahrenheit: lower) * 2).rounded(.up) / 2
+        let high = (MiotConversions.celsius(fahrenheit: upper) * 2).rounded(.down) / 2
+        return (low <= high ? low...high : 10...35, 0.5)
     }
 
-    /// Current Temperature from the environment's temperature, else the target (homebridge-miot).
-    func bindCurrentTemperature(_ service: Service, fallback: MiotSpec.Property?) {
-        let characteristic = service.characteristic(.currentTemperature)
-        let source = spec.property("environment", "temperature") ?? main?.property("temperature")
-        if let source {
-            bind([source]) { values, _ in
-                guard let value = Self.celsius(values[source.key], source) else { return }
-                Self.set(characteristic, .double(value))
+    /// A heater's or air conditioner's Heater Cooler, owned by a `ClimateController` (docs/adr/0013): `on` is its power,
+    /// `mode` (with `modes`, its value per Climate Mode) its mode, `target` its one setpoint; the room's temperature from
+    /// the environment, else the target (homebridge-miot).
+    func climateController(on: MiotSpec.Property?, mode: MiotSpec.Property?, modes: [(mode: ClimateMode, value: JSONValue)] = [],
+                           target: MiotSpec.Property?, capabilities: ClimateCapabilities) -> ClimateController {
+        let handle = handle
+        let controller = ClimateController(.heaterCooler, name: name, isPrimary: true, capabilities: capabilities,
+                                           optional: [.temperatureDisplayUnits]) { command in
+            // A mode the mode property has no value for is refused, before anything is sent.
+            let modeValue = command.mode.flatMap { wanted in modes.first { $0.mode == wanted }?.value }
+            if command.mode != nil, mode != nil, modeValue == nil { throw HAPStatusError(.invalidValueInRequest) }
+            // The power first, then the mode, then the target, in the device's unit.
+            if let power = command.power {
+                guard let on, on.isWritable else { throw HAPStatusError(.readOnlyCharacteristic) }
+                try await handle.write(on, .bool(power))
             }
-        } else if let fallback {
-            bind([fallback]) { values, _ in
-                guard let value = Self.celsius(values[fallback.key], fallback) else { return }
-                Self.set(characteristic, .double(value))
+            if let mode, let modeValue {
+                guard mode.isWritable else { throw HAPStatusError(.readOnlyCharacteristic) }
+                try await handle.write(mode, modeValue)
+            }
+            if let celsius = command.target, let target {
+                guard target.isWritable else { throw HAPStatusError(.readOnlyCharacteristic) }
+                try await handle.write(target, .number(target.unit == "fahrenheit" ? celsius * 9 / 5 + 32 : celsius))
             }
         }
+        controller.service.characteristic(.temperatureDisplayUnits).value = .int(0)
+        let only = capabilities.modes.count == 1 ? capabilities.modes.first : nil
+        let source = spec.property("environment", "temperature") ?? main?.property("temperature")
+        // The binding keeps the controller.
+        bind([on, mode, target, source]) { values, _ in
+            let isOn = on.flatMap { Self.bool(values[$0.key]) } ?? true
+            // Without a mode property the device's one Climate Mode; Dry, Fan and the modes without one are Other Modes.
+            let climateMode = mode.map { mode in
+                values[mode.key].flatMap { value in modes.first { MiotSpec.sameValue($0.value, value) }?.mode }
+            } ?? only
+            let setpoint = target.flatMap { Self.celsius(values[$0.key], $0) }
+            let room = source.flatMap { Self.celsius(values[$0.key], $0) } ?? setpoint
+            controller.update(ClimateReport(power: isOn, mode: climateMode, current: room, target: setpoint))
+        }
+        return controller
     }
 
     func buildAirConditioner() {
         category = .airConditioner
         guard let conditioner = spec.service("air-conditioner") else { return buildGeneric() }
         let on = conditioner.property("on"), mode = conditioner.property("mode"), target = conditioner.property("target-temperature")
-        // Auto 0, Heat 1, Cool 2: only those the mode lists.
-        let targets: [(state: Int, value: JSONValue)] = [(0, "Auto"), (1, "Heat"), (2, "Cool")].compactMap { state, description in
-            mode?.value(described: description).map { (state, $0) }
-        }
-        var optional: [CharacteristicType] = []
-        if let target {
-            optional.append(Self.bounded(.heatingThresholdTemperature, target, defaultRange: 10...35))
-            optional.append(Self.bounded(.coolingThresholdTemperature, target, defaultRange: 10...35))
-        }
-        optional.append(.temperatureDisplayUnits)
-        let validTargets = targets.isEmpty ? [0, 1, 2] : targets.map(\.state)
-        let service = Service(.heaterCooler, name: name, optional: optional, extra: [
-            Characteristic(.targetHeaterCoolerState.with(validValues: validTargets), value: .int(validTargets[0])),
-        ], isPrimary: true)
-        service.characteristic(.temperatureDisplayUnits).value = .int(0)
-        bindActive(service, on: on)
-        let current = service.characteristic(.currentHeaterCoolerState)
-        let targetState = service.characteristic(.targetHeaterCoolerState)
-        bind([on, mode]) { values, _ in
-            let value = mode.flatMap { values[$0.key] }
-            let state = value.flatMap { value in targets.first { MiotSpec.sameValue($0.value, value) }?.state }
-            // Dry and Fan read as the last target.
-            if let state { Self.set(targetState, .int(state)) }
-            let isOn = on.flatMap { Self.bool(values[$0.key]) } ?? true
-            Self.set(current, .int(!isOn ? 1 : state == 1 ? 2 : state == 2 ? 3 : 1))
-        }
+        // Auto, Heat and Cool: only those the mode lists, all three without a mode property. A mode property that lists
+        // none of them has only Other Modes: Auto stands for whichever the unit is in, and writing a mode is refused.
+        let modes: [(mode: ClimateMode, value: JSONValue)] = [(ClimateMode.auto, "Auto"), (.heat, "Heat"), (.cool, "Cool")]
+            .compactMap { climateMode, description in mode?.value(described: description).map { (climateMode, $0) } }
+        let offered: Set<ClimateMode> = mode == nil ? [.auto, .heat, .cool] : modes.isEmpty ? [.auto] : Set(modes.map(\.mode))
+        let temperatures = Self.climateRange(target)
+        let climate = climateController(on: on, mode: mode, modes: modes, target: target, capabilities: ClimateCapabilities(
+            modes: offered, setpoints: .single,
+            range: temperatures.range, step: temperatures.step))
+        let service = climate.service
         let handle = handle
-        if let mode, mode.isWritable {
-            targetState.onWrite { value in
-                if let wanted = targets.first(where: { $0.state == value.intValue })?.value { try await handle.write(mode, wanted) }
-            }
-        }
-        if let target {
-            bindThreshold(service.characteristic(.heatingThresholdTemperature), target)
-            bindThreshold(service.characteristic(.coolingThresholdTemperature), target)
-        }
-        bindCurrentTemperature(service, fallback: target)
         if let control = spec.service("fan-control") {
             bindLevels(service, control.property("fan-level"))
             if let swing = control.property("vertical-swing") { bindSwing(service, swing) }

@@ -429,11 +429,27 @@ enum RingHubAccessories {
     static func thermostat(zid: String, data: JSONValue, name: String, parts: RingCommon.Parts, hub: RingLocationHub, environment: RingEnvironment) -> RingBuiltAccessory {
         let logger = environment.logger
         let low = max(data["setPointMin"]?.looseDouble ?? 10, 10), high = min(data["setPointMax"]?.looseDouble ?? 38, 38)
-        let service = Service(.thermostat, name: name, optional: [
-            .targetTemperature.with(minValue: low, maxValue: high),
-            .targetHeatingCoolingState.with(validValues: [0, 1, 2]),
-            .temperatureDisplayUnits.with(validValues: [1]),
-        ], isPrimary: true)
+        // Heat (aux heat too) and cool around one set point; Off is its power (docs/adr/0013-climate-is-mapped-once.md).
+        let climate = ClimateController(.thermostat, name: name, isPrimary: true,
+                                        capabilities: ClimateCapabilities(modes: [.heat, .cool], range: low...max(low, high), step: 0.1),
+                                        optional: [.temperatureDisplayUnits.with(validValues: [1])]) { command in
+            var fields: [String: JSONValue] = [:]
+            if command.power == false {
+                fields["mode"] = "off"
+            } else if let mode = command.mode {
+                fields["mode"] = .string(mode == .cool ? "cool" : "heat")
+            }
+            if let setPoint = command.target { fields["setPoint"] = .number(setPoint) }
+            guard !fields.isEmpty else { return }
+            if let mode = fields["mode"]?.stringValue { logger.info("Setting \(name) mode to \(mode)") }
+            do {
+                try await hub.set(zid, fields)
+            } catch {
+                logger.error("Setting \(name) failed: \(error)")
+                throw HAPStatusError(.serviceCommunicationFailure)
+            }
+        }
+        let service = climate.service
         service.characteristic(.temperatureDisplayUnits).value = .int(1)
         service.characteristic(.temperatureDisplayUnits).onWrite { _ in service.characteristic(.temperatureDisplayUnits).value = .int(1) }
         let component = hub.inventory.all.first {
@@ -444,45 +460,19 @@ enum RingHubAccessories {
         let show: @Sendable (JSONValue) -> Void = { update in
             let data = update["zid"]?.stringValue == zid ? update : hub.inventory.data(zid) ?? data
             let mode = data["mode"]?.stringValue
-            service.characteristic(.targetHeatingCoolingState).show(.int(["heat": 1, "aux": 1, "cool": 2][mode ?? ""] ?? 0))
-            if let setPoint = data["setPoint"]?.looseDouble { service.characteristic(.targetTemperature).show(.double(min(max(setPoint, low), high))) }
-            guard let component else { return }
-            let celsius = hub.inventory.data(component)?["celsius"]?.looseDouble
-            let temperature: Double
-            if let celsius, celsius != 0 {
-                temperature = (celsius * 10).rounded() / 10
-            } else {
-                logger.error("\(name) has no temperature; showing 22 °C")
-                temperature = 22
-            }
-            service.characteristic(.currentTemperature).show(.double(temperature))
-            var heating = 0
-            if mode != "off", let celsius, let setPoint = data["setPoint"]?.looseDouble {
-                if abs(celsius - setPoint) < 0.1 {
-                    heating = 0
-                } else if celsius >= setPoint + 0.1, mode == "cool" {
-                    heating = 2
-                } else if celsius <= setPoint - 0.1, mode == "heat" || mode == "aux" {
-                    heating = 1
+            var current: Double?
+            if let component {
+                if let celsius = hub.inventory.data(component)?["celsius"]?.looseDouble, celsius != 0 {
+                    current = (celsius * 10).rounded() / 10
+                } else {
+                    logger.error("\(name) has no temperature; showing 22 °C")
+                    current = 22
                 }
             }
-            service.characteristic(.currentHeatingCoolingState).show(.int(heating))
+            // Ring's other modes (auto, eco) are Other Modes: the target stays as it was.
+            climate.update(ClimateReport(power: mode != nil && mode != "off", mode: ["heat": .heat, "aux": .heat, "cool": .cool][mode ?? ""],
+                                         current: current, target: data["setPoint"]?.looseDouble))
             RingCommon.show(data, on: parts)
-        }
-        service.characteristic(.targetHeatingCoolingState).onWrite { value in
-            guard let mode = [0: "off", 1: "heat", 2: "cool"][value.intValue ?? -1] else {
-                logger.error("\(name) cannot take that mode")
-                return
-            }
-            logger.info("Setting \(name) mode to \(mode)")
-            environment.background("Setting the mode of \(name)") { try await hub.set(zid, ["mode": .string(mode)]) }
-        }
-        service.characteristic(.targetTemperature).onWrite { value in
-            guard let setPoint = value.doubleValue, (low...high).contains(setPoint) else {
-                logger.error("\(name) takes set points from \(low) to \(high) °C")
-                return
-            }
-            environment.background("Setting the temperature of \(name)") { try await hub.set(zid, ["setPoint": .number(setPoint)]) }
         }
         let accessory = Accessory(
             id: RingPlugin.accessoryID(seed: zid), name: name, manufacturer: data["manufacturerName"]?.stringValue ?? "Ring",

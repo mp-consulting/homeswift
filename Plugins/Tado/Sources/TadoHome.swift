@@ -16,9 +16,9 @@ actor TadoHome {
         var firmware = PluginHost.version
         /// The account's daily limit, shared by its homes.
         var dailyLimit = TadoBudget.defaultDailyLimit
-        /// The 400 ms of the write buffer and the 500 ms of switches that turn themselves off; tests shorten them.
+        /// The 400 ms a climate change's writes are gathered over and the 500 ms of switches that turn themselves off;
+        /// tests shorten them.
         var writeDelay: Duration = .milliseconds(400)
-        var writeSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
         var resetDelay: Duration = .milliseconds(500)
         /// Seconds, as a Duration: the delay switch's timer (tests shorten it).
         var delayUnit: Duration = .seconds(1)
@@ -31,7 +31,6 @@ actor TadoHome {
     let telegram: TelegramSender?
     private var logger: Logger { context.logger }
     private let tasks = TaskBag()
-    private let writes: LatestCallGuard
     private let now: @Sendable () -> Date
 
     private(set) var homeID: Int?
@@ -52,8 +51,6 @@ actor TadoHome {
     private(set) var accessoryIDs: Set<String> = []
 
     // The write buffer (section 7.2), by zone name.
-    private struct Pending { var state: Int?; var temperature: Double?; var mode: Int? }
-    private var pending: [String: Pending] = [:]
     private var lastTemperature: [String: Double] = [:]
     private var delayTasks: [String: Task<Void, Never>] = [:]
 
@@ -80,7 +77,6 @@ actor TadoHome {
         self.options = options
         self.telegram = telegram
         self.now = now
-        writes = LatestCallGuard(delay: options.writeDelay)
         homeID = settings.id
         unit = settings.temperatureUnit ?? .celsius
         for zone in settings.zones { if let id = zone.id { zoneIDs[zone.name] = id } }
@@ -107,7 +103,12 @@ actor TadoHome {
         var windowSwitches: [Service] = []
         for zone in settings.activeZones {
             if zone.id == nil { logger.warning("Zone \(zone.name) has no id: it is looked up by its name") }
-            var (services, accessories) = TadoAccessories.zone(zone, home: settings.name, unit: unit, firmware: firmware)
+            let name = zone.name
+            var (services, accessories) = TadoAccessories.zone(zone, home: settings.name, unit: unit, firmware: firmware,
+                                                               window: options.writeDelay,
+                                                               preferSiriTemperature: options.preferSiriTemperature) { [weak self] command in
+                try await self?.apply(name, command)
+            }
             guard !context.isExcluded(services.deviceID) else { continue }
             if zone.openWindowSwitch {
                 let service = Service(.switch, name: "\(zone.name) Window", subtype: "\(zone.name) Window")
@@ -250,30 +251,12 @@ actor TadoHome {
     private func bindZone(_ services: ZoneServices) {
         let name = services.zone.name
         let primary = services.primary
+        // The climate service's states and temperatures are its controller's (TadoAccessories.zone).
         switch services.kind {
         case .thermostat:
-            primary.characteristic(.targetHeatingCoolingState).onWrite(changesOnly: false) { [weak self] value in
-                await self?.buffer(name, state: value.intValue ?? 0)
-            }
-            primary.characteristic(.targetTemperature).onWrite(changesOnly: false) { [weak self] value in
-                await self?.buffer(name, temperature: value.doubleValue)
-            }
             primary.characteristic(.temperatureDisplayUnits).onWrite { _ in }
         case .heaterCooler, .boiler, .airConditioner:
-            primary.characteristic(.active).onWrite(changesOnly: false) { [weak self] value in
-                await self?.buffer(name, state: value.intValue ?? 0)
-            }
-            primary.characteristic(.heatingThresholdTemperature).onWrite(changesOnly: false) { [weak self] value in
-                await self?.buffer(name, temperature: value.doubleValue, threshold: 1)
-            }
             if services.kind == .airConditioner {
-                primary[.coolingThresholdTemperature]?.onWrite(changesOnly: false) { [weak self] value in
-                    await self?.buffer(name, temperature: value.doubleValue, threshold: 2)
-                }
-                // A change of mode alone is sent too (the Homebridge plugin waited for the next Active or threshold write).
-                primary.characteristic(.targetHeaterCoolerState).onWrite(changesOnly: true) { [weak self] value in
-                    await self?.buffer(name, mode: value.intValue ?? 2)
-                }
                 primary[.rotationSpeed]?.onWrite(changesOnly: true) { [weak self] value in
                     await self?.setFanSpeed(zone: name, percent: value.doubleValue ?? 0)
                 }
@@ -281,10 +264,6 @@ actor TadoHome {
                     service?.characteristic(.on).onWrite(changesOnly: false) { [weak self] value in
                         await self?.setACModeSwitch(zone: name, mode: mode, on: value.boolValue ?? false)
                     }
-                }
-            } else if services.kind == .heaterCooler {
-                primary[.coolingThresholdTemperature]?.onWrite(changesOnly: false) { [weak self] value in
-                    await self?.buffer(name, temperature: value.doubleValue, threshold: 1)
                 }
             }
         case .switch:
@@ -467,8 +446,6 @@ actor TadoHome {
     /// Shows a zone's state (section 7.6).
     func show(_ state: ZoneState, on services: ZoneServices, zoneID: Int) {
         let primary = services.primary
-        let limits = services.limits
-        func clamp(_ value: Double) -> Double { min(max(value, limits.min), limits.max) }
         if let humidity = state.humidity {
             primary[.currentRelativeHumidity]?.value = .double(min(max(humidity, 0), 100))
             services.humidity?.characteristic(.currentRelativeHumidity).value = .double(min(max(humidity, 0), 100))
@@ -479,70 +456,23 @@ actor TadoHome {
 
         switch services.kind {
         case .thermostat, .heaterCooler:
-            guard state.settingType == ZoneType.heating.rawValue, let current = state.current else { return }
-            let target = state.power ? state.target : nil
-            let active = state.power
-            let currentState = active && target.map { current < $0 } == true ? 1 : 0
-            let tempEqual = target.map { current.rounded() == $0.rounded() } ?? false
-            if services.kind == .thermostat {
-                primary.characteristic(.currentTemperature).value = .double(current)
-                if let target { primary.characteristic(.targetTemperature).value = .double(clamp(target)) }
-                primary.characteristic(.currentHeatingCoolingState).value = .int(currentState)
-                primary.characteristic(.targetHeatingCoolingState).value = .int(active ? (state.onSchedule ? 3 : 1) : 0)
-            } else {
-                primary.characteristic(.active).value = .int(active ? 1 : 0)
-                primary.characteristic(.currentTemperature).value = .double(current)
-                if let target {
-                    primary.characteristic(.heatingThresholdTemperature).value = .double(clamp(target))
-                    primary[.coolingThresholdTemperature]?.value = .double(clamp(target))
-                }
-                let heating = !active ? 0 : (state.onSchedule || tempEqual ? 1 : (target.map { current < $0 } == true ? 2 : 1))
-                primary.characteristic(.currentHeaterCoolerState).value = .int(heating)
-                primary.characteristic(.targetHeaterCoolerState).value = .int(1)
-            }
+            guard state.settingType == ZoneType.heating.rawValue else { return }
+            services.climate?.update(ClimateReport(power: state.power, mode: state.climateMode(schedule: services.kind == .thermostat),
+                                                   action: state.action, current: state.current, target: state.target))
         case .boiler, .airConditioner:
             let isAC = services.kind == .airConditioner
-            var currentState = 0, targetState = isAC ? 2 : 1
-            if state.power {
-                if isAC {
-                    let mode = state.acMode ?? "COOL"
-                    acModes[services.zone.name] = mode
-                    let tempEqual = state.current.flatMap { current in state.target.map { abs(current - $0) < 0.5 } } ?? false
-                    switch mode {
-                    case "FAN", "DRY":
-                        targetState = 2
-                        currentState = 1
-                    case "HEAT":
-                        targetState = 1
-                        currentState = tempEqual ? 1 : ((state.current ?? 0) < (state.target ?? 0) ? 2 : 1)
-                    default:
-                        targetState = 2
-                        currentState = tempEqual ? 1 : ((state.current ?? 0) > (state.target ?? .infinity) ? 3 : 1)
-                    }
-                    services.fanSwitch?.characteristic(.on).value = .bool(mode == "FAN")
-                    services.drySwitch?.characteristic(.on).value = .bool(mode == "DRY")
-                } else {
-                    currentState = state.onSchedule ? 1 : 2
-                }
-            } else {
-                if isAC {
-                    acModes[services.zone.name] = nil
-                    services.fanSwitch?.characteristic(.on).value = false
-                    services.drySwitch?.characteristic(.on).value = false
-                }
+            if isAC {
+                let mode = state.acMode ?? "COOL"
+                acModes[services.zone.name] = state.power ? mode : nil
+                services.fanSwitch?.characteristic(.on).value = .bool(state.power && mode == "FAN")
+                services.drySwitch?.characteristic(.on).value = .bool(state.power && mode == "DRY")
             }
-            primary.characteristic(.active).value = .int(state.power ? 1 : 0)
-            primary.characteristic(.currentHeaterCoolerState).value = .int(currentState)
-            primary.characteristic(.targetHeaterCoolerState).value = .int(targetState)
-            if let current = state.current {
-                primary.characteristic(.currentTemperature).value = .double(current)
-            } else if !isAC, let target = state.target, primary.characteristic(.currentTemperature).value.doubleValue ?? 0 == 0 {
-                primary.characteristic(.currentTemperature).value = .double(target)
-            }
-            if state.power, let target = state.target {
-                primary.characteristic(.heatingThresholdTemperature).value = .double(clamp(target))
-                if isAC { primary[.coolingThresholdTemperature]?.value = .double(min(max(target, 10), 35)) }
-            }
+            // A boiler has no thermometer: its setpoint stands for the water's temperature, and it heats while it is on
+            // by hand when tado gives no activity (the room's temperature, its setpoint, would never say so).
+            let current = state.current ?? (isAC ? nil : state.target)
+            let action = state.action ?? (isAC ? nil : state.power && !state.onSchedule ? .heating : .idle)
+            services.climate?.update(ClimateReport(power: state.power, mode: isAC ? state.climateMode(schedule: false) : .heat,
+                                                   action: action, current: current, target: state.target))
             if isAC, services.zone.acFanSpeed, state.power, let level = state.fanLevel,
                let fan = TadoOverlay.fanLevels(capabilities[zoneID]?[state.acMode ?? "COOL"]), let index = fan.levels.firstIndex(of: level) {
                 acFanLevels[services.zone.name] = level
@@ -689,56 +619,36 @@ actor TadoHome {
 
     // MARK: Writes (sections 7.2 to 7.5)
 
-    /// A Target Heating Cooling State, Active, threshold or Target Heater Cooler State write, sent once no other came in
-    /// 400 ms; `threshold` 1 is the heating one, 2 the cooling one (an AC's mode follows it).
-    func buffer(_ zone: String, state: Int? = nil, temperature: Double? = nil, mode: Int? = nil, threshold: Int? = nil) {
-        var entry = pending[zone] ?? Pending()
-        if let state { entry.state = state }
-        if let temperature { entry.temperature = temperature }
-        if let mode { entry.mode = mode }
-        pending[zone] = entry
-        let isLatest = writes.claim(zone)
-        let options = options
-        tasks.add { [weak self] in
-            do { try await options.writeSleep(options.writeDelay) } catch { return }
-            guard !Task.isCancelled, isLatest() else { return }
-            await self?.flush(zone)
-        }
-    }
-
     private enum Action: Equatable {
         case off, schedule, temperature(Double)
     }
 
-    func flush(_ zone: String) async {
-        guard let entry = pending.removeValue(forKey: zone), let services = zones[zone] else { return }
-        if services.kind == .airConditioner { return await flushAC(services, entry) }
+    /// Sends what the zone's climate controller asks, and throws when tado refuses it: the controller then puts the
+    /// tile back.
+    func apply(_ zone: String, _ entry: ClimateCommand) async throws {
+        guard let services = zones[zone] else { throw HAPStatusError(.serviceCommunicationFailure) }
+        if services.kind == .airConditioner { return try await applyAC(services, entry) }
         let isBoiler = services.kind == .boiler
-        var temperature = entry.temperature.flatMap(\.finite)
-        if let value = temperature {
-            let low = services.kind == .thermostat ? 5 : services.limits.min
-            if isBoiler {
-                temperature = min(max(value, services.limits.min), services.limits.max)
-            } else if value < low, value != 5 {
-                temperature = nil
-            } else {
-                temperature = TadoOverlay.rounded(value)
-            }
-        }
+        // The controller keeps setpoints in the zone's range and on its step.
+        let temperature = entry.target.flatMap(\.finite).map(TadoOverlay.rounded)
         if let temperature, !(options.preferSiriTemperature && temperature == 5) { lastTemperature[zone] = temperature }
-        let shown = services.primary[services.kind == .thermostat ? .targetTemperature : .heatingThresholdTemperature]?.value.doubleValue
-        let last = lastTemperature[zone] ?? (isBoiler ? services.limits.min : (shown ?? 20))
+        let last = lastTemperature[zone] ?? (isBoiler ? services.limits.min : (services.climate?.report?.target ?? 20))
         let custom = services.zone.mode == .custom && services.kind.isHeaterCooler
+        // Asked for auto, or a temperature written while in it (on the schedule).
+        let inAuto = entry.mode == .auto || (entry.mode == nil && services.climate?.report?.mode == .auto)
         let action: Action?
-        if options.preferSiriTemperature, entry.state == 3, let temperature {
-            action = temperature == 5 ? .schedule : .temperature(temperature)
-        } else if entry.state == 0 {
+        if entry.power == false {
             action = .off
-        } else if entry.state == 3 {
+        } else if options.preferSiriTemperature, inAuto, let temperature {
+            // With preferSiriTemperature, a temperature chosen in auto is kept, 5 degrees meaning the schedule (its
+            // Auto Band is empty: the temperature arrives as written, TadoAccessories.capabilities).
+            action = temperature == 5 ? .schedule : .temperature(temperature)
+        } else if entry.mode == .auto {
+            // Auto is the schedule.
             action = .schedule
         } else if let temperature {
             action = .temperature(temperature)
-        } else if entry.state == 1 {
+        } else if entry.power == true || entry.mode == .heat {
             // CUSTOM: turning on goes back to the schedule (the Homebridge plugin's buffer made a temperature of it first).
             action = custom ? .schedule : .temperature(last)
         } else {
@@ -748,17 +658,18 @@ actor TadoHome {
         // The delay switch holds back a change of state (back to the schedule) for its timer's seconds; off goes at once.
         if case .temperature = action {} else if !isBoiler, !services.zone.autoOffDelay, services.primary[.tadoDelay]?.value.boolValue == true,
                                                  let timer = services.primary[.tadoDelayTimer]?.value.intValue, timer > 0 {
-            return await delayed(services, action, seconds: timer)
+            return try await delayed(services, action, seconds: timer)
         }
-        await send(services, action)
+        try await send(services, action, throwing: true)
     }
 
-    private func delayed(_ services: ZoneServices, _ action: Action, seconds: Int) async {
+    /// Holds back the change for the timer's seconds: sent after the write has returned, a failure only logged.
+    private func delayed(_ services: ZoneServices, _ action: Action, seconds: Int) async throws {
         let zone = services.zone.name
         delayTasks[zone]?.cancel()
         if action == .off {
             delayTasks[zone] = nil
-            return await send(services, .off)
+            return try await send(services, .off, throwing: true)
         }
         logger.info("\(services.deviceID): delay: wait \(seconds) seconds")
         let unit = options.delayUnit
@@ -771,7 +682,7 @@ actor TadoHome {
     private func delayFinished(_ services: ZoneServices, _ action: Action) async {
         logger.info("\(services.deviceID): delay timer finished, switching to \(action == .schedule ? "schedule" : "on")")
         delayTasks[services.zone.name] = nil
-        await send(services, action)
+        try? await send(services, action)
     }
 
     private func delaySwitchChanged(zone: String, on: Bool) {
@@ -789,14 +700,14 @@ actor TadoHome {
     }
 
     /// Sends a heating or hot water zone's action.
-    private func send(_ services: ZoneServices, _ action: Action) async {
-        try? await writing(services, label: { () -> String in
+    private func send(_ services: ZoneServices, _ action: Action, throwing: Bool = false) async throws {
+        try await writing(services, label: { () -> String in
             switch action {
             case .off: "State: 0"
             case .schedule: "State: 3"
             case .temperature(let value): "Temperature: \(value)"
             }
-        }()) { home, zoneID in
+        }(), throwing: throwing) { home, zoneID in
             let zone = services.zone
             switch action {
             case .schedule:
@@ -818,7 +729,15 @@ actor TadoHome {
                 self.states[zoneID]?.target = celsius
                 self.states[zoneID]?.onSchedule = false
             }
+            self.showSent(services, zoneID: zoneID)
         }
+    }
+
+    /// Shows what a write left the zone in (it is not followed by a poll); tado has said nothing new of what it does.
+    private func showSent(_ services: ZoneServices, zoneID: Int) {
+        states[zoneID]?.heatingPower = nil
+        states[zoneID]?.acPower = nil
+        if let state = states[zoneID] { show(state, on: services, zoneID: zoneID) }
     }
 
     private func setHotWater(zone: String, on: Bool) async {
@@ -832,24 +751,24 @@ actor TadoHome {
         }
     }
 
-    private func flushAC(_ services: ZoneServices, _ entry: Pending) async {
-        let primary = services.primary
-        let active = entry.state ?? primary.characteristic(.active).value.intValue ?? 0
-        if active == 0 {
-            // A mode or a threshold changed while off waits for the next turn-on.
-            guard entry.state == 0 else { return }
-            return await sendAC(services, power: false, mode: nil, temperature: nil)
+    /// An air conditioner's overlay carries its mode and temperature together: what the command leaves out is the unit's.
+    private func applyAC(_ services: ZoneServices, _ entry: ClimateCommand) async throws {
+        let report = services.climate?.report
+        if !(entry.power ?? report?.power ?? false) {
+            // A mode changed while off goes with the next turn-on (the controller holds the setpoints).
+            guard entry.power == false else { return }
+            return try await sendAC(services, power: false, mode: nil, temperature: nil, throwing: true)
         }
-        let targetState = entry.mode ?? primary.characteristic(.targetHeaterCoolerState).value.intValue ?? 2
-        let mode = targetState == 1 ? "HEAT" : (targetState == 2 ? "COOL" : "AUTO")
-        let threshold: CharacteristicType = mode == "HEAT" ? .heatingThresholdTemperature : .coolingThresholdTemperature
-        let temperature = primary[threshold]?.value.doubleValue ?? entry.temperature
-        await sendAC(services, power: true, mode: mode, temperature: temperature)
+        // In fan or dry (Other Modes), the mode the tile shows: a temperature needs heat or cool.
+        let shown = services.primary.characteristic(.targetHeaterCoolerState).value.intValue == 1 ? ClimateMode.heat : .cool
+        let mode = entry.mode ?? report?.mode ?? shown
+        try await sendAC(services, power: true, mode: mode == .heat ? "HEAT" : "COOL", temperature: entry.target ?? report?.target, throwing: true)
     }
 
-    private func sendAC(_ services: ZoneServices, power: Bool, mode: String?, temperature: Double?, fanLevel: String? = nil) async {
+    private func sendAC(_ services: ZoneServices, power: Bool, mode: String?, temperature: Double?, fanLevel: String? = nil,
+                        throwing: Bool = false) async throws {
         let zone = services.zone
-        try? await writing(services, label: power ? "Mode: \(mode ?? "")" : "State: 0") { home, zoneID in
+        try await writing(services, label: power ? "Mode: \(mode ?? "")" : "State: 0", throwing: throwing) { home, zoneID in
             let capabilities = try? await self.capabilities(home: home, zone: zoneID)
             let level = zone.acFanSpeed ? (fanLevel ?? self.acFanLevels[zone.name]) : nil
             let body = TadoOverlay.airConditioner(power: power, mode: mode ?? "COOL", celsius: temperature, fanLevel: level, current: self.states[zoneID]?.setting,
@@ -857,9 +776,9 @@ actor TadoHome {
             try await self.api.setOverlay(home, zone: zoneID, body)
             if let setting = body["setting"] { self.states[zoneID]?.setting = setting }
             self.states[zoneID]?.power = power
-            self.acModes[zone.name] = power ? mode : nil
-            services.fanSwitch?.characteristic(.on).value = .bool(power && mode == "FAN")
-            services.drySwitch?.characteristic(.on).value = .bool(power && mode == "DRY")
+            if power, let mode { self.states[zoneID]?.acMode = mode }
+            if power, let celsius = body["setting"]?["temperature"]?["celsius"]?.doubleValue { self.states[zoneID]?.target = celsius }
+            self.showSent(services, zoneID: zoneID)
         }
     }
 
@@ -886,19 +805,19 @@ actor TadoHome {
         }
         guard primary.characteristic(.active).value.intValue == 1 || acModes[zone] != nil else { return }
         let threshold: CharacteristicType = targetState == 1 ? .heatingThresholdTemperature : .coolingThresholdTemperature
-        await sendAC(services, power: true, mode: mode, temperature: primary[threshold]?.value.doubleValue, fanLevel: level)
+        try? await sendAC(services, power: true, mode: mode, temperature: primary[threshold]?.value.doubleValue, fanLevel: level)
     }
 
     private func setACModeSwitch(zone: String, mode: String, on: Bool) async {
         guard let services = zones[zone] else { return }
-        guard on else { return await sendAC(services, power: false, mode: nil, temperature: nil) }
+        guard on else { return (try? await sendAC(services, power: false, mode: nil, temperature: nil)) ?? () }
         if let home = homeID, let zoneID = zoneIDs[zone], let caps = try? await capabilities(home: home, zone: zoneID), caps.objectValue != nil, caps[mode] == nil {
             logger.warning("\(services.deviceID): the air conditioner has no \(mode) mode")
             let service = mode == "FAN" ? services.fanSwitch : services.drySwitch
             _ = service?.characteristic(.on).revert(to: false, after: options.resetDelay)
             return
         }
-        await sendAC(services, power: true, mode: mode, temperature: nil)
+        try? await sendAC(services, power: true, mode: mode, temperature: nil)
     }
 
     private func setOpenWindow(zone: String, _ enabled: Bool) async throws {
@@ -969,24 +888,22 @@ actor TadoHome {
             logger.error("\(settings.name) Central Switch: failed to set states: \(error)")
             return
         }
+        // Each zone shows what the switch did, until the next poll.
         for zone in centralZones {
-            guard let services = zones[zone.name] else { continue }
-            let primary = services.primary
-            switch (command, services.kind) {
-            case (.schedule, .thermostat): primary.characteristic(.targetHeatingCoolingState).value = .int(3)
-            case (.schedule, _): primary[.active]?.value = .int(1)
-            case (.boost, .thermostat):
-                primary.characteristic(.currentHeatingCoolingState).value = .int(1)
-                primary.characteristic(.targetHeatingCoolingState).value = .int(1)
-                primary.characteristic(.targetTemperature).value = .double(services.limits.max)
-            case (.boost, _):
-                primary[.active]?.value = .int(1)
-                primary[.heatingThresholdTemperature]?.value = .double(services.limits.max)
-            case (.off, .thermostat):
-                primary.characteristic(.currentHeatingCoolingState).value = .int(0)
-                primary.characteristic(.targetHeatingCoolingState).value = .int(0)
-            case (.off, _): primary[.active]?.value = .int(0)
+            guard let services = zones[zone.name], let id = zoneIDs[zone.name] else { continue }
+            switch command {
+            case .schedule:
+                states[id]?.power = true
+                states[id]?.onSchedule = true
+            case .boost:
+                states[id]?.power = true
+                states[id]?.target = 25
+                states[id]?.onSchedule = false
+            case .off:
+                states[id]?.power = false
+                states[id]?.onSchedule = false
             }
+            showSent(services, zoneID: id)
         }
         central["Central"]?.characteristic(.on).value = .bool(command != .off)
         if name != "Central" { _ = central[name]?.characteristic(.on).revert(to: false, after: options.resetDelay) }

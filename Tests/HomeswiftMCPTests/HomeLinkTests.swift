@@ -360,7 +360,7 @@ import Testing
         #expect(environment.catalog.wallGroups.map(\.name) == ["Lampes"])
     }
 
-    /// HomeKit's ids are the Mac's own and can all change at once (docs/adr/0013-mirrors-keep-their-device-id.md): Rooms,
+    /// HomeKit's ids are the Mac's own and can all change at once (docs/adr/0014-mirrors-keep-their-device-id.md): Rooms,
     /// Zones and Groups the Home has under new ids, by their names (and a Group's members), stay what they were here, so
     /// an Automation that turns a Group on keeps it.
     @Test func roomsZonesAndGroupsUnderNewIdsStayTheSame() async throws {

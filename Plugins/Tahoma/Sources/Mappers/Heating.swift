@@ -2,15 +2,18 @@ import Foundation
 import Homeswift
 import HomeswiftAI
 import HomeswiftPlugin
+import NIOConcurrencyHelpers
 
-/// The base thermostat (docs/clean-room/Tahoma.md 5.10.1): `HeatingSystem` and its relatives. A subclass changes the
-/// modes, the temperature range, the custom Prog and Eco characteristics, the commands, and reads several states
-/// together in `computeStates()`, updating the target state only while idle.
+/// The base thermostat (docs/clean-room/Tahoma.md 5.10.1): `HeatingSystem` and its relatives, its Thermostat the shared
+/// `ClimateController`'s (docs/adr/0013-climate-is-mapped-once.md). A subclass changes the modes, the temperature range,
+/// the custom Prog and Eco characteristics and the commands, and reads several states together in `computeStates()`,
+/// reporting them with `show(_:action:)`, `showTarget(temperature:)` and `showCurrent(temperature:)`. One target for
+/// every mode: in auto (usually the device's schedule), Apple Home shows the Auto Band around it.
 class ThermostatMapper: Mapper, @unchecked Sendable {
     override class var category: AccessoryCategory { .thermostat }
     override class var kind: String { "heating" }
 
-    /// Target Heating Cooling State's valid values.
+    /// Target Heating Cooling State's values: the device's modes, as HomeKit names them (OFF its power).
     var modes: [Int] { [HAP.off, HAP.auto] }
     var minimumTemperature: Double { 7 }
     var maximumTemperature: Double { 30 }
@@ -18,52 +21,72 @@ class ThermostatMapper: Mapper, @unchecked Sendable {
     var targetTemperatureWritable: Bool { true }
     var hasProg: Bool { false }
     var hasEco: Bool { false }
+    /// What a target written while the device is off does: sent, or held for the next mode chosen.
+    var whileOff: ClimateCapabilities.WhileOff { .sends }
     /// Switch services by subtype, with their names.
     var switches: [(subtype: String, name: String)] { [] }
     /// The target state shown before any state arrives.
     var initialTarget: Int? { nil }
+    /// What the device is shown doing before any state arrives.
     var initialCurrent: Int? { nil }
 
-    private(set) var thermostat: Service!
+    private(set) var climate: ClimateController!
     private(set) var switchServices: [String: Service] = [:]
+    /// The device's climate state as its states say, shown again when an execution fails.
+    let reading = NIOLockedValueBox(ClimateReport(power: false, mode: nil))
 
+    var thermostat: Service { climate.service }
+    /// The target state Apple Home shows.
     var targetState: Int { thermostat.characteristic(.targetHeatingCoolingState).value.intValue ?? HAP.off }
     var currentState: Int { thermostat.characteristic(.currentHeatingCoolingState).value.intValue ?? HAP.off }
+    /// Whether the device is on, as last reported or commanded.
+    var isOn: Bool { climate.report?.power ?? false }
     var prog: Bool { thermostat[TahomaCharacteristics.prog]?.value.boolValue ?? false }
     var eco: Bool { thermostat[TahomaCharacteristics.eco]?.value.boolValue ?? false }
-    var currentTemperature: Double { thermostat.number(.currentTemperature) ?? 0 }
-    var targetTemperature: Double { thermostat.number(.targetTemperature) ?? minimumTemperature }
+    var currentTemperature: Double { climate.report?.current ?? thermostat.number(.currentTemperature) ?? 0 }
+    var targetTemperature: Double { climate.report?.target ?? thermostat.number(.targetTemperature) ?? minimumTemperature }
 
     /// Eve's Total Consumption, when an attached sensor counts the energy (5.10.1).
     var measuresEnergy: Bool {
         sensors.contains { $0.widgetName == "CumulativeElectricPowerConsumptionSensor" || $0.states["core:ElectricEnergyConsumptionState"] != nil }
     }
 
+    /// What the device can do, for the controller.
+    var capabilities: ClimateCapabilities {
+        ClimateCapabilities(
+            modes: Set(modes.compactMap(HAP.climateMode)), setpoints: .single, range: minimumTemperature...maximumTemperature,
+            step: temperatureStep, canTurnOff: modes.contains(HAP.off), whileOff: whileOff)
+    }
+
     override func build() throws -> [Service] {
-        var targetType = CharacteristicType.targetTemperature.with(minValue: minimumTemperature, maxValue: maximumTemperature, minStep: temperatureStep)
-        if !targetTemperatureWritable { targetType.permissions = [.pairedRead, .events] }
-        let thermostat = Service(.thermostat, name: label, optional: [
-            CharacteristicType.currentTemperature.with(minValue: -50, maxValue: 100, minStep: 0.1), targetType,
-            CharacteristicType.targetHeatingCoolingState.with(validValues: modes.sorted()),
-        ], isPrimary: true)
-        let target = thermostat.characteristic(.targetTemperature)
-        target.setClamped(target.value.doubleValue ?? minimumTemperature)
-        if let initialTarget { thermostat.characteristic(.targetHeatingCoolingState).value = .int(initialTarget) }
-        if let initialCurrent { thermostat.characteristic(.currentHeatingCoolingState).value = .int(initialCurrent) }
+        let capabilities = capabilities
+        var optional = [CharacteristicType.currentTemperature.with(minValue: -50, maxValue: 100, minStep: 0.1)]
+        if !targetTemperatureWritable {
+            // Read-only, as are the thresholds of its Auto Band: the device sets its own target.
+            let range = minimumTemperature...maximumTemperature
+            var types: [CharacteristicType] = [.targetTemperature]
+            if capabilities.modes.contains(.auto) { types += [.heatingThresholdTemperature, .coolingThresholdTemperature] }
+            for type in types {
+                var readOnly = type.with(minValue: range.lowerBound, maxValue: range.upperBound, minStep: temperatureStep)
+                readOnly.permissions = [.pairedRead, .events]
+                optional.append(readOnly)
+            }
+        }
+        // 500 ms of gathering: a slider's drag is one execution (6.4), at the test's time scale in tests.
+        let climate = ClimateController(
+            .thermostat, name: label, isPrimary: true, capabilities: capabilities, optional: optional, window: scaled(0.5)
+        ) { [weak self] command in
+            try await self?.applyClimate(command)
+        }
+        self.climate = climate
+        let thermostat = climate.service
+        thermostat.characteristic(.targetTemperature).setClamped(minimumTemperature)
         if hasProg { thermostat.characteristic(adding: TahomaCharacteristics.prog).value = false }
         if hasEco { thermostat.characteristic(adding: TahomaCharacteristics.eco).value = false }
         if measuresEnergy { thermostat.characteristic(adding: EveCharacteristic.totalConsumption).value = .double(0) }
-        self.thermostat = thermostat
+        climate.update(reading.withLockedValue { $0 })
+        if initialTarget != nil || initialCurrent != nil { show(current: initialCurrent, target: initialTarget) }
 
-        thermostat.characteristic(.targetHeatingCoolingState).onWrite { [weak self] value in
-            try await self?.writeState(value.intValue ?? HAP.off)
-        }
-        if targetTemperatureWritable {
-            target.onWrite { [weak self] value in
-                guard let self, await debounced("temperature") else { return }
-                try await writeTemperature(value.doubleValue ?? minimumTemperature)
-            }
-        }
         for type in [TahomaCharacteristics.prog, TahomaCharacteristics.eco] {
             thermostat[type]?.onWrite { [weak self] value in
                 guard let self else { return }
@@ -105,33 +128,110 @@ class ThermostatMapper: Mapper, @unchecked Sendable {
 
     func switchCommands(_ subtype: String, on: Bool) -> [OverkizCommand] { [OverkizCommand("setOn", .bool(on))] }
 
-    func writeState(_ target: Int) async throws {
-        guard target != targetState else { return }
-        try await execute(stateCommands(target)) { [weak self] update in
+    /// The commands of one change: OFF, or the mode chosen (which turns the device on), then the target. A mode or OFF
+    /// the device has no command for is "No target command".
+    func climateCommands(_ command: ClimateCommand) throws -> [OverkizCommand] {
+        var commands: [OverkizCommand] = []
+        let state: Int? = command.power == false ? HAP.off : (command.mode ?? (command.power == true ? climate.report?.mode : nil)).map(HAP.value)
+        if let state {
+            commands = stateCommands(state)
+            guard !commands.isEmpty else {
+                logger.error("No target command for \(label)")
+                throw HAPStatusError(.resourceDoesNotExist)
+            }
+        }
+        if let target = command.target { commands += temperatureCommands(target) }
+        // One action per device: a command named twice keeps the later one, as two writes merged did.
+        return Executions.merge([], commands)
+    }
+
+    /// Sends one change as one execution. A failed execution shows the device's state again; a completed one is the
+    /// device's state until its states say otherwise (most never name the mode, and a stateless device none).
+    func applyClimate(_ command: ClimateCommand) async throws {
+        let commands = try climateCommands(command)
+        try await execute(commands) { [weak self] update in
             guard let self else { return }
-            switch update.state {
-            case .completed where stateless: show(current: target)
-            case .failed, .timedOut: thermostat.characteristic(.targetHeatingCoolingState).value = .int(currentState)
-            default: break
+            if update.state.isFailure {
+                climate.update(reading.withLockedValue { $0 })
+            } else if update.state == .completed {
+                completed(power: command.power, mode: command.mode, target: command.target)
             }
         }
     }
 
-    func writeTemperature(_ value: Double) async throws {
-        try await execute(temperatureCommands(value))
+    /// An execution completed: what it sent is the device's state. A stateless device, which says nothing of what it
+    /// does, is shown doing what its mode says (heat or auto heating, cool cooling).
+    func completed(power: Bool?, mode: ClimateMode?, target: Double?) {
+        let report = reading.withLockedValue { reading in
+            if let power { reading.power = power }
+            if let mode { reading.mode = mode }
+            if let target { reading.target = target }
+            if stateless, power != nil || mode != nil {
+                reading.action = !reading.power ? .idle : reading.mode.map { $0 == .cool ? .cooling : .heating }
+            }
+            return reading
+        }
+        climate.update(report)
+    }
+
+    /// The accessory took its cached values: until the device's states say otherwise, they are its state (the mode and
+    /// power of a device whose states never name them).
+    override func restored() {
+        guard let climate = climate as ClimateController? else { return }
+        let thermostat = climate.service
+        let state = thermostat.characteristic(.targetHeatingCoolingState).value.intValue
+        let target = thermostat.number(.targetTemperature), current = thermostat.number(.currentTemperature)
+        let modes = climate.capabilities.modes
+        let report = reading.withLockedValue { reading in
+            if let state {
+                reading.power = state != HAP.off
+                if let mode = HAP.climateMode(state), modes.contains(mode) { reading.mode = mode }
+            }
+            if let target { reading.target = target }
+            if let current { reading.current = current }
+            return reading
+        }
+        climate.update(report)
     }
 
     // MARK: Showing
 
-    /// Current and target heating states; a target only while idle unless `always`. AUTO is shown as HEAT for the
-    /// current state, which has no AUTO.
-    func show(current: Int? = nil, target: Int? = nil, always: Bool = false) {
-        if let current { thermostat.characteristic(.currentHeatingCoolingState).value = .int(current == HAP.auto ? HAP.heat : current) }
-        if let target, always || isIdle, modes.contains(target) { thermostat.characteristic(.targetHeatingCoolingState).value = .int(target) }
+    /// Changes the device's state as its states say and shows it. While an execution is in flight, Apple Home keeps the
+    /// power, mode and target it asked for: a target follows the device only when idle (6.4).
+    func showClimate(_ change: (inout ClimateReport) -> Void) {
+        var report = reading.withLockedValue { reading in
+            change(&reading)
+            return reading
+        }
+        if !isIdle, let asked = climate.report {
+            report.power = asked.power
+            report.mode = asked.mode
+            report.target = asked.target
+        }
+        climate.update(report)
+    }
+
+    /// What the device does and its target state, as HomeKit names them. `current`: OFF idle, HEAT (or AUTO) heating,
+    /// COOL cooling. `target`: OFF its power, another mode one it has (one it has not is ignored).
+    func show(current: Int? = nil, target: Int? = nil) {
+        let mode = target.flatMap(HAP.climateMode).flatMap { climate.capabilities.modes.contains($0) ? $0 : nil }
+        showClimate { report in
+            if let current { report.action = current == HAP.off ? .idle : current == HAP.cool ? .cooling : .heating }
+            if let target, target == HAP.off || mode != nil {
+                report.power = target != HAP.off
+                if let mode { report.mode = mode }
+            }
+        }
     }
 
     func showTarget(temperature: Double?) {
-        thermostat.characteristic(.targetTemperature).setClamped(temperature)
+        guard let temperature, temperature.isFinite else { return }
+        showClimate { $0.target = temperature }
+    }
+
+    func showCurrent(temperature: Double?) {
+        guard let temperature, temperature.isFinite else { return }
+        showClimate { $0.current = temperature }
     }
 
     func showProg(_ value: Bool) { thermostat[TahomaCharacteristics.prog]?.value = .bool(value) }
@@ -140,7 +240,7 @@ class ThermostatMapper: Mapper, @unchecked Sendable {
     /// `core:TemperatureState`, in kelvin above 273.15.
     func showCurrentTemperature(_ states: [String: JSONValue]) {
         guard let temperature = states["core:TemperatureState"]?.number else { return }
-        thermostat.characteristic(.currentTemperature).setClamped(temperature > 273.15 ? temperature - 273.15 : temperature)
+        showCurrent(temperature: temperature > 273.15 ? temperature - 273.15 : temperature)
     }
 
     /// A derogated target temperature for `derogationDuration` hours.
@@ -197,23 +297,43 @@ final class PilotWireHeaterMapper: ThermostatMapper, @unchecked Sendable {
         return comfort
     }
 
-    override func writeTemperature(_ value: Double) async throws {
-        // The write stores the value asked once the handler returns: the snapped one (or, while off, the one shown
-        // before) is put back just after.
-        let target = thermostat.characteristic(.targetTemperature)
-        guard targetState != HAP.off else {
-            target.revert(to: target.value, after: scaled(0.05))
-            return
+    /// The level decides the temperature: a target sent with a mode is the mode's level.
+    override func temperatureCommands(_ value: Double) -> [OverkizCommand] { [] }
+
+    /// A target alone sets the level it snaps to, and that level's mode; while off, it sends nothing. The controller
+    /// shows the value asked once this returns: the snapped one (or, while off, the device's) is shown just after.
+    override func applyClimate(_ command: ClimateCommand) async throws {
+        guard let value = command.target, command.power == nil, command.mode == nil else { return try await super.applyClimate(command) }
+        guard isOn else {
+            return schedule("snap", after: scaled(0.05)) { [weak self] in self?.showSnapped(nil) }
         }
         let snapped = Self.snap(value, comfort: options.comfort, eco: options.eco)
-        if snapped != value { target.revert(to: .double(snapped), after: scaled(0.05)) }
-        let (level, mode) = switch snapped {
-        case 7: ("frostprotection", HAP.cool)
-        case options.eco: ("eco", HAP.cool)
-        default: ("comfort", HAP.heat)
+        let (level, mode): (String, ClimateMode) = switch snapped {
+        case 7: ("frostprotection", .cool)
+        case options.eco: ("eco", .cool)
+        default: ("comfort", .heat)
         }
-        show(target: mode, always: true)
-        try await execute([OverkizCommand("setHeatingLevel", .string(level))])
+        try await execute([OverkizCommand("setHeatingLevel", .string(level))]) { [weak self] update in
+            guard let self else { return }
+            if update.state.isFailure {
+                climate.update(reading.withLockedValue { $0 })
+            } else if update.state == .completed {
+                completed(power: true, mode: mode, target: snapped)
+            }
+        }
+        schedule("snap", after: scaled(0.05)) { [weak self] in self?.showSnapped((snapped, mode)) }
+    }
+
+    /// Shows the temperature and mode a target snapped to, or the device's state again. The device's state stays as
+    /// its states say until the execution completes: one that fails shows it again.
+    private func showSnapped(_ snapped: (temperature: Double, mode: ClimateMode)?) {
+        var report = reading.withLockedValue { $0 }
+        if let snapped {
+            report.power = true
+            report.mode = snapped.mode
+            report.target = snapped.temperature
+        }
+        climate.update(report)
     }
 
     override func apply(_ states: [String: JSONValue], from deviceURL: String) {
@@ -239,8 +359,8 @@ final class PilotWireHeaterMapper: ThermostatMapper, @unchecked Sendable {
     }
 
     private func showTemperatures(_ value: Double) {
-        thermostat.characteristic(.currentTemperature).setClamped(value)
-        if isIdle { showTarget(temperature: value) }
+        showCurrent(temperature: value)
+        showTarget(temperature: value)
     }
 }
 
@@ -333,15 +453,15 @@ final class TowelDryerMapper: ThermostatMapper, @unchecked Sendable {
         }
         switch string("core:OperatingModeState") {
         case "standby":
-            show(target: HAP.off, always: true)
+            show(target: HAP.off)
         case "internal":
             showProg(true)
-            show(target: HAP.auto, always: true)
+            show(target: HAP.auto)
             let derogated = number("core:DerogatedTargetTemperatureState") ?? 0
             showTarget(temperature: derogated > 0 ? derogated : temperature)
         case "external":
             showProg(false)
-            show(target: HAP.auto, always: true)
+            show(target: HAP.auto)
             showTarget(temperature: temperature)
         default:
             break
@@ -365,7 +485,7 @@ final class ThermostatSetPointMapper: ThermostatMapper, @unchecked Sendable {
         super.apply(states, from: deviceURL)
         guard deviceURL == device.deviceURL else { return }
         for name in ["zwave:SetPointHeatingValueState", "core:RoomTemperatureState"] {
-            if let value = states[name]?.number { thermostat.characteristic(.currentTemperature).setClamped(value) }
+            if let value = states[name]?.number { showCurrent(temperature: value) }
         }
         if let target = states["core:HeatingTargetTemperatureState"]?.number { showTarget(temperature: target) }
     }
@@ -684,6 +804,14 @@ final class HitachiAirToAirMapper: ThermostatMapper, @unchecked Sendable {
 
     override func temperatureCommands(_ value: Double) -> [OverkizCommand] { globalControl(state: targetState, temperature: value) }
 
+    /// One `globalControl` for the whole change: the state asked (or the device's) with the target asked (or its own).
+    override func climateCommands(_ command: ClimateCommand) throws -> [OverkizCommand] {
+        let report = climate.report
+        let on = command.power ?? report?.power ?? false
+        let state = on ? (command.mode ?? report?.mode).map(HAP.value) ?? HAP.auto : HAP.off
+        return globalControl(state: state, temperature: command.target ?? targetTemperature)
+    }
+
     func globalControl(state: Int, temperature: Double) -> [OverkizCommand] {
         let onOff = state == HAP.off ? "off" : "on"
         let heatMode: String
@@ -705,7 +833,7 @@ final class HitachiAirToAirMapper: ThermostatMapper, @unchecked Sendable {
 
     override func apply(_ states: [String: JSONValue], from deviceURL: String) {
         guard deviceURL == device.deviceURL else { return }
-        if let room = states["ovp:RoomTemperatureState"]?.number { thermostat.characteristic(.currentTemperature).setClamped(room) }
+        if let room = states["ovp:RoomTemperatureState"]?.number { showCurrent(temperature: room) }
         if let target = states["core:TargetTemperatureState"]?.number { showTarget(temperature: target) }
         if states["ovp:MainOperationState"] != nil || states["ovp:ModeChangeState"] != nil {
             if let main = string("ovp:MainOperationState"), main.lowercased() == "off" { return show(current: HAP.off, target: HAP.off) }
@@ -716,6 +844,27 @@ final class HitachiAirToAirMapper: ThermostatMapper, @unchecked Sendable {
             case "heating": show(current: HAP.heat, target: HAP.heat)
             default: break
             }
+        }
+    }
+}
+
+extension HAP {
+    /// A target state's Climate Mode: nil for OFF.
+    static func climateMode(_ state: Int) -> ClimateMode? {
+        switch state {
+        case heat: .heat
+        case cool: .cool
+        case auto: .auto
+        default: nil
+        }
+    }
+
+    /// A Climate Mode's target state.
+    static func value(_ mode: ClimateMode) -> Int {
+        switch mode {
+        case .heat: heat
+        case .cool: cool
+        case .auto: auto
         }
     }
 }

@@ -94,7 +94,7 @@ home, room, name, manufacturer and model. Two different Serial Numbers are never
 come back that way for 30 days, and a tie keeps the new id. `accessory-ids.json`, in the plugin's storage directory,
 keeps what each Wingman gave; the log says "Apple Home gave an accessory a new id: it keeps its own". The Home Link keeps
 Rooms and Zones by name, and Groups by name and members, in the same way
-(docs/adr/0013-mirrors-keep-their-device-id.md).
+(docs/adr/0014-mirrors-keep-their-device-id.md).
 
 The plugin's MCP tool is `Wingman_list_wingmen`; Setup's `discover_devices` and `start_setup` find and pair a Wingman.
 

@@ -5,7 +5,7 @@ import Testing
 @testable import Homeswift
 @testable import HomeswiftWingman
 
-/// HomeKit's ids are the Mac's own and can all change at once (docs/adr/0013-mirrors-keep-their-device-id.md): a mirror
+/// HomeKit's ids are the Mac's own and can all change at once (docs/adr/0014-mirrors-keep-their-device-id.md): a mirror
 /// keeps its Device Id, so what refers to it (Automations, groups, Accessory Settings) keeps working.
 @Suite(.timeLimit(.minutes(1)))
 final class AccessoryIDsTests: @unchecked Sendable {

@@ -102,6 +102,12 @@ says why).
   colour or a white set elsewhere (its app, a remote). `Scripts/new-plugin.swift` writes the controller; [docs/plugins.md](docs/plugins.md) has the details, and
   `Plugins/Dirigera` and `Plugins/PhilipsHue` are examples. The bridge's debug log names a light without one, which
   the skill's `check-on-bridge.sh` shows. A light mirrored from another controller (Wingman) keeps that controller's.
+- **One climate mapping:** a thermostat or an air conditioner's Thermostat or Heater Cooler is a `ClimateController`
+  (`HomeswiftPlugin`): the plugin says what the device can do (its Climate Modes and Setpoint Kind), sends the
+  `ClimateCommand` the controller gathers and reports the device's state as a `ClimateReport`; it binds none of the
+  service's states, thresholds or Active. Auto stays Auto, an Other Mode (dry, fan only) keeps the target, and a Heater
+  Cooler's mode never turns it on ([ADR 0013](docs/adr/0013-climate-is-mapped-once.md); `Plugins/LGThinQ` is an
+  example).
 - **Tests without devices or accounts:** fake transports injected through a `PluginRegistry` closure; MQTT and
   WebSocket fakes are in `HomeswiftNetworkTestSupport`. Tests use `MemoryStorage` and `advertise: false`.
 - **Linux:** Darwin-only APIs behind `#if canImport(...)`, `URLSession` with `#if canImport(FoundationNetworking)`.

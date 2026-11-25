@@ -421,93 +421,66 @@ final class EntityBinding: Sendable {
         let unit = info.temperatureUnit
         let twoPoint = features & (ClimateFeature.twoPoint | ClimateFeature.requiresTwoPoint) != 0
         let requiresTwoPoint = features & ClimateFeature.requiresTwoPoint != 0
-        let modes = Set(info.climateModes)
-        let mapping = ClimateModes(supported: modes)
+        let mapping = ClimateModes(supported: Set(info.climateModes))
         let low = Temperature.celsius(info.visualMinTemperature, unit: unit), high = Temperature.celsius(info.visualMaxTemperature, unit: unit)
-        let bounds = low < high && low.isFinite && high.isFinite ? (low, high) : (10.0, 38.0)
+        let bounds = low < high && low.isFinite && high.isFinite ? low...high : 10.0...38.0
         let step = info.visualTemperatureStep > 0 ? Temperature.step(info.visualTemperatureStep, unit: unit) : 0.5
-        var optional: [CharacteristicType] = [
-            .targetTemperature.with(minValue: bounds.0, maxValue: bounds.1, minStep: step),
-            .targetHeatingCoolingState.with(validValues: mapping.validValues),
-            .currentTemperature.with(minValue: -100, maxValue: 200),
-        ]
-        if twoPoint {
-            optional += [
-                .coolingThresholdTemperature.with(minValue: bounds.0, maxValue: bounds.1, minStep: step),
-                .heatingThresholdTemperature.with(minValue: bounds.0, maxValue: bounds.1, minStep: step),
-            ]
-        }
+        // Two points required: the low in heat, the high in cool, both in auto. Two points allowed: the target in heat or
+        // cool, the low and high in auto.
+        let setpoints: ClimateSetpoints = requiresTwoPoint ? .separate(autoSetpoint: false) : twoPoint ? .range : .single
+        let modes = mapping.modes
+        let capabilities = ClimateCapabilities(
+            modes: modes.isEmpty ? [.heat] : Set(modes.keys), setpoints: setpoints, range: bounds, step: step, canTurnOff: mapping.canTurnOff)
+        var optional: [CharacteristicType] = [.currentTemperature.with(minValue: -100, maxValue: 200)]
+        // Only Other Modes (FAN_ONLY, DRY): Off alone is offered, and no mode is shown while on.
+        if modes.isEmpty { optional.append(.targetHeatingCoolingState.with(validValues: [0])) }
         if features & ClimateFeature.currentHumidity != 0 { optional.append(.currentRelativeHumidity) }
         if features & ClimateFeature.targetHumidity != 0 { optional.append(.targetRelativeHumidity) }
-        let service = Service(.thermostat, name: info.name, optional: optional, isPrimary: true)
+        let key = info.key
+        // One ClimateCommandRequest for what HomeKit asked: the mode (OFF for off) and the temperatures together.
+        let climate = ClimateController(.thermostat, name: info.name, isPrimary: true, capabilities: capabilities, optional: optional,
+                                        window: link.timing.lightCoalescing) { command in
+            var request = ESPHomeRequest.Climate(key: key)
+            if command.power == false { request.mode = 0 }
+            if let mode = command.mode { request.mode = modes[mode] ?? request.mode }
+            let device = { (celsius: Double) in Float(Temperature.device(celsius, unit: unit)) }
+            request.targetTemperature = command.target.map(device)
+            request.targetLow = command.heating.map(device)
+            request.targetHigh = command.cooling.map(device)
+            guard request.mode != nil || request.targetTemperature != nil || request.targetLow != nil || request.targetHigh != nil else { return }
+            try await link.send(request.frame)
+        }
+        let service = climate.service
         service.characteristic(.temperatureDisplayUnits).value = .int(unit == 1 ? 1 : 0)
         service.characteristic(.temperatureDisplayUnits).onWrite { _ in }
-        let key = info.key
-        let latest = LatestCallGuard(delay: link.timing.lightCoalescing)
-        service.characteristic(.targetHeatingCoolingState).onWrite { value in
-            guard let mode = mapping.esphome(value.intValue ?? 0) else { throw HAPStatusError(.invalidValueInRequest) }
-            try await link.send(ESPHomeRequest.Climate(key: key, mode: mode).frame)
-        }
-        service.characteristic(.targetTemperature).onWrite { value in
-            let celsius = value.doubleValue ?? 20
-            guard await latest("target") else { return }
-            let device = Float(Temperature.device(celsius, unit: unit))
-            var command = ESPHomeRequest.Climate(key: key)
-            if requiresTwoPoint {
-                if service.characteristic(.targetHeatingCoolingState).value.intValue == 2 { command.targetHigh = device } else { command.targetLow = device }
-            } else {
-                command.targetTemperature = device
-            }
-            try await link.send(command.frame)
-        }
-        if twoPoint {
-            service.characteristic(.heatingThresholdTemperature).onWrite { value in
-                guard await latest("low") else { return }
-                try await link.send(ESPHomeRequest.Climate(key: key, targetLow: Float(Temperature.device(value.doubleValue ?? 20, unit: unit))).frame)
-            }
-            service.characteristic(.coolingThresholdTemperature).onWrite { value in
-                guard await latest("high") else { return }
-                try await link.send(ESPHomeRequest.Climate(key: key, targetHigh: Float(Temperature.device(value.doubleValue ?? 24, unit: unit))).frame)
-            }
-        }
         if features & ClimateFeature.targetHumidity != 0 {
+            let latest = LatestCallGuard(delay: link.timing.lightCoalescing)
             service.characteristic(.targetRelativeHumidity).onWrite { value in
                 guard await latest("humidity") else { return }
                 try await link.send(ESPHomeRequest.Climate(key: key, targetHumidity: Float(value.doubleValue ?? 50)).frame)
             }
         }
-        @Sendable func clamp(_ value: Double) -> Double { min(max(value, bounds.0), bounds.1) }
         return EntityBinding(info: info, services: [service], category: .thermostat) { state in
             // ClimateStateResponse: mode 2, current 3, target 4, low 5, high 6, action 8, humidity 14 and 15, missing_state 17.
             guard !state.bool(17) else { return }
-            let mode = state.enumeration(2)
-            if let target = mapping.homeKit(mode) { service.characteristic(.targetHeatingCoolingState).value = .int(target) }
-            if features & ClimateFeature.action != 0 {
-                let current = switch state.enumeration(8) {
-                case 3: 1
-                case 2: 2
-                default: 0
-                }
-                service.characteristic(.currentHeatingCoolingState).value = .int(current)
-            } else {
-                service.characteristic(.currentHeatingCoolingState).value = .int(mode == 3 ? 1 : mode == 2 ? 2 : 0)
-            }
             func celsius(_ field: Int) -> Double? {
                 let value = Temperature.celsius(state.float(field), unit: unit)
                 return value.isFinite ? (value * 10).rounded() / 10 : nil
             }
-            if features & ClimateFeature.currentTemperature != 0, let current = celsius(3) {
-                service.characteristic(.currentTemperature).value = .double(current)
+            let mode = state.enumeration(2)
+            // ClimateAction: 0 off, 2 cooling, 3 heating, 4 idle, 5 drying, 6 fan.
+            var action: ClimateAction?
+            if features & ClimateFeature.action != 0 {
+                action = switch state.enumeration(8) {
+                case 3: .heating
+                case 2: .cooling
+                default: .idle
+                }
             }
-            if twoPoint {
-                if let low = celsius(5) { service.characteristic(.heatingThresholdTemperature).value = .double(clamp(low)) }
-                if let high = celsius(6) { service.characteristic(.coolingThresholdTemperature).value = .double(clamp(high)) }
-            }
-            if !requiresTwoPoint, let target = celsius(4) {
-                service.characteristic(.targetTemperature).value = .double(clamp(target))
-            } else if requiresTwoPoint, let target = celsius(mode == 2 ? 6 : 5) {
-                service.characteristic(.targetTemperature).value = .double(clamp(target))
-            }
+            climate.update(ClimateReport(
+                power: mode != 0, mode: mapping.climateMode(mode), action: action,
+                current: features & ClimateFeature.currentTemperature != 0 ? celsius(3) : nil,
+                target: requiresTwoPoint ? nil : celsius(4), heating: twoPoint ? celsius(5) : nil, cooling: twoPoint ? celsius(6) : nil))
             if features & ClimateFeature.currentHumidity != 0, state.float(14).isFinite {
                 service.characteristic(.currentRelativeHumidity).value = .double(min(max(Double(state.float(14)), 0), 100))
             }
@@ -555,39 +528,29 @@ extension EntityInfo {
     }
 }
 
-/// HomeKit's Target Heating Cooling State against ESPHome's climate modes: Off 0 ↔ OFF 0, Heat 1 ↔ HEAT 3, Cool 2 ↔
-/// COOL 2, Auto 3 ↔ HEAT_COOL 1, or AUTO 6 when only that is supported.
+/// The Climate Modes against ESPHome's climate modes (0 OFF, 1 HEAT_COOL, 2 COOL, 3 HEAT, 4 FAN_ONLY, 5 DRY, 6 AUTO): heat
+/// is HEAT, cool COOL, auto HEAT_COOL, or AUTO when only that is supported. FAN_ONLY, DRY and AUTO beside HEAT_COOL are
+/// Other Modes, never a Climate Mode: a device with nothing else has none, and offers Off alone. OFF is the power.
 struct ClimateModes: Sendable {
     let supported: Set<Int>
 
-    var autoMode: Int? {
-        if supported.isEmpty || supported.contains(1) { return 1 }
-        return supported.contains(6) ? 6 : nil
+    private func has(_ mode: Int) -> Bool { supported.isEmpty || supported.contains(mode) }
+
+    var autoMode: Int? { has(1) ? 1 : supported.contains(6) ? 6 : nil }
+
+    /// The Climate Modes and the ESPHome modes they send.
+    var modes: [ClimateMode: Int] {
+        var map: [ClimateMode: Int] = [:]
+        if has(3) { map[.heat] = 3 }
+        if has(2) { map[.cool] = 2 }
+        if let auto = autoMode { map[.auto] = auto }
+        return map
     }
 
-    func esphome(_ homeKit: Int) -> Int? {
-        let mode: Int? = switch homeKit {
-        case 0: 0
-        case 1: 3
-        case 2: 2
-        case 3: autoMode
-        default: nil
-        }
-        guard let mode, supported.isEmpty || supported.contains(mode) || mode == 0 else { return nil }
-        return mode
-    }
+    var canTurnOff: Bool { has(0) }
 
-    func homeKit(_ esphome: Int) -> Int? {
-        switch esphome {
-        case 0: 0
-        case 3: 1
-        case 2: 2
-        case 1, 6: 3
-        default: nil
-        }
-    }
-
-    var validValues: [Int] { (0...3).filter { esphome($0) != nil } }
+    /// An ESPHome mode as a Climate Mode: nil for OFF and Other Modes.
+    func climateMode(_ esphome: Int) -> ClimateMode? { modes.first { $0.value == esphome }?.key }
 }
 
 /// Temperatures from a climate's unit (0 °C, 1 °F, 2 K) to HomeKit's Celsius and back.
