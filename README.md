@@ -69,7 +69,7 @@ Add Homeswift to your package:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mp-consulting/homeswift.git", from: "0.37.2"),
+    .package(url: "https://github.com/mp-consulting/homeswift.git", from: "0.38.0"),
 ],
 targets: [
     .executableTarget(name: "MyBridge", dependencies: [
