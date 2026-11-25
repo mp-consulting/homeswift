@@ -395,12 +395,18 @@ final class MiotAccessoryBuilder {
                 guard let mode else { return false }
                 return Self.isDescribed(values[mode.key], "Color", in: mode)
             }
-            bind([temperature, mode]) { [weak controller] values, fromDevice in
+            // The device's own report, before the white binding below shows it: a light turned on keeps Adaptive Lighting
+            // and takes the white for now; a white set elsewhere stops it.
+            if controller != nil {
+                bind([on, temperature, mode]) { [weak controller] values, fromDevice in
+                    guard fromDevice else { return }
+                    let white = isColorMode(values) ? nil : Self.number(values[temperature.key]).map { mireds($0) }
+                    controller?.lightReported(on: Self.bool(values[on.key]), colour: white.map { .white($0) })
+                }
+            }
+            bind([temperature, mode]) { values, _ in
                 guard let value = Self.number(values[temperature.key]) else { return }
-                let shown = mireds(value)
-                // The device's own report of a white: Adaptive Lighting stops when it was set elsewhere.
-                if fromDevice, !isColorMode(values) { controller?.disableIfChangedElsewhere(mireds: shown) }
-                Self.set(characteristic, .int(shown))
+                Self.set(characteristic, .int(mireds(value)))
             }
         }
         if let color {
@@ -414,7 +420,7 @@ final class MiotAccessoryBuilder {
                 }
                 let colorMode = mode.map { Self.isDescribed(values[$0.key], "Color", in: $0) } ?? true
                 // A colour the device reports set elsewhere turns Adaptive Lighting off.
-                if fromDevice, changed, colorMode { controller?.disableIfChangedElsewhere(mireds: nil) }
+                if fromDevice, changed, colorMode { controller?.lightReported(on: nil, colour: .colour) }
                 let (h, s) = MiotConversions.hueSaturation(rgb: rgb)
                 Self.set(hue, .double(Double(h)))
                 Self.set(saturation, .double(Double(s)))

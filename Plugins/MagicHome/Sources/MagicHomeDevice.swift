@@ -217,6 +217,8 @@ actor MagicHomeDevice {
         guard !isReachable else { return }
         isReachable = true
         services?.accessory.isUnavailable = false
+        // Before its report is shown: a light whose power came back keeps Adaptive Lighting.
+        adaptiveLighting?.lightReported(on: nil, reachable: true, colour: nil)
         log.info("\(name) answers again")
     }
 
@@ -226,6 +228,7 @@ actor MagicHomeDevice {
         if failures == options.timing.failuresBeforeNoResponse, isReachable {
             isReachable = false
             services?.accessory.isUnavailable = true
+            adaptiveLighting?.lightReported(on: nil, reachable: false, colour: nil)
             // Once per outage.
             log.warning("\(name) at \(record.host) does not answer: \(error)")
         } else {
@@ -310,15 +313,17 @@ actor MagicHomeDevice {
         wake()
     }
 
-    /// The device's report: Adaptive Lighting turned off by a colour or a white set elsewhere, then each value that
-    /// changed.
+    /// The device's report: Adaptive Lighting kept by a light coming on, turned off by a colour or a white set elsewhere,
+    /// then each value that changed.
     private func show(_ reading: MagicHomeReading) {
-        if reading.on, let adaptiveLighting, adaptiveLighting.isAdaptiveLightingActive {
+        if let adaptiveLighting {
+            var colour: AdaptiveLightingController.ReportedColour?
             if reading.showsWhite, let mireds = reading.mireds {
-                adaptiveLighting.disableIfChangedElsewhere(mireds: mireds, tolerance: Self.tolerance(reading, writer: profile.writer))
+                colour = .white(mireds)
             } else if !reading.showsWhite, reading.hue != nil {
-                adaptiveLighting.disableIfChangedElsewhere(mireds: nil)
+                colour = .colour
             }
+            adaptiveLighting.lightReported(on: reading.on, colour: colour, tolerance: Self.tolerance(reading, writer: profile.writer))
         }
         light.isOn = reading.on
         set(services?.on, .bool(reading.on))

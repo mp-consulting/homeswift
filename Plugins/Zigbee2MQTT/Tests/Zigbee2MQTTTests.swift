@@ -261,7 +261,7 @@ struct Zigbee2MQTTTests {
         #expect(await eventually { host.accessory("0x00178d0009876543") != nil })
         let light = try #require(host.accessory("0x00178d0009876543")?.service(.lightbulb))
         let controller = try #require(light.adaptiveLighting)
-        try controller.activateForTesting(mireds: 300)
+        try await controller.activateForTesting(mireds: 300)
         let topic = "0x00178d0009876543/set"
         // Off: nothing sent (only_when_on).
         try await light.characteristic(.colorTemperature).write(.int(300), context: ObjectIdentifier(controller))
@@ -276,7 +276,7 @@ struct Zigbee2MQTTTests {
         // The device reports a white it was set to elsewhere: Adaptive Lighting turns off.
         environment.send("test_light", #"{"color_mode":"color_temp","color_temp":400}"#)
         #expect(await eventually { !controller.isAdaptiveLightingActive })
-        try controller.activateForTesting(mireds: 300)
+        try await controller.activateForTesting(mireds: 300)
         environment.send("test_light", #"{"color_mode":"xy","color":{"x":0.3,"y":0.3}}"#)
         #expect(await eventually { !controller.isAdaptiveLightingActive })
     }

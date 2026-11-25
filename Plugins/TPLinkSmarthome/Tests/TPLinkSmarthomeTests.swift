@@ -150,7 +150,7 @@ struct TPLinkSmarthomeTests {
         environment.lan.reply("smartlife.iot.smartbulb.lightingservice.transition_light_state", #"{"on_off":1,"brightness":60,"err_code":0}"#)
         let lighting = await environment.plugin?.adaptiveLighting[Fixtures.lb130ID]
         let controller = try #require(lighting)
-        try controller.activateForTesting()
+        try await controller.activateForTesting()
         #expect(controller.isAdaptiveLightingActive)
         environment.lan.put(Fixtures.lb130(light: #"{"on_off":1,"mode":"normal","hue":10,"saturation":90,"color_temp":0,"brightness":60}"#), at: "192.168.1.50")
         // Once the bridge's own writes have settled (3 of the tests' seconds), the next round's report turns it off.

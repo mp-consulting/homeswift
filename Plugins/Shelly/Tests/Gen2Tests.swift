@@ -271,7 +271,7 @@ struct ShellyNGTests {
         let light = try #require(host.accessory(id)?.services.first { $0.type == .lightbulb })
         #expect(light.characteristic(.colorTemperature).value.intValue == 250)
         let controller = try #require(light.adaptiveLighting)
-        try controller.activateForTesting()
+        try await controller.activateForTesting()
         device.notify("NotifyStatus", #"{"cct:0":{"ct":6500}}"#)
         await expectEventually { !controller.isAdaptiveLightingActive }
     }

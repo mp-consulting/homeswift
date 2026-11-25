@@ -4,6 +4,16 @@ import Testing
 
 @testable import Homeswift
 
+/// Polls `condition` until it holds or `timeout` passes.
+private func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if await condition() { return true }
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    return await condition()
+}
+
 /// Vectors from HAP-NodeJS 2.2.2's AdaptiveLightingController (scratch script al.js): brightness iid 10, colour
 /// temperature iid 11, a schedule that started ten minutes before `now` on a controller ten minutes behind.
 @Suite(.timeLimit(.minutes(1)))
@@ -148,6 +158,124 @@ struct AdaptiveLightingTests {
         lightbulb.characteristic(.hue).value = .double(120)
         #expect(controller.isAdaptiveLightingActive)
         try await lightbulb.characteristic(.hue).write(.double(120), origin: nil)
+        #expect(!controller.isAdaptiveLightingActive)
+    }
+
+    /// Holds the controller's writes of the colour temperature until the test lets them through.
+    final class HeldWrites: @unchecked Sendable {
+        let written = NIOLockedValueBox<[HAPValue]>([])
+        let open = NIOLockedValueBox(false)
+        var count: Int { written.withLockedValue { $0.count } }
+
+        func install(on characteristic: Characteristic) {
+            characteristic.onWrite { [self] value in
+                written.withLockedValue { $0.append(value) }
+                while !open.withLockedValue({ $0 }) { try await Task.sleep(for: .milliseconds(5)) }
+            }
+        }
+    }
+
+    /// Until its first white is written, what the light reports is the white it had: not one set elsewhere. Once
+    /// written, a white the light reports from elsewhere stops it again.
+    @Test func aWhiteOnItsWayIsNotTakenForAChangeElsewhere() async throws {
+        let lightbulb = Self.lightbulb()
+        lightbulb.characteristic(.brightness).value = .int(50)
+        lightbulb.characteristic(.colorTemperature).value = .int(454)
+        let writes = HeldWrites()
+        writes.install(on: lightbulb.characteristic(.colorTemperature))
+        let clock = Clock()
+        clock.now = 1_699_999_400_000 + 600_000 + 30 * 60_000
+        let controller = Self.controller(lightbulb, mode: .automatic, clock: clock)
+        try controller.deserialize(Data(Self.serialized.utf8))
+        #expect(await eventually { writes.count == 1 })
+        #expect(!controller.disableIfChangedElsewhere(mireds: 454))
+        #expect(controller.isAdaptiveLightingActive)
+        writes.open.withLockedValue { $0 = true }
+        #expect(await eventually { controller.disableIfChangedElsewhere(mireds: 454) })
+        #expect(!controller.isAdaptiveLightingActive)
+    }
+
+    /// A light that came on (a power cut ended) takes the white for now at once, and keeps Adaptive Lighting whatever
+    /// it came on in until that white is written; in manual mode, where the device keeps the schedule, nothing happens.
+    @Test func aLightThatComesOnTakesTheWhiteForNowAtOnce() async throws {
+        let lightbulb = Self.lightbulb()
+        lightbulb.characteristic(.brightness).value = .int(50)
+        let writes = HeldWrites()
+        writes.open.withLockedValue { $0 = true }
+        writes.install(on: lightbulb.characteristic(.colorTemperature))
+        let clock = Clock()
+        clock.now = 1_699_999_400_000 + 600_000 + 30 * 60_000
+        let controller = Self.controller(lightbulb, mode: .automatic, clock: clock)
+        try controller.deserialize(Data(Self.serialized.utf8))
+        #expect(await eventually { writes.count == 1 })
+        let first = try #require(writes.written.withLockedValue { $0.first })
+
+        // It comes back from its power cut in its power-up white: the controller's white goes out at once.
+        writes.open.withLockedValue { $0 = false }
+        lightbulb.characteristic(.colorTemperature).value = .int(454)
+        controller.lightTurnedOn()
+        #expect(!controller.disableIfChangedElsewhere(mireds: 454))
+        #expect(await eventually { writes.count == 2 })
+        #expect(writes.written.withLockedValue { $0.last } == first)
+        writes.open.withLockedValue { $0 = true }
+        #expect(await eventually { lightbulb.characteristic(.colorTemperature).value == first })
+        #expect(controller.isAdaptiveLightingActive)
+        controller.disableAdaptiveLighting()
+
+        let manual = Self.lightbulb()
+        let manualWrites = HeldWrites()
+        manualWrites.open.withLockedValue { $0 = true }
+        manualWrites.install(on: manual.characteristic(.colorTemperature))
+        let device = Self.controller(manual, mode: .manual, clock: clock)
+        try device.deserialize(Data(Self.serialized.utf8))
+        device.lightTurnedOn()
+        #expect(manualWrites.count == 0)
+        #expect(device.disableIfChangedElsewhere(mireds: 454))
+    }
+
+    /// The rules of docs/adr/0015-one-report-decides-adaptive-lighting.md, row by row.
+    @Test func oneReportDecidesForEveryPlugin() async throws {
+        let lightbulb = Self.lightbulb()
+        lightbulb.characteristic(.brightness).value = .int(50)
+        let writes = HeldWrites()
+        writes.open.withLockedValue { $0 = true }
+        writes.install(on: lightbulb.characteristic(.colorTemperature))
+        let clock = Clock()
+        clock.now = 1_699_999_400_000 + 600_000 + 30 * 60_000
+        let controller = Self.controller(lightbulb, mode: .automatic, clock: clock)
+        #expect(!controller.lightReported(on: true, reachable: true, colour: nil))
+        try controller.deserialize(Data(Self.serialized.utf8))
+        #expect(await eventually { writes.count == 1 })
+        #expect(await eventually { !controller.isApplyingWhite })
+        let white = try #require(lightbulb.characteristic(.colorTemperature).value.intValue)
+
+        // On, a white within 5 mired: nothing. Off or No Response, whatever it shows: nothing.
+        #expect(!controller.lightReported(on: true, colour: .white(white + 4)))
+        #expect(!controller.lightReported(on: false, colour: .colour))
+        #expect(!controller.lightReported(on: nil, reachable: false, colour: .white(454)))
+
+        // Back from No Response (its On never shown off), in its power-up white: stays, and its white goes out now.
+        #expect(!controller.lightReported(on: true, reachable: true, colour: .white(454)))
+        #expect(controller.isApplyingWhite)
+        #expect(!controller.lightReported(on: true, colour: .white(454)))
+        #expect(await eventually { writes.count == 2 && !controller.isApplyingWhite })
+        #expect(controller.isAdaptiveLightingActive)
+
+        // Turned off, then on in a white: stays, and its white goes out now.
+        #expect(!controller.lightReported(on: false, colour: nil))
+        #expect(!controller.lightReported(on: true, colour: .white(454)))
+        #expect(await eventually { writes.count == 3 && !controller.isApplyingWhite })
+        #expect(controller.isAdaptiveLightingActive)
+
+        // On, another white once that one is written: set elsewhere.
+        #expect(controller.lightReported(on: true, colour: .white(white + 50)))
+        #expect(!controller.isAdaptiveLightingActive)
+
+        // Turned on in a colour: set elsewhere.
+        try controller.deserialize(Data(Self.serialized.utf8))
+        #expect(await eventually { writes.count == 4 && !controller.isApplyingWhite })
+        #expect(!controller.lightReported(on: false, colour: nil))
+        #expect(controller.lightReported(on: true, colour: .colour))
         #expect(!controller.isAdaptiveLightingActive)
     }
 

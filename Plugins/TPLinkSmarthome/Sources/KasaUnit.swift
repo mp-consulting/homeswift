@@ -160,11 +160,14 @@ actor KasaUnit {
             if changed { show(light, on: services) }
             // A white or a colour set elsewhere (the Kasa app, a schedule) turns Adaptive Lighting off; not what the
             // bulb still reports of the time before the bridge's own write, so a report that came while it settled is
-            // looked at again on the next round.
-            if light.onOff == 1, let adaptiveLighting, adaptiveLighting.isAdaptiveLightingActive,
-               await !(batcher?.isSettling(within: options.settling) ?? false) {
-                let mireds = (light.colorTemperature ?? 0) > 0 ? KasaColorTemperature.mireds(kelvin: light.colorTemperature ?? 0, within: services.miredRange) : nil
-                adaptiveLighting.disableIfChangedElsewhere(mireds: mireds)
+            // looked at again on the next round. A bulb turned on keeps it and takes the white for now.
+            if let adaptiveLighting {
+                var colour: AdaptiveLightingController.ReportedColour?
+                if await !(batcher?.isSettling(within: options.settling) ?? false) {
+                    colour = (light.colorTemperature ?? 0) > 0
+                        ? .white(KasaColorTemperature.mireds(kelvin: light.colorTemperature ?? 0, within: services.miredRange)) : .colour
+                }
+                adaptiveLighting.lightReported(on: light.onOff == 1, colour: colour)
             }
         }
     }

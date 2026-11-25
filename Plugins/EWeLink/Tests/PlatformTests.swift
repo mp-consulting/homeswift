@@ -455,7 +455,7 @@ struct AccessoryTests {
         let bulb = try #require(environment.accessory(host, "1000bbbbbb")?.service(.lightbulb))
         let controller = try #require(bulb.adaptiveLighting)
         #expect(controller.customTemperatureAdjustment == 10)
-        try controller.activateForTesting(mireds: 290)
+        try await controller.activateForTesting(mireds: 290)
         #expect(await eventually { bulb[.colorTemperature]?.value == .int(300) })
         let sent = try #require(environment.socket.commands.last?["white"]?["ct"]?.doubleValue)
         environment.push("1000bbbbbb", ["white": ["br": 20, "ct": .number(sent)]])

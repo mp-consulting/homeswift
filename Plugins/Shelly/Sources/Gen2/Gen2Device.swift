@@ -850,6 +850,10 @@ actor Gen2Device {
         let controller: AdaptiveLightingController? = if case .cct = part { context.adaptiveLighting(for: light, accessoryID: accessoryID) } else { nil }
         if let controller { adaptiveLighting.append(controller) }
         bind(key) { fields in
+            // As it came, before it is shown: a light coming on keeps Adaptive Lighting and takes the white for now; a
+            // white set elsewhere stops it.
+            let kelvin = fields["ct"]?.number.flatMap { $0 > 0 ? $0 : nil }
+            controller?.lightReported(on: fields["output"]?.boolValue, colour: kelvin.map { .white(ShellyColor.mireds(kelvin: $0)) })
             light.characteristic(.on).update(.bool(fields["output"]?.boolValue ?? false))
             if let brightness = fields["brightness"]?.number { light.characteristic(.brightness).update(clamping: brightness) }
             if let rgb = fields["rgb"]?.arrayValue?.compactMap(\.number), rgb.count == 3 {
@@ -858,9 +862,7 @@ actor Gen2Device {
                 light.characteristic(.saturation).update(.double(Double(hsv.saturation)))
             }
             if let kelvin = fields["ct"]?.number, kelvin > 0 {
-                let mireds = ShellyColor.mireds(kelvin: kelvin)
-                controller?.disableIfChangedElsewhere(mireds: mireds)
-                light.characteristic(.colorTemperature).update(clamping: Double(mireds))
+                light.characteristic(.colorTemperature).update(clamping: Double(ShellyColor.mireds(kelvin: kelvin)))
             }
         }
         return [light]

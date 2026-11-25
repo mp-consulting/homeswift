@@ -313,7 +313,7 @@ struct DirigeraTests {
         #expect(try await accessory(host, hallID).service(.lightbulb)?.adaptiveLighting == nil)
         let bulb = try #require(try await accessory(host, sofaID).service(.lightbulb))
         let controller = try #require(bulb.adaptiveLighting)
-        try controller.activateForTesting()
+        try await controller.activateForTesting()
         #expect(await eventually { environment.hub.patches.contains { $0.path == "/v1/devices/bulb-1" && $0.body.contains(#""colorTemperature":3333"#) } })
         try await Task.sleep(for: dirigeraSettleTime + .milliseconds(100))
         let event = { (attributes: JSONValue) in
@@ -328,7 +328,7 @@ struct DirigeraTests {
 
         // Its white reaches the hub, then the settle time passes: a colour set in the IKEA app during it is ignored.
         let patches = environment.hub.patches.count
-        try controller.activateForTesting()
+        try await controller.activateForTesting()
         #expect(await eventually { environment.hub.patches.count > patches })
         try await Task.sleep(for: dirigeraSettleTime + .milliseconds(100))
         event(["colorMode": "color", "colorHue": 120])

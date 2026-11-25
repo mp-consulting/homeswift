@@ -78,16 +78,22 @@ struct TapoServices: Sendable {
 
     /// Shows what the device reported; `previous` is its report before, to tell a white or a colour set elsewhere.
     func show(_ state: TapoState, previous: TapoState?) {
+        if kind.isLight, let adaptiveLighting {
+            // As it came, before it is shown: a light turned on keeps Adaptive Lighting and takes the white for now; a
+            // white or a colour set elsewhere stops it. Only a change the device reports: the echo of a write of the
+            // bridge's own matches what is shown.
+            var colour: AdaptiveLightingController.ReportedColour?
+            if kind.colorTemperatureRange != nil, let kelvin = state.kelvin, let previous,
+               previous.kelvin != kelvin || previous.hue != state.hue || previous.saturation != state.saturation {
+                colour = kelvin > 0 ? .white(TapoConversion.mireds(kelvin: kelvin)) : .colour
+            }
+            adaptiveLighting.lightReported(on: state.on, colour: colour)
+        }
         if let on = state.on { primary.characteristic(.on).value = .bool(on) }
         guard kind.isLight else { return }
         if let brightness = state.brightness { primary.characteristic(.brightness).value = .int(min(max(brightness, 0), 100)) }
-        if kind.colorTemperatureRange != nil, let kelvin = state.kelvin {
-            let reported = kelvin > 0 ? TapoConversion.mireds(kelvin: kelvin) : nil
-            // Only a change the device reports: the echo of a write of the bridge's own matches what is shown.
-            if let previous, previous.kelvin != kelvin || previous.hue != state.hue || previous.saturation != state.saturation {
-                adaptiveLighting?.disableIfChangedElsewhere(mireds: reported)
-            }
-            if let reported { primary.characteristic(.colorTemperature).value = .int(reported) }
+        if kind.colorTemperatureRange != nil, let kelvin = state.kelvin, kelvin > 0 {
+            primary.characteristic(.colorTemperature).value = .int(TapoConversion.mireds(kelvin: kelvin))
         }
         if kind.hasColor {
             if let hue = state.hue { primary.characteristic(.hue).value = .double(Double(min(max(hue, 0), 360))) }

@@ -317,17 +317,21 @@ final class LightHandler: ServiceHandler, @unchecked Sendable {
         var ignoreTemperature = false, ignoreColor = false
         let temperatureProperty = colorTemperature?.property
         let mode = state["color_mode"]?.stringValue
-        if let mode {
-            if let adaptiveLighting, adaptiveLighting.isAdaptiveLightingActive {
-                if mode != "color_temp" {
-                    link.log.debug("Adaptive Lighting: \(link.displayName) was set to a colour elsewhere")
-                    adaptiveLighting.disableIfChangedElsewhere(mireds: nil)
-                } else if let last = lock.withLock({ lastAdaptiveTemperature }), let reported = temperatureProperty.flatMap({ state[$0]?.doubleValue }),
-                          abs(last - reported) > 10 {
-                    link.log.debug("Adaptive Lighting: \(link.displayName) was set to \(reported) elsewhere, not \(last)")
-                    adaptiveLighting.disableAdaptiveLighting()
-                }
+        // As it came, before it is shown: a light turned on keeps Adaptive Lighting and takes the white for now; a colour,
+        // or a white more than 10 mired from the one it last sent, set elsewhere stops it.
+        if let adaptiveLighting {
+            let on = self.state.property.flatMap { self.state.onOff(state[$0]) }
+            var colour: AdaptiveLightingController.ReportedColour?
+            if let mode, mode != "color_temp" {
+                colour = .colour
+            } else if mode != nil, lock.withLock({ lastAdaptiveTemperature }) != nil, let reported = temperatureProperty.flatMap({ state[$0]?.doubleValue }) {
+                colour = .white(Int(reported.rounded()))
             }
+            if adaptiveLighting.lightReported(on: on, colour: colour, tolerance: 10) {
+                link.log.debug("Adaptive Lighting: \(link.displayName) was set elsewhere (\(mode ?? ""))")
+            }
+        }
+        if let mode {
             if mode == "color_temp" { ignoreColor = true } else { ignoreTemperature = true }
         }
         if let property = self.state.property, let on = self.state.onOff(state[property]) { service.characteristic(.on).value = .bool(on) }

@@ -146,7 +146,7 @@ extension TuyaAccessoryBuilder {
             if let temperature, brightness != nil, type != .rgbc {
                 if adaptiveLightingAllowed {
                     adaptiveLights.append(TuyaAdaptiveLight(
-                        draft: draft, temperatureCode: temperature.code,
+                        draft: draft, onCode: on.code, temperatureCode: temperature.code,
                         colourCodes: Set([colourCode, modeCode].compactMap { $0 }),
                         mireds: { device.number(temperature).flatMap { Self.mireds(raw: $0, item: temperature) } }, isColour: isColour))
                     logger.info("Adaptive Lighting enabled for \(device.name)")

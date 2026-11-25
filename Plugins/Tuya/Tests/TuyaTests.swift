@@ -162,7 +162,7 @@ struct TuyaTests {
         #expect(await eventually { environment.mqtt.subscriptions["cloud/token/in/cloud_4h3dxjpwamt9gcrkqv8e_6f1e2d3c"] != nil })
         let bulb = try lightbulb(host)
         let controller = try #require(bulb.adaptiveLighting)
-        try controller.activateForTesting(mireds: 282)
+        try await controller.activateForTesting(mireds: 282)
         // Its own white (the echo of a write) keeps it.
         try pushStatus(#"{"devId":"bf0123456789abcdefgh","status":[{"code":"temp_value_v2","value":301},{"code":"bright_value_v2","value":500}]}"#)
         #expect(await eventually { bulb[.brightness]?.value == .int(50) })

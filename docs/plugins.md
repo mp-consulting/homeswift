@@ -288,9 +288,13 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   a light without it): `context.adaptiveLighting(for: lightbulb, accessoryID:, customTemperatureAdjustment:)` before the
   accessory goes on the bridge makes an automatic `AdaptiveLightingController` whose schedule survives restarts. The
   service holds the controller weakly: keep it with the light's services. It writes Color Temperature through the
-  `onWrite` handler every minute and turns itself off on colour writes from HomeKit; pass the device's own reports of
-  its colour to `disableIfChangedElsewhere(mireds:)` (nil for a colour), not the echo of the bridge's own write, so a
-  colour or a white set elsewhere turns it off too. For lights that run transitions themselves, make one with
+  `onWrite` handler every minute and turns itself off on colour writes from HomeKit. Pass each report of the device to
+  `lightReported(on:reachable:colour:)` before its values are shown: whether the light is on and whether it answers
+  (nil when the report does not say), and its colour, `.white(mireds)` or `.colour` (nil for the echo of the bridge's own
+  write). The controller decides, against the light's last report: a light coming on (back from No Response after a
+  power cut, or turned on in a white) keeps Adaptive Lighting and takes the white for now at once; a colour, or a white
+  set elsewhere, turns it off (docs/adr/0015-one-report-decides-adaptive-lighting.md). A plugin whose device reports On
+  and the colour apart can follow the lightbulb's On with an observer (`Plugins/MQTTThing`). For lights that run transitions themselves, make one with
   `mode: .manual` and `context.configureController(controller, accessoryID:)`: `onUpdate` gets the schedule.
 
 - **Thermostats and air conditioners.** A climate device's Thermostat or Heater Cooler is built by a

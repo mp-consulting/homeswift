@@ -158,19 +158,24 @@ extension AccessoryBuilder {
                 service.set(.colorTemperature, .int(Int(Convert.clamp(Double(mireds), range))))
             }
         }
-        // Adaptive Lighting on a white light with brightness (CLAUDE.md), turned off by a colour or a white set elsewhere.
+        // Adaptive Lighting on a white light with brightness (CLAUDE.md): kept by a light coming on, which takes the white
+        // for now; turned off by a colour or a white set elsewhere.
         if level, temperature, let context, let controller = context.adaptiveLighting(for: service, accessoryID: accessoryID) {
             adaptiveLighting.append(controller)
+            eventHooks[StatusBox.key(component, "switch", "switch")] = { [weak controller] event, _ in
+                guard let state = event.value.stringValue else { return }
+                controller?.lightReported(on: state == "on", colour: nil)
+            }
             eventHooks[StatusBox.key(component, "colorTemperature", "colorTemperature")] = { [weak controller] event, _ in
                 guard let kelvin = event.value.doubleValue, let mireds = Convert.mireds(kelvin: kelvin) else { return }
-                _ = controller?.disableIfChangedElsewhere(mireds: mireds)
+                controller?.lightReported(on: nil, colour: .white(mireds))
             }
             if color {
                 // A colour bulb reports a new hue for a white the bridge just set: that is not a colour set elsewhere.
                 let echo = env.timing.timeInterval(10), clock = env.now
                 eventHooks[StatusBox.key(component, "colorControl", "hue")] = { [weak controller] _, _ in
                     guard !box.wroteRecently(within: echo, now: clock()) else { return }
-                    _ = controller?.disableIfChangedElsewhere(mireds: nil)
+                    controller?.lightReported(on: nil, colour: .colour)
                 }
             }
         }

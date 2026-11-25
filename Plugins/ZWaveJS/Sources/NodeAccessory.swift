@@ -251,7 +251,14 @@ struct NodeBuilder {
         if hasColor || hasWhites { buildColor(service, colors: colors, endpoint: endpoint, hasColor: hasColor, hasWhites: hasWhites) }
         if hasWhites {
             // Adaptive Lighting sets the Color Temperature through its write, every minute and with the brightness.
-            adaptiveLighting = AdaptiveLightingController(service, mode: .automatic)
+            let controller = AdaptiveLightingController(service, mode: .automatic)
+            adaptiveLighting = controller
+            // The light's On, as the node reports it or HomeKit sets it: a light coming on keeps Adaptive Lighting and
+            // takes the white for now. Its colour comes in Color Switch's own reports.
+            service.characteristic(.on).observe { [weak controller] change in
+                guard change.newValue != change.oldValue else { return }
+                controller?.lightReported(on: change.newValue.boolValue, colour: nil)
+            }
         }
         add(service)
         return service
@@ -279,12 +286,12 @@ struct NodeBuilder {
             let red = now[2] ?? 0, green = now[3] ?? 0, blue = now[4] ?? 0
             let white = WhiteMix.mireds(warm: now[0] ?? 0, cold: now[1] ?? 0)
             if let temperature, let white, !hasColor || max(red, green, blue) == 0 {
-                if report { adaptive()?.disableIfChangedElsewhere(mireds: white) }
+                if report { adaptive()?.lightReported(on: nil, colour: .white(white)) }
                 temperature.value = .int(white)
                 return
             }
             guard let hue, let saturation else { return }
-            if report { adaptive()?.disableIfChangedElsewhere(mireds: nil) }
+            if report { adaptive()?.lightReported(on: nil, colour: .colour) }
             let (h, s) = ColorMath.hueSaturation(red: red, green: green, blue: blue)
             if let h { hue.value = .double(h) }
             saturation.value = .double(s)

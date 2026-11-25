@@ -111,6 +111,12 @@ final class LightAccessory: BaseAccessory {
         }
     }
 
+    /// Online and offline, for Adaptive Lighting: a light whose power comes back keeps it.
+    override func markStatus(_ online: Bool) {
+        super.markStatus(online)
+        adaptiveLighting?.lightReported(on: nil, reachable: online, colour: nil)
+    }
+
     override func refreshFromDevice() {
         resyncing = true
         defer { resyncing = false }
@@ -118,11 +124,16 @@ final class LightAccessory: BaseAccessory {
     }
 
     override func updateState(_ params: DeviceParams) {
-        // A colour, or another white, set elsewhere (the eWeLink app, a remote) stops Adaptive Lighting.
-        let colour = params["ltype"] == "color"
-        if !resyncing, let adaptiveLighting, colour || params["colorTemp"] != nil || params["white"]?["ct"] != nil,
-           adaptiveLighting.disableIfChangedElsewhere(mireds: colour ? nil : Int(mired(params).rounded())) {
-            logInfo("Colour changed outside HomeKit, Adaptive Lighting off")
+        // For Adaptive Lighting, the report as it came: a light coming on keeps it and takes the white for now; a colour,
+        // or another white, set elsewhere (the eWeLink app, a remote) stops it. A resync's colour is the bridge's own.
+        if let adaptiveLighting {
+            let colour = params["ltype"] == "color"
+            let shown: AdaptiveLightingController.ReportedColour? = resyncing ? nil
+                : colour ? .colour : (params["colorTemp"] != nil || params["white"]?["ct"] != nil) ? .white(Int(mired(params).rounded())) : nil
+            let on = params["switch"].map { $0 == "on" }
+            if adaptiveLighting.lightReported(on: on, colour: shown) {
+                logInfo("Colour changed outside HomeKit, Adaptive Lighting off")
+            }
         }
         mergeDeviceParams(params)
         let on = params["switch"] == "on"

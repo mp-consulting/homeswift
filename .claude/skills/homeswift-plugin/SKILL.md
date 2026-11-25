@@ -73,9 +73,11 @@ swift test --scratch-path ~/Library/Caches/homeswift-build --filter <Name>Tests
   missing there, say so instead of working around it. Keep the protocol so tests inject a fake.
 - **Adaptive Lighting:** every Lightbulb with Brightness and Color Temperature gets an `AdaptiveLightingController`
   from `context.adaptiveLighting(for:accessoryID:)`, even when the Homebridge plugin has none (the skeleton writes it
-  for such a light). Keep it with the light's services (the service holds it weakly), and pass the device's reports
-  of its colour to `disableIfChangedElsewhere(mireds:)` (nil for a colour): not the echo of the bridge's own write,
-  nor what a fade of its own may still report (`Plugins/Dirigera`, `Plugins/PhilipsHue`).
+  for such a light). Keep it with the light's services (the service holds it weakly), and pass each device report to
+  `lightReported(on:reachable:colour:)` before showing it: its On and reachability (nil when the report does not say),
+  its colour (`.white(mireds)`, `.colour`, or nil for the echo of the bridge's own write or what a fade of its own may
+  still report). The controller keeps Adaptive Lighting for a light coming on and stops it for a colour set elsewhere
+  (docs/adr/0015-one-report-decides-adaptive-lighting.md; `Plugins/Dirigera`, `Plugins/PhilipsHue`).
 - **Thermostats and air conditioners:** a `ClimateController` builds the Thermostat or Heater Cooler and owns its
   states, thresholds and Active, even where the Homebridge plugin mapped them its own way: the plugin gives the
   device's `ClimateCapabilities`, sends `ClimateCommand`s and reports `ClimateReport`s (docs/adr/0013, `Plugins/LGThinQ`).

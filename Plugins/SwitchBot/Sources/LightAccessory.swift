@@ -142,10 +142,11 @@ final class LightAccessory: DeviceAccessory, @unchecked Sendable {
             defer { if let reportedMireds { lastReportedMireds = reportedMireds } }
             return lastReportedMireds
         }
-        // A white set elsewhere (in the SwitchBot app) turns Adaptive Lighting off, before it is shown; not the echo of its own writes.
-        if let reportedMireds, let previous, reportedMireds != previous, !writing {
-            _ = adaptiveLighting?.disableIfChangedElsewhere(mireds: reportedMireds)
-        }
+        // A white set elsewhere (in the SwitchBot app) turns Adaptive Lighting off, before it is shown; not the echo of its
+        // own writes. A light coming on keeps it and takes the white for now.
+        var colour: AdaptiveLightingController.ReportedColour?
+        if let reportedMireds, let previous, reportedMireds != previous, !writing { colour = .white(reportedMireds) }
+        adaptiveLighting?.lightReported(on: values.on, colour: colour)
         lightbulb.characteristic(.on).value = .bool(values.on)
         lightbulb.characteristic(.brightness).value = .int(values.brightness)
         lightbulb[.colorTemperature]?.value = .int(values.mireds)

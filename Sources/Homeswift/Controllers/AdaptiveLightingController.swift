@@ -126,6 +126,13 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
         var lastNotifiedTemperatureValue = 0
         var lastNotifiedSaturationValue: Double = 0
         var lastNotifiedHueValue: Double = 0
+        /// A white is on its way to the light (Adaptive Lighting just turned on, or the light just came on): until it is
+        /// written, what the light reports is the white it had, not one set elsewhere (`lightReported`).
+        var applying = false
+        /// What the light last reported of its power (`lightReported`), whatever Adaptive Lighting does: nil until it
+        /// says.
+        var reportedOn: Bool?
+        var reportedReachable: Bool?
         var colorTemperature: Characteristic?
         var brightness: Characteristic?
         var hue: Characteristic?
@@ -342,6 +349,7 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
             state.lastNotifiedTemperatureValue = 0
             state.lastNotifiedSaturationValue = 0
             state.lastNotifiedHueValue = 0
+            state.applying = false
             state.didRunFirstInitializationStep = false
             return (wasActive, state.stateChangeDelegate, wasActive ? observers : [])
         }
@@ -355,14 +363,57 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
     /// devices round what they are sent (kelvin, a percentage).
     public static let changedElsewhereTolerance = 5
 
-    /// The device reported its colour: `mireds`, the white it shows, or nil for a colour. Turns Adaptive Lighting off,
-    /// as the Home app does when it sets one, when that is a colour or a white more than `tolerance` mireds from the
-    /// Color Temperature shown: the device was set by something else (its app, a remote, a scene). A device that rounds
-    /// coarser than `changedElsewhereTolerance` passes its own step. Call it with the device's reports, not the echo of
-    /// the bridge's own write still on its way. True when it turned it off.
+    /// The colour a report shows: a white, in mireds, or a colour off the white curve.
+    public enum ReportedColour: Sendable, Equatable {
+        case white(Int)
+        case colour
+    }
+
+    /// What the device reported, as it came, for every plugin alike (docs/adr/0015-one-report-decides-adaptive-lighting.md):
+    /// whether the light is on and whether it answers (nil when the report does not say), and the colour it shows (nil when
+    /// the report does not say, or for the echo of the bridge's own write still on its way). Call it before the report's
+    /// values are shown: the controller compares the colour with the one shown. It decides, against what the light last
+    /// reported:
+    ///
+    /// - back from No Response and on (a bulb behind a wall switch whose power came back), or turned on in a white (from its
+    ///   own switch or app): the light shows the white it came on in, its power-up one or its last, so Adaptive Lighting
+    ///   stays and sets the white for now at once rather than at the next update;
+    /// - turned on in a colour (a scene from a switch), or on and showing a colour, or a white more than `tolerance` mireds
+    ///   from the one shown: set elsewhere, so Adaptive Lighting turns off, as the Home app does when it sets one;
+    /// - off, or not answering: nothing.
+    ///
+    /// Until the white Adaptive Lighting has just sent is written, the light's reports carry the one it had: they count
+    /// for nothing. A device that rounds coarser than `changedElsewhereTolerance` passes its own step as `tolerance`. True
+    /// when it turned Adaptive Lighting off.
     @discardableResult
-    public func disableIfChangedElsewhere(mireds: Int?, tolerance: Int = changedElsewhereTolerance) -> Bool {
-        guard isAdaptiveLightingActive else { return false }
+    public func lightReported(on: Bool?, reachable: Bool? = nil, colour: ReportedColour?, tolerance: Int = changedElsewhereTolerance) -> Bool {
+        let (wasOn, wasReachable, active) = state.withLockedValue { state -> (Bool?, Bool?, Bool) in
+            let previous = (state.reportedOn, state.reportedReachable)
+            if let on { state.reportedOn = on }
+            if let reachable { state.reportedReachable = reachable }
+            return (previous.0, previous.1, state.activeTransition != nil)
+        }
+        guard active else { return false }
+        let isOn = on ?? wasOn, answers = reachable ?? wasReachable
+        if isOn == false || answers == false { return false }
+        let cameBack = wasReachable == false && reachable == true
+        let turnedOn = wasOn == false && on == true
+        if cameBack || (turnedOn && colour != .colour) {
+            lightTurnedOn()
+            return false
+        }
+        switch colour {
+        case nil: return false
+        case .colour: return disableIfChangedElsewhere(mireds: nil)
+        case .white(let mireds): return disableIfChangedElsewhere(mireds: mireds, tolerance: tolerance)
+        }
+    }
+
+    /// Turns Adaptive Lighting off for a report of a colour (nil) or of a white more than `tolerance` mireds from the
+    /// Color Temperature shown, unless the white it has just sent is still on its way. `lightReported` decides when.
+    @discardableResult
+    func disableIfChangedElsewhere(mireds: Int?, tolerance: Int = changedElsewhereTolerance) -> Bool {
+        guard isAdaptiveLightingActive, !state.withLockedValue({ $0.applying }) else { return false }
         if let mireds {
             let characteristic = lightbulb.characteristic(.colorTemperature)
             guard let shown = characteristic.value.intValue else { return false }
@@ -373,8 +424,25 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
         return true
     }
 
-    /// Turns it on as the Home app would, with a day's schedule at a steady `mireds`: for tests (`@testable import`).
-    func activateForTesting(mireds: Double = 300) throws {
+    /// Whether a white Adaptive Lighting sent is still on its way to the light: for tests (`@testable import`).
+    var isApplyingWhite: Bool { state.withLockedValue { $0.applying } }
+
+    /// The light came on: it shows the white for now at once, and its reports count for nothing until that white is
+    /// written. Nothing while Adaptive Lighting is off, nor in manual mode, where the plugin's device keeps the schedule.
+    func lightTurnedOn() {
+        guard mode == .automatic, state.withLockedValue({ state in
+            guard state.activeTransition != nil else { return false }
+            state.applying = true
+            return true
+        }) else { return }
+        logger.debug("The light came on: Adaptive Lighting sets its white now", metadata: ["lightbulb": "\(displayName)"])
+        enqueue { await $0.scheduleNextUpdate(dryRun: true) }
+    }
+
+    /// Turns it on as the Home app would, with a day's schedule at a steady `mireds`, and waits (5 s at most) for its first
+    /// white to be written, as the Home app's request returns before the light reports again: for tests
+    /// (`@testable import`).
+    func activateForTesting(mireds: Double = 300) async throws {
         let curve = [
             TransitionCurveEntry(temperature: mireds, brightnessAdjustmentFactor: 0, transitionTime: 0),
             TransitionCurveEntry(temperature: mireds, brightnessAdjustmentFactor: 0, transitionTime: Self.dayMillis),
@@ -386,6 +454,8 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
             brightnessAdjustmentRange: BrightnessAdjustmentRange(minBrightnessValue: 10, maxBrightnessValue: 100), transitionCurve: curve,
             updateInterval: 60_000, notifyIntervalThreshold: 600_000)
         try deserialize(JSONEncoder().encode(Serialized(activeTransition: transition)))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while state.withLockedValue({ $0.applying }), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(1)) }
     }
 
     // MARK: SerializableController
@@ -425,6 +495,8 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
     // MARK: Transitions
 
     private func handleActiveTransitionUpdated(fromDeserializer: Bool) {
+        // Its first white is on its way: the light's reports until then carry the one it had.
+        if mode == .automatic { state.withLockedValue { $0.applying = true } }
         if fromDeserializer {
             activeTransitionCount.set(.int(1), notify: false)
         } else {
@@ -598,6 +670,7 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
                 temperature: temperature, hue: color.hue, saturation: color.saturation, colorTemperature: state.colorTemperature,
                 hueC: state.hue, saturationC: state.saturation)
         }
+        defer { state.withLockedValue { $0.applying = false } }
         switch step {
         case .none:
             return

@@ -127,10 +127,16 @@ struct Gen1Builder: Sendable {
             services = await sensorServices()
             category = .sensor
         }
-        if adaptiveLighting != nil {
-            let controller = adaptiveLighting
-            await device.observe(["colorTemperature"]) { values in
-                if let kelvin = values["colorTemperature"]?.number, kelvin > 0 { controller?.disableIfChangedElsewhere(mireds: ShellyColor.mireds(kelvin: kelvin)) }
+        if let controller = adaptiveLighting {
+            // A light coming on keeps Adaptive Lighting and takes the white for now; a white set elsewhere stops it.
+            controller.lightbulb.characteristic(.on).observe { [weak controller] change in
+                guard change.newValue != change.oldValue else { return }
+                controller?.lightReported(on: change.newValue.boolValue, colour: nil)
+            }
+            await device.observe(["colorTemperature"]) { [weak controller] values in
+                if let kelvin = values["colorTemperature"]?.number, kelvin > 0 {
+                    controller?.lightReported(on: nil, colour: .white(ShellyColor.mireds(kelvin: kelvin)))
+                }
             }
         }
         let firmware = await device.firmware ?? "1.0.0"

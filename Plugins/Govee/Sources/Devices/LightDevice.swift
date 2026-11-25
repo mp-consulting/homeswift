@@ -426,6 +426,8 @@ final class LightDevice: GoveeDevice {
 
     override func externalUpdate(_ update: DeviceUpdate) async {
         guard initialised else { return }
+        // For Adaptive Lighting, with the update's colour (`externalColour`) or on its own: a light coming on keeps it.
+        let on = update.state.map { $0 == "on" }
         if let state = update.state, state != cacheState {
             cacheState = state
             self.update(lightbulb[.on], cacheState == "on")
@@ -439,11 +441,16 @@ final class LightDevice: GoveeDevice {
             log("\(Lang.curBright) [\(cacheBright)%]")
         }
         if update.kelvin != nil || update.rgb != nil {
-            externalColour(update)
+            externalColour(update, on: on)
+        } else {
+            adaptiveLighting?.lightReported(on: on, colour: nil)
         }
     }
 
-    private func externalColour(_ update: DeviceUpdate) {
+    /// `on`: what the update says of the light's power, for Adaptive Lighting, which hears of the update once.
+    private func externalColour(_ update: DeviceUpdate, on: Bool?) {
+        var reported = false
+        defer { if !reported { adaptiveLighting?.lightReported(on: on, colour: nil) } }
         var hs: (hue: Int, saturation: Int)
         var rgb: RGB
         var mired: Double?
@@ -472,13 +479,19 @@ final class LightDevice: GoveeDevice {
         // checked before the report is shown. A light that takes whites as colours (BLE only) echoes them, so only a
         // significant colour change counts.
         var stopped = false
-        if !colourSafeMode, !firstReport, let adaptiveLighting {
-            if let mired, let kelvin = update.kelvin {
-                let step = Int((1_000_000 / Double(max(kelvin - 100, 1)) - 1_000_000 / Double(kelvin)).rounded(.up))
-                stopped = adaptiveLighting.disableIfChangedElsewhere(mireds: Int(mired.rounded()), tolerance: step)
-            } else {
-                stopped = significant && adaptiveLighting.disableIfChangedElsewhere(mireds: nil)
+        if let adaptiveLighting {
+            var shown: AdaptiveLightingController.ReportedColour?
+            var tolerance = AdaptiveLightingController.changedElsewhereTolerance
+            if !colourSafeMode, !firstReport {
+                if let mired, let kelvin = update.kelvin {
+                    tolerance = Int((1_000_000 / Double(max(kelvin - 100, 1)) - 1_000_000 / Double(kelvin)).rounded(.up))
+                    shown = .white(Int(mired.rounded()))
+                } else if significant {
+                    shown = .colour
+                }
             }
+            stopped = adaptiveLighting.lightReported(on: on, colour: shown, tolerance: tolerance)
+            reported = true
         }
         self.update(lightbulb[.hue], hs.hue)
         self.update(lightbulb[.saturation], hs.saturation)
