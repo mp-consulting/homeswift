@@ -811,6 +811,21 @@ final class RecordingStreamingDelegate: HomebridgeStreamingDelegate {
         #expect(!child.kill())
     }
 
+    /// An input after standard input is the child's descriptor 3 (FFmpeg's `pipe:3`), and nothing else leaks to it.
+    @Test func anExtraInputIsDescriptorThree() async throws {
+        let child = try Subprocess.launch("/bin/sh", arguments: ["-c", "head -c 5 <&3; echo; test -e /dev/fd/4 && echo leaked || echo closed"], extraInputs: 1)
+        let output = NIOLockedValueBox(Data())
+        let status = NIOLockedValueBox<FfmpegExitStatus?>(nil)
+        child.addStdoutHandler { data in output.withLockedValue { $0.append(data) } }
+        child.addExitHandler { exit in status.withLockedValue { $0 = exit } }
+        child.beginReading()
+        #expect(child.send(Data("hello".utf8), toInput: 0))
+        #expect(!child.send(Data("x".utf8), toInput: 1))
+        #expect(await eventually { status.withLockedValue { $0 } != nil })
+        #expect(output.withLockedValue { String(decoding: $0, as: UTF8.self) } == "hello\nclosed\n")
+        #expect(!child.send(Data("late".utf8), toInput: 0))
+    }
+
     @Test func releasesThePipesWhenAGrandchildKeepsThemOpen() async throws {
         // The shell exits at once; its background child holds standard output and standard error open for a fifth of a second.
         let child = try Subprocess.launch("/bin/sh", arguments: ["-c", "(sleep 0.2) & echo hi; exit 0"])

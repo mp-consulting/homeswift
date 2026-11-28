@@ -146,26 +146,30 @@ final class Subprocess: @unchecked Sendable {
     private let stderrBuffer = ReadBuffer()
     /// The process, set as soon as it is started.
     private let processBox = NIOLockedValueBox<ChildProcess?>(nil)
+    /// The inputs after standard input (the child's 3, 4 and on).
+    private let extraInputs: [ExtraInput]
 
     /// Starts `executable` (a name looked up in `PATH`, or a path). Nothing is read until `beginReading()`. The child keeps
     /// itself alive until the process has ended and its pipes are drained, as a Node child process does.
-    static func launch(_ executable: String, arguments: [String]) throws(FfmpegProcessError) -> Subprocess {
+    static func launch(_ executable: String, arguments: [String], extraInputs: Int = 0) throws(FfmpegProcessError) -> Subprocess {
         ChildProcess.ignoreSIGPIPE()
         guard let path = resolveExecutable(executable) else { throw .notFound(executable) }
         // Close-on-exec from the start (see ChildProcess.pipe): a process another thread spawns meanwhile would otherwise
         // inherit them.
-        let stdin: (reading: FileHandle, writing: FileHandle), stdout: (reading: FileHandle, writing: FileHandle), stderr: (reading: FileHandle, writing: FileHandle)
+        // Every pipe made, in order: closed together if one cannot be.
+        var pipes: [(reading: FileHandle, writing: FileHandle)] = []
         do {
-            stdin = try ChildProcess.pipe()
-            stdout = try ChildProcess.pipe()
-            stderr = try ChildProcess.pipe()
+            for _ in 0..<(3 + max(0, extraInputs)) { pipes.append(try ChildProcess.pipe()) }
         } catch {
+            for pipe in pipes { try? pipe.reading.close(); try? pipe.writing.close() }
             throw .launchFailed(error.description)
         }
+        let stdin = pipes[0], stdout = pipes[1], stderr = pipes[2]
+        let extras = Array(pipes.dropFirst(3))
         #if canImport(Darwin)
-        _ = fcntl(stdin.writing.fileDescriptor, F_SETNOSIGPIPE, 1)
+        for fd in [stdin.writing.fileDescriptor] + extras.map(\.writing.fileDescriptor) { _ = fcntl(fd, F_SETNOSIGPIPE, 1) }
         #endif
-        let child = Subprocess(stdin: stdin.writing, stdout: stdout.reading, stderr: stderr.reading)
+        let child = Subprocess(stdin: stdin.writing, stdout: stdout.reading, stderr: stderr.reading, extraInputs: extras.map(\.writing))
         // Its exit handler holds the child until the process has ended, as a Node child process keeps itself alive.
         let process: ChildProcess
         do {
@@ -173,7 +177,8 @@ final class Subprocess: @unchecked Sendable {
                 path, arguments: arguments,
                 standardInput: stdin.reading.fileDescriptor,
                 standardOutput: stdout.writing.fileDescriptor,
-                standardError: stderr.writing.fileDescriptor
+                standardError: stderr.writing.fileDescriptor,
+                extraDescriptors: extras.map(\.reading.fileDescriptor)
             ) { termination in
                 switch termination {
                 case .exited(let code): child.terminated(FfmpegExitStatus(exitCode: code, signal: nil))
@@ -182,18 +187,20 @@ final class Subprocess: @unchecked Sendable {
             }
         } catch {
             for handle in [stdin.reading, stdin.writing, stdout.reading, stdout.writing,
-                           stderr.reading, stderr.writing] { try? handle.close() }
+                           stderr.reading, stderr.writing] + extras.flatMap({ [$0.reading, $0.writing] }) { try? handle.close() }
             throw .launchFailed(error.description)
         }
         child.processBox.withLockedValue { $0 = process }
         // The parent keeps only its own ends of the pipes.
+        for pipe in extras { try? pipe.reading.close() }
         try? stdin.reading.close()
         try? stdout.writing.close()
         try? stderr.writing.close()
         return child
     }
 
-    private init(stdin: FileHandle, stdout: FileHandle, stderr: FileHandle) {
+    private init(stdin: FileHandle, stdout: FileHandle, stderr: FileHandle, extraInputs: [FileHandle] = []) {
+        self.extraInputs = extraInputs.map(ExtraInput.init)
         self.stdinHandle = stdin
         self.stdoutHandle = stdout
         self.stderrHandle = stderr
@@ -433,6 +440,7 @@ final class Subprocess: @unchecked Sendable {
             return (state.terminated ?? FfmpegExitStatus(exitCode: nil, signal: nil), state.exitHandlers)
         }
         end()
+        for input in extraInputs { input.close() }
         for handler in handlers { handler(status) }
     }
 
@@ -483,6 +491,17 @@ final class Subprocess: @unchecked Sendable {
         }
     }
 
+    // MARK: Extra inputs
+
+    /// Queues `data` for the input after standard input numbered `index` (0 is the child's descriptor 3) without waiting
+    /// for it to be read; false when it is dropped: the input is closed, or more than `ExtraInput.limit` bytes wait
+    /// already (FFmpeg is not reading it), so a stalled input never holds the caller back.
+    @discardableResult
+    func send(_ data: Data, toInput index: Int) -> Bool {
+        guard extraInputs.indices.contains(index), state.withLockedValue({ !$0.delivered }) else { return false }
+        return extraInputs[index].send(data)
+    }
+
     /// Runs on `stdinQueue`.
     private func writeAll(_ data: Data) -> FfmpegProcessError? {
         guard !stdinFDClosed else { return .stdinClosed }
@@ -505,6 +524,86 @@ final class Subprocess: @unchecked Sendable {
                 offset += written
             }
             return nil
+        }
+    }
+}
+
+/// An input after standard input: written on its own serial queue, never awaited, with a bound on what waits. Its pipe
+/// does not block: a write FFmpeg is not reading waits in `poll` a little at a time, and gives up once the input is
+/// closed (the process ended), so it never holds a thread past it.
+private final class ExtraInput: @unchecked Sendable {
+    static let limit = 256 * 1024
+
+    private let handle: FileHandle
+    private let fd: Int32
+    private let queue = DispatchQueue(label: "HomeswiftFFmpeg.input")
+    /// Bytes queued and not yet written, and whether the input is closed.
+    private let state = NIOLockedValueBox((pending: 0, closed: false))
+    /// Only touched on `queue`.
+    nonisolated(unsafe) private var fdClosed = false
+
+    init(_ handle: FileHandle) {
+        self.handle = handle
+        fd = handle.fileDescriptor
+        let flags = fcntl(fd, F_GETFL)
+        if flags >= 0 { _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK) }
+    }
+
+    func send(_ data: Data) -> Bool {
+        let accepted = state.withLockedValue { state -> Bool in
+            guard !state.closed, state.pending + data.count <= Self.limit else { return false }
+            state.pending += data.count
+            return true
+        }
+        guard accepted else { return false }
+        queue.async {
+            defer { self.state.withLockedValue { $0.pending -= data.count } }
+            guard !self.fdClosed else { return }
+            if !self.writeAll(data) { self.closeOnQueue() }
+        }
+        return true
+    }
+
+    func close() {
+        let first = state.withLockedValue { state -> Bool in
+            defer { state.closed = true }
+            return !state.closed
+        }
+        if first { queue.async { self.closeOnQueue() } }
+    }
+
+    private func closeOnQueue() {
+        state.withLockedValue { $0.closed = true }
+        guard !fdClosed else { return }
+        fdClosed = true
+        try? handle.close()
+    }
+
+    /// False when the pipe is gone or the input was closed meanwhile.
+    private func writeAll(_ data: Data) -> Bool {
+        let fd = fd
+        return data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> Bool in
+            guard let base = bytes.baseAddress else { return true }
+            var offset = 0
+            while offset < bytes.count {
+                #if canImport(Glibc)
+                let written = Glibc.write(fd, base + offset, bytes.count - offset)
+                #elseif canImport(Musl)
+                let written = Musl.write(fd, base + offset, bytes.count - offset)
+                #else
+                let written = Darwin.write(fd, base + offset, bytes.count - offset)
+                #endif
+                if written < 0 {
+                    if errno == EINTR { continue }
+                    guard errno == EAGAIN || errno == EWOULDBLOCK else { return false }
+                    if state.withLockedValue({ $0.closed }) { return false }
+                    var waiting = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+                    _ = poll(&waiting, 1, 100)
+                    continue
+                }
+                offset += written
+            }
+            return true
         }
     }
 }

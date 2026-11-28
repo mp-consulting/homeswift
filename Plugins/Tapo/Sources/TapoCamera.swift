@@ -73,6 +73,10 @@ final class TapoCamera: Sendable {
 
     init(id: String, name: String, model: String, serial: String, streamer: TapoCameraStreamer, motion hasMotion: Bool, battery hasBattery: Bool = true,
          hold: Duration, log: Logger) throws {
+        // The camera's audio in the codec FFmpeg can encode: AAC-ELD at 16 kHz, or Opus (16 or 24 kHz); none without either.
+        let audio = streamer.audioCodec.map { codec in
+            AudioStreamingOptions(codecs: [AudioStreamingCodec(type: codec, samplerate: codec == .opus ? [.khz16, .khz24] : [.khz16])], twoWayAudio: false)
+        }
         self.streamer = streamer
         self.hold = hold
         self.id = id
@@ -86,7 +90,7 @@ final class TapoCamera: Sendable {
             supportedCryptoSuites: [.aesCM128HMACSHA1_80],
             video: VideoStreamingOptions(codec: H264CodecParameters(profiles: [.baseline, .main, .high], levels: [.level3_1, .level3_2, .level4_0]),
                                          resolutions: Self.resolutions),
-            audio: AudioStreamingOptions(codecs: [AudioStreamingCodec(type: .aacELD, samplerate: [.khz16])], twoWayAudio: false))
+            audio: audio)
         controller = try CameraController(
             CameraControllerOptions(cameraStreamCount: 2, delegate: streamer, streamingOptions: streaming, sensors: motion.map { CameraSensorOptions(motion: .service($0)) }),
             logger: log)
@@ -225,7 +229,8 @@ extension TapoPlugin {
             let id = Self.lensAccessoryID(deviceID: deviceID, lens: lens)
             let lensName = lens.suffix.map { "\(name) \($0)" } ?? name
             let streamer = TapoCameraStreamer(
-                name: lensName, videoIndex: lens.videoIndex, feed: feed, snapshots: store, ffmpeg: ffmpeg, ports: dependencies.ports, inputFps: 15, log: logger)
+                name: lensName, videoIndex: lens.videoIndex, feed: feed, snapshots: store, ffmpeg: ffmpeg, ports: dependencies.ports, inputFps: 15,
+                audioCodec: TapoCameraStreamer.audioCodec(ffmpeg), log: logger)
             let camera = try TapoCamera(id: id, name: lensName, model: kind.model, serial: id, streamer: streamer, motion: device.motion ?? true,
                                         hold: dependencies.motionHold, log: logger)
             if let kept = keptBattery(deviceID) { camera.apply(kept) }
