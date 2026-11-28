@@ -264,6 +264,11 @@ actor TapoCameraStreamer: CameraStreamingDelegate {
         }
         // The camera is reached now, and only now: the feed opens its session with its first viewer.
         let (viewer, stream) = await feed.join()
+        // Stopped meanwhile (HomeKit's stop, FFmpeg's exit): the viewer leaves at once, and nothing starts for it.
+        guard sessions[sessionID]?.token == token else {
+            await feed.leave(viewer)
+            return
+        }
         sessions[sessionID]?.viewer = viewer
         let splitter = TapoFeedSplitter(videoIndex: videoIndex, audio: audioProcess != nil, name: name, log: log)
         if let audioProcess {
@@ -277,11 +282,15 @@ actor TapoCameraStreamer: CameraStreamingDelegate {
             }
         }
         sessions[sessionID]?.pump = Task { [weak self] in
+            // The feed is read, and its audio taken, whether or not the video's FFmpeg keeps up (`videoWriter`).
+            let (video, writer) = Self.videoWriter(process)
             for await data in stream {
                 let lens = splitter.split(data)
                 guard !lens.isEmpty else { continue }
-                do { try await process.writeStdin(lens) } catch { break }
+                if case .terminated = video.yield(lens) { break }
             }
+            video.finish()
+            writer.cancel()
             // The feed ended (the camera kept dropping it, or the plugin stops): so does the HomeKit session.
             await self?.feedEnded(sessionID: sessionID, token: token)
         }
@@ -316,6 +325,22 @@ actor TapoCameraStreamer: CameraStreamingDelegate {
                 try? await Task.sleep(for: timeout - idle)
             }
         }
+    }
+
+    /// The video's way to its FFmpeg's standard input: a queue of `videoBacklog` parts and a task that writes them, so
+    /// the feed's reader never waits on FFmpeg (a slow decode would stall the audio taken from the same feed). Past the
+    /// backlog the oldest parts go, as a camera's lost packets would (FFmpeg discards what it cannot decode).
+    static let videoBacklog = 512
+
+    static func videoWriter(_ process: FfmpegProcess) -> (AsyncStream<Data>.Continuation, Task<Void, Never>) {
+        let (parts, continuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingNewest(videoBacklog))
+        let task = Task {
+            for await part in parts {
+                do { try await process.writeStdin(part) } catch { break }
+            }
+            continuation.finish()
+        }
+        return (continuation, task)
     }
 
     /// The audio's FFmpeg ended while its session runs (a stop ends it too, and says nothing): the picture goes on.

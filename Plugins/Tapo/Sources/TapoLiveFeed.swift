@@ -60,11 +60,14 @@ extension TapoCameraStreamer {
         // Never awaited: the audio waits for nothing, and what FFmpeg does not read is dropped.
         let audioClock = splitter.runAudio { pcm in process.send(pcm, toInput: 0) || process.isRunning }
         let pump = Task {
+            let (video, writer) = Self.videoWriter(process)
             for await data in stream {
                 let lens = splitter.split(data)
                 guard !lens.isEmpty else { continue }
-                do { try await process.writeStdin(lens) } catch { break }
+                if case .terminated = video.yield(lens) { break }
             }
+            video.finish()
+            writer.cancel()
             process.stop()
         }
         let feed = feed

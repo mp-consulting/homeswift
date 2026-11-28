@@ -22,6 +22,8 @@ struct MPEGTSAudioExtractor {
     private var carry = Data()
     private var pmtPIDs: Set<UInt16> = []
     private(set) var stream: (pid: UInt16, law: Law)?
+    /// The PMT that declared `stream`: the audio follows it when it changes (the feed reconnected, say).
+    private var streamPMT: UInt16?
     /// The PES being gathered: its header and payload bytes so far, and its declared length (0: unbounded).
     private var pes: [UInt8] = []
     private var pesLength = 0
@@ -84,7 +86,7 @@ struct MPEGTSAudioExtractor {
             return
         }
         if pmtPIDs.contains(pid) {
-            if stream == nil, unitStart, let section = MPEGTSLensFilter.section(bytes, from: payload) { readPMT(section) }
+            if unitStart, let section = MPEGTSLensFilter.section(bytes, from: payload) { readPMT(section, pid: pid) }
             return
         }
         guard let stream, pid == stream.pid else { return }
@@ -110,9 +112,19 @@ struct MPEGTSAudioExtractor {
             offset += 4
         }
         pmtPIDs = found
+        if let streamPMT, !found.contains(streamPMT) { setStream(nil, pmt: nil) }
     }
 
-    private mutating func readPMT(_ section: [UInt8]) {
+    private mutating func setStream(_ new: (pid: UInt16, law: Law)?, pmt: UInt16?) {
+        guard new?.pid != stream?.pid || new?.law != stream?.law else { return }
+        stream = new
+        streamPMT = pmt
+        pes = []
+        pesLength = 0
+    }
+
+    /// Every PMT, every time: a cheap read of a few bytes, and the tables may change while the feed runs.
+    private mutating func readPMT(_ section: [UInt8], pid pmt: UInt16) {
         guard section[0] == 0x02, section.count >= 16 else { return }
         let infoLength = Int(section[10] & 0x0F) << 8 | Int(section[11])
         var offset = 12 + infoLength
@@ -121,11 +133,13 @@ struct MPEGTSAudioExtractor {
             let pid = UInt16(section[offset + 1] & 0x1F) << 8 | UInt16(section[offset + 2])
             let esInfo = Int(section[offset + 3] & 0x0F) << 8 | Int(section[offset + 4])
             if let law = Self.streamTypes[type] {
-                stream = (pid, law)
+                setStream((pid, law), pmt: pmt)
                 return
             }
             offset += 5 + esInfo
         }
+        // The program that had the audio has none now.
+        if streamPMT == pmt { setStream(nil, pmt: nil) }
     }
 
     /// The PES gathered so far as a chunk, and a fresh start.
@@ -253,6 +267,8 @@ struct TapoAudioJitterBuffer {
     private var consumed = 0
     /// Each real chunk's lateness against the camera's timeline (seconds), with when it came, for the last `window`.
     private var lateness: [(at: ContinuousClock.Instant, late: Double)] = []
+    /// Silence played since the camera's last frame ran out, in bytes.
+    private var silenceRun = 0
     /// For the log: silence played, and the camera's audio skipped, in bytes.
     private(set) var silence = 0
     private(set) var dropped = 0
@@ -269,6 +285,14 @@ struct TapoAudioJitterBuffer {
     /// Camera audio that came at `now`, to release in order.
     mutating func append(_ pcm: Data, at now: ContinuousClock.Instant) {
         guard let start, !pcm.isEmpty else { return }
+        // Audio after a silence longer than any lateness (its microphone was off, its audio paused): the camera's
+        // timeline skipped, so does the buffer's, and what came before says nothing of its bursts now.
+        if silenceRun >= Self.bytes(maximum), pending.count < Self.frameBytes {
+            consumed += silenceRun
+            appended = consumed + pending.count
+            lateness.removeAll()
+        }
+        silenceRun = 0
         lateness.append((now, Self.seconds(now - start) - Double(appended) / Double(Self.bytesPerSecond)))
         lateness.removeAll { now - $0.at > window }
         appended += pcm.count
@@ -310,6 +334,7 @@ struct TapoAudioJitterBuffer {
         }
         guard pending.count >= Self.frameBytes else {
             silence += Self.frameBytes
+            silenceRun += Self.frameBytes
             return Data(count: Self.frameBytes)
         }
         let delay = currentDelay(at: now)
@@ -376,8 +401,9 @@ final class TapoFeedSplitter: Sendable {
     private let name: String
     private let log: Logger
 
-    init(videoIndex: Int, audio: Bool, name: String, log: Logger) {
-        state = NIOLockedValueBox(State(filter: MPEGTSLensFilter(videoIndex: videoIndex), keepsAudio: audio))
+    /// `buffer` is the jitter buffer's settings (tests give a shorter delay).
+    init(videoIndex: Int, audio: Bool, buffer: TapoAudioJitterBuffer = TapoAudioJitterBuffer(), name: String, log: Logger) {
+        state = NIOLockedValueBox(State(filter: MPEGTSLensFilter(videoIndex: videoIndex), buffer: buffer, keepsAudio: audio))
         self.name = name
         self.log = log
     }
@@ -393,7 +419,7 @@ final class TapoFeedSplitter: Sendable {
             state.buffer.begin(at: now)
             guard let law = state.extractor.law else { return (video, nil) }
             var announce: MPEGTSAudioExtractor.Law?
-            if state.converter == nil {
+            if state.converter?.law != law {
                 state.converter = TapoAudioConverter(law: law)
                 announce = law
             }

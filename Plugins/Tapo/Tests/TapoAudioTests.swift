@@ -177,8 +177,38 @@ struct TapoAudioTests {
         #expect(out.allSatisfy { $0 == 0 })
     }
 
+    /// A jitter buffer that releases at once, so tests do not wait out its delay.
+    static var quickBuffer: TapoAudioJitterBuffer {
+        var buffer = TapoAudioJitterBuffer()
+        buffer.initial = .zero
+        return buffer
+    }
+
+    /// The camera's audio pauses for 3 s, then comes back on time: it plays whole, nothing skipped.
+    @Test func aPauseInTheCamerasAudioIsNotLateness() {
+        let (buffer, _) = Self.run(seconds: 12) { index in
+            let time = Double(index) * 0.068
+            // Chunks between 4 s and 7 s never come (far later than the run).
+            return (4.0..<7.0).contains(time) ? 1000 : 0.02
+        }
+        #expect(buffer.dropped < TapoAudioJitterBuffer.frameBytes * 10)
+    }
+
+    /// The tables change (the feed reconnected with other PIDs): the audio follows the new PMT.
+    @Test func theAudioFollowsANewPMT() {
+        var extractor = MPEGTSAudioExtractor()
+        _ = extractor.extract(TS.tables)
+        #expect(extractor.stream?.pid == TS.audio)
+        let moved: UInt16 = 0x74
+        let chunks = extractor.extract(TS.pmt(pid: 0x1001, program: 2, type: 0x90, stream: moved)
+            + Self.audioPES([1, 2, 3], pts: 0).replacingPID(with: moved) + Self.audioPES([4], pts: 90).replacingPID(with: moved))
+        #expect(extractor.stream?.pid == moved)
+        #expect(extractor.law == .aLaw)
+        #expect(chunks.first?.samples == [1, 2, 3])
+    }
+
     @Test func theSplitterGivesTheLensAndKeepsItsAudio() async {
-        let splitter = TapoFeedSplitter(videoIndex: 1, audio: true, name: "Lens", log: testLogger)
+        let splitter = TapoFeedSplitter(videoIndex: 1, audio: true, buffer: Self.quickBuffer, name: "Lens", log: testLogger)
         let samples = [UInt8](repeating: 0x80, count: 320)
         let video = splitter.split(TS.tables + TS.pes(TS.tele, keyframe: true, mark: 1) + Self.audioPES(samples, pts: 0) + Self.audioPES(samples, pts: 1800)
             + Self.audioPES(samples, pts: 3600))
@@ -195,7 +225,7 @@ struct TapoAudioTests {
 
     /// A writer that fails (the audio's FFmpeg ended) stops the audio being kept: nothing piles up for nobody.
     @Test func noAudioIsKeptOnceItsWriterFails() async {
-        let splitter = TapoFeedSplitter(videoIndex: 0, audio: true, name: "Lens", log: testLogger)
+        let splitter = TapoFeedSplitter(videoIndex: 0, audio: true, buffer: Self.quickBuffer, name: "Lens", log: testLogger)
         _ = splitter.split(TS.tables + TS.pes(TS.wide, keyframe: true, mark: 1))
         let clock = splitter.runAudio { _ in false }
         #expect(await eventually { !splitter.keepsAudio })
@@ -251,5 +281,17 @@ struct TapoAudioTests {
         _ = await codecs.probe()
         let ffmpeg = FfmpegOptions(FfmpegOptionsConfig(codecSupport: codecs, hardwareDecoding: false, hardwareTranscoding: false, log: testLogger, name: { "Tapo" }))
         if ffmpeg.hasOpusEncoder { #expect(TapoCameraStreamer.audioCodec(ffmpeg) == .opus) }
+    }
+}
+
+extension Data {
+    /// Every TS packet's PID set to `pid`.
+    func replacingPID(with pid: UInt16) -> Data {
+        var bytes = [UInt8](self)
+        for index in stride(from: 0, to: bytes.count, by: 188) {
+            bytes[index + 1] = bytes[index + 1] & 0xE0 | UInt8(pid >> 8)
+            bytes[index + 2] = UInt8(pid & 0xFF)
+        }
+        return Data(bytes)
     }
 }
