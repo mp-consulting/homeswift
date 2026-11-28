@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.38.1] - 2026-11-28
+
 ### Fixed
 
 - Tapo cameras have sound in the Home app's live view and the web UI's. The camera's G.711, which FFmpeg misreads,
