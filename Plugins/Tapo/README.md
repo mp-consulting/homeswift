@@ -105,7 +105,13 @@ accessories in the Home app, which lose their rooms and automations.
   for a C675D, `Camera` otherwise), `cloudId` and name into its Accessory Settings; an address typed in is checked
   against the camera's MAC when the bridge knows the address. A mains-powered Tapo camera is listed too: with RTSP, the
   IP Cameras plugin suits it better.
-- **No audio** yet: the cameras' G.711 is declared in a way FFmpeg reads as MP3.
+- **Audio** in the Home app's and the web UI's live views: the camera's G.711 (A-law or μ-law, 8 or 16 kHz, measured), which TP-Link
+  declares in a way FFmpeg reads as MP3, is taken out of the stream by the plugin and given to FFmpeg as PCM on an input
+  of its own, then sent as Opus when FFmpeg has libopus (the container image's FFmpeg and Homebrew's do), else
+  AAC-ELD (libfdk_aac, or AudioToolbox on a Mac, whose 512-sample frames the Home app plays crackling). With neither encoder, the camera has no microphone in the Home app. The
+  camera's audio comes in bursts, so it is held in a jitter buffer that adapts to them (about 0.2 to 0.3 s behind the
+  camera on a steady connection, more on a bursty one) and grows or shrinks only in quiet moments; the Home app's audio
+  has an FFmpeg of its own, so the picture's stalls never stall it. The web UI's live view carries it as AAC.
 - The password is sent as the camera asks for it (its SHA-256, then its MD5 once on a new connection), never in clear,
   and neither the password, its hashes nor the session's keys are logged. A refused password is reported once and not
   tried again until the next view.
@@ -223,7 +229,7 @@ pinned on first use in `control-certificates.json`, signed in as `admin` with th
 - KLAP's newer variant used by some cameras and hubs, and accounts whose devices expect other credentials in the
   handshake, are not supported.
 - Eve's Reset Total is not offered (the Homebridge plugin defines it but adds it nowhere), and the total is today's.
-- Battery cameras: no audio, no two-way audio, no HomeKit Secure Video (recording on motion needs a recording source fed by
+- Battery cameras: no two-way audio, no HomeKit Secure Video (recording on motion needs a recording source fed by
   the stream rather than RTSP); person, vehicle and pet detections are all Motion; the cameras' settings (privacy mode,
   the floodlight, the siren) are not read from the camera's control API, which the plugin uses for pan and tilt and
   the battery only; the battery level between live views would need the TP-Link cloud's device shadow, not tried yet

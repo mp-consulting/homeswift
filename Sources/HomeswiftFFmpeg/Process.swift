@@ -129,8 +129,13 @@ public class FfmpegProcess: @unchecked Sendable {
 
     let base = NIOLockedValueBox(BaseState())
 
-    /// Prepares a process; nothing runs until `start()`.
-    public init(_ options: FfmpegOptions, commandLineArgs: [String]? = nil) {
+    /// How many inputs FFmpeg gets after standard input: `pipe:3` and on, written with `send(_:toInput:)`.
+    public let extraInputs: Int
+
+    /// Prepares a process; nothing runs until `start()`. `extraInputs` pipes beyond standard input are given to FFmpeg as
+    /// its descriptors 3 and on (`-i pipe:3`).
+    public init(_ options: FfmpegOptions, commandLineArgs: [String]? = nil, extraInputs: Int = 0) {
+        self.extraInputs = extraInputs
         self.options = options
         self.log = options.log
         self.isVerbose = options.codecSupport.verbose
@@ -217,7 +222,7 @@ public class FfmpegProcess: @unchecked Sendable {
         }
         let child: Subprocess
         do throws(FfmpegProcessError) {
-            child = try Subprocess.launch(options.codecSupport.ffmpegExec, arguments: arguments)
+            child = try Subprocess.launch(options.codecSupport.ffmpegExec, arguments: arguments, extraInputs: extraInputs)
         } catch {
             let message = error.description
             log.error("FFmpeg failed to start: \(message).")
@@ -450,6 +455,14 @@ public class FfmpegProcess: @unchecked Sendable {
     public func writeStdin(_ data: Data) async throws {
         guard let child = currentChild else { throw FfmpegProcessError.notRunning }
         try await child.write(data)
+    }
+
+    /// Queues `data` for FFmpeg's input `pipe:<3 + index>` without waiting; false when it is dropped (no such input, the
+    /// process ended, or FFmpeg is not reading it and too much waits already). These inputs close when FFmpeg ends;
+    /// `endStdin` closes standard input only.
+    @discardableResult
+    public func send(_ data: Data, toInput index: Int) -> Bool {
+        currentChild?.send(data, toInput: index) ?? false
     }
 
     /// Writes `data`, if any, and closes FFmpeg's standard input (Node's `stdin.end(data)`).

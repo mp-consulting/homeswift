@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Tapo cameras have sound in the Home app's live view and the web UI's. The camera's G.711, which FFmpeg misreads,
+  is taken out of its stream, held in a jitter buffer that adapts to the camera's bursts (0.2 to 0.3 s on a steady
+  connection), and encoded as Opus when FFmpeg has libopus, else AAC-ELD (AAC in the web UI). FFmpeg processes can
+  now be given inputs beyond standard input (`FfmpegProcess(extraInputs:)`, `send(_:toInput:)`).
+
 ## [0.38.0] - 2026-11-25
 
 ### Changed

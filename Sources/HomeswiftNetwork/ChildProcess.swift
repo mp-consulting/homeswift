@@ -65,13 +65,15 @@ public final class ChildProcess: Sendable {
     }
 
     /// Starts `path` (a path, not a name looked up in `PATH`) with `arguments` (not including the program's name) and
-    /// `environment` (this process's when nil).
+    /// `environment` (this process's when nil). `extraDescriptors` become the child's 3, 4 and on, in order (FFmpeg's
+    /// `pipe:3`); every other descriptor is closed in the child.
     public static func launch(
         _ path: String, arguments: [String] = [], environment: [String: String]? = nil,
-        standardInput: Int32? = nil, standardOutput: Int32? = nil, standardError: Int32? = nil,
+        standardInput: Int32? = nil, standardOutput: Int32? = nil, standardError: Int32? = nil, extraDescriptors: [Int32] = [],
         onExit: (@Sendable (Termination) -> Void)? = nil
     ) throws(ChildProcessError) -> ChildProcess {
-        let pid = try spawn(path, arguments: arguments, environment: environment, descriptors: [standardInput, standardOutput, standardError])
+        let pid = try spawn(path, arguments: arguments, environment: environment,
+                            descriptors: [standardInput, standardOutput, standardError] + extraDescriptors.map(Optional.some))
         let child = ChildProcess(pid: pid)
         let thread = Thread { child.waitForExit(onExit) }
         thread.name = "homeswift-wait-\(pid)"
@@ -274,7 +276,20 @@ public final class ChildProcess: Sendable {
         try check(posix_spawnattr_init(&attributes))
         defer { posix_spawnattr_destroy(&attributes) }
 
-        for (target, source) in descriptors.enumerated() {
+        // A source that is one of the targets would be overwritten by an earlier dup2 (or, above 2, dup2'd onto itself,
+        // which keeps close-on-exec where the system does not clear it): such sources are moved above the targets first,
+        // close-on-exec. 0, 1 and 2 already in place stay (the bridge's own standard streams, passed through).
+        var moved: [Int32] = []
+        defer { for fd in moved { close(fd) } }
+        var sources = descriptors
+        for (index, source) in sources.enumerated() {
+            guard let source, source < Int32(descriptors.count), !(source == Int32(index) && index < 3) else { continue }
+            let copy = fcntl(source, F_DUPFD_CLOEXEC, Int32(descriptors.count))
+            guard copy >= 0 else { throw ChildProcessError(code: errno, path: path) }
+            moved.append(copy)
+            sources[index] = copy
+        }
+        for (target, source) in sources.enumerated() {
             if let source {
                 try check(posix_spawn_file_actions_adddup2(&actions, source, Int32(target)))
             } else {
@@ -286,7 +301,7 @@ public final class ChildProcess: Sendable {
         // which Subprocess ignores on Linux), and a tool would then live on after writing into a pipe nobody reads.
         var flags = Int32(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF)
         #if canImport(Darwin)
-        // Every descriptor but 0, 1 and 2 is closed in the child.
+        // Every descriptor but 0, 1, 2 and the extra ones (dup2's targets) is closed in the child.
         flags |= Int32(POSIX_SPAWN_CLOEXEC_DEFAULT)
         #endif
         try check(posix_spawnattr_setflags(&attributes, Int16(flags)))
@@ -308,11 +323,12 @@ public final class ChildProcess: Sendable {
             // (posix_spawn_file_actions_addclosefrom_np, looked up as it runs: DSM's glibc is 2.26); before, each one open
             // now is closed, and one another thread opens meanwhile without close-on-exec stays open in the child (a
             // script being written then could not be run while the child ran: "Text file busy").
+            let kept = Int32(max(descriptors.count, 3))
             if let closeFrom = closeFrom {
-                let result = closeFrom(&actions, 3)
+                let result = closeFrom(&actions, kept)
                 if result != 0 { return result }
             } else {
-                for fd in openDescriptors() where fd > 2 {
+                for fd in openDescriptors() where fd >= kept {
                     let result = posix_spawn_file_actions_addclose(&actions, fd)
                     if result != 0 { return result }
                 }
